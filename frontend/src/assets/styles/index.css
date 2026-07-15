@@ -1,0 +1,26 @@
+/**
+ * 态极 —— 样式汇总入口
+ * =====================
+ * 加载顺序：tokens → reset → shell → components → overrides
+ */
+
+/* 设计变量系统 */
+@import './variables.css';
+
+/* 动画系统 */
+@import './animations.css';
+
+/* 基础样式 */
+@import './base.css';
+
+/* Shell 布局（app-wrapper、sidebar、main-content、router-wrapper） */
+@import './shell.css';
+
+/* ??? 旧页面样式，逐步迁移到 shell.css 和组件 scoped CSS */
+@import '../app.css';
+
+/* [FROZEN] 主题覆盖层，不再新增规则 */
+@import './overrides.css';
+
+/* 产品化工作台覆盖层 */
+@import './product.css';

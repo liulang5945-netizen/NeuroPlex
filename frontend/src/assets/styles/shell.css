@@ -1,0 +1,77 @@
+/**
+ * Shell 布局 — 墨系列 v7
+ * 水墨美学，克制的布局层
+ */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.app-wrapper {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+}
+
+/* 微妙的环境光 */
+.app-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 15% 20%, rgba(26,26,26,0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar {
+  width: var(--sidebar-width, 260px);
+  min-width: 200px;
+  max-width: 400px;
+  background: var(--sidebar-bg);
+  color: var(--text);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  /* 允许过渡动画 */
+  transition: width 0.3s var(--ease);
+}
+
+/* 侧边栏宽度调整手柄 */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  transition: background-color 0.2s;
+}
+
+.sidebar-resize-handle:hover {
+  background: var(--primary-light);
+}
+
+.sidebar-resize-handle.active {
+  background: var(--primary);
+}
+
+.router-wrapper {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

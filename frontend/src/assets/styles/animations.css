@@ -1,0 +1,57 @@
+/**
+ * 态极 · 无极 —— 动画系统 v6
+ * 水墨美学：克制、有意义、与状态联动
+ */
+
+/* 太极呼吸动画 — 与AI状态联动 */
+@keyframes taijiBreathe {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+/* 太极旋转 — AI思考时 */
+@keyframes taijiSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 消息进入 — 轻微上浮 */
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 淡入 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 启动屏幕进入 */
+@keyframes contentIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 思考点跳动 */
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* 进度条脉冲 — 用于需要关注的状态 */
+@keyframes progressPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 旋转 — 用于加载状态 */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 闪烁 — 用于运行状态指示 */
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}

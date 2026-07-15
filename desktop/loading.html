@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>态极</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0d1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 态极 Logo 动画 */
+    .logo-container {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      margin-bottom: 32px;
+    }
+
+    .logo-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      border-top-color: #6366f1;
+      border-right-color: #8b5cf6;
+      animation: spin 2s linear infinite;
+    }
+
+    .logo-ring-inner {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-bottom-color: #06b6d4;
+      animation: spin 1.5s linear infinite reverse;
+    }
+
+    .logo-core {
+      position: absolute;
+      top: 25px;
+      left: 25px;
+      right: 25px;
+      bottom: 25px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      animation: breathe 3s ease-in-out infinite;
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(99, 102, 241, 0.3); }
+      50% { transform: scale(1.05); box-shadow: 0 0 50px rgba(99, 102, 241, 0.5); }
+    }
+
+    /* 状态文字 */
+    .status-text {
+      font-size: 18px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      animation: fadeInOut 2s ease-in-out infinite;
+    }
+
+    .status-detail {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 32px;
+    }
+
+    @keyframes fadeInOut {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* 加载进度条 */
+    .progress-bar {
+      width: 200px;
+      height: 3px;
+      background: rgba(99, 102, 241, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
+      border-radius: 2px;
+      animation: progress 3s ease-in-out infinite;
+    }
+
+    @keyframes progress {
+      0% { width: 0%; margin-left: 0%; }
+      50% { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+
+    /* 状态指示器 */
+    .status-dots {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6366f1;
+      animation: dotPulse 1.5s ease-in-out infinite;
+    }
+
+    .status-dot:nth-child(2) { animation-delay: 0.3s; }
+    .status-dot:nth-child(3) { animation-delay: 0.6s; }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+
+    /* 版本信息 */
+    .version {
+      position: fixed;
+      bottom: 20px;
+      font-size: 11px;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-container">
+    <div class="logo-ring"></div>
+    <div class="logo-ring-inner"></div>
+    <div class="logo-core">极</div>
+  </div>
+
+  <div class="status-text" id="statusText">态极正在苏醒</div>
+  <div class="status-detail" id="statusDetail">正在启动后端服务...</div>
+
+  <div class="progress-bar">
+    <div class="progress-fill"></div>
+  </div>
+
+  <div class="status-dots">
+    <div class="status-dot"></div>
+    <div class="status-dot"></div>
+    <div class="status-dot"></div>
+  </div>
+
+  <div class="version">态极 v1.6.0 · AI 生命体</div>
+
+  <script>
+    // 轮询后端状态，就绪后跳转到主界面
+    const statusText = document.getElementById('statusText');
+    const statusDetail = document.getElementById('statusDetail');
+    let checkCount = 0;
+
+    function checkBackend() {
+      checkCount++;
+      // 尝试多个端口
+      const ports = [8000, 8001, 8002];
+      const port = ports[0]; // 默认 8000
+
+      fetch(`http://127.0.0.1:${port}/api/health`, { mode: 'no-cors' })
+        .then(r => {
+          if (r.ok) {
+            statusText.textContent = '态极已苏醒';
+            statusDetail.textContent = '正在加载界面...';
+            setTimeout(() => {
+              window.location.href = `http://127.0.0.1:${port}/`;
+            }, 500);
+          } else {
+            statusText.textContent = '态极正在苏醒';
+            statusDetail.textContent = '后端启动中...';
+            setTimeout(checkBackend, 1000);
+          }
+        })
+        .catch(() => {
+          if (checkCount < 30) {
+            statusText.textContent = '态极正在苏醒';
+            statusDetail.textContent = '正在连接后端服务...';
+            setTimeout(checkBackend, 1000);
+          } else {
+            statusText.textContent = '连接超时';
+            statusDetail.textContent = '请检查后端服务是否运行';
+          }
+        });
+    }
+
+    setTimeout(checkBackend, 500);
+  </script>
+</body>
+</html>

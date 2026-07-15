@@ -1,0 +1,44 @@
+/**
+ * ???????????
+ * ????????? - ?????????????????
+ */
+
+/* === ???? === */
+.app-wrapper {
+  background: var(--bg);
+}
+
+/* === ????? === */
+.n-card, .panel-section, .tool-card, .status-card,
+.train-metric-card, .needs-section, .reasoning-content {
+  border-radius: var(--radius-sm) !important;
+}
+
+.n-button, .n-input, .n-select, .n-tag,
+.send-btn, .stop-btn, .mm-btn, .icon-btn, .msg-action-btn,
+.input-container, .engine-pill, .life-chip, .metric-chip {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* ?????????????*/
+.view-header h2,
+.sidebar-logo h2 {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  letter-spacing: 0;
+}
+
+/* === ?????? === */
+.global-drag-overlay {
+  background: var(--glass-bg-thick) !important;
+  border: 1px dashed var(--primary) !important;
+}
+
+/* === Reduced Motion === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

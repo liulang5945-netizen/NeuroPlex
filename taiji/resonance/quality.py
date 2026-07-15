@@ -1,0 +1,91 @@
+"""Quality filtering for resonance neurons.
+
+Experiment 9 demonstrated that weak neurons dilute the strong ones in
+resonance. Quality filtering ensures only neurons with sufficient PPL
+participate in resonance, preventing the "weakest link" problem.
+
+Uses both static and adaptive thresholds:
+- Static: PPL < 100 for all domains (baseline)
+- Adaptive: PPL < best_neuron_ppl * 2 (domain-aware)
+"""
+
+from __future__ import annotations
+
+from typing import Dict
+
+
+class QualityFilter:
+    """Filter neurons by PPL quality before resonance participation.
+
+    Only neurons with PPL below the threshold participate in resonance.
+    Neurons above the threshold continue training but don't dilute the ensemble.
+    """
+
+    def __init__(self, ppl_threshold: float = 100.0):
+        """Args:
+            ppl_threshold: static threshold. Neurons with PPL >= this
+                           are excluded from resonance.
+        """
+        self.ppl_threshold = ppl_threshold
+        self.neuron_ppls: Dict[str, float] = {}
+
+    def set_ppls(self, neuron_ppls: Dict[str, float]) -> None:
+        """Update per-neuron PPL records (called after each evaluation).
+
+        Args:
+            neuron_ppls: {neuron_id: ppl_value}
+        """
+        self.neuron_ppls.update(neuron_ppls)
+
+    def filter(self, neuron_ids: list[str]) -> list[str]:
+        """Filter out low-quality neurons.
+
+        Args:
+            neuron_ids: list of candidate neuron IDs.
+
+        Returns:
+            list of neuron IDs that passed the quality threshold.
+        """
+        filtered = []
+        for nid in neuron_ids:
+            ppl = self.neuron_ppls.get(nid, float("inf"))
+            if ppl < self.ppl_threshold:
+                filtered.append(nid)
+            else:
+                print(f"  [QualityFilter] excluding {nid}: PPL={ppl:.2f} >= {self.ppl_threshold}")
+        return filtered
+
+    def adaptive_threshold(self) -> float:
+        """Compute adaptive threshold based on the best neuron's PPL.
+
+        threshold = best_ppl * 2
+
+        This is more lenient for hard domains (math has higher natural PPL)
+        and stricter for easy domains (code has lower natural PPL).
+        """
+        if not self.neuron_ppls:
+            return self.ppl_threshold
+        best = min(self.neuron_ppls.values())
+        return best * 2.0
+
+    def filter_adaptive(self, neuron_ids: list[str]) -> list[str]:
+        """Filter using adaptive threshold (domain-aware).
+
+        Args:
+            neuron_ids: list of candidate neuron IDs.
+
+        Returns:
+            list of neuron IDs that passed the adaptive threshold.
+        """
+        threshold = self.adaptive_threshold()
+        filtered = []
+        for nid in neuron_ids:
+            ppl = self.neuron_ppls.get(nid, float("inf"))
+            if ppl < threshold:
+                filtered.append(nid)
+            else:
+                print(
+                    f"  [QualityFilter:adaptive] excluding {nid}: "
+                    f"PPL={ppl:.2f} >= {threshold:.2f}"
+                )
+        return filtered

@@ -1,0 +1,146 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+
+# Model files and data
+model_cache/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+taiji_checkpoints/
+*.pkl
+*.npy
+
+# User data
+user_data/
+rag_data/
+knowledge_store/
+agent_workspace/
+taiji/data/*
+!taiji/data/__init__.py
+!taiji/data/*.py
+taiji/evolution_data/
+taiji/feed_data/
+taiji/life_data/
+taiji/play_data/
+taiji/sleep_data/
+taiji/test_evolution/
+taiji_data/
+
+# Security
+security/.jwt_secret
+security/audit_logs/
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+.pytest_cache/
+.pytest_cache*/
+.pytest_tmp/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+.taiji_test_tmp/
+.taiji_test_tmp_manual/
+.hf_cache/
+test_pipeline_ckpt/
+test_pipeline_model/
+test_taiji_checkpoints/
+delete_probe_dir/
+test_report.json
+test.txt
+tmp_a/
+tmp_manual_parent/
+.taiji_test_tmp_probe/
+.tmp_b/
+.codex_tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+frontend/dist/
+
+# Other tools
+.mimocode/
+.verify_pycache/
+update_code/
+update_frontend/
+
+# Vite logs
+vite-*.log
+
+# Large files and test data
+test_artifacts/
+*.zip
+tokenizer_native_v2/
+*.parquet
+*.jsonl
+
+# Temporary scripts
+scripts/download_*
+
+# Environment files (API keys, secrets)
+.env
+.env.*
+.env.local
+.env.production
+
+# Checkpoint directories (large model files)
+checkpoint-*/
+FINAL/
+
+# Frontend dev logs
+frontend/.dev*.log
+
+# Temporary/dev scripts
+_test_*.py
+_fix_*.py
+_add_*.py
+.write_test
+
+# Auto-generated cache
+taiji/agent_ext/mcp_remote_cache.json

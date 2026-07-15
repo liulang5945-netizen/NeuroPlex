@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taiji"
+version = "1.6.0"
+description = "Taiji (态极) - Locally-deployed AI Life Form System"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.10"
+dependencies = [
+    # Deep Learning
+    "torch>=2.0.0,<3.0.0",
+    "transformers>=4.40.0,<5.0.0",
+    "huggingface_hub>=0.20.0,<1.0.0",
+    "sentencepiece>=0.2.0,<1.0.0",
+    "peft>=0.8.0,<1.0.0",
+    "accelerate>=0.28.0,<2.0.0",
+    "psutil>=5.9.0,<7.0.0",
+    # API
+    "fastapi>=0.110.0,<1.0.0",
+    "uvicorn>=0.27.0,<1.0.0",
+    "websockets>=12.0,<14.0",
+    "python-multipart>=0.0.9,<1.0.0",
+    "pydantic>=2.0.0,<3.0.0",
+    # File Parsing
+    "PyPDF2>=3.0.0,<4.0.0",
+    "python-docx>=1.0.0,<2.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "Pillow>=10.0.0,<12.0.0",
+    # Agent
+    "langchain>=0.1.0,<1.0.0",
+    "langchain-core>=0.1.0,<1.0.0",
+    "langchain-community>=0.1.0,<1.0.0",
+    "langchain-openai>=0.1.0,<1.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "requests>=2.31.0,<3.0.0",
+    # Search
+    "duckduckgo-search>=5.0.0,<7.0.0",
+    # RAG
+    "sentence-transformers>=2.2.0,<4.0.0",
+    "numpy>=1.24.0,<3.0.0",
+    "jieba>=0.42.0,<1.0.0",
+    # Training
+    "tqdm>=4.66.0,<5.0.0",
+    "datasets>=2.18.0,<4.0.0",
+    "tensorboard>=2.14.0,<3.0.0",
+    # Utils
+    "pandas>=2.0.0,<3.0.0",
+    "matplotlib>=3.7.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "black", "ruff"]
+gpu = ["bitsandbytes>=0.43.0", "scipy>=1.10.0"]
+voice = ["edge-tts", "pyttsx3", "SpeechRecognition"]
+desktop = ["PyQt6>=6.5.0", "PyQt6-WebEngine>=6.5.0"]
+build = ["pyinstaller>=6.0.0"]
+
+[project.scripts]
+taiji = "desktop.main:main"
+
+[tool.setuptools.packages.find]
+include = ["taiji*", "api*"]
+
+[tool.pytest.ini_options]
+addopts = [
+    "-p",
+    "no:cacheprovider",
+]
+markers = [
+    "slow: long-running integration tests",
+]
+cache_dir = ".taiji_test_tmp/pytest_cache"
+norecursedirs = [
+    ".git",
+    ".pytest*",
+    ".taiji_test_tmp*",
+    "pytest-cache-files-*",
+    "tmp*",
+    ".tmp*",
+    "__pycache__",
+]
