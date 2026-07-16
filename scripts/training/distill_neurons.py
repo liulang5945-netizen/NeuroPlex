@@ -104,13 +104,19 @@ def distill_one_neuron(
     domain_name: str,
     num_steps: int = 2000,
     batch_size: int = 4,
-    lm_weight: float = 0.7,
-    distill_weight: float = 0.3,
+    lm_weight: float = 0.6,
+    distill_weight: float = 0.2,
+    field_contrastive_weight: float = 0.2,
     lr: float = 5e-4,
     device: str = "cpu",
     log_every: int = 200,
+    teacher_directions: dict = None,
 ) -> Dict[str, float]:
-    """Distill a single neuron from the teacher model.
+    """Distill a single neuron with field_write contrastive training (P0 fix).
+
+    The critical bottleneck is that field_write was never trained.
+    This adds contrastive loss: pull field_vector toward own teacher direction,
+    push away from other domains' directions.
 
     Args:
         teacher_model: 1.5B teacher (eval mode).
@@ -120,17 +126,43 @@ def distill_one_neuron(
         domain_name: domain identifier string.
         num_steps: training steps.
         batch_size: batch size.
-        lm_weight: LM loss weight.
-        distill_weight: distillation loss weight.
+        lm_weight: LM loss weight (default 0.6).
+        distill_weight: distillation loss weight (default 0.2).
+        field_contrastive_weight: field_write contrastive loss weight (default 0.2).
         lr: learning rate.
         device: device.
         log_every: logging interval.
+        teacher_directions: {domain: [hidden_dim]} normalized teacher directions.
 
     Returns:
-        {"final_loss", "final_ppl", "steps", "domain"}
+        {"final_loss", "final_ppl", "steps", "domain", "field_loss"}
     """
     dataset = TensorDataset(domain_data)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    def _cycle_loader():
+        """Infinite cycling dataloader - repeats after exhaustion."""
+        while True:
+            loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+            for batch in loader:
+                yield batch
+    loader = _cycle_loader()
+
+    # Pre-compute projected teacher directions for contrastive loss
+    # Must use torch.no_grad() to avoid double-backward through _distill_proj
+    pos_dir = None
+    neg_dirs = {}
+    if teacher_directions and field_contrastive_weight > 0:
+        fd = neuron.config.field_dim
+        with torch.no_grad():
+            for dname, tdir in teacher_directions.items():
+                proj = _project_teacher_hidden(tdir.unsqueeze(0).to(device), fd).squeeze(0)
+                proj = proj / (proj.norm() + 1e-8)
+                if dname == domain_name:
+                    pos_dir = proj.detach()
+                else:
+                    neg_dirs[dname] = proj.detach()
+        if pos_dir is not None:
+            print(f"  Field contrastive: {len(neg_dirs)} negative domains")
 
     optimizer = torch.optim.AdamW(neuron.parameters(), lr=lr)
     neuron.train()
@@ -138,6 +170,7 @@ def distill_one_neuron(
 
     total_lm_loss = 0.0
     total_distill_loss = 0.0
+    total_field_loss = 0.0
     step = 0
 
     t_start = time.time()
@@ -148,12 +181,10 @@ def distill_one_neuron(
 
         input_ids = batch[0].to(device)  # [B, L]
 
-        # Shared embeddings (project teacher 2048-dim → neuron 512-dim)
+        # Shared embeddings (project teacher 2048-dim -> neuron 512-dim)
         with torch.no_grad():
             teacher_emb = shared_embedding(input_ids)  # [B, L, 2048]
-            # Project down to base_embed_dim (512) for neuron
             shared_emb = _project_embedding(teacher_emb, neuron.config.base_embed_dim)
-            # Teacher hidden states (last token only for efficiency)
             teacher_hidden = extract_hidden_states(teacher_model, input_ids)
             teacher_last = teacher_hidden[:, -1, :]  # [B, hidden_dim]
 
@@ -161,8 +192,9 @@ def distill_one_neuron(
         result = neuron.forward(shared_emb, return_logits=True)
         student_logits = result["logits"]  # [B, L, vocab]
         student_hidden = result["hidden_before_write"]  # [B, hidden]
+        student_field_vec = result["field_vector"]  # [B, D] - TRAIN THIS!
 
-        # ── LM loss (next-token prediction) ──
+        # 1. LM loss
         shift_logits = student_logits[:, :-1, :].contiguous()
         shift_targets = input_ids[:, 1:].contiguous()
         lm_loss = F.cross_entropy(
@@ -171,12 +203,31 @@ def distill_one_neuron(
             ignore_index=-100,
         )
 
-        # ── Distillation loss (align hidden direction) ──
+        # 2. Distillation loss
         teacher_proj = _project_teacher_hidden(teacher_last, neuron.config.hidden_size)
         distill_loss = F.mse_loss(student_hidden, teacher_proj)
 
+        # 3. P0: Field contrastive loss (train field_write!)
+        field_loss = torch.tensor(0.0, device=device)
+        if pos_dir is not None:
+            # Positive: pull toward own teacher direction
+            cos_pos = (student_field_vec * pos_dir.unsqueeze(0)).sum(dim=-1).mean()
+            field_loss = field_loss + (1.0 - cos_pos)
+
+            # Negative: push away from other domains
+            neg_count = 0
+            for od_name, od_dir in neg_dirs.items():
+                cos_neg = (student_field_vec * od_dir.unsqueeze(0)).sum(dim=-1).mean()
+                # Hinge: penalize only if cos > 0.3 (too similar to wrong domain)
+                field_loss = field_loss + torch.clamp(cos_neg - 0.3, min=0.0)
+                neg_count += 1
+            if neg_count > 0:
+                field_loss = field_loss / (1 + neg_count)
+
         # Combined loss
         loss = lm_weight * lm_loss + distill_weight * distill_loss
+        if field_contrastive_weight > 0:
+            loss = loss + field_contrastive_weight * field_loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -184,16 +235,18 @@ def distill_one_neuron(
 
         total_lm_loss += lm_loss.item()
         total_distill_loss += distill_loss.item()
+        total_field_loss += field_loss.item()
         step += 1
 
         if step % log_every == 0:
             elapsed = time.time() - t_start
             avg_lm = total_lm_loss / step
             avg_distill = total_distill_loss / step
+            avg_field = total_field_loss / step
             ppl = math.exp(avg_lm) if avg_lm < 10 else float('inf')
             print(f"  [{domain_name}] step {step}/{num_steps} | "
-                  f"lm={avg_lm:.4f} distill={avg_distill:.4f} | "
-                  f"PPL≈{ppl:.1f} | {elapsed:.0f}s")
+                  f"lm={avg_lm:.4f} distill={avg_distill:.4f} field={avg_field:.4f} | "
+                  f"PPL={ppl:.1f} | {elapsed:.0f}s")
 
     avg_lm = total_lm_loss / max(step, 1)
     ppl = math.exp(avg_lm) if avg_lm < 10 else float('inf')
@@ -203,6 +256,7 @@ def distill_one_neuron(
         "final_ppl": ppl,
         "steps": step,
         "domain": domain_name,
+        "field_loss": total_field_loss / max(step, 1),
     }
 
 
@@ -248,6 +302,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--field_contrastive_weight", type=float, default=0.2,
+                        help="P0: field_write contrastive loss weight (0 to disable)")
     parser.add_argument("--skip_domains", nargs="*", default=[],
                         help="Domains to skip (e.g., --skip_domains math)")
     args = parser.parse_args()
@@ -269,6 +325,15 @@ def main():
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data not found at {data_path}. Run prepare_distill_data.py first.")
     datasets = torch.load(data_path, map_location="cpu", weights_only=True)
+
+    # ── Load teacher directions (for field contrastive loss) ──
+    teacher_dirs = None
+    dir_path = os.path.join(args.data_dir, "teacher_directions.pt")
+    if os.path.exists(dir_path) and args.field_contrastive_weight > 0:
+        teacher_dirs = torch.load(dir_path, map_location="cpu", weights_only=True)
+        print(f"  Loaded teacher directions for {len(teacher_dirs)} domains")
+    elif args.field_contrastive_weight > 0:
+        print(f"  WARNING: teacher_directions.pt not found, field contrastive disabled")
 
     # ── Distill each domain ──
     print("\n[3/4] Distilling neurons...")
@@ -308,6 +373,8 @@ def main():
             batch_size=args.batch_size,
             lr=args.lr,
             device=args.device,
+            field_contrastive_weight=args.field_contrastive_weight,
+            teacher_directions=teacher_dirs,
         )
 
         # Quick PPL eval on own domain
