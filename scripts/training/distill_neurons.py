@@ -37,6 +37,7 @@ from taiji.resonance import (
 # ── Projection caches (teacher 2048 → student dims) ──
 _embed_proj: torch.nn.Linear | None = None  # legacy random proj (unused now, kept for reference)
 _distill_proj: torch.nn.Linear | None = None
+_field_anchor_proj: torch.nn.Linear | None = None  # H12: field-space anchor projection cache
 # Shared, stable teacher->neuron embedding projection (H10): distill trains ONE
 # SharedEmbedProj and persists data/shared_proj.pt so what neurons train on
 # == what verification evaluates on (no more re-randomised projections).
@@ -55,15 +56,19 @@ def _load_shared_embed_proj(src_dim: int, target_dim: int) -> SharedEmbedProj:
             and _shared_embed_proj.src_dim == src_dim
             and _shared_embed_proj.target_dim == target_dim):
         return _shared_embed_proj
-    proj_path = os.path.join("data", "shared_proj.pt")
-    if os.path.exists(proj_path) and src_dim == 2048 and target_dim == 512:
-        try:
-            _shared_embed_proj = SharedEmbedProj.load(proj_path, src_dim, target_dim)
-            return _shared_embed_proj
-        except Exception as exc:  # corrupt-cache guard
-            print(f"  [warn] shared_proj.pt load failed ({exc}); fresh orthogonal init")
-    _shared_embed_proj = SharedEmbedProj(src_dim, target_dim)
-    return _shared_embed_proj
+    # H10: prefer data/distill/shared_proj.pt (SVD-initialised from teacher embedding).
+    for proj_path in [os.path.join("data", "distill", "shared_proj.pt"),
+                      os.path.join("data", "shared_proj.pt")]:
+        if os.path.exists(proj_path) and src_dim == 2048 and target_dim == 512:
+            try:
+                _shared_embed_proj = SharedEmbedProj.load(proj_path, src_dim, target_dim)
+                print(f"  [proj] loaded shared_proj from {proj_path}")
+                return _shared_embed_proj
+            except Exception as exc:
+                print(f"  [warn] {proj_path} load failed ({exc}); trying next")
+    raise FileNotFoundError(
+        "H10: no shared_proj.pt found. Run scripts/training/build_shared_projections.py first."
+    )
 
 
 def _project_embedding(teacher_emb: torch.Tensor, target_dim: int) -> torch.Tensor:
@@ -75,23 +80,57 @@ def _project_embedding(teacher_emb: torch.Tensor, target_dim: int) -> torch.Tens
 
 
 def _project_teacher_hidden(teacher_hidden: torch.Tensor, target_dim: int) -> torch.Tensor:
-    global _distill_proj
+    """H11: load teacher-hidden SVD projection from disk instead of random init.
+
+    For hidden distill target (target_dim == hidden_size) load distill_hidden_proj_H.pt.
+    For field contrastive anchors (target_dim == field_dim) load field_proj_D.pt.
+    """
+    global _distill_proj, _field_anchor_proj
     src_dim = teacher_hidden.shape[-1]
     if src_dim == target_dim:
         return teacher_hidden
     device = teacher_hidden.device
-    if _distill_proj is None or _distill_proj.in_features != src_dim or _distill_proj.out_features != target_dim:
-        _distill_proj = torch.nn.Linear(src_dim, target_dim, bias=False).to(device)
-        with torch.no_grad():
-            torch.nn.init.orthogonal_(_distill_proj.weight)
-    return _distill_proj(teacher_hidden)
+
+    # Choose cache slot by target_dim: field_dim (4096) uses field_anchor path,
+    # smaller (hidden_size like 384/768/1024) uses hidden distill path.
+    is_field = target_dim >= 4096
+    cache = _field_anchor_proj if is_field else _distill_proj
+
+    if cache is None or cache.in_features != src_dim or cache.out_features != target_dim:
+        # Load persisted SVD proj
+        if is_field:
+            path = os.path.join("data", "distill", f"field_proj_{target_dim}.pt")
+        else:
+            path = os.path.join("data", "distill", f"distill_hidden_proj_{target_dim}.pt")
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"H11/H12: {path} not found. Run scripts/training/build_shared_projections.py first."
+            )
+        lin = torch.nn.Linear(src_dim, target_dim, bias=False)
+        lin.load_state_dict(torch.load(path, map_location="cpu"))
+        for p in lin.parameters():
+            p.requires_grad_(False)
+        lin.eval()
+        lin = lin.to(device)
+        if is_field:
+            _field_anchor_proj = lin
+            cache = _field_anchor_proj
+        else:
+            _distill_proj = lin
+            cache = _distill_proj
+        print(f"  [proj] loaded {path}")
+
+    return cache(teacher_hidden)
 
 
 def create_neuron(spec: str, device: str = "cpu") -> ResonanceNeuron:
+    from taiji.resonance import FOUNDATION
     if spec == "compact":
         cfg = COMPACT
     elif spec == "expert":
         cfg = EXPERT
+    elif spec == "foundation":
+        cfg = FOUNDATION
     else:
         cfg = STANDARD
     neuron_cfg = NeuronConfig(
@@ -587,8 +626,8 @@ def main():
         teacher_dirs = torch.load(dir_path, map_location="cpu", weights_only=True)
         print(f"  Loaded teacher directions for {len(teacher_dirs)} domains")
 
-    DOMAIN_SPECS = {"zh": "standard", "en": "standard", "code": "expert",
-                    "math": "expert", "general": "standard"}
+    DOMAIN_SPECS = {"zh": "foundation", "en": "foundation", "code": "foundation",
+                    "math": "foundation", "general": "foundation"}  # v3: unified 117M neurons
 
     print(f"\n[3/4] Distilling neurons ({args.steps} steps each)...")
     results, neurons = {}, {}

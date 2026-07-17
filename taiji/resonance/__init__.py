@@ -22,7 +22,7 @@ ResonanceEnsemble.forward().
 from .field import ResonanceField
 from .neuron import ResonanceNeuron
 from .ensemble import ResonanceEnsemble
-from .config import NeuronConfig, COMPACT, STANDARD, EXPERT, TINY_TEST
+from .config import NeuronConfig, COMPACT, STANDARD, FOUNDATION, EXPERT, TINY_TEST
 from .gating import ConfidenceGate, EarlyStopResonance, ResonanceTrigger
 from .quality import QualityFilter
 from .translator import TokenTranslator, TokenizerHub
@@ -35,7 +35,7 @@ __all__ = [
     "ResonanceEnsemble",
     "NeuronConfig",
     "COMPACT",
-    "STANDARD",
+    "STANDARD","FOUNDATION",
     "EXPERT",
     "TINY_TEST",
     # Gating (Experiment 12)

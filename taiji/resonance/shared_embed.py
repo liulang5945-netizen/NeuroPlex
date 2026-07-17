@@ -35,6 +35,16 @@ class SharedEmbedProj(nn.Module):
 
     @staticmethod
     def load(path: str, src_dim: int = 2048, target_dim: int = 512) -> "SharedEmbedProj":
+        """Load a saved projection.  Falls back to data/distill/shared_proj.pt
+        (the SVD-initialised primary copy) when the requested path is missing
+        due to legacy code pointing at data/shared_proj.pt."""
+        import os
+        if not os.path.exists(path):
+            fallback = os.path.join("data", "distill", "shared_proj.pt")
+            if os.path.exists(fallback):
+                path = fallback
+            else:
+                raise FileNotFoundError(f"neither {path} nor {fallback} exist")
         m = SharedEmbedProj(src_dim, target_dim)
         m.proj.load_state_dict(torch.load(path, map_location="cpu"))
         m.eval()
