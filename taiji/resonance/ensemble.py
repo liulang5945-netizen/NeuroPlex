@@ -111,7 +111,7 @@ class ResonanceEnsemble:
             - skipped_resonance: True if gating skipped the resonance loop
             - skip_reason: explanation if resonance was skipped
         """
-        self.field.reset()
+        self.field.reset(batch_size=shared_embeddings.shape[0])
         self.round_scores = []
         self.n_active_history = []
 
@@ -152,7 +152,7 @@ class ResonanceEnsemble:
         # Compute round 1 scores
         scores: Dict[str, float] = {}
         for nid in active_ids:
-            scores[nid] = self.field.score(round_vecs[nid])
+            scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
         self.round_scores.append(scores)
 
         # ── Gating check: should we resonate? ──
@@ -216,7 +216,7 @@ class ResonanceEnsemble:
 
             scores = {}
             for nid in active_ids:
-                scores[nid] = self.field.score(round_vecs[nid])
+                scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
             self.round_scores.append(scores)
 
             if active_filter and len(active_ids) > 1:
@@ -280,24 +280,69 @@ class ResonanceEnsemble:
                 weight_list = [final_weights_dict.get(nid, 0.0) for nid in all_logits.keys()]
                 weights = torch.tensor(weight_list, device=shared_embeddings.device)
             else:
-                # Default: resonance-score softmax weighting
-                score_tensor = torch.tensor(
-                    [final_scores.get(nid, 0.0) for nid in all_logits.keys()],
+                # Per-position routing (v2): logit-entropy weighting + complementarity.
+                # Each position independently picks the neuron that is most confident.
+                # Complementarity scores boost neurons bringing new information.
+                # Memory-efficient: process one neuron at a time for entropy.
+                neuron_ids = list(all_logits.keys())
+                entropies = []
+                for nid in neuron_ids:
+                    log_probs = F.log_softmax(all_logits[nid], dim=-1)
+                    probs = torch.exp(log_probs)
+                    ent = -(probs * log_probs).sum(dim=-1)  # [B, L]
+                    entropies.append(ent)
+                ent_stack = torch.stack(entropies)  # [N, B, L]
+                # Lower entropy = more confident = higher weight.
+                # H7: sharpen confidence temperature 2.0 -> 3.0 so a clearly
+                # more-confident neuron dominates its positions more decisively.
+                confidence = 1.0 / (ent_stack + 1e-8)  # [N, B, L]
+                position_weights = F.softmax(confidence * 3.0, dim=0)  # [N, B, L]
+
+                # H5: lift neurons the field actually resonated with. final_scores
+                # are the last round's leave-one-out resonance scores in [0,1]; map
+                # them to a multiplicative boost in [1,2] so the field's verdict
+                # survives into per-position routing instead of being washed out
+                # by the per-token softmax.
+                score_vals = torch.tensor(
+                    [float(final_scores.get(nid, 0.0)) for nid in neuron_ids],
                     device=shared_embeddings.device,
                 )
-                weights = F.softmax(score_tensor * 2.0, dim=0)
+                position_weights = position_weights * (1.0 + score_vals).unsqueeze(-1).unsqueeze(-1)
 
-            weighted_logits = None
-            for i, (nid, logits) in enumerate(all_logits.items()):
-                w = weights[i]
-                if weighted_logits is None:
-                    weighted_logits = w * logits
-                else:
-                    weighted_logits = weighted_logits + w * logits
-            result["weighted_logits"] = weighted_logits
-            result["final_weights"] = {
-                nid: float(weights[i]) for i, nid in enumerate(all_logits.keys())
-            }
+                # H6: reward neurons that correct the others' mistakes. This
+                # replaces the legacy geometric orthogonality term (kept on the
+                # field as complementarity_score for diagnostics only); routing
+                # now uses prediction_complementarity, as field.py documents.
+                if hasattr(self.field, 'prediction_complementarity') and len(neuron_ids) > 1:
+                    comp_vals = []
+                    for i, nid in enumerate(neuron_ids):
+                        other_logits = [all_logits[o] for j, o in enumerate(neuron_ids) if j != i]
+                        c = 0.0
+                        for other in other_logits:
+                            c += self.field.prediction_complementarity(other, all_logits[nid])
+                        comp_vals.append(c)
+                    comp_boost = torch.tensor(comp_vals, device=shared_embeddings.device)
+                    position_weights = position_weights * (1.0 + comp_boost).unsqueeze(-1).unsqueeze(-1)
+
+                # Non-zero floor so no specialist is ever fully silenced (a 0%
+                # neuron contributes nothing and can never be learned from),
+                # then renormalise so the mixture still sums to 1 over neurons.
+                position_weights = position_weights.clamp(min=0.01)
+                position_weights = position_weights / position_weights.sum(dim=0, keepdim=True)
+
+                # Apply per-position weights (memory-efficient: one at a time)
+                weighted_logits = None
+                for i, (nid, logits) in enumerate(all_logits.items()):
+                    w = position_weights[i]  # [B, L]
+                    if weighted_logits is None:
+                        weighted_logits = w.unsqueeze(-1) * logits
+                    else:
+                        weighted_logits = weighted_logits + w.unsqueeze(-1) * logits
+                result["weighted_logits"] = weighted_logits
+                result["final_weights"] = {
+                    nid: float(position_weights[i].mean().item())
+                    for i, nid in enumerate(neuron_ids)
+                }
 
         return result
 

@@ -73,6 +73,9 @@ COMPACT = NeuronConfig(
     num_key_value_heads=2,
     intermediate_size=1536,
     spec="compact",
+    # Field dim must match STANDARD so compact/standard neurons can share
+    # one resonance group and be distilled/ensambled together.
+    field_dim=3072,
 )
 
 STANDARD = NeuronConfig(
@@ -82,6 +85,9 @@ STANDARD = NeuronConfig(
     num_key_value_heads=4,
     intermediate_size=2304,
     spec="standard",
+    # Existing zh/en/general checkpoints were distilled at field_dim=3072.
+    # Keeping this default means re-distillation stays compatible with them.
+    field_dim=3072,
 )
 
 EXPERT = NeuronConfig(
@@ -91,6 +97,8 @@ EXPERT = NeuronConfig(
     num_key_value_heads=4,
     intermediate_size=3072,
     spec="expert",
+    # Existing code/math checkpoints use field_dim=4096.
+    field_dim=4096,
 )
 
 # ── Tiny test config (for smoke-testing the code) ──
