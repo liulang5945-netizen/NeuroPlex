@@ -250,7 +250,7 @@ class TribeSuperNeuron(nn.Module):
             tribe_id: 部落在上级场中的唯一标识
             members: 部落成员（ResonanceNeuron 实例）
             sub_field: 部落内部子场（ResonanceField 实例）
-            parent_field: 上级共振场。如果为 None，D 从 sub_field.D 推断。
+            parent_field: 上级共振场。如果为 None，D 从 sub_field.dim 推断。
                 D 从上级场继承，而非硬编码——上级场扩张时部落跟随。
         """
         super().__init__()
@@ -259,15 +259,15 @@ class TribeSuperNeuron(nn.Module):
         self.sub_field = sub_field
         self.parent_field = parent_field
 
-        # D 继承：上级场维度 > sub_field.D > 4096 回退
-        if parent_field is not None and hasattr(parent_field, "D"):
-            parent_D = parent_field.D
-        elif hasattr(sub_field, "D"):
-            parent_D = sub_field.D
+        # D 继承：上级场维度 > sub_field.dim > 4096 回退
+        if parent_field is not None and hasattr(parent_field, "dim"):
+            parent_D = parent_field.dim
+        elif hasattr(sub_field, "dim"):
+            parent_D = sub_field.dim
         else:
             parent_D = 4096
 
-        sub_D = getattr(sub_field, "D", parent_D)
+        sub_D = getattr(sub_field, "dim", parent_D)
 
         # 部落对外场投影（与普通神经元的 field_write 等价）
         self.field_write_proj = nn.Linear(sub_D, parent_D, bias=False)
@@ -280,6 +280,7 @@ class TribeSuperNeuron(nn.Module):
         self.register_buffer("L_score_slow", torch.tensor(0.0))
         self.register_buffer("days_since_creation", torch.tensor(0.0))
 
+        self.metrics = TribalMetrics()  # P1 fix: was called but never created
         self._last_v_tribe: Optional[torch.Tensor] = None
         self._last_Q: float = 1.0
 
@@ -299,7 +300,7 @@ class TribeSuperNeuron(nn.Module):
 
     def forward_tribe(
         self,
-        input_ids: torch.Tensor,
+        shared_embeddings: torch.Tensor,
         max_rounds: int = 5,
     ) -> dict:
         """
@@ -322,7 +323,7 @@ class TribeSuperNeuron(nn.Module):
         # ── 第 1 轮：所有成员独立前向 ──
         member_writes = []
         for neuron in self.members:
-            v = neuron.forward(input_ids, field_state=None, round_num=1)["field_vector"]
+            v = neuron.forward(shared_embeddings, field_state=None, round_num=1)["field_vector"]
             member_writes.append(v)
             if hasattr(self.sub_field, "write"):
                 self.sub_field.write(neuron.neuron_id, v)
@@ -339,7 +340,7 @@ class TribeSuperNeuron(nn.Module):
             member_writes = []
             for neuron in self.members:
                 v = neuron.forward(
-                    input_ids,
+                    shared_embeddings,
                     field_state=sub_field_state,
                     round_num=r,
                 )["field_vector"]

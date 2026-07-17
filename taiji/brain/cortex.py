@@ -60,8 +60,17 @@ class Cortex:
         self._load_neurons()
 
         # ── Create field and ensemble ──
-        field_dim = max(n.config.field_dim for n in self.neurons.values()) if self.neurons else 4096
-        self.field = _AdaptiveField(dim=field_dim)
+        if self.neurons:
+            dims = {n.config.field_dim for n in self.neurons.values()}
+            if len(dims) > 1:
+                raise ValueError(
+                    f"[Cortex] neurons disagree on field_dim: {dims}. "
+                    f"Re-distill legacy checkpoints under H9 (field_dim=4096) before loading."
+                )
+            field_dim = dims.pop()
+        else:
+            field_dim = 4096
+        self.field = ResonanceField(dim=field_dim)
         self.ensemble = ResonanceEnsemble(
             self.neurons, self.field,
             max_rounds=max_rounds,
@@ -71,6 +80,7 @@ class Cortex:
 
         # ── Shared embedding (placeholder — in production, use SVD-initialized embedding) ──
         self._shared_embedding: Optional[torch.nn.Embedding] = None
+        self._embed_pipeline = None  # H10: callable(input_ids) -> [B, L, base_embed_dim]
         self._tokenizer = None
 
         # ── State ──
@@ -97,8 +107,24 @@ class Cortex:
         self._tokenizer = tokenizer
 
     def set_shared_embedding(self, embedding: torch.nn.Embedding) -> None:
-        """Set the shared embedding table."""
+        """Set the shared embedding table (highest precedence source)."""
         self._shared_embedding = embedding
+
+    def set_teacher_pipeline(self, teacher_model, shared_proj) -> None:
+        """H10: register a teacher-model + SharedEmbedProj chain to derive
+        shared embeddings from token IDs. Used when no preloaded embedding
+        table is available. shared_proj must be an nn.Module mapping
+        [..., 2048] -> [..., base_embed_dim].
+        """
+        import torch as _torch
+        from taiji.training.checkpoint_bridge import extract_hidden_states
+
+        def _pipeline(input_ids: _torch.Tensor) -> _torch.Tensor:
+            with _torch.no_grad():
+                hidden = extract_hidden_states(teacher_model, input_ids)  # [B, L, 2048]
+                return shared_proj(hidden)                                  # [B, L, 512]
+
+        self._embed_pipeline = _pipeline
 
     def think(self, input_ids: torch.Tensor) -> Dict:
         """Run one round of resonance thinking.
@@ -109,13 +135,20 @@ class Cortex:
         Returns:
             dict with field_state, weighted_logits, final_scores, n_rounds.
         """
+        # H10: shared_emb must come from the teacher-SVD embedding path.
+        # Precedence: (a) explicit set_shared_embedding()  (b) SharedEmbedProj on
+        # teacher hidden states  (c) fail loudly rather than emit random noise.
+        input_ids = input_ids.to(self.device)
         if self._shared_embedding is not None:
-            shared_emb = self._shared_embedding(input_ids.to(self.device))
+            shared_emb = self._shared_embedding(input_ids)
+        elif self._embed_pipeline is not None:
+            shared_emb = self._embed_pipeline(input_ids)
         else:
-            # Fallback: random embedding (for testing)
-            shared_emb = torch.randn(
-                input_ids.shape[0], input_ids.shape[1], 512,
-                device=self.device,
+            raise RuntimeError(
+                "[Cortex.think] no shared_embedding source. Either call "
+                "set_shared_embedding(embedding_table) with a preloaded table, "
+                "or set_teacher_pipeline(teacher_model, shared_proj) to derive "
+                "embeddings from teacher hidden states on the fly."
             )
 
         result = self.ensemble.forward(shared_emb, return_logits=True, enable_gating=self.enable_gating)
@@ -189,20 +222,4 @@ class Cortex:
         return max(self.field.scores, key=self.field.scores.get)
 
 
-class _AdaptiveField(ResonanceField):
-    """Field that auto-pads neuron vectors to match field dim."""
-
-    def _pad(self, vector: torch.Tensor) -> torch.Tensor:
-        if vector.dim() == 1:
-            vector = vector.unsqueeze(0)
-        vd = vector.shape[-1]
-        if vd < self.dim:
-            pad = torch.zeros(*vector.shape[:-1], self.dim - vd, device=vector.device, dtype=vector.dtype)
-            return torch.cat([vector, pad], dim=-1)
-        return vector[..., :self.dim] if vd > self.dim else vector
-
-    def write(self, nid, v):
-        return super().write(nid, self._pad(v))
-
-    def score(self, v):
-        return super().score(self._pad(v))
+# _AdaptiveField removed: field_dim is unified under H9; no padding needed.

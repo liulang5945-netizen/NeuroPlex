@@ -70,8 +70,13 @@ def ppl_single(neuron, embedding, data, max_b=5, device="cpu"):
 
 
 def ppl_ensemble(neurons, embedding, data, max_rounds=3, max_b=5, device="cpu"):
-    field_dims = set(n.config.field_dim for n in neurons.values())
-    assert len(field_dims) == 1, f"Cannot mix field_dims: {field_dims}"
+    field_dims = {n.config.field_dim for n in neurons.values()}
+    if len(field_dims) > 1:
+        raise ValueError(
+            f"[verify] neurons disagree on field_dim: {field_dims}. "
+            f"H9 unified all v3 specs to 4096. Old 3072 checkpoints must be "
+            f"re-distilled before they can co-resonate with v3 neurons."
+        )
     fd = field_dims.pop()
     field = ResonanceField(dim=fd, device=torch.device(device))
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=max_rounds)

@@ -138,7 +138,7 @@ def create_neuron(spec: str, device: str = "cpu") -> ResonanceNeuron:
         num_attention_heads=cfg.num_attention_heads, num_key_value_heads=cfg.num_key_value_heads,
         intermediate_size=cfg.intermediate_size, spec=spec,
         vocab_size=256000, base_embed_dim=512,
-        field_dim=cfg.field_dim,  # match spec field dim (compact/standard=3072, expert=4096)
+        field_dim=cfg.field_dim,  # H9 unified: all specs use 4096 (TINY_TEST is the only exception)
     )
     return ResonanceNeuron(neuron_cfg).to(device)
 
