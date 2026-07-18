@@ -17,6 +17,14 @@ Usage:
 
 from __future__ import annotations
 
+import sys
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
+
 import argparse, math, os, sys, time
 from itertools import combinations
 from typing import Dict, List, Optional, Tuple
@@ -335,12 +343,19 @@ def train_field_conditioning_pair(
                 with torch.no_grad():
                     emb_list.append(fixed_proj(d["embeddings"][:n].to(device)).cpu())
         if id_list:
+            # Issue 2: different domains may have different seq lengths, so
+            # torch.cat on dim=0 would crash. Compute common_len from ALL
+            # sequences (ids + embs + cross_data) BEFORE cat, then slice each
+            # tensor to common_len first.
+            common_len = min(
+                cross_data.shape[1],
+                *(t.shape[1] for t in id_list),
+                *(t.shape[1] for t in emb_list),
+            )
+            id_list = [t[:, :common_len] for t in id_list]
+            emb_list = [t[:, :common_len, :] for t in emb_list]
             combined_ids = torch.cat(id_list, dim=0)
             combined_emb = torch.cat(emb_list, dim=0)
-            # Truncate/pad to common sequence length
-            common_len = min(combined_ids.shape[1], cross_data.shape[1])
-            combined_ids = combined_ids[:, :common_len]
-            combined_emb = combined_emb[:, :common_len, :]
             cross_ids = cross_data[:, :common_len]
             cross_emb = torch.randn(cross_ids.shape[0], common_len, neuron_a.config.base_embed_dim)
             all_ids = torch.cat([combined_ids, cross_ids], dim=0)
@@ -441,26 +456,68 @@ def verify_resonance(
     device: str = "cpu",
     fixed_proj: torch.nn.Linear | None = None,
     cached_embeddings: Dict | None = None,
+    teacher_embedding=None,
 ) -> Dict:
     """Verify 1+1>2 resonance effect: Round 1 vs Round 2 with REAL vs RANDOM field.
 
     Uses cached teacher embeddings when available for realistic PPL measurement.
     """
-    field_dim = next(iter(neurons.values())).config.field_dim
+    # Issue 4: switch all neurons to eval mode. train_field_conditioning_pair
+    # leaves them in train() mode; dropout would pollute PPL measurement even
+    # under no_grad (no_grad only disables autograd, not dropout).
+    for neuron in neurons.values():
+        neuron.eval()
 
-    def batched_ppl(model_fn, ids_tensor, batch_size=4):
-        dataset = TensorDataset(ids_tensor)
+    field_dim = next(iter(neurons.values())).config.field_dim
+    base_embed_dim = next(iter(neurons.values())).config.base_embed_dim
+
+    def _resolve_embeddings(domain_to_ids: List[Tuple[str, torch.Tensor]]) -> torch.Tensor:
+        """Build aligned [N, T, base_embed_dim] embeddings for (domain, ids) chunks.
+
+        Issue 1: real cache lookup instead of always-random embeddings.
+        Priority:
+          1. cached_embeddings[domain] projected with fixed_proj (real cached
+             teacher embeddings — what the neurons actually trained on).
+          2. teacher_embedding(input_ids) projected with fixed_proj (run the
+             teacher embedding lookup live when cache misses).
+          3. random (with warning) — only when neither cache nor teacher is
+             available.
+        Returns a CPU tensor (DataLoader-friendly); batched_ppl moves each
+        batch back to device.
+        """
+        emb_chunks = []
+        warned = False
+        for domain, ids in domain_to_ids:
+            n = ids.shape[0]
+            seq_len = ids.shape[1]
+            emb = None
+            if cached_embeddings is not None and fixed_proj is not None and domain in cached_embeddings:
+                cached = cached_embeddings[domain]
+                cached_emb = cached["embeddings"][:n].to(device)
+                with torch.no_grad():
+                    emb = fixed_proj(cached_emb).cpu()
+                emb = emb[:, :seq_len, :]
+            elif teacher_embedding is not None and fixed_proj is not None:
+                with torch.no_grad():
+                    teacher_emb = teacher_embedding(ids.to(device))
+                    emb = fixed_proj(teacher_emb).cpu()
+                emb = emb[:, :seq_len, :]
+            else:
+                if not warned:
+                    print(f"  [warn] no cache and no teacher_embedding for domain "
+                          f"'{domain}'; falling back to random embeddings")
+                    warned = True
+                emb = torch.randn(n, seq_len, base_embed_dim)
+            emb_chunks.append(emb)
+        return torch.cat(emb_chunks, dim=0)
+
+    def batched_ppl(model_fn, ids_tensor, emb_tensor, batch_size=4):
+        dataset = TensorDataset(ids_tensor, emb_tensor)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
         total_loss, total_tokens = 0.0, 0
-        for (input_ids,) in loader:
+        for input_ids, emb in loader:
             input_ids = input_ids.to(device)
-            # Use cached embeddings if available, else random
-            if fixed_proj is not None and cached_embeddings is not None:
-                # Find matching cached embeddings for these token IDs
-                # Fall back to random — the key point is we use real embeddings
-                emb = torch.randn(input_ids.shape[0], input_ids.shape[1], 512, device=device)
-            else:
-                emb = torch.randn(input_ids.shape[0], input_ids.shape[1], 512, device=device)
+            emb = emb.to(device)
             logits = model_fn(emb)
             if isinstance(logits, tuple):
                 logits = logits[0]
@@ -492,6 +549,13 @@ def verify_resonance(
             continue
         n_each = min(len(d1), len(d2), 25)
         mixed_ids = torch.cat([d1[:n_each], d2[:n_each]], dim=0)
+        # Issue 1: build REAL embeddings (cached/teacher) aligned with mixed_ids
+        # so PPL is measured on the same inputs the neurons trained on.
+        mixed_emb = _resolve_embeddings([(nd1, d1[:n_each]), (nd2, d2[:n_each])])
+        # Defensively align seq dim — cached seq len may differ from test_data.
+        common_len = min(mixed_ids.shape[1], mixed_emb.shape[1])
+        mixed_ids = mixed_ids[:, :common_len]
+        mixed_emb = mixed_emb[:, :common_len, :]
 
         # Round 1 functions
         def r1_fn_n1(emb):
@@ -513,8 +577,11 @@ def verify_resonance(
         # Round 2 with RANDOM field (control)
         def make_r2_random(neuron):
             def fn(emb):
-                rand_f = torch.randn(field_dim, device=device)
-                rand_f = rand_f / (rand_f.norm() + 1e-8)
+                # Issue 5: per-sample random field [B, D] to match the shape of
+                # the real field (make_r2_real uses f.get_normalised_state() which
+                # is [B, D]); the old [D] shape made the control unfair.
+                rand_f = torch.randn(emb.shape[0], field_dim, device=device)
+                rand_f = rand_f / (rand_f.norm(dim=-1, keepdim=True) + 1e-8)
                 return neuron.forward(emb, return_logits=True, round_num=2, field_state=rand_f)["logits"]
             return fn
 
@@ -532,13 +599,13 @@ def verify_resonance(
                 return (la + lb) / 2
             return fn
 
-        ppl_r1_n1 = batched_ppl(r1_fn_n1, mixed_ids)
-        ppl_r1_n2 = batched_ppl(r1_fn_n2, mixed_ids)
-        ppl_r2_n1_real = batched_ppl(make_r2_real(n1, n2, nd2), mixed_ids)
-        ppl_r2_n2_real = batched_ppl(make_r2_real(n2, n1, nd1), mixed_ids)
-        ppl_r2_n1_rand = batched_ppl(make_r2_random(n1), mixed_ids)
-        ppl_r2_n2_rand = batched_ppl(make_r2_random(n2), mixed_ids)
-        ppl_r2_ens = batched_ppl(make_r2_ens(n1, n2, nd1, nd2), mixed_ids)
+        ppl_r1_n1 = batched_ppl(r1_fn_n1, mixed_ids, mixed_emb)
+        ppl_r1_n2 = batched_ppl(r1_fn_n2, mixed_ids, mixed_emb)
+        ppl_r2_n1_real = batched_ppl(make_r2_real(n1, n2, nd2), mixed_ids, mixed_emb)
+        ppl_r2_n2_real = batched_ppl(make_r2_real(n2, n1, nd1), mixed_ids, mixed_emb)
+        ppl_r2_n1_rand = batched_ppl(make_r2_random(n1), mixed_ids, mixed_emb)
+        ppl_r2_n2_rand = batched_ppl(make_r2_random(n2), mixed_ids, mixed_emb)
+        ppl_r2_ens = batched_ppl(make_r2_ens(n1, n2, nd1, nd2), mixed_ids, mixed_emb)
 
         best_r1 = min(ppl_r1_n1, ppl_r1_n2)
         best_r2 = min(ppl_r2_n1_real, ppl_r2_n2_real, ppl_r2_ens)
@@ -580,6 +647,29 @@ def verify_resonance(
 # Main
 # ═══════════════════════════════════════════════════════════
 
+
+def _safe_save(obj, primary_path):
+    """Robust torch.save with fallback locations (Windows sandbox may deny some dirs)."""
+    base = os.path.basename(primary_path)
+    candidates = [primary_path,
+                  os.path.join("data", "distill", "neurons_out", base),
+                  os.path.join("checkpoints_v3", base)]
+    last_err = None
+    for cand in candidates:
+        try:
+            d = os.path.dirname(cand)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            torch.save(obj, cand)
+            if cand != primary_path:
+                print(f"    [safe_save] wrote fallback: {cand} (primary {primary_path} denied)")
+            return cand
+        except (PermissionError, RuntimeError, OSError) as exc:
+            last_err = exc
+            print(f"    [safe_save] {cand} failed: {exc}; next")
+    raise RuntimeError(f"All save fallbacks failed for {primary_path}: {last_err}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Distill neurons + train field conditioning")
     # Paths
@@ -602,7 +692,17 @@ def main():
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    try:
+        os.makedirs(args.output_dir, exist_ok=True)
+        _probe = os.path.join(args.output_dir, ".probe")
+        with open(_probe, "w") as _f:
+            _f.write("t")
+        os.remove(_probe)
+    except (PermissionError, OSError) as exc:
+        fb = os.path.join("data", "distill", "neurons_out")
+        os.makedirs(fb, exist_ok=True)
+        print(f"[warn] output_dir {args.output_dir} not writable ({exc}); switching to {fb}")
+        args.output_dir = fb
 
     # ═══════════════════════════════════════════════════════
     # Phase 1: Independent distillation
@@ -658,11 +758,11 @@ def main():
         results[domain], neurons[domain] = result, neuron
 
         ckpt_path = os.path.join(args.output_dir, f"neuron_{domain}.pt")
-        torch.save({
+        actual_path = _safe_save({
             "neuron_config": neuron.config, "state_dict": neuron.state_dict(),
             "domain": domain, "result": result,
         }, ckpt_path)
-        print(f"  Saved: {ckpt_path}")
+        print(f"  Saved: {actual_path}")
 
     # Cross-domain PPL (Phase 1 only)
     print(f"\n[4/4] Cross-domain PPL matrix...")
@@ -754,20 +854,25 @@ def main():
             neuron = neurons[nd]
             # Mark as field-conditioned
             ckpt_path = os.path.join(args.output_dir, f"neuron_{nd}_fieldcond.pt")
-            torch.save({
+            _safe_save({
                 "neuron_config": neuron.config,
                 "state_dict": neuron.state_dict(),
                 "domain": nd,
                 "field_conditioned": True,
-                "field_cond_pairs": [p for p in field_cond_results if nd in p],
+                # Issue 3: substring match would let "en" match "general";
+                # split on "_" and check exact membership instead.
+                "field_cond_pairs": [p for p in field_cond_results if nd in p.split("_")],
             }, ckpt_path)
         print(f"  Saved to {args.output_dir}/neuron_*_fieldcond.pt")
 
         # ═══════════════════════════════════════════════════════
         # Phase 3: Resonance verification
         # ═══════════════════════════════════════════════════════
+        # Issue 1: pass the teacher embedding layer so verify_resonance can run
+        # real teacher embeddings on cache misses instead of falling back to random.
         verify_resonance(neurons, datasets, device=args.device,
-                         fixed_proj=fixed_proj, cached_embeddings=cached_embeddings)
+                         fixed_proj=fixed_proj, cached_embeddings=cached_embeddings,
+                         teacher_embedding=embedding)
 
     # Final summary
     print("\n" + "=" * 60)
