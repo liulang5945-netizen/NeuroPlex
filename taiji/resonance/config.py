@@ -8,7 +8,7 @@ text while staying trainable on CPU (see docs Chapter 8).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 
 @dataclass
@@ -40,6 +40,23 @@ class NeuronConfig:
     spec: str = "standard"
     neuron_id: Optional[str] = None
 
+    # ── 神经元类型（人脑启发：兴奋性/抑制性分化）──
+    # excitatory: 默认，对场做正向贡献（类比谷氨酸能）
+    # inhibitory: 对场做负向贡献，抑制过度共振（类比 GABA 能）
+    # 约 20% 神经元应为 inhibitory，由 CoactivationTracker 自动转化过度兴奋的神经元
+    neuron_type: Literal["excitatory", "inhibitory"] = "excitatory"
+
+    # ── 不应期配置（人脑启发：refractory period）──
+    # 写入场后进入不应期，rounds_cooldown 轮内只能读场不能写
+    # 防止强神经元垄断场，强制信息轮替
+    refractory_cooldown: int = 2
+
+    # ── lm_head 低秩分解配置 ──
+    # 共享基矩阵 W_base [hidden, vocab] + 每个神经元低秩残差 U_i @ V_i
+    # 保留 per-neuron 输出差异，同时控制参数量
+    # lm_head_rank=0 表示禁用低秩分解（使用传统 per-neuron lm_head）
+    lm_head_rank: int = 64
+
     # ── Approximate parameter count (excluding shared embedding) ──
     @property
     def approx_params_m(self) -> float:
@@ -60,7 +77,9 @@ class NeuronConfig:
         field_w = d * self.field_dim
         # Field read: field_dim -> hidden_size per layer
         field_r = n * self.field_dim * d
-        total = body + adapter + field_w + field_r
+        # LM head: hidden_size -> vocab_size (per-neuron, not shared)
+        lm_head = d * self.vocab_size
+        total = body + adapter + field_w + field_r + lm_head
         return total / 1_000_000
 
 

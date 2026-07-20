@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -66,6 +66,11 @@ class ResonanceEnsemble:
         resonance_trigger: Optional[ResonanceTrigger] = None,
         quality_filter: Optional[QualityFilter] = None,
         division_path: Optional[DivisionPath] = None,
+        logits_top_k: int = 16,
+        domain_router: Optional["DomainRouter"] = None,
+        stdp_tracker: Optional[Any] = None,
+        coaction: Optional[Any] = None,
+        neuromodulator: Optional[Any] = None,
     ):
         self.neurons = neurons
         self.field = field
@@ -83,9 +88,93 @@ class ResonanceEnsemble:
         # ── Division-of-labor path ──
         self.division_path = division_path
 
+        # ── Domain-aware routing (P2-2: field_vector × anchor) ──
+        self.domain_router = domain_router
+
+        # ── Bio-inspired trackers (P1 接线) ──
+        # STDPTracker: 推理期记录发放时序，sleep 期 apply_updates 强化 side_channels
+        self.stdp_tracker = stdp_tracker
+        # CoactivationTracker: 推理期更新共激活，驱动动态部落化
+        self.coaction = coaction
+        # NeuromodulatorState: 多巴胺/血清素调整 lr / refractory / field_write_scale
+        self.neuromodulator = neuromodulator
+
+        # ── 大规模内存控制（B2/B3 fix）──
+        self.logits_top_k = logits_top_k
+        self._logits_keep_ids: Optional[set] = None
+
         # Tracking
         self.round_scores: List[Dict[str, float]] = []
         self.n_active_history: List[int] = []
+
+    def _parallel_forward(
+        self,
+        active_ids,
+        shared_embeddings: torch.Tensor,
+        field_state,
+        round_num: int,
+        return_logits_filter,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        """并行 forward 多个神经元（人脑启发：神经元并行工作）。
+
+        GPU 模式下用 CUDA stream 真并行，保留 per-neuron 独立性。
+        CPU 模式下退化为串行（无 stream 开销）。
+
+        Args:
+            active_ids: 要 forward 的 neuron id 集合
+            shared_embeddings: 共享嵌入
+            field_state: 场状态（round 1 为 None）
+            round_num: 轮次
+            return_logits_filter: callable(nid) -> bool，决定哪些 neuron 返回 logits
+
+        Returns:
+            (round_vecs, round_logits)
+        """
+        round_vecs: Dict[str, torch.Tensor] = {}
+        round_logits: Dict[str, torch.Tensor] = {}
+
+        is_cuda = shared_embeddings.is_cuda
+        if is_cuda and len(active_ids) > 1:
+            # GPU 模式：CUDA stream 真并行
+            # 每个 neuron 在自己的 stream 上独立 forward
+            streams = {nid: torch.cuda.Stream() for nid in active_ids}
+            results: Dict[str, Dict] = {}
+
+            for nid in active_ids:
+                neuron = self.neurons[nid]
+                need_logits = return_logits_filter(nid)
+                with torch.cuda.stream(streams[nid]):
+                    results[nid] = neuron.forward(
+                        shared_embeddings,
+                        field_state=field_state,
+                        round_num=round_num,
+                        return_logits=need_logits,
+                    )
+
+            # 等待所有 stream 完成
+            for nid in active_ids:
+                torch.cuda.current_stream().wait_stream(streams[nid])
+
+            for nid in active_ids:
+                round_vecs[nid] = results[nid]["field_vector"]
+                if return_logits_filter(nid):
+                    round_logits[nid] = results[nid]["logits"]
+        else:
+            # CPU 模式或单神经元：串行
+            for nid in active_ids:
+                neuron = self.neurons[nid]
+                need_logits = return_logits_filter(nid)
+                result = neuron.forward(
+                    shared_embeddings,
+                    field_state=field_state,
+                    round_num=round_num,
+                    return_logits=need_logits,
+                )
+                round_vecs[nid] = result["field_vector"]
+                if need_logits:
+                    round_logits[nid] = result["logits"]
+
+        return round_vecs, round_logits
 
     def forward(
         self,
@@ -93,6 +182,7 @@ class ResonanceEnsemble:
         return_logits: bool = False,
         active_filter: bool = True,
         enable_gating: bool = True,
+        active_nids: Optional[List[str]] = None,
     ) -> Dict:
         """Run the full resonance loop with optional gating.
 
@@ -101,6 +191,8 @@ class ResonanceEnsemble:
             return_logits: if True, each neuron also returns token logits
             active_filter: if True, filter out low-resonance neurons each round
             enable_gating: if False, skip all gating (backward compatible mode)
+            active_nids: 如果提供，只 forward 这些 neuron（Phase 5.1 丘脑路由用）
+                         None 表示全部参与（默认行为，向后兼容）
 
         Returns:
             dict with:
@@ -114,9 +206,26 @@ class ResonanceEnsemble:
         self.field.reset(batch_size=shared_embeddings.shape[0])
         self.round_scores = []
         self.n_active_history = []
+        self._logits_keep_ids = None  # 每次 forward 重置
+
+        # P0-2 fix (MAJOR-2): 重置所有 neurons 的 refractory_counter
+        # 防止跨 forward 调用的状态泄漏（上次推理进入不应期的 neuron 不应影响本次）
+        for nid in self.neurons:
+            self.neurons[nid].refractory_counter.fill_(0)
+
+        # P1-STDP: 每次推理开始时清空 firing history（一次推理内的发放时序）
+        if self.stdp_tracker is not None:
+            self.stdp_tracker._firing_history.clear()
 
         neuron_ids = list(self.neurons.keys())
-        active_ids = set(neuron_ids)
+        # Phase 5.1: 如果 ThalamicRouter 指定了 active_nids，只激活这些 neuron
+        if active_nids is not None:
+            active_ids = set(nid for nid in active_nids if nid in self.neurons)
+            if not active_ids:
+                # fallback: 全部 neuron
+                active_ids = set(neuron_ids)
+        else:
+            active_ids = set(neuron_ids)
 
         # ── Quality filter: exclude weak neurons before resonance ──
         if self.quality_filter is not None:
@@ -130,30 +239,77 @@ class ResonanceEnsemble:
         logits_history: List[torch.Tensor] = []
 
         # ── Round 1: all neurons run independently ──
-        round_vecs: Dict[str, torch.Tensor] = {}
-        round_logits: Dict[str, torch.Tensor] = {}
+        # 大规模内存优化（B2 peak fix）：
+        # N > top_K 时，round 1 不为所有 neuron 请求 logits（避免 O(N) 峰值内存）
+        # 只取 field_vector 算分，然后只为 best_nid 重新 forward 获取 logits（用于 gating）
+        # N ≤ top_K 时保持原行为（全部请求，因为都会保留）
+        large_scale = return_logits and len(active_ids) > self.logits_top_k
+        round1_return_logits = return_logits and not large_scale
 
-        for nid in active_ids:
-            neuron = self.neurons[nid]
-            result = neuron.forward(
-                shared_embeddings,
-                field_state=None,
-                round_num=1,
-                return_logits=return_logits,
-            )
-            round_vecs[nid] = result["field_vector"]
-            if return_logits:
-                round_logits[nid] = result["logits"]
+        # Q4 fix: 使用 _parallel_forward（GPU 自动 CUDA stream 并行）
+        def round1_logits_filter(nid):
+            return round1_return_logits
+
+        round_vecs, round_logits = self._parallel_forward(
+            active_ids,
+            shared_embeddings,
+            field_state=None,
+            round_num=1,
+            return_logits_filter=round1_logits_filter,
+        )
 
         # Write round 1 to field
+        # P1-2: 从 NeuromodulatorState 读取 field_write_scale（去甲肾上腺素驱动）
+        write_scale = (self.neuromodulator.get_field_write_scale()
+                       if self.neuromodulator is not None else 1.0)
         for nid in active_ids:
-            self.field.write(nid, round_vecs[nid])
+            self.field.write(nid, round_vecs[nid], scale=write_scale)
+            # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
+            if self.stdp_tracker is not None:
+                self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
+            # P1-Coactivation: 记录共激活（同轮 forward 的 neuron 互为共激活）
+            if self.coaction is not None:
+                self.coaction.update(active_ids, round_num=1)
 
-        # Compute round 1 scores
+        # P0-2 fix: 不应期错峰 — 不再全部 enter_refractory（否则 round 2+ 全部 refractory 无人写入）
+        # 改为：只让 round 1 分数排名前 top_K 的 neuron 进入不应期
+        # 这样 round 2+ 中分数较低的 neuron 有机会写入，实现信息轮替
         scores: Dict[str, float] = {}
         for nid in active_ids:
             scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
         self.round_scores.append(scores)
+
+        # 按 score 降序排序，只让 top-K 进入不应期（K = min(half, logits_top_k)）
+        # P1-2: refractory_multiplier 由 NeuromodulatorState 提供（血清素驱动）
+        refractory_mult = (self.neuromodulator.get_refractory_multiplier()
+                           if self.neuromodulator is not None else 1.0)
+        ranked_round1 = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        refractory_k = max(1, min(len(ranked_round1) // 2, self.logits_top_k))
+        for nid, _ in ranked_round1[:refractory_k]:
+            self.neurons[nid].enter_refractory(multiplier=refractory_mult)
+
+        # ── B2/B3 fix: round 1 后确定 top-K ──
+        if return_logits:
+            ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            self._logits_keep_ids = {nid for nid, _ in ranked[:self.logits_top_k]}
+
+            if large_scale:
+                # 大规模：只为 best_nid 重新 forward 获取 logits（gating 需要）
+                # 代价是 1 次额外 forward，但避免了 N 份 logits 同时存活
+                best_nid = ranked[0][0]
+                best_result = self.neurons[best_nid].forward(
+                    shared_embeddings,
+                    field_state=None,
+                    round_num=1,
+                    return_logits=True,
+                )
+                round_logits[best_nid] = best_result["logits"]
+            else:
+                # 小规模：round 1 已获取所有 logits，丢弃非 top-K
+                if len(round_logits) > self.logits_top_k:
+                    non_keep = set(round_logits.keys()) - self._logits_keep_ids
+                    for nid in non_keep:
+                        del round_logits[nid]
 
         # ── Gating check: should we resonate? ──
         if enable_gating and return_logits:
@@ -194,36 +350,80 @@ class ResonanceEnsemble:
         vectors = round_vecs
         all_logits = round_logits
 
+        # 修复：round 1 正常完成后也记录 n_active（之前只在 skip 或 round 2+ 记录）
+        self.n_active_history.append(len(active_ids))
+
         # ── Rounds 2+: conditioned resonance ──
         for round_num in range(2, self.max_rounds + 1):
-            round_vecs = {}
-            round_logits = {}
-
-            for nid in active_ids:
-                neuron = self.neurons[nid]
-                result = neuron.forward(
-                    shared_embeddings,
-                    field_state=self.field.get_normalised_state(),
-                    round_num=round_num,
-                    return_logits=return_logits,
+            # P0-2 fix: round 2+ 也基于当前 _logits_keep_ids 过滤，但每轮会重新计算
+            def round2_logits_filter(nid):
+                return return_logits and (
+                    self._logits_keep_ids is None or nid in self._logits_keep_ids
                 )
-                round_vecs[nid] = result["field_vector"]
-                if return_logits:
-                    round_logits[nid] = result["logits"]
 
+            round_vecs, round_logits = self._parallel_forward(
+                active_ids,
+                shared_embeddings,
+                field_state=self.field.get_normalised_state(),
+                round_num=round_num,
+                return_logits_filter=round2_logits_filter,
+            )
+
+            # 人脑启发：不应期调度（错峰写入）
+            writable_ids = []
+            refractory_ids = []
             for nid in active_ids:
-                self.field.write(nid, round_vecs[nid])
+                if self.neurons[nid].in_refractory:
+                    refractory_ids.append(nid)
+                else:
+                    writable_ids.append(nid)
+
+            for nid in writable_ids:
+                # P1-2: round 2+ 也应用 neuromodulator 调质
+                self.field.update(nid, round_vecs[nid], scale=write_scale)
+                self.neurons[nid].enter_refractory(multiplier=refractory_mult)
+                # P1-STDP: 记录 round 2+ 发放
+                if self.stdp_tracker is not None:
+                    self.stdp_tracker.record_firing(nid, round_num, round_vecs[nid])
+            # P1-Coactivation: 更新共激活
+            if self.coaction is not None and writable_ids:
+                self.coaction.update(writable_ids, round_num=round_num)
+
+            # P0-2 fix: leave-one-out 双重减法 bug 修复
+            # 原 bug：这里减去 old_contrib，但 field.score() 内部 _leave_one_out_state 又减一次
+            # 修复：减去后清除 _contributions[nid]，让 _leave_one_out_state 返回原 state
+            for nid in refractory_ids:
+                old_contrib = self.field._contributions.get(nid)
+                if old_contrib is not None:
+                    if self.field.state.dim() == 1 and old_contrib.dim() == 1:
+                        self.field.state = self.field.state - old_contrib
+                    elif self.field.state.dim() == old_contrib.dim():
+                        self.field.state = self.field.state - old_contrib
+                    else:
+                        self.field.state = self.field.state - old_contrib.squeeze(0)
+                    # P0-2 fix: 清除 contribution 记录，避免 leave-one-out 双重减法
+                    del self.field._contributions[nid]
 
             scores = {}
             for nid in active_ids:
                 scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
             self.round_scores.append(scores)
 
+            # P0-2 fix: 每轮基于当前 scores 重新计算 _logits_keep_ids（原 bug：round 1 后冻结）
+            if return_logits:
+                ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                self._logits_keep_ids = {nid for nid, _ in ranked[:self.logits_top_k]}
+
             if active_filter and len(active_ids) > 1:
-                active_vecs = [round_vecs[nid] for nid in active_ids]
+                # P0-2 fix: directional_congestion 排除自身（原 bug：自指导致小 N 时 threshold 过高）
                 filtered = set()
-                for nid in active_ids:
-                    congestion = self.field.directional_congestion(round_vecs[nid], active_vecs)
+                active_list = list(active_ids)
+                for nid in active_list:
+                    other_vecs = [round_vecs[o] for o in active_list if o != nid]
+                    if not other_vecs:
+                        filtered.add(nid)
+                        continue
+                    congestion = self.field.directional_congestion(round_vecs[nid], other_vecs)
                     threshold = self.field.compute_threshold(congestion)
                     if scores[nid] >= threshold:
                         filtered.add(nid)
@@ -233,10 +433,15 @@ class ResonanceEnsemble:
                 self.field.scores = scores
                 if len(filtered) <= 1 and round_num >= 2:
                     active_ids = filtered
+                    self.n_active_history.append(len(active_ids))
                     vectors = round_vecs
                     all_logits = round_logits
                     break
                 active_ids = filtered
+
+            # 人脑启发：每轮结束递减所有神经元的不应期计数器
+            for nid in self.neurons:
+                self.neurons[nid].tick_refractory()
 
             self.n_active_history.append(len(active_ids))
             vectors = round_vecs
@@ -261,7 +466,30 @@ class ResonanceEnsemble:
         if return_logits and all_logits:
             final_scores = self.round_scores[-1] if self.round_scores else scores
 
-            if self.division_path is not None:
+            if self.domain_router is not None:
+                # P2-2: Domain-aware routing
+                # 用最后一轮的 field_vector 与各 neuron 的 domain anchor 计算相似度，
+                # 相似度越高 -> 输入越属于该 neuron 的本域 -> 给更高权重
+                # 取代 entropy-based weighting（neuron 在非本域也强行自信会误导 entropy 路由）
+                last_vecs = {nid: vectors.get(nid, torch.zeros(1)) for nid in all_logits}
+                final_weights_dict = self.domain_router.route(last_vecs)
+
+                weight_list = [final_weights_dict.get(nid, 0.0) for nid in all_logits.keys()]
+                weights = torch.tensor(weight_list, device=shared_embeddings.device)
+
+                weighted_logits = None
+                for i, (nid, logits) in enumerate(all_logits.items()):
+                    w = weights[i]
+                    if weighted_logits is None:
+                        weighted_logits = w * logits
+                    else:
+                        weighted_logits = weighted_logits + w * logits
+                result["weighted_logits"] = weighted_logits
+                result["final_weights"] = {
+                    nid: float(weights[i].item())
+                    for i, nid in enumerate(all_logits.keys())
+                }
+            elif self.division_path is not None:
                 # Use division-of-labor weighting (scale layering + cluster dominance)
                 # Build clusters from neuron domains (simple: one cluster per neuron for now)
                 clusters = {"default": {nid: vectors.get(nid, torch.zeros(1)) for nid in all_logits}}
@@ -272,13 +500,27 @@ class ResonanceEnsemble:
                 # Use the first neuron's field vector as input_vector proxy
                 input_vec = next(iter(vectors.values()), torch.zeros(1))
                 final_weights_dict = self.division_path.compute_final_weights(
-                    input_vector=input_vec.squeeze(),
+                    input_vector=input_vec.mean(dim=0) if input_vec.dim() > 1 else input_vec,
                     clusters=clusters,
                     neuron_specs=neuron_specs,
                     resonance_scores=final_scores,
                 )
                 weight_list = [final_weights_dict.get(nid, 0.0) for nid in all_logits.keys()]
                 weights = torch.tensor(weight_list, device=shared_embeddings.device)
+
+                # 修复：应用 division_path 权重生成 weighted_logits
+                weighted_logits = None
+                for i, (nid, logits) in enumerate(all_logits.items()):
+                    w = weights[i]
+                    if weighted_logits is None:
+                        weighted_logits = w * logits
+                    else:
+                        weighted_logits = weighted_logits + w * logits
+                result["weighted_logits"] = weighted_logits
+                result["final_weights"] = {
+                    nid: float(weights[i].item())
+                    for i, nid in enumerate(all_logits.keys())
+                }
             else:
                 # Per-position routing (v2): logit-entropy weighting + complementarity.
                 # Each position independently picks the neuron that is most confident.
@@ -425,8 +667,11 @@ class ResonanceEnsemble:
                     ignore_index=-100,
                 )
 
-                total_loss += loss.item() * shift_targets.numel()
-                total_tokens += shift_targets.numel()
+                # 修复：cross_entropy(mean, ignore_index=-100) 只对非忽略 token 求均值，
+                # 因此乘以非忽略 token 数（而非总 numel），避免 padding 高估 PPL
+                n_valid = (shift_targets != -100).sum().item()
+                total_loss += loss.item() * n_valid
+                total_tokens += n_valid
 
             if verbose and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(total_loss / max(total_tokens, 1))
@@ -484,8 +729,9 @@ class ResonanceEnsemble:
                     ignore_index=-100,
                 )
 
-                total_loss += loss.item() * shift_targets.numel()
-                total_tokens += shift_targets.numel()
+                n_valid = (shift_targets != -100).sum().item()
+                total_loss += loss.item() * n_valid
+                total_tokens += n_valid
 
             if verbose and (batch_idx + 1) % 10 == 0:
                 current_ppl = math.exp(total_loss / max(total_tokens, 1))

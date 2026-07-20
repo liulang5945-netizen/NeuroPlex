@@ -24,7 +24,8 @@ Fixes (this version):
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional
+from collections import deque
+from typing import Deque, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -41,6 +42,10 @@ class ResonanceField(nn.Module):
     parameter; it is now used in score() and complementarity().
     """
 
+    # 每个神经元的写入历史最多保留这么多条（诊断用）
+    # 上千神经元 × 多轮共振时，无界 list 会导致内存爆炸
+    HISTORY_MAXLEN: int = 4
+
     def __init__(self, dim: int = 4096, device: Optional[torch.device] = None):
         super().__init__()
         self.dim = dim
@@ -52,7 +57,8 @@ class ResonanceField(nn.Module):
 
         self.W_cond = nn.Parameter(torch.randn(dim, dim) * 0.02)
 
-        self._write_history: Dict[str, List[torch.Tensor]] = {}
+        # deque(maxlen=...) 自动丢弃最老条目，防止 N×R 轮后内存爆炸
+        self._write_history: Dict[str, Deque[torch.Tensor]] = {}
         self._contributions: Dict[str, torch.Tensor] = {}
         self.scores: Dict[str, float] = {}
         self.n_active: int = 0
@@ -67,37 +73,94 @@ class ResonanceField(nn.Module):
         self._batch_size = batch_size
         self._contributions.clear()
         self.scores.clear()
+        self._write_history.clear()
         self.n_active = 0
 
     @property
     def batch_size(self) -> int:
         return self._batch_size
 
-    def write(self, neuron_id: str, vector: torch.Tensor) -> torch.Tensor:
+    def write(self, neuron_id: str, vector: torch.Tensor,
+              scale: float = 1.0) -> torch.Tensor:
+        """写入神经元的场向量（L2 归一化后累加到 state）。
+
+        P1-2: scale 由 NeuromodulatorState.get_field_write_scale 提供，
+        高去甲肾上腺素 → 写入强度↑（警觉状态），低 → 写入强度↓（放松）。
+        scale 作用于归一化后的向量，保证方向不变只调幅度。
+        """
         if vector.dim() == 1:
             vector = vector.unsqueeze(0)
         v_norm = vector / (vector.norm(dim=-1, keepdim=True) + 1e-8)
-        B = v_norm.shape[0]
+        v_scaled = v_norm * scale  # P1-2: neuromodulator field_write_scale
+        B = v_scaled.shape[0]
         if B == 1 and self._batch_size == 1:
-            self.state = self.state + v_norm.squeeze(0)
+            self.state = self.state + v_scaled.squeeze(0)
         elif self.state.dim() == 1 and self._batch_size == 1:
             # auto-promote single [D] field to per-sample [B, D] (H2): robust when
             # neurons write batched vectors without an explicit reset(batch_size=...).
             self.state = self.state.unsqueeze(0).expand(B, -1).clone()
-            self.state = self.state + v_norm
+            self.state = self.state + v_scaled
             self._batch_size = B
         elif B == self._batch_size:
             if self.state.dim() == 1:
                 self.state = self.state.unsqueeze(0).expand(self._batch_size, -1).clone()
-            self.state = self.state + v_norm
+            self.state = self.state + v_scaled
         else:
             raise ValueError(f"vector batch {B} != field batch {self._batch_size}")
-        self._contributions[neuron_id] = v_norm.detach()
+        # _contributions 存储 scaled 版本，保证 leave-one-out 减法正确
+        self._contributions[neuron_id] = v_scaled.detach()
         self.n_active += 1
         if neuron_id not in self._write_history:
-            self._write_history[neuron_id] = []
+            self._write_history[neuron_id] = deque(maxlen=self.HISTORY_MAXLEN)
+        # _write_history 存储单位向量（语义：方向历史，与调质状态解耦）
         self._write_history[neuron_id].append(v_norm.detach())
-        return v_norm
+        return v_scaled
+
+    def update(self, neuron_id: str, vector: torch.Tensor,
+               scale: float = 1.0) -> torch.Tensor:
+        """增量更新：减去该 neuron 的旧贡献，加上新贡献。
+
+        用于多轮共振场景（如 TribeSuperNeuron.forward_tribe）：
+        每轮成员重新写入时，需要替换而非累加，否则 state 无界增长。
+
+        与 write 的区别：
+        - write: 纯累加（state += v），适合 round 1 初始写入
+        - update: 替换（state = state - old + new），适合 round 2+ 更新
+
+        P1-2: scale 同 write()，由 NeuromodulatorState.get_field_write_scale 提供。
+        """
+        if vector.dim() == 1:
+            vector = vector.unsqueeze(0)
+        v_norm = vector / (vector.norm(dim=-1, keepdim=True) + 1e-8)
+        v_scaled = v_norm * scale  # P1-2: neuromodulator field_write_scale
+
+        # 减去旧贡献（_contributions 已存 scaled 版本，减法一致）
+        old_contrib = self._contributions.get(neuron_id)
+        if old_contrib is not None:
+            if self.state.dim() == 1 and old_contrib.dim() == 1:
+                self.state = self.state - old_contrib
+            elif self.state.dim() == old_contrib.dim():
+                self.state = self.state - old_contrib
+            else:
+                # 维度不匹配时广播减法
+                self.state = self.state - old_contrib.squeeze(0) if old_contrib.dim() > self.state.dim() else self.state - old_contrib
+
+        # 加上新贡献（复用 write 的累加逻辑）
+        B = v_scaled.shape[0]
+        if B == 1 and self._batch_size == 1:
+            self.state = self.state + v_scaled.squeeze(0)
+        elif B == self._batch_size:
+            if self.state.dim() == 1:
+                self.state = self.state.unsqueeze(0).expand(self._batch_size, -1).clone()
+            self.state = self.state + v_scaled
+        else:
+            raise ValueError(f"vector batch {B} != field batch {self._batch_size}")
+
+        self._contributions[neuron_id] = v_scaled.detach()
+        if neuron_id not in self._write_history:
+            self._write_history[neuron_id] = deque(maxlen=self.HISTORY_MAXLEN)
+        self._write_history[neuron_id].append(v_norm.detach())
+        return v_scaled
 
     def _leave_one_out_state(self, exclude_id: str) -> torch.Tensor:
         """Field state with one neuron's contribution removed (H5 fix)."""
@@ -109,11 +172,25 @@ class ResonanceField(nn.Module):
         return self.state - contrib
 
     def _condition(self, state: torch.Tensor) -> torch.Tensor:
-        """Apply W_cond as a multiplicative gate (H8 fix)."""
+        """Apply W_cond as a multiplicative gate (H8 fix).
+
+        大规模扩展性修复：
+        state 是 N 个单位向量之和，norm ≈ √N。
+        N=5 时 norm≈2.2，sigmoid 正常；N=1000 时 norm≈31.6，
+        state @ W_cond 放大 14 倍导致 sigmoid 饱和到 0/1，
+        W_cond 学习到的门控模式完全失效。
+        修复：过 sigmoid 前先归一化 state，保持门控的梯度有意义。
+        （score() 内部用 cosine 归一化，只看方向不看幅度，所以输出归一化不影响得分）
+        """
         if state.norm() < 1e-8:
             return state
-        cond = torch.sigmoid(state @ self.W_cond)
-        return state * cond
+        # 归一化防止 sigmoid 饱和
+        if state.dim() == 1:
+            state_n = state / (state.norm() + 1e-8)
+        else:
+            state_n = state / (state.norm(dim=-1, keepdim=True) + 1e-8)
+        cond = torch.sigmoid(state_n @ self.W_cond)
+        return state_n * cond
 
     def score(self, vector: torch.Tensor, neuron_id: Optional[str] = None) -> float:
         score_state = self._leave_one_out_state(neuron_id) if neuron_id else self.state
@@ -193,20 +270,38 @@ class ResonanceField(nn.Module):
         return (1.0 - alpha) * align_01 + alpha * comp
 
     def directional_congestion(self, vector: torch.Tensor, active_vectors: List[torch.Tensor]) -> float:
+        """计算 vector 与 active_vectors 的平均正向 cosine similarity。
+
+        大规模扩展性修复：
+        原实现为 O(N) Python 循环 + 每次 .item() CPU 同步，
+        被 ensemble active_filter 外层调用后变成 O(N²)。
+        N=1000 时 100 万次迭代 + CPU 同步，可达数分钟。
+        改为矩阵乘法一次完成。
+        """
         if not active_vectors:
             return 0.0
+        # 统一压平到 [D]：处理 [B, D] 批量输入
         if vector.dim() == 2:
             vector = vector.mean(dim=0)
         v_norm = vector / (vector.norm() + 1e-8)
-        sims = []
+
+        # stack 所有 active_vectors 到 [N, D]
+        flat_vecs = []
         for av in active_vectors:
             av_clean = av.mean(dim=0) if av.dim() == 2 else av
-            av_norm = av_clean / (av_clean.norm() + 1e-8)
-            sims.append(max(0.0, float(torch.dot(v_norm, av_norm).item())))
-        return sum(sims) / len(sims)
+            flat_vecs.append(av_clean)
+        stacked = torch.stack(flat_vecs, dim=0)  # [N, D]
+        stacked_norm = stacked / (stacked.norm(dim=-1, keepdim=True) + 1e-8)
+
+        # 一次矩阵乘法得到所有 cosine similarity [N]
+        sims = (stacked_norm @ v_norm).clamp(min=0.0)
+        return float(sims.mean().item())
 
     def compute_threshold(self, directional_congestion: float) -> float:
-        return 0.30 + directional_congestion * 3.0
+        # 动态阈值：拥塞越高门槛越高，但不超过 1.0（cosine similarity 上限）
+        # 3.0 系数在上千 neuron 场景下 threshold 恒 > 1.0，导致多 neuron 共振失效
+        # 0.7 系数让 threshold ∈ [0.30, 1.00]，高拥塞时只保留高度对齐的 neuron
+        return min(1.0, 0.30 + directional_congestion * 0.7)
 
     def get_state(self) -> torch.Tensor:
         return self.state
@@ -222,7 +317,26 @@ class ResonanceField(nn.Module):
         return self.state / (norms + 1e-8)
 
     def write_history(self, neuron_id: str) -> List[torch.Tensor]:
-        return self._write_history.get(neuron_id, [])
+        # deque 支持 list() 转换和迭代，对外保持 list 语义
+        return list(self._write_history.get(neuron_id, []))
+
+    def get_contribution_sign(self, neuron_id: str) -> int:
+        """返回神经元对场的贡献符号（人脑启发：抑制性神经元返回 -1）。
+
+        通过检查存储的 contribution 向量的"主导方向"判断符号：
+        - 若 contribution 与某个参考正向（如第一个 excitatory 神经元）同向 → +1
+        - 若反向 → -1
+
+        简化实现：直接检查 contribution 的 L2 归一化前的原始符号不可行
+        （L2 归一化后只有方向，符号已编码在方向中）。
+        因此这里用 contribution 的首元素符号作为快速判断。
+        """
+        contrib = self._contributions.get(neuron_id)
+        if contrib is None:
+            return 0
+        # 取首元素符号（contribution 是 L2 归一化的，首元素符号代表整体方向）
+        first_elem = contrib.flatten()[0].item()
+        return 1 if first_elem >= 0 else -1
 
     def clear_history(self) -> None:
         self._write_history.clear()

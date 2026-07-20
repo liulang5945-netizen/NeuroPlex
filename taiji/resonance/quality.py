@@ -11,7 +11,10 @@ Uses both static and adaptive thresholds:
 
 from __future__ import annotations
 
+import logging
 from typing import Dict
+
+logger = logging.getLogger("Taiji.QualityFilter")
 
 
 class QualityFilter:
@@ -47,12 +50,21 @@ class QualityFilter:
             list of neuron IDs that passed the quality threshold.
         """
         filtered = []
+        excluded = []
         for nid in neuron_ids:
             ppl = self.neuron_ppls.get(nid, float("inf"))
             if ppl < self.ppl_threshold:
                 filtered.append(nid)
             else:
-                print(f"  [QualityFilter] excluding {nid}: PPL={ppl:.2f} >= {self.ppl_threshold}")
+                excluded.append((nid, ppl))
+        # 大规模时聚合输出，避免 N=1000 时刷屏
+        if excluded:
+            summary = ", ".join(f"{n}({p:.1f})" for n, p in excluded[:10])
+            suffix = f" ... +{len(excluded)-10} more" if len(excluded) > 10 else ""
+            logger.info(
+                "[QualityFilter] excluded %d neurons (threshold=%.1f): %s%s",
+                len(excluded), self.ppl_threshold, summary, suffix,
+            )
         return filtered
 
     def adaptive_threshold(self) -> float:
@@ -79,13 +91,18 @@ class QualityFilter:
         """
         threshold = self.adaptive_threshold()
         filtered = []
+        excluded = []
         for nid in neuron_ids:
             ppl = self.neuron_ppls.get(nid, float("inf"))
             if ppl < threshold:
                 filtered.append(nid)
             else:
-                print(
-                    f"  [QualityFilter:adaptive] excluding {nid}: "
-                    f"PPL={ppl:.2f} >= {threshold:.2f}"
-                )
+                excluded.append((nid, ppl))
+        if excluded:
+            summary = ", ".join(f"{n}({p:.1f})" for n, p in excluded[:10])
+            suffix = f" ... +{len(excluded)-10} more" if len(excluded) > 10 else ""
+            logger.info(
+                "[QualityFilter:adaptive] excluded %d neurons (threshold=%.1f): %s%s",
+                len(excluded), threshold, summary, suffix,
+            )
         return filtered

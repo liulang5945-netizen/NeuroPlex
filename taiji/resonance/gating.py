@@ -114,7 +114,17 @@ class ResonanceTrigger:
     3. Sufficient error room (not near-perfect prediction)
 
     Position: called at the start of ResonanceEnsemble.forward(), after round 1.
+
+    大规模扩展性修复：
+    - 多样性检查原为 O(N²) Python 双循环，N=1000 时 50 万次迭代
+    - 改为矩阵化 gram matrix 计算 + 大规模时随机采样
+    - DIVERSITY_SAMPLE_LIMIT: N 超过此值时随机采样该数量的向量
+      （多样性是统计指标，采样估计在 N=1000 时仍足够准确）
     """
+
+    # 多样性检查的采样上限：N > 此值时随机采样
+    # 64 个向量的 pairwise 多样性已能可靠估计 1000 个神经元的整体多样性
+    DIVERSITY_SAMPLE_LIMIT: int = 64
 
     def __init__(
         self,
@@ -125,6 +135,38 @@ class ResonanceTrigger:
         self.confidence_gate = ConfidenceGate(threshold=confidence_threshold)
         self.diversity_threshold = diversity_threshold  # min pairwise cosine distance
         self.min_active_neurons = min_active_neurons
+
+    def _compute_diversity(self, vecs: list[torch.Tensor]) -> float:
+        """计算向量集合的平均 pairwise cosine distance。
+
+        矩阵化实现：stack → [N, D] → normalize → gram [N, N] → 上三角均值。
+        大规模时随机采样 DIVERSITY_SAMPLE_LIMIT 个向量，避免 O(N²) 内存。
+        """
+        if len(vecs) < 2:
+            return 0.0
+
+        # 大规模采样：N > LIMIT 时随机采样 LIMIT 个
+        if len(vecs) > self.DIVERSITY_SAMPLE_LIMIT:
+            import random
+            idx = random.sample(range(len(vecs)), self.DIVERSITY_SAMPLE_LIMIT)
+            vecs = [vecs[i] for i in idx]
+
+        # stack 到 [N, D]：处理 [B, D] 输入时取 batch 均值压成 [D]
+        flat_vecs = []
+        for v in vecs:
+            if v.dim() == 2:
+                v = v.mean(dim=0)
+            flat_vecs.append(v)
+        stacked = torch.stack(flat_vecs, dim=0)  # [N, D]
+        # L2 归一化
+        stacked = stacked / (stacked.norm(dim=-1, keepdim=True) + 1e-8)
+        # gram matrix [N, N]
+        gram = stacked @ stacked.t()
+        # 上三角（i < j）的均值 = 平均 pairwise cosine similarity
+        N = gram.shape[0]
+        triu_indices = torch.triu_indices(N, N, offset=1)
+        avg_sim = float(gram[triu_indices[0], triu_indices[1]].mean().item())
+        return 1.0 - avg_sim  # cosine distance
 
     def should_resonate(
         self,
@@ -152,19 +194,10 @@ class ResonanceTrigger:
         if n_active < self.min_active_neurons:
             return False, f"too few active neurons ({n_active} < {self.min_active_neurons})"
 
-        # Check diversity of field vectors
+        # Check diversity of field vectors (matrix-based, sampled for large N)
         vecs = list(field_vectors.values())
         if len(vecs) >= 2:
-            # Compute average pairwise cosine similarity
-            similarities = []
-            for i in range(len(vecs)):
-                for j in range(i + 1, len(vecs)):
-                    v_i = vecs[i] / (vecs[i].norm() + 1e-8)
-                    v_j = vecs[j] / (vecs[j].norm() + 1e-8)
-                    sim = float(torch.dot(v_i.squeeze(), v_j.squeeze()))
-                    similarities.append(sim)
-            avg_sim = sum(similarities) / len(similarities)
-            avg_dist = 1 - avg_sim  # cosine distance
+            avg_dist = self._compute_diversity(vecs)
             if avg_dist < self.diversity_threshold:
                 return False, f"insufficient neuron diversity (cos_dist={avg_dist:.3f})"
 

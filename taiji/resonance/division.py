@@ -30,7 +30,9 @@ import torch.nn.functional as F
 
 
 def _to_1d(t: torch.Tensor) -> torch.Tensor:
-    """Ensure tensor is 1D."""
+    """Ensure tensor is 1D (collapse batch dim if present via mean)."""
+    if t.dim() > 1:
+        t = t.mean(dim=0)  # [B, D] -> [D]
     return t.reshape(-1)
 
 
@@ -100,16 +102,14 @@ class ClusterDominance:
         vecs = [_to_1d(v) for v in cluster_neurons.values()]
         in_vec = _to_1d(input_vector)
 
-        # Internal coherence
+        # Internal coherence（矩阵化：原为 O(M) Python 列表推导 + 每次 .detach() 同步）
         if len(vecs) >= 2:
-            centroid = torch.stack(vecs).mean(dim=0)
-            centroid_norm = _to_1d(centroid / (centroid.norm() + 1e-8))
-            coherence = float(
-                torch.stack([
-                    torch.dot(_to_1d(v / (v.norm() + 1e-8)), centroid_norm)
-                    for v in vecs
-                ]).mean().detach()
-            )
+            stacked = torch.stack(vecs, dim=0)  # [M, D]
+            centroid = stacked.mean(dim=0)
+            centroid_norm = centroid / (centroid.norm() + 1e-8)
+            stacked_norm = stacked / (stacked.norm(dim=-1, keepdim=True) + 1e-8)
+            # 一次矩阵乘法得到所有成员与质心的 cosine similarity [M]
+            coherence = float((stacked_norm @ centroid_norm).mean().item())
         else:
             coherence = 1.0
 

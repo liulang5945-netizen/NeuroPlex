@@ -83,15 +83,30 @@ class TribalMetrics:
         α ∈ [0, 1]
         高 → "大家在说同一件事"，输出方向可信。
         低 → "内部分歧"，压缩后的方向不可靠。
+
+        大规模扩展性修复：
+        原为 O(M²) Python pairwise 循环 + 每次 .mean() CPU 同步。
+        M=1000 时 50 万次迭代。改为 gram matrix 一次完成。
         """
         writes = self.latest_writes
         if len(writes) < 2:
             return 1.0
 
-        pairwise_cos = []
-        for vi, vj in combinations(writes, 2):
-            pairwise_cos.append(float(torch.dot(vi, vj)))
-        return sum(pairwise_cos) / len(pairwise_cos)
+        # stack 到 [M, B, D] → [M, D]（batch 维取均值，与原逻辑一致）
+        flat_writes = []
+        for v in writes:
+            if v.dim() == 2:
+                v = v.mean(dim=0)  # [B, D] → [D]
+            flat_writes.append(v)
+        stacked = torch.stack(flat_writes, dim=0)  # [M, D]
+        # L2 归一化
+        stacked = stacked / (stacked.norm(dim=-1, keepdim=True) + 1e-8)
+        # gram matrix [M, M]，上三角（i<j）的均值 = 平均 pairwise cosine
+        gram = stacked @ stacked.t()
+        M = gram.shape[0]
+        triu_indices = torch.triu_indices(M, M, offset=1)
+        pairwise_cos = gram[triu_indices[0], triu_indices[1]]
+        return float(pairwise_cos.mean().item())
 
     # ── 指标 2：收敛速度 β ──
 
@@ -110,18 +125,20 @@ class TribalMetrics:
 
         deltas = []
         for t in range(1, len(history)):
+            ht = history[t]
+            hprev = history[t - 1]
+            # per-sample cosine 再取平均：支持 [B, D] 批量推理
             cos_sim = float(
-                torch.dot(history[t], history[t - 1])
-                / (history[t].norm() * history[t - 1].norm() + 1e-8)
+                ((ht * hprev).sum(dim=-1) / (ht.norm(dim=-1) * hprev.norm(dim=-1) + 1e-8)).mean()
             )
-            deltas.append(1.0 - cos_sim)
+            deltas.append(max(0.0, 1.0 - cos_sim))
 
         # 指数衰减加权：最近的变化最重要
+        # weights[0]=1 给最新 delta（reversed(deltas) 的第一个）
         weights = [0.7 ** i for i in range(len(deltas))]
-        weighted_delta = sum(
-            w * d for w, d in zip(reversed(weights), reversed(deltas))
-        )
-        return 1.0 - weighted_delta
+        weighted_delta = sum(w * d for w, d in zip(weights, reversed(deltas)))
+        weighted_delta = weighted_delta / (sum(weights) + 1e-8)  # 归一化使 β ∈ [0, 1]
+        return max(0.0, 1.0 - weighted_delta)
 
     # ── 指标 3：方向散布度 γ ──
 
@@ -142,13 +159,13 @@ class TribalMetrics:
         if len(writes) < 2:
             return 1.0
 
-        # 质心方向（L2 归一化）
-        stacked = torch.stack(writes, dim=0)  # [N, D]
-        raw_centroid = stacked.mean(dim=0)
-        centroid = raw_centroid / (raw_centroid.norm() + 1e-8)
+        # 质心方向（L2 归一化）— per-sample 处理 [B, D] 输入
+        stacked = torch.stack(writes, dim=0)  # [N, B, D]
+        raw_centroid = stacked.mean(dim=0)     # [B, D]
+        centroid = raw_centroid / (raw_centroid.norm(dim=-1, keepdim=True) + 1e-8)
 
-        # 每个成员到质心的欧氏距离（已归一化向量间，最大距离 = √2）
-        distances = [(v - centroid).norm().item() for v in writes]
+        # 每个成员到质心的欧氏距离（per-sample，已归一化向量间最大距离 = √2）
+        distances = [(v - centroid).norm(dim=-1).mean().item() for v in writes]
         mean_dist = sum(distances) / len(distances)
 
         # mean_dist ∈ [0, √2] → γ ∈ [1/(1+√2), 1] ≈ [0.41, 1]
@@ -187,14 +204,16 @@ class TribalMetrics:
         if len(writes) < 2:
             return 0.0
 
-        # v_tribe = 子场最终状态的归一化方向
+        # v_tribe = 子场最终状态的归一化方向（per-sample 归一化）
         final_field = self._sub_field_history[-1] if self._sub_field_history else writes[0]
-        v_tribe = final_field / (final_field.norm() + 1e-8)
+        v_tribe = final_field
+        v_tribe = v_tribe / (v_tribe.norm(dim=-1, keepdim=True) + 1e-8)
 
         residuals = []
         for v in writes:
-            proj = (v @ v_tribe) * v_tribe
-            residual = (v - proj).norm().item()
+            # per-sample 投影残差：v_tribe 是 [B, D]，v 是 [B, D]
+            proj = (v * v_tribe).sum(dim=-1, keepdim=True) * v_tribe
+            residual = (v - proj).norm(dim=-1).mean().item()
             residuals.append(residual)
 
         return sum(residuals) / len(residuals)
@@ -255,9 +274,10 @@ class TribeSuperNeuron(nn.Module):
         """
         super().__init__()
         self.tribe_id = tribe_id
-        self.members = members
+        self.members = nn.ModuleList(members)  # 注册为子模块，使 parameters()/to()/state_dict() 正确工作
         self.sub_field = sub_field
-        self.parent_field = parent_field
+        # parent_field 是共享外部对象，不注册为子模块（避免 state_dict 包含其 W_cond）
+        object.__setattr__(self, "parent_field", parent_field)
 
         # D 继承：上级场维度 > sub_field.dim > 4096 回退
         if parent_field is not None and hasattr(parent_field, "dim"):
@@ -272,8 +292,8 @@ class TribeSuperNeuron(nn.Module):
         # 部落对外场投影（与普通神经元的 field_write 等价）
         self.field_write_proj = nn.Linear(sub_D, parent_D, bias=False)
 
-        # 部落指纹（与普通神经元的 fingerprint 等价）
-        self.register_buffer("fingerprint", torch.zeros(parent_D))
+        # 部落指纹（在 sub_D 空间，与 field_write_proj 输入维度一致）
+        self.register_buffer("fingerprint", torch.zeros(sub_D))
 
         # 部落在上级场中的评估状态
         self.register_buffer("L_score_fast", torch.tensor(0.0))
@@ -307,7 +327,7 @@ class TribeSuperNeuron(nn.Module):
         执行部落内部完整共振循环，返回对外输出。
 
         Args:
-            input_ids: 输入 token IDs [B, L]
+            shared_embeddings: 共享嵌入 [B, L, base_embed_dim]
             max_rounds: 最大内部共振轮数
 
         Returns:
@@ -318,27 +338,37 @@ class TribeSuperNeuron(nn.Module):
                 - should_dissolve: 是否建议解散
         """
         self.metrics.reset()
-        self.sub_field.reset() if hasattr(self.sub_field, "reset") else None
+        batch_size = shared_embeddings.shape[0]
+        if hasattr(self.sub_field, "reset"):
+            self.sub_field.reset(batch_size=batch_size)
 
         # ── 第 1 轮：所有成员独立前向 ──
         member_writes = []
-        for neuron in self.members:
+        for i, neuron in enumerate(self.members):
             v = neuron.forward(shared_embeddings, field_state=None, round_num=1)["field_vector"]
             member_writes.append(v)
             if hasattr(self.sub_field, "write"):
-                self.sub_field.write(neuron.neuron_id, v)
+                self.sub_field.write(f"member_{i}", v)
 
+        # 大规模修复：传给成员的 field_state 必须归一化
+        # sub_field.state 是 M 个单位向量之和，norm ≈ √M
+        # M=1000 时 norm≈31.6，未归一化的 conditioning 会压倒成员自身输出
+        # （ensemble.py 用 get_normalised_state()，tribal 必须一致）
         sub_field_state = (
-            self.sub_field.state
-            if hasattr(self.sub_field, "state")
+            self.sub_field.get_normalised_state()
+            if hasattr(self.sub_field, "get_normalised_state")
+            else self.sub_field.state if hasattr(self.sub_field, "state")
             else sum(member_writes) / len(member_writes)
         )
+        # metrics 记录归一化后的状态（用于 stability/compression_loss 计算）
         self.metrics.record_round(member_writes, sub_field_state)
 
-        # ── 第 2-N 轮：读子场 → 条件化 → 重新写入 ──
+        # ── 第 2-N 轮：读子场 → 条件化 → 增量更新写入 ──
+        # 使用 update（减旧加新）而非 reset+write，保持子场状态的累积动态
+        # 使 stability 指标能正确测量收敛过程
         for r in range(2, max_rounds + 1):
             member_writes = []
-            for neuron in self.members:
+            for i, neuron in enumerate(self.members):
                 v = neuron.forward(
                     shared_embeddings,
                     field_state=sub_field_state,
@@ -346,11 +376,14 @@ class TribeSuperNeuron(nn.Module):
                 )["field_vector"]
                 member_writes.append(v)
                 if hasattr(self.sub_field, "update"):
-                    self.sub_field.update(neuron.neuron_id, v)
+                    self.sub_field.update(f"member_{i}", v)
+                elif hasattr(self.sub_field, "write"):
+                    self.sub_field.write(f"member_{i}", v)
 
             sub_field_state = (
-                self.sub_field.state
-                if hasattr(self.sub_field, "state")
+                self.sub_field.get_normalised_state()
+                if hasattr(self.sub_field, "get_normalised_state")
+                else self.sub_field.state if hasattr(self.sub_field, "state")
                 else sum(member_writes) / len(member_writes)
             )
             self.metrics.record_round(member_writes, sub_field_state)
@@ -396,11 +429,11 @@ class TribeSuperNeuron(nn.Module):
         if self._last_v_tribe is None:
             return 0.0
 
-        v = self._last_v_tribe.flatten()
-        F = parent_field_state.flatten()
-        raw_score = float(
-            torch.dot(v, F) / (v.norm() * F.norm() + 1e-8)
-        )
+        # per-sample cosine 再取平均：支持 [B, D] 批量推理
+        v = self._last_v_tribe
+        F = parent_field_state
+        cos = (v * F).sum(dim=-1) / (v.norm(dim=-1) * F.norm(dim=-1) + 1e-8)
+        raw_score = float(cos.mean())
         return raw_score * self._last_Q
 
     def freeze_fingerprint(self) -> None:
@@ -432,31 +465,81 @@ class TribeSuperNeuron(nn.Module):
 @dataclass
 class CoactivationTracker:
     """
-    跨神经元共激活矩阵追踪。
+    跨神经元共激活矩阵追踪（双 EMA + 遗忘机制）。
 
-    用于检测应该主动部落化的神经元组。
+    人脑启发：Hebbian 学习"用进废退"。
+    - fast EMA (α=0.1)：短期共激活，触发动态部落化
+    - slow EMA (α=0.01)：长期趋势，决定 side_channel 强化/修剪
+    - 遗忘机制：slow EMA < ε 的 pair 自动移除，防止无界增长
+
+    用于：
+    1. 检测应该主动部落化的神经元组（fast EMA）
+    2. 触发 side_channel 强化/修剪（slow EMA）
+    3. 触发神经元凋亡/新生（长期低共激活 / 孤立激活）
     """
 
-    ema_alpha: float = 0.1
+    fast_alpha: float = 0.1
+    slow_alpha: float = 0.01
     threshold: float = 0.6
-    _matrix: dict[tuple[int, int], float] = field(default_factory=dict)
+    forget_threshold: float = 0.01  # slow EMA 低于此值则遗忘
+    _fast_matrix: dict = field(default_factory=dict)
+    _slow_matrix: dict = field(default_factory=dict)
+    # 单调激活计数：用于检测凋亡候选（长期低共激活）
+    _activation_count: dict = field(default_factory=dict)
 
-    def update(self, active_neuron_ids: list[int]) -> None:
-        """每轮共振后更新共激活频率。"""
-        for i, j in combinations(sorted(active_neuron_ids), 2):
+    def update(self, active_neuron_ids: list[int], **kwargs) -> None:
+        """每轮共振后更新共激活频率（双 EMA）。
+
+        大规模扩展性修复：
+        - 原 O(N²) combinations 遍历改为只处理实际激活的 pair
+        - N=1000 且仅 10 个激活时，pair 数 = 45 而非 499500
+        - 双 EMA 分别维护短期和长期趋势
+
+        P0-1 fix: 接受 **kwargs（如 round_num）以兼容 ensemble.forward 调用，
+        round_num 信息由 _firing_history (STDPTracker) 维护，本 tracker 不需要。
+        """
+        active_sorted = sorted(active_neuron_ids)
+        active_set = set(active_sorted)
+
+        # 更新单调激活计数
+        for nid in active_sorted:
+            self._activation_count[nid] = self._activation_count.get(nid, 0) + 1
+
+        # 只遍历实际激活的 pair（稀疏更新）
+        for i, j in combinations(active_sorted, 2):
             key = (i, j)
-            prev = self._matrix.get(key, 0.0)
-            self._matrix[key] = self.ema_alpha * 1.0 + (1 - self.ema_alpha) * prev
+            # fast EMA
+            fast_prev = self._fast_matrix.get(key, 0.0)
+            self._fast_matrix[key] = self.fast_alpha * 1.0 + (1 - self.fast_alpha) * fast_prev
+            # slow EMA
+            slow_prev = self._slow_matrix.get(key, 0.0)
+            self._slow_matrix[key] = self.slow_alpha * 1.0 + (1 - self.slow_alpha) * slow_prev
+
+    def forget_weak(self) -> int:
+        """遗忘 slow EMA 低于阈值的 pair（人脑启发：用进废退）。
+
+        Returns:
+            被遗忘的 pair 数量
+        """
+        to_remove = [
+            key for key, freq in self._slow_matrix.items()
+            if freq < self.forget_threshold
+        ]
+        for key in to_remove:
+            del self._slow_matrix[key]
+            self._fast_matrix.pop(key, None)
+        return len(to_remove)
 
     def get_dense_groups(self, min_size: int = 8) -> list[list[int]]:
         """
         找出共激活密度超过阈值的神经元组。
 
+        基于 fast EMA（短期共激活模式）。
         简单实现：对超过阈值的边做连通分量分析。
         """
         dense_edges = [
             (i, j)
-            for (i, j), freq in self._matrix.items()
+            for (i, j), freq in self._fast_matrix.items()
             if freq > self.threshold
         ]
 
@@ -485,3 +568,35 @@ class CoactivationTracker:
             groups.setdefault(root, []).append(node)
 
         return [sorted(g) for g in groups.values() if len(g) >= min_size]
+
+    def get_apoptosis_candidates(self, total_rounds: int, threshold_ratio: float = 0.05) -> list[int]:
+        """获取凋亡候选神经元（人脑启发：神经元凋亡）。
+
+        长期激活率低于 threshold_ratio 的神经元是凋亡候选。
+        """
+        if total_rounds == 0:
+            return []
+        threshold = total_rounds * threshold_ratio
+        return [
+            nid for nid, count in self._activation_count.items()
+            if count < threshold
+        ]
+
+    def get_strong_pairs(self, threshold: float = 0.3) -> list[tuple[int, int]]:
+        """获取强共激活 pair（用于 side_channel 强化）。
+
+        基于 slow EMA（长期趋势）。
+        """
+        return [
+            key for key, freq in self._slow_matrix.items()
+            if freq > threshold
+        ]
+
+    def get_stats(self) -> dict:
+        """返回统计信息。"""
+        return {
+            "total_pairs_tracked": len(self._slow_matrix),
+            "dense_pairs_fast": sum(1 for f in self._fast_matrix.values() if f > self.threshold),
+            "strong_pairs_slow": sum(1 for f in self._slow_matrix.values() if f > 0.3),
+            "total_neurons_seen": len(self._activation_count),
+        }
