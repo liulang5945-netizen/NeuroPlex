@@ -37,6 +37,7 @@ class BodyCore:
 
     def __init__(self):
         self._model = None
+        self._cortex = None  # 大脑（Cortex）- 取代旧 ModelSelf 的认知主体
         self._tokenizer = None
         self._device = "cpu"
         self._action_provider = None
@@ -58,18 +59,40 @@ class BodyCore:
         """获取当前模型"""
         return self._model
 
-    def set_model(self, model):
-        """设置模型（支持热切换）"""
+    # ── 大脑（Cortex）管理 ──
+
+    @property
+    def cortex(self):
+        """获取大脑（Cortex）"""
+        return self._cortex
+
+    def set_cortex(self, cortex):
+        """设置大脑（取代旧的 set_model/self._model）"""
         with self._lock:
-            old_model = self._model
-            self._model = model
-            logger.info(f"Model switched: {type(old_model).__name__} -> {type(model).__name__}")
-            # 通知订阅者
-            for cb in self._callbacks.get("model_change", []):
-                try:
-                    cb(old_model, model)
-                except Exception as e:
-                    logger.error(f"Model change callback error: {e}")
+            old = self._cortex
+            self._cortex = cortex
+            logger.info(f"Cortex set: {type(cortex).__name__}")
+            # 通知感知系统
+            if self._senses is not None and hasattr(self._senses, 'set_cortex'):
+                self._senses.set_cortex(cortex)
+
+    def set_model(self, model):
+        """设置模型（已废弃，请使用 set_cortex）"""
+        logger.warning("set_model() is deprecated, use set_cortex() instead")
+        # 如果传入的是 Cortex 实例，自动路由到 set_cortex
+        if type(model).__name__ == 'Cortex':
+            self.set_cortex(model)
+        else:
+            with self._lock:
+                old_model = self._model
+                self._model = model
+                logger.info(f"Model switched: {type(old_model).__name__} -> {type(model).__name__}")
+                # 通知订阅者
+                for cb in self._callbacks.get("model_change", []):
+                    try:
+                        cb(old_model, model)
+                    except Exception as e:
+                        logger.error(f"Model change callback error: {e}")
 
     def on_model_change(self, callback: Callable):
         """注册模型切换回调"""
@@ -204,7 +227,7 @@ class BodyCore:
         return result
 
     def is_healthy(self) -> bool:
-        """检查态极是否健康（资源充足）"""
+        """检查态极是否健康"""
         try:
             import psutil
             memory = psutil.virtual_memory()
@@ -214,6 +237,10 @@ class BodyCore:
                 return False
         except ImportError:
             pass
+        # 大脑必须加载
+        if self._cortex is not None and hasattr(self._cortex, 'is_loaded'):
+            if not self._cortex.is_loaded:
+                return False
         return True
 
     def cleanup(self):
@@ -234,6 +261,20 @@ class BodyCore:
                 except Exception as e:
                     logger.warning(f"Cleanup error: {e}")
 
+            # Cortex 清理（在 model 清理之后）
+            if self._cortex is not None:
+                try:
+                    import gc
+                    import torch
+                    del self._cortex
+                    self._cortex = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    logger.info("Cortex cleaned up")
+                except Exception as e:
+                    logger.warning(f"Cortex cleanup error: {e}")
+
             self._tokenizer = None
             self._action_provider = None
 
@@ -248,6 +289,8 @@ class BodyCore:
             "device": self._device,
             "has_model": self._model is not None,
             "model_type": type(self._model).__name__ if self._model else None,
+            "has_cortex": self._cortex is not None,
+            "cortex_type": type(self._cortex).__name__ if self._cortex else None,
             "has_tokenizer": self._tokenizer is not None,
             "has_action_provider": self._action_provider is not None,
             "healthy": self.is_healthy(),

@@ -17,6 +17,43 @@ logger = logging.getLogger("Taiji.Limbs")
 
 _WORKSPACE_DIR = None
 
+# 模块级 FeedEngine 引用（由 BodyCore 注入，用于实践反馈）
+_feed_engine = None
+
+
+def set_feed_engine(engine):
+    """设置 FeedEngine 引用，用于将执行结果反馈为训练样本。
+
+    Args:
+        engine: FeedEngine 实例（或 None 用于清除）
+    """
+    global _feed_engine
+    _feed_engine = engine
+    if engine is not None:
+        logger.info(f"FeedEngine 已注入 limbs: {type(engine).__name__}")
+
+
+def _feedback_to_feed(code: str, output: str, success: bool, domain: str = "code"):
+    """将代码执行结果反馈到 FeedEngine（如果已注入）。
+
+    闭合"实践→喂养→睡眠训练"回路：limbs 执行代码后，
+    将结果喂给 feed_engine，供睡眠时训练对应域的神经元。
+
+    Args:
+        code: 执行的代码
+        output: 执行输出
+        success: 是否成功
+        domain: 知识域（默认 code）
+    """
+    if _feed_engine is None:
+        return
+    try:
+        _feed_engine.feed_from_practice(
+            code=code, output=output, success=success, domain=domain
+        )
+    except Exception as e:
+        logger.debug(f"实践反馈失败（非关键）: {e}")
+
 
 def _get_workspace() -> str:
     """获取态极的工作台目录"""
@@ -327,15 +364,21 @@ def run_python(code: str) -> dict:
             cwd=_get_workspace(),
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
+        success = result.returncode == 0
+        output = result.stdout[:2000] if success else result.stderr[:1000]
+        # 将执行结果反馈到 FeedEngine（闭合实践→喂养→训练回路）
+        _feedback_to_feed(code=code, output=output, success=success, domain="code")
         return {
-            "success": result.returncode == 0,
+            "success": success,
             "stdout": result.stdout[:2000],
             "stderr": result.stderr[:1000],
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
+        _feedback_to_feed(code=code, output="执行超时", success=False, domain="code")
         return {"success": False, "error": "执行超时（超过 30 秒）"}
     except Exception as e:
+        _feedback_to_feed(code=code, output=str(e), success=False, domain="code")
         return {"success": False, "error": str(e)}
 
 

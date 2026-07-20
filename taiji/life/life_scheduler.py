@@ -130,6 +130,12 @@ class LifeScheduler:
         self._play_engine = None
         self._explore_engine = None
 
+        # 神经元架构组件引用（由 set_brain_interfaces 注入）
+        self._cortex = None
+        self._lifecycle = None
+        self._neuromodulator = None
+        self._coaction = None
+
         # 事件总线引用（由 TaijiCore 注入，用于广播生命事件到前端）
         self._event_bus = event_bus
 
@@ -137,6 +143,97 @@ class LifeScheduler:
         self._load_state()
 
         logger.info("LifeScheduler initialized")
+
+    # ─── 神经元架构接口 ───────────────────────────────
+
+    def set_brain_interfaces(
+        self,
+        cortex=None,
+        lifecycle=None,
+        neuromodulator=None,
+        coactivation=None,
+        feed_engine=None,
+    ):
+        """注入神经元架构组件，使生命需求能驱动神经元级行为。
+
+        5 维需求→神经元行为映射（P1-3）：
+        - hunger  → neurogenesis 信号（高饥饿=知识不足，需要新神经元）
+        - fatigue → SleepConsolidator 触发（高疲劳需要睡眠巩固）
+        - stress  → dopamine↓（高压力=负面信号，降低学习率）
+        - curiosity → norepinephrine↑（高好奇=警觉提升，field_write 增强）
+        - boredom → 自由共振/play（高无聊触发自由探索）
+
+        Args:
+            cortex: Cortex 实例
+            lifecycle: LifecycleManager（apoptosis/neurogenesis/maturity）
+            neuromodulator: NeuromodulatorState 实例
+            coactivation: CoactivationTracker 实例
+            feed_engine: FeedEngine 实例
+        """
+        if cortex is not None:
+            self._cortex = cortex
+        if lifecycle is not None:
+            self._lifecycle = lifecycle
+        if neuromodulator is not None:
+            self._neuromodulator = neuromodulator
+        if coactivation is not None:
+            self._coaction = coactivation
+        if feed_engine is not None:
+            self._feed_engine = feed_engine
+
+        logger.info(
+            f"Brain interfaces set: cortex={'✓' if self._cortex else '✗'}, "
+            f"lifecycle={'✓' if self._lifecycle else '✗'}, "
+            f"neuromodulator={'✓' if self._neuromodulator else '✗'}, "
+            f"coaction={'✓' if self._coaction else '✗'}, "
+            f"feed_engine={'✓' if self._feed_engine else '✗'}"
+        )
+
+    def _update_neuron_signals(self):
+        """将 5 维需求映射为神经元级行为信号（每次心跳调用）。
+
+        此方法在持有锁时调用，操作快速且不阻塞。
+        """
+        needs = self.needs
+
+        # 1. 神经调质：需求→调质目标
+        if self._neuromodulator is not None:
+            try:
+                # stress → dopamine↓（高压力降低多巴胺，减少学习率）
+                dopamine_target = max(0.2, 0.7 - needs.stress / 100.0 * 0.5)
+
+                # curiosity → norepinephrine↑（高好奇提升警觉度）
+                norepinephrine_target = min(0.9, 0.3 + needs.curiosity / 100.0 * 0.6)
+
+                # boredom 低 → serotonin↑（满足感）；boredom 高 → serotonin↓
+                serotonin_target = max(0.3, 0.8 - needs.boredom / 100.0 * 0.5)
+
+                self._neuromodulator.set_targets(
+                    dopamine=dopamine_target,
+                    serotonin=serotonin_target,
+                    norepinephrine=norepinephrine_target,
+                )
+                # EMA 趋近（让调质缓慢变化）
+                self._neuromodulator.step()
+            except Exception as e:
+                logger.debug(f"神经调质更新失败（非关键）: {e}")
+
+        # 2. hunger 高 → 检查是否需要 neurogenesis
+        if needs.hunger > self.HUNGER_THRESHOLD and self._feed_engine is not None:
+            try:
+                error_rates = self._feed_engine.get_domain_error_rates()
+                high_error_domains = [d for d, r in error_rates.items() if r > 0.5]
+                if high_error_domains:
+                    logger.debug(
+                        f"高饥饿+高错误率域: {high_error_domains}，"
+                        f"睡眠时将触发 neurogenesis"
+                    )
+            except Exception:
+                pass
+
+        # 3. fatigue 高 → 标记需要 SleepConsolidator
+        if needs.fatigue > self.FATIGUE_THRESHOLD:
+            logger.debug("高疲劳，睡眠时将优先执行 SleepConsolidator 巩固")
 
     # ─── 公开接口 ───────────────────────────────────
 
@@ -409,7 +506,10 @@ class LifeScheduler:
             # 1. 需求自然变化
             self._needs_tick()
 
-            # 2. 决定行动
+            # 2. 将需求映射为神经元级行为信号（神经调质/neurogenesis 预判）
+            self._update_neuron_signals()
+
+            # 3. 决定行动
             action = self._decide_action()
 
         # 慢操作：执行行动（不持有锁，避免阻塞 record_interaction 等调用）

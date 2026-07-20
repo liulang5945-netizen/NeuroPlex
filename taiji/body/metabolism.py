@@ -12,6 +12,84 @@ from typing import Optional
 
 logger = logging.getLogger("Taiji.Metabolism")
 
+# 模块级 NeuromodulatorState 引用（由 BodyCore 注入）
+_neuromodulator = None
+
+
+def set_neuromodulator(nm_state):
+    """设置神经调质状态引用，用于根据硬件状态调节神经调质。
+
+    Args:
+        nm_state: NeuromodulatorState 实例（或 None 用于清除）
+    """
+    global _neuromodulator
+    _neuromodulator = nm_state
+    if nm_state is not None:
+        logger.info(f"NeuromodulatorState 已注入 metabolism: {type(nm_state).__name__}")
+
+
+def update_neuromodulator():
+    """根据当前硬件状态更新神经调质水平。
+
+    硬件状态→神经调质映射（人脑启发）：
+    - CPU/GPU 负载高 → norepinephrine↑（警觉性提升，field_write 增强）
+    - 内存紧张 → dopamine↓（资源不足=负面信号，触发保守模式）
+    - 资源充裕 → serotonin↑（满足感，稳定运行）
+    - GPU 可用 → dopamine↑（奖励信号，算力充足）
+
+    此方法由 LifeScheduler 心跳或 BodyCore 定期调用。
+    """
+    if _neuromodulator is None:
+        return
+
+    try:
+        info = analyze_hardware()
+        resources = check_resources()
+
+        # 1. CPU 负载 → norepinephrine（警觉度）
+        try:
+            import psutil
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            # CPU 负载高 → 警觉度提升
+            norepinephrine_target = min(1.0, 0.3 + cpu_percent / 100.0 * 0.7)
+        except ImportError:
+            norepinephrine_target = 0.5
+
+        # 2. 内存状态 → dopamine（奖励/惩罚）
+        mem_percent = resources.get("memory_percent", 50)
+        if mem_percent > 90:
+            # 内存紧张 → 多巴胺下降（负面信号）
+            dopamine_target = 0.2
+        elif mem_percent > 75:
+            dopamine_target = 0.4
+        else:
+            # 内存充裕 → 多巴胺正常偏上
+            dopamine_target = 0.6
+
+        # 3. GPU 可用 → dopamine 额外奖励
+        if info.is_gpu_available():
+            dopamine_target = min(1.0, dopamine_target + 0.15)
+
+        # 4. 资源健康度 → serotonin（满足感）
+        if resources.get("memory_healthy", True) and resources.get("gpu_healthy", True):
+            serotonin_target = 0.7
+        else:
+            serotonin_target = 0.3
+
+        # 设置目标值（实际值会通过 EMA 缓慢趋近）
+        _neuromodulator.set_targets(
+            dopamine=dopamine_target,
+            serotonin=serotonin_target,
+            norepinephrine=norepinephrine_target,
+        )
+
+        logger.debug(
+            f"神经调质目标已更新: DA={dopamine_target:.2f}, "
+            f"5HT={serotonin_target:.2f}, NE={norepinephrine_target:.2f}"
+        )
+    except Exception as e:
+        logger.debug(f"神经调质更新失败（非关键）: {e}")
+
 
 class HardwareInfo:
     """
@@ -181,6 +259,18 @@ def check_resources() -> dict:
     # 添加资源状态判断
     result["memory_healthy"] = info.available_memory_gb > 1.0
     result["gpu_healthy"] = info.vram_gb > 0.5 if info.is_gpu_available() else True
+
+    # 内存使用百分比（供 neuromodulator 使用）
+    try:
+        import psutil
+        result["memory_percent"] = psutil.virtual_memory().percent
+    except ImportError:
+        if info.total_ram_gb > 0:
+            result["memory_percent"] = round(
+                (1 - info.available_memory_gb / info.total_ram_gb) * 100, 1
+            )
+        else:
+            result["memory_percent"] = 50.0
 
     return result
 

@@ -120,7 +120,18 @@ tokenizer_native_v2/
 *.parquet
 *.jsonl
 
-# Temporary scripts
+# Data directories (large, runtime-generated)
+data/
+
+# Bundled third-party libraries (large, not source)
+_libs/
+
+# Design docs / scratchpads (not source code)
+taiji-yuanli-redesign/
+
+# Temporary scripts (one-off data fixes, not production code)
+# Note: scripts/data_prep/download_*.py ARE production code, keep them.
+# scripts/download_* below only excludes legacy root-level downloads.
 scripts/download_*
 
 # Environment files (API keys, secrets)

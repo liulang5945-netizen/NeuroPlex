@@ -133,9 +133,46 @@ class EvolutionEngine:
         # 上次进化时间
         self._last_evolution_time: Optional[datetime] = None
         self._tasks_since_evolution = 0
-        
+
+        # 神经元架构组件引用（由 set_brain_interfaces 注入）
+        self._lifecycle = None
+        self._cortex = None
+        self._feed_engine = None
+
         logger.info(f"EvolutionEngine initialized: phase={self.metrics.current_phase}, "
                     f"tasks={self.metrics.tasks_completed}")
+
+    # ─── 神经元架构接口 ───────────────────────────────
+
+    def set_brain_interfaces(
+        self,
+        cortex=None,
+        lifecycle=None,
+        feed_engine=None,
+    ):
+        """注入神经元架构组件，使进化引擎能触发 neurogenesis。
+
+        P2-3: 阶段升级时触发 neurogenesis 信号。
+        神经元架构中，"进化"不再是整体替换模型，
+        而是通过 neurogenesis 动态新增神经元来扩展能力。
+
+        Args:
+            cortex: Cortex 实例
+            lifecycle: LifecycleManager（含 neurogenesis trigger）
+            feed_engine: FeedEngine 实例（获取域错误率）
+        """
+        if cortex is not None:
+            self._cortex = cortex
+        if lifecycle is not None:
+            self._lifecycle = lifecycle
+        if feed_engine is not None:
+            self._feed_engine = feed_engine
+
+        logger.info(
+            f"Brain interfaces set: cortex={'✓' if self._cortex else '✗'}, "
+            f"lifecycle={'✓' if self._lifecycle else '✗'}, "
+            f"feed_engine={'✓' if self._feed_engine else '✗'}"
+        )
 
     # ─── 递归蒸馏进化检查 ──────────────────────────────
 
@@ -398,9 +435,19 @@ class EvolutionEngine:
         
         # 更新阶段
         new_phase = self._get_phase()
+        phase_upgraded = False
         if new_phase != self.metrics.current_phase:
             logger.info(f"🌱 Phase upgrade: {self.metrics.current_phase} → {new_phase}")
             self.metrics.current_phase = new_phase
+            phase_upgraded = True
+
+        # P2-3: 阶段升级时触发 neurogenesis 信号
+        # 神经元架构中，阶段升级=能力扩展=需要新神经元
+        if phase_upgraded and self._lifecycle is not None:
+            try:
+                self._trigger_neurogenesis_for_upgrade(new_phase)
+            except Exception as e:
+                logger.warning(f"neurogenesis 触发失败（非关键）: {e}")
         
         # 生成进化报告
         report = self._generate_evolution_report()
@@ -416,6 +463,48 @@ class EvolutionEngine:
         self._save_evolution_report(report)
         
         return report
+
+    def _trigger_neurogenesis_for_upgrade(self, new_phase: str):
+        """阶段升级时触发 neurogenesis 信号。
+
+        根据新阶段决定需要扩展哪些域的神经元：
+        - infant→child: 基础域扩展（code, knowledge）
+        - child→adolescent: 专业化扩展（math, zh, en）
+        - adolescent→adult: 高级扩展（基于实际错误率）
+
+        实际神经元创建由 sleep_engine 在下次睡眠时执行，
+        这里仅通过 lifecycle.neurogenesis 记录高错误率信号。
+        """
+        if self._lifecycle is None:
+            return
+
+        # 根据阶段决定扩展域
+        phase_domains = {
+            "child": ["code", "knowledge"],
+            "adolescent": ["math", "zh", "en"],
+            "adult": [],  # adult 基于实际错误率
+        }
+        target_domains = phase_domains.get(new_phase, [])
+
+        # 如果有 feed_engine，也检查实际错误率
+        if self._feed_engine is not None:
+            try:
+                error_rates = self._feed_engine.get_domain_error_rates()
+                for domain, rate in error_rates.items():
+                    if rate > 0.3:
+                        target_domains.append(domain)
+            except Exception:
+                pass
+
+        # 通过 neurogenesis trigger 记录信号
+        neurogenesis = getattr(self._lifecycle, 'neurogenesis', None)
+        if neurogenesis is not None:
+            for domain in set(target_domains):
+                # 用高错误率触发，连续记录后会在睡眠时实际创建
+                for _ in range(3):  # 记录 3 次以加速触发
+                    neurogenesis.record_domain_error(domain, 0.8)
+                logger.info(f"阶段升级 → 域 '{domain}' neurogenesis 信号已记录")
+
     
     def _get_phase(self) -> str:
         """根据任务完成数判断当前阶段"""
@@ -701,8 +790,15 @@ class EvolutionEngine:
     ) -> dict:
         """执行代际迁移：用知识蒸馏将当前模型能力迁移到新一代模型。
 
-        这是递归进化闭环的关键一步——之前的 design_next_generation()
-        只产出设计方案（JSON），本方法把方案变成实际的新模型并替换。
+        P2-6: 已废弃。新架构（Cortex + ResonanceNeuron）下，进化通过
+        神经新生（neurogenesis）+ 睡眠巩固（sleep_consolidation）实现，
+        不再进行整体 ModelSelf 蒸馏替换。保留此方法仅为向后兼容。
+
+        新的进化路径：
+        1. NeurogenesisTrigger 检测知识盲区
+        2. 睡眠时蒸馏新神经元（子域用现有神经元作教师，新域用 1.5B）
+        3. ApoptosisTracker 清理弱连接神经元
+        4. MaturityTracker 管理新生神经元成熟度
 
         Args:
             design: design_next_generation() 返回的设计 dict
@@ -722,6 +818,21 @@ class EvolutionEngine:
                 "error": str | None,
             }
         """
+        import warnings as _warnings
+        _warnings.warn(
+            "execute_generation_transition() is deprecated (P2-6). "
+            "New architecture uses neurogenesis + sleep_consolidation for evolution, "
+            "not whole-model distillation. This method is retained only for backward compatibility.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # P2-6: ModelSelf 已从项目中移除，此方法不再可用
+        raise NotImplementedError(
+            "execute_generation_transition() is no longer supported (P2-6). "
+            "ModelSelf class has been removed. "
+            "Use neurogenesis + sleep_consolidation for evolution instead."
+        )
+        # 以下代码保留为历史参考，但永远不会执行
         from taiji.config import ModelConfig
         from taiji.architecture import ModelSelf
         from taiji.loader import save_model

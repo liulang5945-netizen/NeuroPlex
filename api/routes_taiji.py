@@ -28,6 +28,58 @@ def _is_available() -> bool:
     return app_state.is_taiji() and app_state.get_taiji_engine() is not None
 
 
+def _is_cortex(model) -> bool:
+    """P2-6: 判断当前模型是否为 Cortex（新认知主体）。
+
+    使用类型名判断避免硬导入 Cortex（可能在某些启动路径下未加载）。
+    """
+    if model is None:
+        return False
+    return type(model).__name__ == 'Cortex'
+
+
+def _cortex_model_info(cortex) -> dict:
+    """P2-6: 返回 Cortex 神经元架构信息。"""
+    neurons = getattr(cortex, 'neurons', {}) or {}
+    neuron_specs = []
+    total_params = 0
+    for nid, neuron in neurons.items():
+        try:
+            n_params = sum(p.numel() for p in neuron.parameters())
+            total_params += n_params
+            cfg = getattr(neuron, 'config', None)
+            spec = getattr(cfg, 'spec', 'unknown') if cfg else 'unknown'
+            n_type = getattr(cfg, 'neuron_type', 'unknown') if cfg else 'unknown'
+            neuron_specs.append({
+                "id": nid,
+                "spec": spec,
+                "neuron_type": n_type,
+                "params": n_params,
+            })
+        except Exception:
+            continue
+
+    field_dim = getattr(getattr(cortex, 'field', None), 'dim', None)
+    is_fallback = any(
+        s.get('spec') == 'general-fallback' for s in neuron_specs
+    )
+
+    return {
+        "status": "active",
+        "architecture": "cortex",
+        "neuron_count": len(neurons),
+        "field_dim": field_dim,
+        "total_params": total_params,
+        "is_fallback_mode": is_fallback,
+        "neurons": neuron_specs,
+        "max_rounds": getattr(cortex, 'max_rounds', None),
+        "message": (
+            "单神经元 fallback 模式（未蒸馏）" if is_fallback
+            else f"Cortex 已加载 {len(neurons)} 个神经元"
+        ),
+    }
+
+
 def _get_engine():
     """获取引擎实例，不可用时返回通用 404"""
     if not _is_available():
@@ -866,9 +918,20 @@ async def taiji_train(request: dict):
     if app_state.is_training:
         raise HTTPException(status_code=400, detail="当前已有训练任务在运行")
 
-    from taiji.architecture import ModelSelf
+    # P2-6: ModelSelf 已移除，导入安全处理
+    try:
+        from taiji.architecture import ModelSelf
+    except ImportError:
+        ModelSelf = None
     model = app_state.model
-    if not isinstance(model, ModelSelf):
+    # P2-6: Cortex 模式下不支持传统微调接口（应使用 sleep/neurogenesis 训练神经元）
+    if _is_cortex(model):
+        raise HTTPException(
+            status_code=400,
+            detail="当前为 Cortex 认知主体模式，不支持传统微调接口。"
+                   "请使用睡眠训练（sleep_engine）或神经新生（neurogenesis）训练神经元。",
+        )
+    if ModelSelf is None or not isinstance(model, ModelSelf):
         raise HTTPException(status_code=400, detail="当前模型不是态极原生模型，无法使用此接口")
 
     tokenizer = app_state.tokenizer
@@ -1139,10 +1202,17 @@ def taiji_model_info():
     if not _is_available():
         raise HTTPException(status_code=404, detail="接口不存在")
 
-    from taiji.architecture import ModelSelf
+    # P2-6: ModelSelf 已移除，导入安全处理
+    try:
+        from taiji.architecture import ModelSelf
+    except ImportError:
+        ModelSelf = None
     model = app_state.model
-    if not isinstance(model, ModelSelf):
-        return {"status": "not_taiji", "message": "当前模型不是态极原生模型"}
+    # P2-6: Cortex 模式下返回神经元架构信息
+    if _is_cortex(model):
+        return _cortex_model_info(model)
+    if ModelSelf is None or not isinstance(model, ModelSelf):
+        return {"status": "not_taiji", "message": "当前模型不是态极原生模型（ModelSelf 已移除，请使用 Cortex）"}
 
     params = model.get_num_parameters()
     config = model.config

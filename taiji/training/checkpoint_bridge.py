@@ -4,6 +4,11 @@ This module loads a checkpoint from the first-gen taiji project
 and exposes the teacher model's hidden states for distillation
 into ResonanceNeuron instances.
 
+P2-6 说明：此处的 ModelSelf 来自 gen1 项目（e:/taiji），是蒸馏教师模型，
+NOT 运行时认知主体。运行时认知主体已迁移到 Cortex。此模块保留用于：
+1. 初始神经元蒸馏（将 1.5B 教师能力蒸馏到 ResonanceNeuron）
+2. P2-7 新域神经新生时的教师（新域用 1.5B 作教师）
+
 Uses importlib to load from the first-gen project path directly,
 avoiding conflicts with the taiji-neuron package.
 """
@@ -80,7 +85,28 @@ def load_teacher_model(
 
     state_dict = torch.load(model_path, map_location=device, weights_only=True)
     remapped = _remap_legacy_keys(state_dict)
-    model.load_state_dict(remapped, strict=False)
+
+    # P0-1b: 打印 missing/unexpected keys,避免静默失败
+    load_result = model.load_state_dict(remapped, strict=False)
+    if load_result.missing_keys:
+        print(f"[Bridge] WARNING: {len(load_result.missing_keys)} missing keys (will use random init):")
+        for k in load_result.missing_keys[:10]:
+            print(f"  missing: {k}")
+        if len(load_result.missing_keys) > 10:
+            print(f"  ... and {len(load_result.missing_keys) - 10} more")
+    if load_result.unexpected_keys:
+        print(f"[Bridge] WARNING: {len(load_result.unexpected_keys)} unexpected keys (ignored):")
+        for k in load_result.unexpected_keys[:10]:
+            print(f"  unexpected: {k}")
+        if len(load_result.unexpected_keys) > 10:
+            print(f"  ... and {len(load_result.unexpected_keys) - 10} more")
+    if not load_result.missing_keys and not load_result.unexpected_keys:
+        print(f"[Bridge] All keys matched successfully")
+
+    # P0-1b: 重建 weight tying(load_state_dict 会断开 weight sharing)
+    if hasattr(model, "lm_head") and hasattr(model, "backbone"):
+        model.lm_head.weight = model.backbone.embedding.weight
+
     model.eval()
 
     param_count = sum(p.numel() for p in model.parameters())
@@ -197,4 +223,54 @@ def _find_taiji_root(checkpoint_dir: str) -> Optional[str]:
 
 
 def _remap_legacy_keys(state_dict: dict) -> dict:
-    return {k.replace("model.backbone.", "backbone."): v for k, v in state_dict.items()}
+    """Remap old-format checkpoint keys to the current architecture naming.
+
+    P0-1b 修复:之前只处理 model.backbone. → backbone. 前缀,
+    导致扁平格式(embed.weight, layers.N.w1.weight)的 checkpoint 加载时
+    全部 key 不匹配,strict=False 静默跳过所有权重,模型保持初始化状态。
+
+    现在支持三种格式:
+    1. model.backbone.xxx → backbone.xxx(旧 ModelSelf 前缀)
+    2. 扁平格式 → 嵌套格式(TaijiBackbone pretrain 产出)
+    3. 已是嵌套格式 → 直接返回
+    """
+    # 格式 1:已经是嵌套格式
+    if any(k.startswith("backbone.") for k in state_dict):
+        return state_dict
+
+    # 格式 2:扁平格式(TaijiBackbone pretrain 产出)
+    if "embed.weight" in state_dict or any("layers." in k for k in state_dict):
+        remapped = {}
+        for key, val in state_dict.items():
+            if key == "embed.weight":
+                remapped["backbone.embedding.weight"] = val
+            elif key == "norm.weight":
+                remapped["backbone.norm.weight"] = val
+            elif key.startswith("layers."):
+                parts = key.split(".", 2)
+                layer_idx, rest = parts[1], parts[2]
+                prefix = f"backbone.layers.{layer_idx}"
+                if rest.startswith("attn_norm."):
+                    remapped[f"{prefix}.attention_norm.{rest[10:]}"] = val
+                elif rest.startswith("ffn_norm."):
+                    remapped[f"{prefix}.ffn_norm.{rest[9:]}"] = val
+                elif rest.startswith("attn."):
+                    remapped[f"{prefix}.attention.{rest[5:]}"] = val
+                elif rest.startswith("wg."):
+                    remapped[f"{prefix}.feed_forward.w_gate.{rest[3:]}"] = val
+                elif rest.startswith("w1."):
+                    remapped[f"{prefix}.feed_forward.w1.{rest[3:]}"] = val
+                elif rest.startswith("w2."):
+                    remapped[f"{prefix}.feed_forward.w2.{rest[3:]}"] = val
+                else:
+                    remapped[f"{prefix}.{rest}"] = val
+            else:
+                remapped[key] = val  # lm_head.weight etc.
+        return remapped
+
+    # 格式 3:model.backbone. → backbone.(旧 ModelSelf 前缀)
+    if any(k.startswith("model.backbone.") for k in state_dict):
+        return {k.replace("model.backbone.", "backbone."): v for k, v in state_dict.items()}
+
+    # 未知格式,直接返回
+    return state_dict

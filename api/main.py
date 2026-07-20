@@ -65,49 +65,25 @@ def main():
     print(f"   设备: {config.resolve_device()}")
 
     if args.no_ui:
-        print("ℹ️ no-ui 模式：仅模型加载")
-        from taiji.loader import load_model
-        model, tokenizer = load_model(config.model_name, device=config.resolve_device())
-        print(f"✅ 模型已加载: {config.model_name}")
+        print("ℹ️ no-ui 模式：仅 Cortex 加载")
+        from taiji.loader import load_cortex
+        cortex, tokenizer = load_cortex(
+            neurons_dir=config.model_name or "data/neurons",
+            device=config.resolve_device(),
+        )
+        print(f"✅ Cortex 已加载: {len(cortex.neurons)} 个神经元")
         return
 
     if args.train:
-        print("🚀 训练模式启动（原生态极）...")
-        from taiji.train.data_loader import InstructionDataset, create_dataloader
-        from taiji.train.trainer import ModelSelfTrainer
-        from taiji.tokenizer import ModelSelfTokenizer
-
-        tokenizer = ModelSelfTokenizer()
-        dataset = InstructionDataset(config.train_file, tokenizer, max_length=config.max_length)
-        dataloader = create_dataloader(dataset, batch_size=config.batch_size)
-        device = config.resolve_device()
-
-        from taiji.architecture import ModelSelf, ModelConfig as ArchConfig
-        model_config = ArchConfig(
-            vocab_size=len(tokenizer),
-            hidden_size=config.hidden_size,
-            intermediate_size=config.hidden_size * 4,
-            num_hidden_layers=getattr(config, 'num_hidden_layers', 24),
-            num_attention_heads=getattr(config, 'num_attention_heads', 16),
-            num_key_value_heads=getattr(config, 'num_key_value_heads', 4),
-            max_position_embeddings=config.max_length,
-        )
-        model = ModelSelf(model_config)
-        if config.resume_from_checkpoint:
-            from taiji.loader import load_model as load_ckpt
-            model, _ = load_ckpt(config.resume_from_checkpoint, device=device)
-
-        trainer = ModelSelfTrainer(
-            model, tokenizer,
-            learning_rate=config.learning_rate,
-            gradient_accumulation_steps=config.gradient_accumulation_steps,
-        )
-        for fraction, desc, loss_history, meta in trainer.pretrain(
-            dataset, num_epochs=config.num_epochs, batch_size=config.batch_size,
-            save_dir="./taiji_checkpoints", device=device,
-        ):
-            print(f"\r{desc}", end="", flush=True)
-        print(f"\n✅ 训练完成！")
+        print("🚀 训练模式（P2-6: ModelSelf 已移除）...")
+        print("⚠️  传统 ModelSelf 训练已不再支持。")
+        print("   新架构使用 Cortex + ResonanceNeuron，训练方式：")
+        print("   1. 初始神经元蒸馏: scripts/training/distill_neurons.py")
+        print("   2. 运行时学习: feed_engine + sleep_engine")
+        print("   3. 神经新生: neurogenesis_creator（自动在睡眠时触发）")
+        print()
+        print("   如需创建初始神经元，请运行:")
+        print("   python scripts/training/distill_neurons.py --help")
         return
 
     print("🚀 正在通过命令行启动后台 API 服务...")

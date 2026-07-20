@@ -114,7 +114,151 @@ class PlayEngine:
         self._load_personality()
         self._load_history()
 
+        # 神经元架构组件引用（由 set_brain_interfaces 注入）
+        self._cortex = None
+        self._coaction = None
+        self._sleep_consolidator = None
+
         logger.info(f"PlayEngine initialized: auto={self.config.auto_play_enabled}")
+
+    # ─── 神经元架构接口 ───────────────────────────────
+
+    def set_brain_interfaces(
+        self,
+        cortex=None,
+        coactivation=None,
+        sleep_consolidator=None,
+    ):
+        """注入神经元架构组件，使玩耍能触发自由共振。
+
+        P2-4: 玩耍时进行自由共振，强化 CoactivationTracker。
+        人脑在"默认模式网络"（DMN）下，休息/玩耍时大脑会
+        自由联想，强化不同区域间的连接。态极玩耍时同理：
+        将随机话题送入 Cortex，记录共激活模式。
+
+        Args:
+            cortex: Cortex 实例
+            coactivation: CoactivationTracker 实例
+            sleep_consolidator: SleepConsolidator（记录高共振状态）
+        """
+        if cortex is not None:
+            self._cortex = cortex
+        if coactivation is not None:
+            self._coaction = coactivation
+        if sleep_consolidator is not None:
+            self._sleep_consolidator = sleep_consolidator
+
+        logger.info(
+            f"Brain interfaces set: cortex={'✓' if self._cortex else '✗'}, "
+            f"coaction={'✓' if self._coaction else '✗'}, "
+            f"sleep_consolidator={'✓' if self._sleep_consolidator else '✗'}"
+        )
+
+    def _free_resonance_session(self) -> Optional[PlayActivity]:
+        """自由共振会话 — 将随机话题送入 Cortex，记录共激活。
+
+        人脑默认模式网络（DMN）启发：玩耍/休息时大脑自由联想，
+        不同脑区随机共激活，强化有意义的连接。
+
+        Returns:
+            PlayActivity 或 None（如果 Cortex 不可用）
+        """
+        if self._cortex is None or not hasattr(self._cortex, 'neurons'):
+            return None
+        if not self._cortex.neurons:
+            return None
+
+        # 随机选一个好奇心话题
+        topic = random.choice(CURIOSITY_TOPICS)
+
+        try:
+            import torch
+
+            # 获取 tokenizer 和 shared_embedding
+            tokenizer = getattr(self._cortex, '_tokenizer', None)
+            shared_embedding = getattr(self._cortex, '_shared_embedding', None)
+            embed_pipeline = getattr(self._cortex, '_embed_pipeline', None)
+
+            if tokenizer is None:
+                return None
+
+            # 编码话题
+            try:
+                ids = tokenizer.encode(topic)
+            except Exception:
+                return None
+            if len(ids) < 3:
+                return None
+            ids = ids[:128]
+
+            device = next(self._cortex.neurons.values()).parameters().__next__().device \
+                if self._cortex.neurons else 'cpu'
+
+            input_ids = torch.tensor([ids], dtype=torch.long, device=device)
+
+            # 获取共享 embedding
+            with torch.no_grad():
+                if shared_embedding is not None:
+                    shared_emb = shared_embedding(input_ids)
+                elif embed_pipeline is not None:
+                    shared_emb = embed_pipeline(input_ids)
+                else:
+                    return None
+
+            # 对每个神经元运行 forward，收集激活模式
+            activated_neurons = []
+            max_score = 0.0
+            for nid, neuron in self._cortex.neurons.items():
+                try:
+                    with torch.no_grad():
+                        output = neuron.forward(shared_emb, return_logits=False)
+                    score = output.get('resonance_score', 0.0) if isinstance(output, dict) else 0.0
+                    if score > 0.3:
+                        activated_neurons.append((nid, score))
+                        max_score = max(max_score, score)
+                except Exception:
+                    continue
+
+            # 记录共激活：同时激活的神经元对
+            if self._coaction is not None and len(activated_neurons) >= 2:
+                try:
+                    for i, (nid_a, score_a) in enumerate(activated_neurons):
+                        for nid_b, score_b in activated_neurons[i+1:]:
+                            if hasattr(self._coaction, 'record_coactivation'):
+                                self._coaction.record_coactivation(nid_a, nid_b)
+                except Exception as e:
+                    logger.debug(f"共激活记录失败（非关键）: {e}")
+
+            # 记录高共振状态到 SleepConsolidator（供睡眠时重放）
+            if self._sleep_consolidator is not None and max_score > 0.5:
+                try:
+                    # 使用第一个激活神经元的 field_state 作为重放状态
+                    for nid, neuron in self._cortex.neurons.items():
+                        if hasattr(neuron, '_last_field_state'):
+                            self._sleep_consolidator.record_high_resonance_state(
+                                field_state=neuron._last_field_state,
+                                resonance_score=max_score,
+                                step=0,
+                                threshold=0.5,
+                            )
+                            break
+                except Exception as e:
+                    logger.debug(f"高共振状态记录失败（非关键）: {e}")
+
+            content = f"自由共振: 话题='{topic[:30]}', 激活{len(activated_neurons)}个神经元, 最高分={max_score:.3f}"
+            quality = min(0.9, 0.4 + max_score * 0.5)
+
+            return PlayActivity(
+                activity_type="curiosity",
+                topic=f"自由共振: {topic[:50]}",
+                content=content,
+                quality_score=quality,
+                kept=quality >= self.config.min_quality_to_keep,
+            )
+
+        except Exception as e:
+            logger.debug(f"自由共振会话失败: {e}")
+            return None
 
     # ─── 公开接口 ───────────────────────────────────
 
@@ -143,6 +287,9 @@ class PlayEngine:
             self._play_social,
             self._play_remix,
         ]
+        # P2-4: 如果 Cortex 可用，加入自由共振会话
+        if self._cortex is not None and hasattr(self._cortex, 'neurons') and self._cortex.neurons:
+            activities.append(self._free_resonance_session)
         random.shuffle(activities)
 
         for activity_fn in activities[:self.config.max_activities_per_play]:

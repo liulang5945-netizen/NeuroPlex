@@ -161,7 +161,7 @@ def distill_one_neuron(
     num_steps: int = 2000, batch_size: int = 4,
     lm_weight: float = 0.6, distill_weight: float = 0.2,
     field_contrastive_weight: float = 0.2, lr: float = 5e-4,
-    device: str = "cpu", log_every: int = 200,
+    device: str = "cpu", log_every: int = 20,
     teacher_directions: dict = None,
 ) -> Dict[str, float]:
     """Distill a single neuron with field_write contrastive training.

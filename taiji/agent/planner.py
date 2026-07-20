@@ -148,11 +148,113 @@ class PlannerSystem:
     - <replan> → 重新规划
 
     规划头输出 PlanAction，驱动规划状态机。
+
+    P2-5: 规划结果反馈学习（B+C 组合）：
+    - B: 计划成功 → feed_engine.feed_from_practice()（喂养实践样本）
+    - C: 计划失败 → neurogenesis 信号 + dopamine↓（触发神经新生）
     """
 
     def __init__(self):
         self.current_plan: Optional[Plan] = None
         self.plan_history: List[Dict] = []  # 历史计划记录
+
+        # 神经元架构组件引用（由 set_brain_interfaces 注入）
+        self._feed_engine = None
+        self._neuromodulator = None
+        self._lifecycle = None
+
+    def set_brain_interfaces(
+        self,
+        feed_engine=None,
+        neuromodulator=None,
+        lifecycle=None,
+    ):
+        """注入神经元架构组件，使规划结果能反馈学习。
+
+        P2-5: 规划结果反馈学习（B+C 组合）。
+        - 计划成功 → feed_engine 喂养实践样本 + dopamine↑
+        - 计划失败 → neurogenesis 信号 + dopamine↓
+
+        Args:
+            feed_engine: FeedEngine 实例（成功时喂养样本）
+            neuromodulator: NeuromodulatorState 实例（调节多巴胺）
+            lifecycle: LifecycleManager（失败时触发 neurogenesis 信号）
+        """
+        if feed_engine is not None:
+            self._feed_engine = feed_engine
+        if neuromodulator is not None:
+            self._neuromodulator = neuromodulator
+        if lifecycle is not None:
+            self._lifecycle = lifecycle
+
+        logger.info(
+            f"PlannerSystem brain interfaces: feed={'✓' if self._feed_engine else '✗'}, "
+            f"neuromodulator={'✓' if self._neuromodulator else '✗'}, "
+            f"lifecycle={'✓' if self._lifecycle else '✗'}"
+        )
+
+    def _feedback_plan_success(self, task: str, steps: List[PlanStep]):
+        """计划成功反馈：喂养实践样本 + dopamine↑。
+
+        B 方案：将成功的计划-执行轨迹转化为训练样本，
+        喂给 feed_engine 供睡眠时训练对应域的神经元。
+        """
+        # 1. 喂养实践样本
+        if self._feed_engine is not None:
+            try:
+                # 构建成功轨迹文本
+                trajectory = f"任务: {task}\n"
+                for step in steps:
+                    if step.status == StepStatus.DONE:
+                        trajectory += f"  步骤{step.step_id}: {step.description}"
+                        if step.result_summary:
+                            trajectory += f" → {step.result_summary}"
+                        trajectory += "\n"
+
+                self._feed_engine.feed_from_practice(
+                    code=trajectory,
+                    output="成功完成",
+                    success=True,
+                    domain="general",
+                )
+                logger.debug(f"计划成功轨迹已喂养: '{task[:30]}'")
+            except Exception as e:
+                logger.debug(f"计划成功喂养失败（非关键）: {e}")
+
+        # 2. dopamine↑（奖励信号）
+        if self._neuromodulator is not None:
+            try:
+                self._neuromodulator.set_targets(dopamine=0.8)
+                logger.debug("计划成功 → dopamine 目标=0.8")
+            except Exception:
+                pass
+
+    def _feedback_plan_failure(self, task: str, error: str):
+        """计划失败反馈：neurogenesis 信号 + dopamine↓。
+
+        C 方案：失败表示当前神经元能力不足，
+        通过 neurogenesis 记录高错误率信号，
+        睡眠时将触发新神经元创建。
+        """
+        # 1. dopamine↓（负面信号）
+        if self._neuromodulator is not None:
+            try:
+                self._neuromodulator.set_targets(dopamine=0.2)
+                logger.debug("计划失败 → dopamine 目标=0.2")
+            except Exception:
+                pass
+
+        # 2. neurogenesis 信号
+        if self._lifecycle is not None:
+            try:
+                neurogenesis = getattr(self._lifecycle, 'neurogenesis', None)
+                if neurogenesis is not None:
+                    # 记录高错误率，连续记录后在睡眠时触发新生
+                    neurogenesis.record_domain_error("general", 0.8)
+                    neurogenesis.record_domain_error("general", 0.8)
+                    logger.debug("计划失败 → neurogenesis 信号已记录")
+            except Exception:
+                pass
 
     def create_plan(self, task: str, step_descriptions: List[str]) -> Plan:
         """创建新计划"""
@@ -244,11 +346,18 @@ class PlannerSystem:
             if self.current_plan:
                 if self.current_plan.current_step:
                     self.current_plan.current_step.status = StepStatus.DONE
+                # P2-5: 计划成功反馈（B 方案：喂养实践样本 + dopamine↑）
+                self._feedback_plan_success(
+                    self.current_plan.task, self.current_plan.steps
+                )
                 self.plan_history.append(self.current_plan.to_dict())
                 self.current_plan = None
             return "任务完成。"
 
         elif action == PlanAction.ABORT:
+            # P2-5: 计划失败反馈（C 方案：neurogenesis 信号 + dopamine↓）
+            if self.current_plan:
+                self._feedback_plan_failure(self.current_plan.task, "用户放弃")
             self.current_plan = None
             return "任务已放弃。"
 

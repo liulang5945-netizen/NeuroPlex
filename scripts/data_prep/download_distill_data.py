@@ -247,6 +247,12 @@ def main():
     sp.Load(args.tokenizer)
     print(f"Tokenizer: {sp.GetPieceSize()} tokens")
 
+    # P0-1c 修复:v2 contract 要求 text token ID = sentencepiece ID + text_offset
+    # 见 tokenizer_contract.json: text_offset=13388, text range [13388, 256000)
+    # 不加偏移会导致文本 token 落在 image/audio/control 区间,模型看到错位 token
+    TEXT_OFFSET = 13388
+    print(f"TEXT_OFFSET: {TEXT_OFFSET} (v2 contract: text range [{TEXT_OFFSET}, 256000))")
+
     all_data = {}
 
     for domain in ["zh", "en", "code", "math", "general"]:
@@ -276,12 +282,18 @@ def main():
             texts = generate_synthetic_text("en" if domain != "zh" else "zh", args.samples)
 
         # Tokenize
+        # P0-1c 修复:加 text_offset 把 sentencepiece ID 转成 v2 contract token ID
+        # sp.EncodeAsIds 返回 raw sentencepiece ID (范围 [0, 242612))
+        # v2 contract 要求 text token ID = sentencepiece ID + text_offset (13388)
+        # 这样 text token 落在 [13388, 256000) 的 text range 内
+        # control tokens (0-3: pad/unk/bos/eos) 不通过 sentencepiece 生成,
+        # 而是由后续 collate 单独添加,所以这里不需要保留 0-3 的特殊处理
         tokens_list = []
         for text in texts:
             text = text.strip().replace("\n", " ")
             if len(text) < 50:
                 continue
-            encoded = sp.EncodeAsIds(text)
+            encoded = [tid + TEXT_OFFSET for tid in sp.EncodeAsIds(text)]
             if len(encoded) >= args.seq_len:
                 tokens_list.append(encoded[:args.seq_len])
             elif len(encoded) >= 20:

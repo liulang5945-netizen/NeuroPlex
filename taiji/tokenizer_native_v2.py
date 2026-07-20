@@ -174,10 +174,18 @@ class TaijiNativeTokenizerV2:
         parts: List[str] = []
         text_ids: List[int] = []
 
+        # P0-2: sentencepiece 实际 vocab 可能 < contract 的 text_vocab_size,
+        # 超出 sp.GetPieceSize() 的 text_id 会让 sp.DecodeIds OUT_OF_RANGE 崩溃。
+        # 用 sp_piece_size 做边界保护,超出的 text token 当作 <unk> 跳过。
+        sp_piece_size = self.sp.GetPieceSize()
+
         def flush_text() -> None:
             nonlocal text_ids
             if text_ids:
-                parts.append(self.sp.DecodeIds(text_ids))
+                # 过滤超出 sentencepiece vocab 的 ID
+                valid_ids = [i for i in text_ids if 0 <= i < sp_piece_size]
+                if valid_ids:
+                    parts.append(self.sp.DecodeIds(valid_ids))
                 text_ids = []
 
         for raw_id in ids:

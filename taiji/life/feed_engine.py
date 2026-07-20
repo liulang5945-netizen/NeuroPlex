@@ -102,6 +102,20 @@ class FeedEngine:
         self._last_feed_time: Optional[datetime] = None
         self._on_feed_complete: Optional[Callable] = None
 
+        # 神经元架构：按域分类存储待训练样本
+        self._domain_samples: Dict[str, list] = {}
+        # 神经元架构：按域统计成功/失败计数（供 neurogenesis 计算错误率）
+        self._domain_success_counts: Dict[str, int] = {}
+        self._domain_total_counts: Dict[str, int] = {}
+
+        # 域检测器（神经元架构：自动识别输入域，路由到对应 neuron）
+        self._domain_detector = None
+        try:
+            from taiji.resonance.domain_detector import get_detector
+            self._domain_detector = get_detector()
+        except ImportError:
+            logger.warning("DomainDetector 不可用，域自动检测将回退到 general")
+
         self._data_dir_ready = False
         self._load_history()
 
@@ -159,13 +173,15 @@ class FeedEngine:
 
         return report
 
-    def feed_file(self, file_path: str, category: str = "knowledge") -> Optional[FeedItem]:
+    def feed_file(self, file_path: str, category: str = "knowledge",
+                  domain: Optional[str] = None) -> Optional[FeedItem]:
         """
         喂态极吃一个文件。
 
         Args:
             file_path: 文件路径
             category: 分类
+            domain: 知识域（zh/en/code/math/general），None 时自动检测
 
         Returns:
             FeedItem 或 None（如果质量不达标）
@@ -183,13 +199,15 @@ class FeedEngine:
                 source="file",
                 source_path=file_path,
                 category=category,
+                domain=domain,
             )
         except Exception as e:
             logger.warning(f"Failed to feed file {file_path}: {e}")
             return None
 
     def feed_text(self, text: str, source: str = "manual",
-                  category: str = "knowledge") -> Optional[FeedItem]:
+                  category: str = "knowledge",
+                  domain: Optional[str] = None) -> Optional[FeedItem]:
         """
         直接喂态极一段文字。
 
@@ -197,6 +215,7 @@ class FeedEngine:
             text: 文本内容
             source: 来源描述
             category: 分类
+            domain: 知识域，None 时自动检测
 
         Returns:
             FeedItem 或 None
@@ -206,12 +225,20 @@ class FeedEngine:
             source="text",
             source_path=source,
             category=category,
+            domain=domain,
         )
 
     def feed_directory(self, dir_path: str, extensions: List[str] = None,
-                       category: str = "code") -> int:
+                       category: str = "code",
+                       domain: Optional[str] = None) -> int:
         """
         喂态极吃一个目录下的所有文件。
+
+        Args:
+            dir_path: 目录路径
+            extensions: 文件扩展名过滤
+            category: 分类
+            domain: 知识域，None 时按文件自动检测
 
         Returns:
             成功进食的文件数
@@ -231,7 +258,7 @@ class FeedEngine:
             for fname in files:
                 if any(fname.endswith(ext) for ext in extensions):
                     fpath = os.path.join(root, fname)
-                    item = self.feed_file(fpath, category=category)
+                    item = self.feed_file(fpath, category=category, domain=domain)
                     if item and item.status != "rejected":
                         count += 1
                     if count >= self.config.max_items_per_feed:
@@ -267,17 +294,106 @@ class FeedEngine:
         if os.path.exists(samples_path):
             os.remove(samples_path)
             logger.info("Pending samples cleared")
+        # 同步清除按域分类的样本缓冲
+        self._domain_samples.clear()
+
+    # ─── 神经元架构：域分类样本接口 ─────────────────
+
+    def _detect_domain(self, content: str) -> str:
+        """使用 DomainDetector 自动检测文本所属域。"""
+        if self._domain_detector is not None:
+            try:
+                domain, _ = self._domain_detector.detect(content)
+                return domain
+            except Exception as e:
+                logger.debug(f"域检测失败，回退到 general: {e}")
+        return "general"
+
+    def get_pending_samples_by_domain(self) -> Dict[str, list]:
+        """
+        获取按域分类的待消化训练样本（供睡眠引擎训练 Cortex 神经元调用）。
+
+        Returns:
+            {domain: [sample, ...]} 字典
+        """
+        # 优先使用内存中的域样本缓冲
+        if self._domain_samples:
+            return {d: list(s) for d, s in self._domain_samples.items()}
+
+        # 回退：从 pending_samples.jsonl 读取并按 domain 字段分组
+        all_samples = self.get_pending_samples()
+        by_domain: Dict[str, list] = {}
+        for sample in all_samples:
+            d = sample.get("domain", "general") if isinstance(sample, dict) else "general"
+            by_domain.setdefault(d, []).append(sample)
+        return by_domain
+
+    def feed_from_practice(self, code: str, output: str = "",
+                           success: bool = True,
+                           domain: str = "code") -> Optional[FeedItem]:
+        """
+        从实践（代码执行/任务完成）中喂养样本（供 limbs 调用）。
+
+        将代码及其执行结果转化为训练样本，并记录成功/失败用于
+        neurogenesis 的错误率统计。
+
+        Args:
+            code: 代码或任务内容
+            output: 执行输出或结果
+            success: 是否成功
+            domain: 知识域（默认 code）
+
+        Returns:
+            FeedItem 或 None
+        """
+        # 统计域成功/失败计数
+        self._domain_total_counts[domain] = self._domain_total_counts.get(domain, 0) + 1
+        if success:
+            self._domain_success_counts[domain] = self._domain_success_counts.get(domain, 0) + 1
+        else:
+            self._domain_success_counts.setdefault(domain, 0)
+
+        # 构建实践样本
+        content = f"[实践]\n代码:\n{code}\n输出:\n{output}\n成功: {success}"
+        return self._process_content(
+            content=content,
+            source="practice",
+            source_path=f"practice_{domain}",
+            category="code" if domain == "code" else "knowledge",
+            domain=domain,
+        )
+
+    def get_domain_error_rates(self) -> Dict[str, float]:
+        """
+        获取各域错误率（供 neurogenesis 决定是否触发新生神经元）。
+
+        Returns:
+            {domain: error_rate} 字典，error_rate ∈ [0, 1]
+        """
+        error_rates: Dict[str, float] = {}
+        for domain, total in self._domain_total_counts.items():
+            if total > 0:
+                success = self._domain_success_counts.get(domain, 0)
+                error_rates[domain] = 1.0 - (success / total)
+            else:
+                error_rates[domain] = 0.0
+        return error_rates
 
     # ─── 内部实现 ───────────────────────────────────
 
     def _process_content(self, content: str, source: str,
-                         source_path: str, category: str) -> Optional[FeedItem]:
-        """处理一段内容：评估质量、去重、生成样本"""
+                         source_path: str, category: str,
+                         domain: Optional[str] = None) -> Optional[FeedItem]:
+        """处理一段内容：评估质量、去重、生成样本（带域标签）"""
         # 去重
         content_hash = hashlib.md5(content.encode()).hexdigest()
         if self.config.dedup_enabled and content_hash in self._content_hashes:
             logger.debug(f"Duplicate content skipped: {source_path}")
             return None
+
+        # 神经元架构：自动检测域（未显式指定时）
+        if domain is None:
+            domain = self._detect_domain(content)
 
         # 评估营养质量
         quality = self._assess_quality(content, category)
@@ -297,13 +413,14 @@ class FeedEngine:
             logger.debug(f"Low quality rejected: {source_path} (score={quality:.2f})")
             return item
 
-        # 生成训练样本
-        samples = self._generate_samples(content, category, source_path)
+        # 生成训练样本（带 domain 标签）
+        samples = self._generate_samples(content, category, source_path, domain=domain)
         item.sample_count = len(samples)
         item.status = "digested"
 
-        # 保存样本
+        # 保存样本（同时写入 jsonl 和按域分类缓冲）
         self._append_samples(samples)
+        self._domain_samples.setdefault(domain, []).extend(samples)
         self._content_hashes.add(content_hash)
         self._feed_items.append(item)
 
@@ -364,24 +481,26 @@ class FeedEngine:
         return min(1.0, score)
 
     def _generate_samples(self, content: str, category: str,
-                          source_path: str) -> List[dict]:
-        """将内容转换为训练样本"""
+                          source_path: str,
+                          domain: str = "general") -> List[dict]:
+        """将内容转换为训练样本（带 domain 标签）"""
         samples = []
 
         if category == "code":
             # 代码 → ReAct 样本（"分析这段代码"）
-            samples.extend(self._code_to_samples(content, source_path))
+            samples.extend(self._code_to_samples(content, source_path, domain))
         elif category == "conversation":
             # 对话 → 对话样本
-            samples.extend(self._conversation_to_samples(content))
+            samples.extend(self._conversation_to_samples(content, domain))
         else:
             # 通用知识 → 问答样本
-            samples.extend(self._knowledge_to_samples(content, source_path))
+            samples.extend(self._knowledge_to_samples(content, source_path, domain))
 
         return samples
 
-    def _code_to_samples(self, code: str, source_path: str) -> List[dict]:
-        """代码 → ReAct 训练样本"""
+    def _code_to_samples(self, code: str, source_path: str,
+                         domain: str = "general") -> List[dict]:
+        """代码 -> ReAct 训练样本（带 domain 标签）"""
         samples = []
         fname = os.path.basename(source_path)
 
@@ -399,6 +518,7 @@ class FeedEngine:
 
             samples.append({
                 "type": "react",
+                "domain": domain,
                 "task": task,
                 "steps": [{
                     "thought": thought,
@@ -411,8 +531,9 @@ class FeedEngine:
 
         return samples
 
-    def _conversation_to_samples(self, content: str) -> List[dict]:
-        """对话文本 → 对话训练样本"""
+    def _conversation_to_samples(self, content: str,
+                                 domain: str = "general") -> List[dict]:
+        """对话文本 -> 对话训练样本（带 domain 标签）"""
         samples = []
         lines = content.strip().split('\n')
 
@@ -432,12 +553,13 @@ class FeedEngine:
                     messages.append({"role": "assistant", "content": text})
 
         if len(messages) >= 2:
-            samples.append({"type": "conversation", "messages": messages})
+            samples.append({"type": "conversation", "domain": domain, "messages": messages})
 
         return samples
 
-    def _knowledge_to_samples(self, content: str, source_path: str) -> List[dict]:
-        """知识文本 → 问答训练样本"""
+    def _knowledge_to_samples(self, content: str, source_path: str,
+                              domain: str = "general") -> List[dict]:
+        """知识文本 -> 问答训练样本（带 domain 标签）"""
         samples = []
         paragraphs = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 30]
 
@@ -449,6 +571,7 @@ class FeedEngine:
 
             samples.append({
                 "type": "react",
+                "domain": domain,
                 "task": task,
                 "steps": [{
                     "thought": f"让我查阅关于 {title} 的知识。",
