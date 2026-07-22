@@ -1073,11 +1073,26 @@ class SleepEngine:
         ppl = math.exp(min(loss.item(), 20))
         return loss.item(), ppl
 
+    def _sleep_phase_evaluation(self, report: SleepReport) -> dict:
+        """Phase 4: 清醒准备 — 自我评估。
+
+        评估 Cortex 神经元质量，检测凋亡候选并执行清理。
+        """
+        logger.info("  Phase 4: 评估 Cortex 神经元质量...")
+        health = self._evaluate_cortex_quality(report)
+
+        n_neurons = health.get("n_neurons", 0)
+        status = health.get("status", "unknown")
+        logger.info(f"  Phase 4: {n_neurons} neurons, status={status}")
+
+        return health
+
     def _evaluate_cortex_quality(self, report: SleepReport) -> dict:
         """
         P7: 评估 Cortex 神经元质量。
 
         使用 lifecycle.apoptosis.check_activation 检查激活率。
+        激活计数从 coaction（CoactivationTracker）获取，而非硬编码 0。
         """
         health = {
             "n_neurons": len(self.cortex.neurons),
@@ -1085,23 +1100,25 @@ class SleepEngine:
             "status": "healthy",
         }
 
-        # 从凋亡追踪器获取记录
-        if self._lifecycle is not None:
-            try:
-                _ = self._lifecycle.apoptosis._failure_counts
-            except Exception:
-                pass
-
         # 检查每个神经元的激活率
         apoptosed = []
         if self._lifecycle is not None:
             try:
-                total_rounds = self._current_step
-                for nid in self.cortex.neurons.keys():
+                total_rounds = max(1, self._current_step)
+                # 从 coaction 获取真实激活计数（修复硬编码 0 的 bug）
+                coaction = getattr(self.cortex, "coaction", None)
+                activation_counts = {}
+                if coaction is not None:
+                    activation_counts = getattr(coaction, "_activation_counts", {})
+
+                for nid in list(self.cortex.neurons.keys()):
+                    activation_count = activation_counts.get(nid, 0)
                     triggered = self._lifecycle.apoptosis.check_activation(
-                        nid, 0, total_rounds
+                        nid, activation_count, total_rounds
                     )
                     health["neurons"][nid] = {
+                        "activation_count": activation_count,
+                        "total_rounds": total_rounds,
                         "apoptosis_triggered": triggered,
                     }
                     if triggered:
@@ -1113,6 +1130,17 @@ class SleepEngine:
                         f"[凋亡] {len(apoptosed)} 个神经元触发凋亡: {apoptosed[:5]}"
                     )
                     logger.warning(f"  凋亡触发: {apoptosed}")
+
+                    # 执行清理：从 cortex/ensemble 移除 + 删除 ckpt
+                    if self.cortex is not None:
+                        for nid in apoptosed:
+                            try:
+                                self.cortex.remove_neuron(nid, delete_ckpt=True)
+                                report.recommendations.append(
+                                    f"[凋亡] 神经元 {nid} 已清理"
+                                )
+                            except Exception as ce:
+                                logger.warning(f"  凋亡清理失败 {nid}: {ce}")
             except Exception as e:
                 logger.warning(f"  凋亡检查失败: {e}")
 

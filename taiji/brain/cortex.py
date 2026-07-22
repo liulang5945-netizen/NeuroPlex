@@ -515,6 +515,63 @@ class Cortex:
 
         return nid
 
+    def remove_neuron(self, nid: str, delete_ckpt: bool = True) -> bool:
+        """运行时移除神经元（apoptosis 清理入口）。
+
+        流程：
+        1. 从 cortex.neurons / ensemble.neurons 移除（同一引用）
+        2. 清理其他神经元的 excite_channels / inhibit_channels 中的引用
+        3. 删除磁盘 ckpt 文件（可选）
+
+        安全检查：不移除最后一个神经元（避免 ensemble 为空）。
+
+        Args:
+            nid: 要移除的神经元 ID
+            delete_ckpt: 是否删除磁盘 ckpt 文件
+
+        Returns:
+            True 如果成功移除
+        """
+        if nid not in self.neurons:
+            logger.warning(f"[Cortex] remove_neuron: {nid} 不存在")
+            return False
+
+        if len(self.neurons) <= 1:
+            logger.warning(f"[Cortex] remove_neuron: 拒绝移除最后一个神经元 {nid}")
+            return False
+
+        # 1. 从 neurons dict 移除（cortex.neurons 和 ensemble.neurons 是同一引用）
+        removed = self.neurons.pop(nid)
+
+        # 2. 清理其他神经元的 side channel 引用
+        for other_nid, other_neuron in self.neurons.items():
+            try:
+                if hasattr(other_neuron, "excite_channels"):
+                    other_neuron.excite_channels = [
+                        ch for ch in other_neuron.excite_channels
+                        if getattr(ch, "target_id", None) != nid
+                    ]
+                if hasattr(other_neuron, "inhibit_channels"):
+                    other_neuron.inhibit_channels = [
+                        ch for ch in other_neuron.inhibit_channels
+                        if getattr(ch, "target_id", None) != nid
+                    ]
+            except Exception:
+                pass
+
+        # 3. 删除 ckpt 文件
+        if delete_ckpt:
+            ckpt_path = os.path.join(self.neurons_dir, f"neuron_{nid}.pt")
+            if os.path.exists(ckpt_path):
+                try:
+                    os.remove(ckpt_path)
+                except Exception as e:
+                    logger.warning(f"[Cortex] remove_neuron: 删除 ckpt 失败: {e}")
+
+        logger.info(f"[Cortex] Apoptosis: 神经元 {nid} 已移除 (剩余 {len(self.neurons)} 个)")
+        print(f"[Cortex] 🧹 Apoptosis: {nid} 已移除 (剩余 {len(self.neurons)} 个)")
+        return True
+
     def think(self, shared_embeddings: torch.Tensor) -> Dict:
         """Run one round of resonance thinking.
 
