@@ -219,6 +219,64 @@ class ResonanceField(nn.Module):
 
         return self.inhibitory_mask
 
+    def apply_inhibitory_wta(self, top_k: int = 1) -> int:
+        """Deviance detection 融合：inhibitory neuron 竞争性抑制（WTA）。
+
+        人脑启发：inhibitory interneuron 之间相互竞争（winner-take-all），
+        只有最强的抑制方向生效，避免全场过度衰减。
+        对应 PNAS 2026 competitive inhibition motif：
+        多个 inhibitory ensemble 竞争，只有胜出者的抑制施加到场。
+
+        机制：
+        1. 从 _inhibit_contributions 收集所有 inhibitory neuron 的 decay
+        2. 按 decay 的抑制强度（1 - mean(decay)）排序
+        3. 只保留 top-k 个最强抑制，重建 inhibitory_mask
+        4. 撤销非 top-k 的 inhibitory 贡献
+
+        Args:
+            top_k: 保留的最强 inhibitory neuron 数量（默认 1）
+
+        Returns:
+            实际保留的 inhibitory neuron 数量
+        """
+        if not self._inhibit_contributions:
+            return 0
+
+        if len(self._inhibit_contributions) <= top_k:
+            return len(self._inhibit_contributions)  # 无需竞争
+
+        # 计算每个 inhibitory neuron 的抑制强度（decay 越小 = 抑制越强）
+        inhibition_strengths = {}
+        for nid, decay in self._inhibit_contributions.items():
+            # 抑制强度 = 1 - mean(decay)，decay∈[0,1]，越小抑制越强
+            if decay.dim() == 0:
+                strength = 1.0 - decay.item()
+            else:
+                strength = 1.0 - decay.mean().item()
+            inhibition_strengths[nid] = strength
+
+        # 选 top-k 最强抑制
+        ranked = sorted(inhibition_strengths.items(), key=lambda x: x[1], reverse=True)
+        winners = {nid for nid, _ in ranked[:top_k]}
+
+        # 重建 inhibitory_mask：只应用 winners 的 decay
+        # 先 reset mask 到全 1（撤销所有 inhibitory）
+        if self.inhibitory_mask.dim() == 1:
+            self.inhibitory_mask = torch.ones_like(self.inhibitory_mask)
+        else:
+            self.inhibitory_mask = torch.ones_like(self.inhibitory_mask)
+
+        for nid in winners:
+            decay = self._inhibit_contributions[nid]
+            self.inhibitory_mask = self.inhibitory_mask * decay
+
+        # 移除非 winners 的贡献记录（它们已被撤销）
+        non_winners = set(self._inhibit_contributions.keys()) - winners
+        for nid in non_winners:
+            del self._inhibit_contributions[nid]
+
+        return len(winners)
+
     def get_effective_state(self) -> torch.Tensor:
         """P0#3: 返回有效场状态 = excitatory_state ⊙ inhibitory_mask。
 

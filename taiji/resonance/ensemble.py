@@ -312,6 +312,16 @@ class ResonanceEnsemble:
             if self.coaction is not None:
                 self.coaction.update(active_ids, round_num=1)
 
+        # Deviance detection 融合：inhibitory neuron 竞争性抑制（WTA）
+        # 多个 inhibitory neuron 写入后，只保留 top-1 最强抑制方向，
+        # 避免全场过度衰减。只有 ≥2 个 inhibitory neuron 时才触发竞争。
+        n_inhibitory = sum(1 for nid in active_ids if self.neurons[nid].is_inhibitory)
+        if n_inhibitory >= 2:
+            try:
+                self.field.apply_inhibitory_wta(top_k=1)
+            except Exception:
+                pass  # WTA 失败非关键，保持原有累积抑制
+
         # P0-2 fix: 不应期错峰 — 不再全部 enter_refractory（否则 round 2+ 全部 refractory 无人写入）
         # 改为：只让 round 1 分数排名前 top_K 的 neuron 进入不应期
         # 这样 round 2+ 中分数较低的 neuron 有机会写入，实现信息轮替
