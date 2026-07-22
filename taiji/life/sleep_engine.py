@@ -1088,6 +1088,57 @@ class SleepEngine:
         ppl = math.exp(min(loss.item(), 20))
         return loss.item(), ppl
 
+    def _sleep_phase_knowledge_integration(self, report: SleepReport) -> dict:
+        """Phase 3: REM — 知识整合。
+
+        调用 SleepConsolidator 执行：
+        - 重放高共振场状态（replay buffer）
+        - 强化强 side_channels（共激活高的连接 ×1.1）
+        - 修剪弱 side_channels（weight < 0.01）
+        - 更新 fingerprint
+        - 遗忘弱共激活 pair
+        """
+        if self._sleep_consolidator is None or self.cortex is None:
+            logger.info("  Phase 3: sleep_consolidator 或 cortex 未注入，跳过")
+            return {"status": "skipped"}
+
+        coaction = getattr(self.cortex, "coaction", None)
+        result = self._sleep_consolidator.consolidate(
+            neurons=self.cortex.neurons,
+            coactivation_tracker=coaction,
+            current_step=self._current_step,
+        )
+
+        logger.info(
+            f"  Phase 3: 知识整合完成 — "
+            f"重放 {result.get('replayed_states', 0)} 状态, "
+            f"强化 {result.get('channels_reinforced', 0)} 连接, "
+            f"修剪 {result.get('channels_pruned', 0)} 连接, "
+            f"更新 {result.get('fingerprints_updated', 0)} fingerprint"
+        )
+
+        report.evolution_events += result.get("channels_reinforced", 0)
+        return result
+
+    def _sleep_phase_knowledge_distillation(self, report: SleepReport) -> dict:
+        """Phase 3.5: 知识蒸馏 — 将累积知识转化为训练数据。
+
+        当前：最小实现，记录待处理样本数。
+        未来：从 SleepConsolidator 的高共振状态生成合成训练数据。
+        """
+        if self._feed_engine is None:
+            return {"status": "skipped"}
+
+        pending = 0
+        if hasattr(self._feed_engine, "get_pending_count"):
+            try:
+                pending = self._feed_engine.get_pending_count()
+            except Exception:
+                pass
+        if pending > 0:
+            logger.info(f"  Phase 3.5: {pending} 个待处理样本将在下次训练中使用")
+        return {"status": "ok", "pending_samples": pending}
+
     def _sleep_phase_evaluation(self, report: SleepReport) -> dict:
         """Phase 4: 清醒准备 — 自我评估。
 
