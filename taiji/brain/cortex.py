@@ -291,11 +291,17 @@ class Cortex:
             state["neuromodulator"] = self._neuromodulator.get_state_dict()
             logger.debug("[Cortex]   neuromodulator 已保存")
 
+        # coaction state（共激活追踪：跨会话部落分组+孤立检测连续性）
+        if self.coaction is not None:
+            state["coaction"] = self.coaction.get_state_dict()
+            logger.debug("[Cortex]   coaction 已保存")
+
         torch.save(state, path)
         logger.info(f"[Cortex] 状态已保存: {path} "
                     f"(shared_emb={'yes' if 'shared_embedding' in state else 'no'}, "
                     f"neurons={len(neuron_states)}, "
-                    f"neuromodulator={'yes' if 'neuromodulator' in state else 'no'})")
+                    f"neuromodulator={'yes' if 'neuromodulator' in state else 'no'}, "
+                    f"coaction={'yes' if 'coaction' in state else 'no'})")
 
     def load_state(self, path: str, strict: bool = False) -> bool:
         """从磁盘加载可学习状态（恢复经验积累）。
@@ -349,6 +355,15 @@ class Cortex:
                             self._neuromodulator.dopamine,
                             self._neuromodulator.serotonin,
                             self._neuromodulator.norepinephrine,
+                        ))
+
+        # coaction state 恢复（跨会话共激活追踪连续性）
+        if "coaction" in state and self.coaction is not None:
+            self.coaction.load_state_dict(state["coaction"])
+            logger.info("[Cortex]   coaction 已恢复 "
+                        "(pairs=%d, neurons=%d)" % (
+                            len(self.coaction._slow_matrix),
+                            len(self.coaction._activation_counts),
                         ))
         return True
 

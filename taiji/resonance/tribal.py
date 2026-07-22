@@ -116,3 +116,31 @@ class CoactivationTracker:
             "fast_matrix_size": len(self._fast_matrix),
             "neurons_tracked": len(self._activation_counts),
         }
+
+    def get_state_dict(self) -> dict:
+        """序列化为可持久化的 dict。
+
+        slow_matrix 是长期统计的核心（供孤立检测），必须持久化。
+        fast_matrix 是短期计数，重启后可重新积累，不持久化以节省空间。
+        """
+        return {
+            "slow_matrix": dict(self._slow_matrix),
+            "activation_counts": dict(self._activation_counts),
+            "ema_alpha": self.ema_alpha,
+            "forget_threshold": self.forget_threshold,
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """从 dict 恢复状态。"""
+        self._slow_matrix = defaultdict(float, state.get("slow_matrix", {}))
+        self._activation_counts = defaultdict(int, state.get("activation_counts", {}))
+        # fast_matrix 不恢复（短期统计，重启后重新积累）
+        self._fast_matrix = defaultdict(float)
+        if "ema_alpha" in state:
+            self.ema_alpha = state["ema_alpha"]
+        if "forget_threshold" in state:
+            self.forget_threshold = state["forget_threshold"]
+        logger.info(
+            f"CoactivationTracker restored: {len(self._slow_matrix)} pairs, "
+            f"{len(self._activation_counts)} neurons tracked"
+        )
