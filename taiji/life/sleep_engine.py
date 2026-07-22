@@ -455,6 +455,48 @@ class SleepEngine:
 
         logger.warning("Cortex 未注入，跳过睡眠训练")
 
+    def _select_split_parent(self, domain: str) -> Optional[str]:
+        """选择分裂父 neuron（LuminaNet splitting 融合）。
+
+        策略：选同域中共振分数最高的 neuron 作为父本，
+        高负载（高错误率）的 neuron 分裂出子 neuron 分担工作。
+
+        Args:
+            domain: 域名
+
+        Returns:
+            父 neuron ID，或 None（域内无 neuron 时从零新建）
+        """
+        if self.cortex is None:
+            return None
+
+        # 收集同域 neuron
+        domain_nids = [
+            nid for nid in self.cortex.neurons
+            if nid == domain or nid.startswith(f"{domain}_")
+        ]
+        if not domain_nids:
+            return None  # 域内无 neuron，从零新建
+
+        if len(domain_nids) == 1:
+            return domain_nids[0]
+
+        # 多个同域 neuron 时选共振分数最高的
+        try:
+            scores = getattr(self.cortex.ensemble, 'round_scores', [])
+            if scores:
+                last_scores = scores[-1] if scores else {}
+                best_nid = max(
+                    domain_nids,
+                    key=lambda n: last_scores.get(n, 0.0),
+                )
+                return best_nid
+        except Exception:
+            pass
+
+        # fallback: 第一个同域 neuron
+        return domain_nids[0]
+
     def _train_cortex_neurons(self, report: SleepReport):
         """
         神经元架构：训练 Cortex 中每个域的神经元（P7 模式）。
@@ -598,12 +640,18 @@ class SleepEngine:
                         # 运行时创建新神经元并加入 ensemble
                         if self.cortex is not None:
                             try:
+                                # LuminaNet splitting 融合：
+                                # 同域已有 neuron 时优先分裂最强者（继承权重 + 噪声分化），
+                                # 新 neuron 起点高于随机初始化；域首 neuron 从零新建
+                                split_parent = self._select_split_parent(domain)
                                 new_nid = self.cortex.add_neuron(
-                                    domain, lifecycle=self._lifecycle
+                                    domain, lifecycle=self._lifecycle,
+                                    from_split=split_parent,
                                 )
-                                logger.info(f"  🌱 neurogenesis 完成: {new_nid} 已加入 ensemble")
+                                split_info = f" (split from {split_parent})" if split_parent else " (from scratch)"
+                                logger.info(f"  🌱 neurogenesis 完成: {new_nid}{split_info}")
                                 report.recommendations.append(
-                                    f"[神经新生] 新神经元 {new_nid} 已创建并加入 ensemble"
+                                    f"[神经新生] 新神经元 {new_nid} 已创建{split_info}"
                                 )
                             except Exception as ne:
                                 logger.warning(f"  neurogenesis 创建失败: {ne}")
@@ -624,12 +672,17 @@ class SleepEngine:
                             # 从 nid 推断 domain（格式: domain 或 domain_N）
                             domain = nid.split("_")[0] if "_" in nid else nid
                             try:
+                                # LuminaNet splitting: 孤立 neuron 分裂出协同 neuron
+                                # 孤立 neuron 自身作为分裂父本，子 neuron 继承权重后分化
+                                split_parent = nid if nid in self.cortex.neurons else self._select_split_parent(domain)
                                 new_nid = self.cortex.add_neuron(
-                                    domain, lifecycle=self._lifecycle
+                                    domain, lifecycle=self._lifecycle,
+                                    from_split=split_parent,
                                 )
-                                logger.info(f"  🌱 孤立协同神经元创建: {new_nid} (为 {nid})")
+                                split_info = f" (split from {split_parent})" if split_parent else ""
+                                logger.info(f"  🌱 孤立协同神经元创建: {new_nid}{split_info} (为 {nid})")
                                 report.recommendations.append(
-                                    f"[神经新生] 孤立神经元 {nid} → 创建协同神经元 {new_nid}"
+                                    f"[神经新生] 孤立神经元 {nid} → 创建协同神经元 {new_nid}{split_info}"
                                 )
                             except Exception as ne:
                                 logger.warning(f"  孤立协同神经元创建失败: {ne}")

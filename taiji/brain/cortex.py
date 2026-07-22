@@ -482,13 +482,15 @@ class Cortex:
         self._sleep_consolidator = sleep_consolidator
         print(f"[Cortex] SleepConsolidator registered (replay buffer 持久化)")
 
-    def add_neuron(self, domain: str, lifecycle=None) -> str:
+    def add_neuron(self, domain: str, lifecycle=None, from_split: Optional[str] = None) -> str:
         """运行时创建新神经元并加入 ensemble（neurogenesis 入口）。
 
         流程：
         1. 生成新 neuron ID（{domain}_{n} 格式，如 zh_1）
         2. 用 get_domain_neuron_config 创建 NeuronConfig（COMPACT 规格）
         3. 实例化 ResonanceNeuron → to(device) → eval → freeze_fingerprint
+           - LuminaNet splitting 融合：from_split 指定父 neuron ID 时，
+             继承父权重 + 微调噪声分化，新 neuron 起点更高
         4. 多模态注册（auto_register_modalities）
         5. 持久化 ckpt 到 neurons_dir/neuron_{nid}.pt
         6. 注入 cortex.neurons + ensemble.add_neuron
@@ -497,6 +499,9 @@ class Cortex:
         Args:
             domain: 域名（zh/en/code/math/general）
             lifecycle: LifecycleManager 实例（可选，用于 maturity.register_new）
+            from_split: 父 neuron ID（LuminaNet splitting 融合）。
+                        指定时继承父 neuron 权重 + 微调噪声分化，
+                        新 neuron 起点高于随机初始化。None 时从零新建。
 
         Returns:
             新神经元的 ID（如 "zh_1"）
@@ -506,6 +511,12 @@ class Cortex:
         if domain not in DOMAIN_VOCAB_SIZES:
             raise ValueError(
                 f"未知 domain: {domain}. 可选: {list(DOMAIN_VOCAB_SIZES.keys())}"
+            )
+
+        # 校验 from_split 父 neuron 存在
+        if from_split is not None and from_split not in self.neurons:
+            raise ValueError(
+                f"分裂父 neuron {from_split} 不存在，当前 neurons: {list(self.neurons.keys())}"
             )
 
         # 1. 生成唯一 neuron ID
@@ -520,26 +531,51 @@ class Cortex:
 
         # BioOSS: 按 ~20% 比例生成 inhibitory 神经元（人脑启发：兴奋/抑制分化）
         # 统计当前域内 inhibitory 比例，若 < 20% 则新建 inhibitory，否则 excitatory
-        domain_nids = [n for n in self.neurons if n.startswith(f"{domain}_")]
-        if domain_nids:
-            n_inhibitory = sum(
-                1 for n in domain_nids if self.neurons[n].is_inhibitory
+        # from_split 模式：继承父 neuron 的 neuron_type（分裂保持同类）
+        if from_split is not None:
+            parent_neuron = self.neurons[from_split]
+            cfg.neuron_type = parent_neuron.neuron_type
+            logger.info(
+                f"[Cortex] LuminaNet split: {nid} 继承父 neuron {from_split} "
+                f"(neuron_type={cfg.neuron_type})"
             )
-            inhibitory_ratio = n_inhibitory / len(domain_nids)
-            if inhibitory_ratio < 0.2:
-                cfg.neuron_type = "inhibitory"
-                logger.info(
-                    f"[Cortex] BioOSS: 新神经元 {nid} 设为 inhibitory "
-                    f"(域 {domain} 当前 inhibitory 比例 {inhibitory_ratio:.0%} < 20%)"
-                )
-            else:
-                cfg.neuron_type = "excitatory"
         else:
-            # 域内首 neuron 默认 excitatory（先建立基础能力再分化抑制）
-            cfg.neuron_type = "excitatory"
+            domain_nids = [n for n in self.neurons if n.startswith(f"{domain}_")]
+            if domain_nids:
+                n_inhibitory = sum(
+                    1 for n in domain_nids if self.neurons[n].is_inhibitory
+                )
+                inhibitory_ratio = n_inhibitory / len(domain_nids)
+                if inhibitory_ratio < 0.2:
+                    cfg.neuron_type = "inhibitory"
+                    logger.info(
+                        f"[Cortex] BioOSS: 新神经元 {nid} 设为 inhibitory "
+                        f"(域 {domain} 当前 inhibitory 比例 {inhibitory_ratio:.0%} < 20%)"
+                    )
+                else:
+                    cfg.neuron_type = "excitatory"
+            else:
+                # 域内首 neuron 默认 excitatory（先建立基础能力再分化抑制）
+                cfg.neuron_type = "excitatory"
 
         # 3. 实例化神经元
         neuron = ResonanceNeuron(cfg).to(self.device)
+
+        # LuminaNet splitting: 继承父权重 + 微调噪声分化
+        # 子 neuron 初始权重 = 父权重 × (1 + ε)，ε ~ N(0, 0.01)
+        # 这让子 neuron 起点接近父 neuron 但不完全相同，
+        # 后续 intra_group diversity loss 会推动它们进一步分化
+        if from_split is not None:
+            parent_sd = self.neurons[from_split].state_dict()
+            child_sd = neuron.state_dict()
+            for key in child_sd:
+                if key in parent_sd and child_sd[key].shape == parent_sd[key].shape:
+                    # 继承父权重 + 小噪声分化（std=0.01）
+                    noise = torch.randn_like(child_sd[key]) * 0.01
+                    child_sd[key] = parent_sd[key].clone() + noise
+            neuron.load_state_dict(child_sd, strict=False)
+            logger.info(f"[Cortex] split: {nid} 已继承 {from_split} 的权重 + 1% 噪声分化")
+
         neuron.eval()
         neuron.freeze_fingerprint()
 
