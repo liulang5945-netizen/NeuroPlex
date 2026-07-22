@@ -69,6 +69,8 @@ class ResonanceField(nn.Module):
         # deque(maxlen=...) 自动丢弃最老条目，防止 N×R 轮后内存爆炸
         self._write_history: Dict[str, Deque[torch.Tensor]] = {}
         self._contributions: Dict[str, torch.Tensor] = {}
+        # BioOSS: 抑制性神经元贡献追踪（用于 leave-one-out 撤销）
+        self._inhibit_contributions: Dict[str, torch.Tensor] = {}
         self.scores: Dict[str, float] = {}
         self.n_active: int = 0
 
@@ -83,7 +85,7 @@ class ResonanceField(nn.Module):
             self.inhibitory_mask = torch.ones(self.dim)
         self._batch_size = batch_size
         self._contributions.clear()
-        self._inhibit_contributions.clear() if hasattr(self, '_inhibit_contributions') else None
+        self._inhibit_contributions.clear()
         self.scores.clear()
         self._write_history.clear()
         self.n_active = 0
@@ -213,8 +215,6 @@ class ResonanceField(nn.Module):
             self.inhibitory_mask = self.inhibitory_mask * decay
 
         # Track contributions for potential undo (leave-one-out)
-        if not hasattr(self, '_inhibit_contributions'):
-            self._inhibit_contributions: Dict[str, torch.Tensor] = {}
         self._inhibit_contributions[neuron_id] = decay.detach()
 
         return self.inhibitory_mask
@@ -234,13 +234,40 @@ class ResonanceField(nn.Module):
         return effective / norm
 
     def _leave_one_out_state(self, exclude_id: str) -> torch.Tensor:
-        """Field state with one neuron's contribution removed (H5 fix)."""
+        """Field state with one neuron's contribution removed (H5 fix + BioOSS inhibitory).
+
+        BioOSS 修复：同时撤销 excitatory 贡献（state - contrib）和 inhibitory 贡献
+        （mask / decay），返回与 get_effective_state 一致的语义（state ⊙ mask）。
+        原实现仅撤销 excitatory，inhibitory_mask 仍包含被排除 neuron 的衰减，
+        导致 inhibitory neuron 评分时其自身衰减未被撤销。
+        """
+        # 1. 撤销 excitatory 贡献
         contrib = self._contributions.get(exclude_id)
-        if contrib is None:
-            return self.state
-        if self.state.dim() == 1:
-            return self.state - contrib.squeeze(0)
-        return self.state - contrib
+        if contrib is not None:
+            if self.state.dim() == 1:
+                state_loo = self.state - contrib.squeeze(0)
+            else:
+                state_loo = self.state - contrib
+        else:
+            state_loo = self.state
+
+        # 2. 撤销 inhibitory 贡献（BioOSS: mask / decay）
+        inhibit_contrib = self._inhibit_contributions.get(exclude_id)
+        if inhibit_contrib is not None:
+            # decay ∈ (0, 1]，mask = mask * decay，撤销 = mask / decay
+            if self.inhibitory_mask.dim() == 1:
+                mask_loo = self.inhibitory_mask / (inhibit_contrib.squeeze(0) + 1e-8)
+            else:
+                mask_loo = self.inhibitory_mask / (inhibit_contrib + 1e-8)
+            # 撤销后不应超过 1.0（无抑制状态）
+            mask_loo = mask_loo.clamp(max=1.0)
+        else:
+            mask_loo = self.inhibitory_mask
+
+        # 3. 返回 effective state（state ⊙ mask，与 get_effective_state 语义一致）
+        effective = state_loo * mask_loo
+        norm = effective.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        return effective / norm
 
     def _condition(self, state: torch.Tensor) -> torch.Tensor:
         """Apply W_cond as a multiplicative gate (H8 fix).
@@ -285,7 +312,8 @@ class ResonanceField(nn.Module):
 
         Not used directly by routing; the ensemble uses prediction_complementarity.
         """
-        score_state = self._leave_one_out_state(neuron_id) if neuron_id else self.state
+        # BioOSS: fallback 用 get_effective_state()，与 _leave_one_out_state 语义一致
+        score_state = self._leave_one_out_state(neuron_id) if neuron_id else self.get_effective_state()
         if vector.dim() == 2:
             vector = vector.mean(dim=0)
         v_norm = vector / (vector.norm() + 1e-8)

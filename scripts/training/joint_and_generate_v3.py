@@ -50,7 +50,7 @@ params = list(shared_embedding.parameters())
 for n in neurons.values():
     params.extend(n.parameters())
 optimizer = torch.optim.AdamW(params, lr=2e-4)
-h_lm, h_field, h_intra, h_inter = [], [], [], []
+h_lm, h_field, h_intra, h_inter, h_contrast = [], [], [], [], []
 t0 = time.time()
 
 for step in range(1, 301):
@@ -77,17 +77,11 @@ for step in range(1, 301):
         lm_losses.append(lm_loss)
         all_fv[domain] = result["field_vector"]
 
-    # Field contrastive loss
+    # Field contrastive loss (MoCo-inspired top-k/bottom-k)
     nids = list(all_fv.keys()); N = len(nids)
     normed = {nid: v / (v.norm(dim=-1, keepdim=True) + 1e-8) for nid, v in all_fv.items()}
 
-    inter_loss = torch.tensor(0.0); inter_count = 0
-    for i in range(N):
-        for j in range(i + 1, N):
-            inter_loss = inter_loss + F.relu(normed[nids[i]] @ normed[nids[j]].T - 0.5).pow(2).mean()
-            inter_count += 1
-    inter_loss = inter_loss / max(inter_count, 1)
-
+    # ── Original intra-neuron diversity loss ──
     intra_loss = torch.tensor(0.0); intra_count = 0
     for nid in nids:
         v = normed[nid]; B = v.shape[0]
@@ -97,28 +91,71 @@ for step in range(1, 301):
         intra_count += 1
     intra_loss = intra_loss / max(intra_count, 1)
 
+    # ── MoCo-inspired contrastive loss (top-k enhancement + bottom-k suppression) ──
+    # Compute quality scores for each neuron's field vectors
+    quality_scores = {}
+    for nid in nids:
+        v = normed[nid]
+        # Quality = average norm * average diversity with other neurons
+        diversity = 0.0
+        count = 0
+        for other in nids:
+            if other != nid:
+                diversity += (1.0 - (v @ normed[other].T).mean()).abs()
+                count += 1
+        quality_scores[nid] = (v.norm(dim=-1).mean() * (diversity / max(count, 1))).item()
+
+    # Select top-k and bottom-k
+    k = min(2, N // 2)
+    sorted_nids = sorted(nids, key=lambda x: quality_scores[x], reverse=True)
+    top_k_nids = sorted_nids[:k]
+    bottom_k_nids = sorted_nids[-k:]
+
+    # Contrastive loss: top-k should be dissimilar from bottom-k
+    contrast_loss = torch.tensor(0.0)
+    for top_nid in top_k_nids:
+        for bottom_nid in bottom_k_nids:
+            sim = (normed[top_nid] @ normed[bottom_nid].T).mean()
+            # Push them apart: maximize (1 - similarity)
+            contrast_loss = contrast_loss + F.relu(sim - 0.3).pow(2)
+
+    # Inter-neuron separation (original)
+    inter_loss = torch.tensor(0.0); inter_count = 0
+    for i in range(N):
+        for j in range(i + 1, N):
+            inter_loss = inter_loss + F.relu(normed[nids[i]] @ normed[nids[j]].T - 0.5).pow(2).mean()
+            inter_count += 1
+    inter_loss = inter_loss / max(inter_count, 1)
+
+    # Total field loss: intra + inter + contrastive
+    field_loss = intra_loss + inter_loss + 0.5 * contrast_loss
+
     avg_lm = torch.stack(lm_losses).mean()
-    total = avg_lm + 0.3 * (intra_loss + inter_loss)
+    total = avg_lm + 0.3 * field_loss
     total.backward()
     torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)
     optimizer.step()
 
-    h_lm.append(avg_lm.item()); h_field.append((intra_loss + inter_loss).item())
+    h_lm.append(avg_lm.item()); h_field.append(field_loss.item())
     h_intra.append(intra_loss.item()); h_inter.append(inter_loss.item())
+    h_contrast.append(contrast_loss.item())
 
     if step % 100 == 0:
         w = min(step, 50)
         print(f"  step {step:>4d} lm={sum(h_lm[-w:])/w:.4f} "
               f"field={sum(h_field[-w:])/w:.4f} "
               f"intra={sum(h_intra[-w:])/w:.4f} "
-              f"inter={sum(h_inter[-w:])/w:.4f}")
+              f"inter={sum(h_inter[-w:])/w:.4f} "
+              f"contrast={sum(h_contrast[-w:])/w:.4f}")
 
 elapsed = time.time() - t0
 final = {k: sum(v[-50:]) / 50 for k, v in
-         [("lm", h_lm), ("field", h_field), ("intra", h_intra), ("inter", h_inter)]}
+         [("lm", h_lm), ("field", h_field), ("intra", h_intra), 
+          ("inter", h_inter), ("contrast", h_contrast)]}
 print(f"\n  Done ({elapsed:.0f}s)")
 print(f"  lm={final['lm']:.4f} field={final['field']:.4f} "
-      f"intra={final['intra']:.4f} inter={final['inter']:.4f}")
+      f"intra={final['intra']:.4f} inter={final['inter']:.4f} "
+      f"contrast={final['contrast']:.4f}")
 
 # Pairwise cosine
 print("\n  Pairwise field cosine:")

@@ -518,6 +518,26 @@ class Cortex:
         cfg = get_domain_neuron_config(domain)
         cfg.neuron_id = nid
 
+        # BioOSS: 按 ~20% 比例生成 inhibitory 神经元（人脑启发：兴奋/抑制分化）
+        # 统计当前域内 inhibitory 比例，若 < 20% 则新建 inhibitory，否则 excitatory
+        domain_nids = [n for n in self.neurons if n.startswith(f"{domain}_")]
+        if domain_nids:
+            n_inhibitory = sum(
+                1 for n in domain_nids if self.neurons[n].is_inhibitory
+            )
+            inhibitory_ratio = n_inhibitory / len(domain_nids)
+            if inhibitory_ratio < 0.2:
+                cfg.neuron_type = "inhibitory"
+                logger.info(
+                    f"[Cortex] BioOSS: 新神经元 {nid} 设为 inhibitory "
+                    f"(域 {domain} 当前 inhibitory 比例 {inhibitory_ratio:.0%} < 20%)"
+                )
+            else:
+                cfg.neuron_type = "excitatory"
+        else:
+            # 域内首 neuron 默认 excitatory（先建立基础能力再分化抑制）
+            cfg.neuron_type = "excitatory"
+
         # 3. 实例化神经元
         neuron = ResonanceNeuron(cfg).to(self.device)
         neuron.eval()

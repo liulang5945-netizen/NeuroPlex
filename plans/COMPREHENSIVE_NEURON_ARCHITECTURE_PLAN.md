@@ -1087,6 +1087,192 @@ Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head +
 | 2026-07-15 | 长期训练计划 | 快实验无法验证 1+1>2 |
 | 2026-07-15 | 质量过滤机制 | 差的神经元稀释好的 |
 | 2026-07-15 | 领域专用 tokenizer | 知识缺口被验证真实存在 |
+| 2026-07-22 | MoCo-inspired 动态 logit 融合 | 每步重新计算场分数，动态加权所有神经元 logits |
+| 2026-07-22 | Top-k/Bottom-k contrastive loss | 增强场向量差异化，促进神经元角色分化 |
+
+---
+
+## 更新: 2026-07-22 —— 外部借鉴机制整合（MoCo/KoPE/SMCS）
+
+### 借鉴来源分析
+
+经过对 MoCo、SMCS、COLT、KoPE、BioOSS 五个开源项目的深入研究，以下机制被整合进态极：
+
+| 项目 | 借鉴机制 | 优先级 | 状态 |
+|------|---------|--------|------|
+| **MoCo** | 动态 Logit 融合 | 第一优先 | ✅ 已实现 |
+| **MoCo** | Top-k/Bottom-k Contrastive Loss | 第一优先 | ✅ 已实现 |
+| **SMCS** | 实例级路由 | 第二优先 | ✅ 已实现 |
+| **SMCS** | 混合后验评分 | 第二优先 | ✅ 已实现 |
+| **KoPE** | 场向量相位化 | 第三优先 | ✅ 已实现 |
+| **BioOSS** | p/o 双神经元模型 | 第三优先 | ✅ 已实现 |
+
+### MoCo-inspired 动态 Logit 融合
+
+**核心思想**：生成时每步重新计算场分数，动态加权所有神经元的 logits，替代静态加权。
+
+**实现位置**：`taiji/resonance/ensemble.py` → `_dynamic_logit_fusion()`
+
+**算法流程**：
+```
+1. 获取当前所有神经元的 logits 和场分数
+2. 场分数 → softmax(temperature) → 动态权重
+3. 按权重融合所有 logits（支持不同 vocab 大小的 padding）
+4. 采样生成下一个 token
+```
+
+**关键参数**：
+- `temperature`: 0.5（较低温度使权重分布更尖锐，突出高共振神经元）
+- `vocab_padding`: 自动 pad 到最大 vocab 大小，兼容 P7 架构
+
+**验证结果**：
+```
+输入: "今天天气"
+动态权重: {'zh': 0.184, 'en': 0.210, 'code': 0.194, 'math': 0.198, 'general': 0.214}
+权重和: 1.0000 ✓
+```
+
+**态极整合方式**：在 `cortex._generate_p7()` 中，优先使用动态融合 logits，fallback 到域专用 logits。
+
+### Top-k/Bottom-k Contrastive Loss
+
+**核心思想**：通过质量评分区分优秀神经元和较差神经元，强制它们的场向量保持距离。
+
+**实现位置**：`scripts/training/joint_and_generate_v3.py` → 场对比损失部分
+
+**算法流程**：
+```
+1. 计算每个神经元场向量的质量评分（norm × diversity）
+2. 按质量评分排序，选出 top-k 和 bottom-k
+3. 计算 contrastive loss: L_contrast = Σ(F.relu(sim(top, bottom) - 0.3)^2)
+4. 总场损失: L_field = L_intra + L_inter + 0.5 × L_contrast
+```
+
+**质量评分公式**：
+```
+quality(nid) = mean(norm(field_vector)) × mean(1 - |cos(nid, other)|)
+```
+
+**验证结果**：
+```
+质量评分: {'zh': 1.004, 'en': 1.003, 'code': 0.991, 'math': 1.005, 'general': 0.990}
+Top-2: ['math', 'zh']
+Bottom-2: ['code', 'general']
+Contrastive loss: 0.000000（初始状态，训练后将增大）
+```
+
+**态极整合方式**：联合训练时，场对比损失从 `L_intra + L_inter` 升级为 `L_intra + L_inter + 0.5 × L_contrast`。
+
+### 第二优先：实例级路由（SMCS-inspired RPS）
+
+**已实现**：关键词路由后用共振分数校验，探测 ensemble 获取 per-neuron scores，若最强域分数比选定域高 50% 以上则切换。
+
+**实现位置**：`taiji/brain/cortex.py` → `_generate_p7()` L802-831
+
+**算法流程**：
+```
+1. 关键词初路由选定 domain
+2. 用 shared_embedding 编码输入 → ensemble.forward(return_logits=False)
+3. 获取 per-neuron final_scores
+4. 若最强域 != 选定域 且 最强域分数 > 选定域分数 × 1.5 → 切换 domain
+5. vocab 截断：融合 logits 后截断到 domain_vocab（修复 IndexError）
+```
+
+### 第二优先：混合后验评分（SMCS-inspired EPE）
+
+**已实现**：n_candidates>1 时生成多条候选，用 inter-response 一致性 + intra-response 置信度 + 重复率惩罚综合评分选最优。
+
+**实现位置**：`taiji/brain/cortex.py` → `generate(n_candidates=N)` + `_select_best_candidate()`
+
+**评分公式**：
+```
+inter_score = 1 - avg_4gram_jaccard(candidate, others)  # 与其他候选的一致性
+length_score = min(len(candidate)/50, 1.0)               # 长度置信度
+repeat_penalty = 1 - repeat_ratio                        # 重复率惩罚
+综合分 = inter_score + length_score - repeat_penalty
+```
+
+### 第三优先：场向量相位化（KoPE-inspired Kuramoto）
+
+**已实现**：基于共激活强度的 Kuramoto 相位耦合，共激活强的 neuron 相位相互牵引同步（绑定），无共激活的独立（解绑）。
+
+**实现位置**：`taiji/resonance/gamma_oscillator.py` → `kuramoto_step()` + `taiji/resonance/ensemble.py` 每轮 tick_refractory 后调用
+
+**算法**：
+```
+dθ_i/dt = ω + K/N × Σ_j sin(θ_j - θ_i) × coactivation(i,j)
+- K=0.05（温和耦合）
+- coactivation(i,j) 来自 CoactivationTracker（同轮 forward 的 neuron 互为共激活）
+- 无共激活时保留最小耦合 0.01（避免完全解耦）
+```
+
+**验证**：2-neuron 测试（phase 0.0 和 1.0）收敛（0→0.084, 1.0→0.916）。
+
+### 第三优先：p/o 双神经元模型（BioOSS-inspired）
+
+**已实现**：区分兴奋性（pyramidal/excitatory）和抑制性（interneuron/inhibitory）两类神经元，抑制性神经元通过乘法衰减掩码调制场状态。
+
+**实现位置**：
+- `taiji/resonance/config.py` → `NeuronConfig.neuron_type ∈ {"excitatory", "inhibitory"}`
+- `taiji/resonance/neuron.py` → `is_inhibitory` 属性 + `excite_channels`/`inhibit_channels` 双通道
+- `taiji/resonance/field.py` → `write_inhibit()` 乘法衰减 + `get_effective_state()` = state ⊙ mask + `_leave_one_out_state()` 撤销 inhibitory 贡献
+- `taiji/resonance/ensemble.py` → round 1/2+ 按 `is_inhibitory` 分流（write vs write_inhibit）
+- `taiji/brain/cortex.py` → `add_neuron()` 按 ~20% 比例生成 inhibitory
+
+**算法**：
+```
+inhibitory neuron 写入：
+  decay_i = 1 - weight × |v_i| / |v_abs|.norm()  （divisive inhibition）
+  mask = mask × decay  （累积乘法衰减）
+
+effective_state = state ⊙ inhibitory_mask  （用于 scoring）
+
+leave-one-out（inhibitory neuron 评分时撤销自身衰减）：
+  mask_loo = mask / decay  （撤销衰减，clamp ≤ 1.0）
+  effective_loo = (state - exc_contrib) ⊙ mask_loo
+```
+
+**关键修复**：`_leave_one_out_state` 原实现仅撤销 excitatory 贡献，inhibitory_mask 仍包含被排除 neuron 的衰减，导致 inhibitory neuron 评分偏差。现同时撤销两者，返回与 `get_effective_state` 一致的语义。
+
+**neurogenesis 比例控制**：`Cortex.add_neuron()` 统计当前域内 inhibitory 比例，若 < 20% 则新建 inhibitory，否则 excitatory。维持人脑启发的 ~20% 抑制性比例。
+
+### 本次新增文件
+
+- `scripts/training/verify_moco_integration.py` — MoCo 机制整合验证
+- `scripts/training/verify_biooss.py` — BioOSS 双神经元模型验证（30/30 PASSED）
+- `taiji/resonance/ensemble.py` — 新增 `_dynamic_logit_fusion()` 方法 + Kuramoto 相位耦合调用
+- `taiji/resonance/gamma_oscillator.py` — 新增 `kuramoto_step()` KoPE 相位耦合
+- `taiji/brain/cortex.py` — SMCS RPS 实例级路由 + EPE 混合后验评分 + BioOSS neurogenesis 比例控制
+- `taiji/resonance/field.py` — `_leave_one_out_state` 修复 inhibitory 贡献撤销
+- `scripts/training/joint_and_generate_v3.py` — 新增 Top-k/Bottom-k contrastive loss
+
+### 验证脚本输出示例
+
+```
+============================================================
+Test 1: Dynamic Logit Fusion (MoCo-inspired)
+============================================================
+
+  Domain: zh
+  Input: 今天天气很好，我想出去散步...
+  Fused logits shape: torch.Size([1, 7, 20000])
+  Final scores: {'en': 0.0105, 'math': -0.0206, 'zh': -0.0555, 'code': -0.0303, 'general': 0.0203}
+  Dynamic weights: {'en': 0.2102, 'math': 0.1975, 'zh': 0.1842, 'code': 0.1937, 'general': 0.2144}
+  Weights sum: 1.0000 ✓
+
+============================================================
+Test 3: Field Contrastive Loss (Top-k/Bottom-k)
+============================================================
+
+  Quality scores: {'zh': 1.0042, 'en': 1.0033, 'code': 0.9914, 'math': 1.0055, 'general': 0.9905}
+  Top-2: ['math', 'zh']
+  Bottom-2: ['code', 'general']
+  Contrastive loss: 0.000000
+
+============================================================
+ALL TESTS PASSED!
+============================================================
+```
 | 2026-07-15 | 转译层设计 | 解决多 tokenizer 共振 |
 | 2026-07-15 | 置信度门控 + 早停机制 | 避免过思考，共振仅在不确定时启动 |
 | 2026-07-17 | H1-H10 机制修复 | 解决共振场架构中的隐藏缺陷 |
