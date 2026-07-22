@@ -908,14 +908,11 @@ class Cortex:
         general_ids: List[int],
         top_k: int = 2,
     ) -> List[str]:
-        """Level 2 指纹路由：用 prompt embedding vs neuron fingerprint cosine 选 top-k。
+        """Level 2 共振路由：用 SMCS 共振探测分数选 top-k neuron。
 
-        将 prompt 的 shared embedding 均值池化，与所有 neuron 的 frozen fingerprint
-        计算 cosine 相似度，选最相关的 top-k 个 neuron。general neuron 始终包含。
-
-        维度匹配：shared_embedding 输出 base_embed_dim，fingerprint 维度 hidden_size。
-        当两者一致（COMPACT 规格：均为 512）时直接计算；
-        否则 fallback 到 Level 1 域路由。
+        对 prompt 做一次完整 resonance forward pass（所有 neuron），
+        用 final_scores 排序选共振最强的 top-k 个 neuron。
+        这是一次性开销（生成开始时），per-token 成本大幅降低。
 
         Args:
             general_ids: prompt 的 general tokenizer id 列表。
@@ -927,32 +924,25 @@ class Cortex:
         if not self.neurons or self._shared_embedding is None:
             return list(self.neurons.keys())
 
-        # 1. prompt embedding 均值池化 → [base_embed_dim]
-        ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
-        prompt_emb = self._shared_embedding(ids_tensor)  # [1, L, base_embed_dim]
-        prompt_vec = prompt_emb.mean(dim=1).squeeze(0)    # [base_embed_dim]
-        prompt_norm = prompt_vec / (prompt_vec.norm() + 1e-8)
+        # 所有 neuron 做一次共振 forward probe
+        try:
+            probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+            probe_emb = self._shared_embedding(probe_ids)
+            with torch.no_grad():
+                probe_result = self.ensemble.forward(
+                    shared_embeddings=probe_emb, return_logits=False,
+                )
+            probe_scores = probe_result.get("final_scores", {})
+        except Exception:
+            probe_scores = {}
 
-        # 2. 与所有 neuron fingerprint 计算 cosine
-        scores: List[tuple] = []  # [(nid, score), ...]
-        for nid, neuron in self.neurons.items():
-            fp = getattr(neuron, "fingerprint", None)
-            if fp is None or fp.norm() < 1e-8:
-                continue
-            # 维度检查：不匹配则跳过该 neuron
-            if fp.shape[0] != prompt_norm.shape[0]:
-                continue
-            sim = float(torch.dot(prompt_norm, fp / (fp.norm() + 1e-8)))
-            scores.append((nid, sim))
-
-        # 3. 全部维度不匹配 → fallback 全量激活
-        if not scores:
+        if not probe_scores:
             return list(self.neurons.keys())
 
-        # 4. 选 top-k（排除 general，单独保证）
-        scores.sort(key=lambda x: x[1], reverse=True)
-        non_general = [(nid, s) for nid, s in scores if nid != "general"]
-        selected = [nid for nid, _ in non_general[:top_k]]
+        # 按共振分数排序，选 top-k（排除 general，单独保证）
+        sorted_nids = sorted(probe_scores, key=probe_scores.get, reverse=True)
+        non_general = [nid for nid in sorted_nids if nid != "general"]
+        selected = non_general[:top_k]
 
         # general 始终包含
         if "general" in self.neurons and "general" not in selected:

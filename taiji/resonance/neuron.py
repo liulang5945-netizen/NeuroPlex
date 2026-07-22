@@ -402,19 +402,19 @@ class ResonanceNeuron(nn.Module):
     def freeze_fingerprint(self) -> None:
         """Compute and freeze the direction fingerprint.
 
-        Fingerprint = L2-normalised mean of (field_write + embed_adapter) weight rows.
-        field_write: 蒸馏 backbone 的固化方向（静态）
-        embed_adapter: 训练后的自适应方向（动态，随经验更新）
-        两者融合使 fingerprint 既能反映固有概念方向，又能随训练自适应。
+        Fingerprint = L2-normalised mean of (field_write + 2×embed_adapter) weight rows.
+        field_write: 蒸馏 backbone 的固化方向（静态，weight=1x）
+        embed_adapter: 训练后的自适应方向（动态，weight=2x 对比度增强）
+        embed_adapter 加权 ×2 确保训练信号主导 fingerprint 方向，提升域区分度。
         Used for lightweight prescreening (P1).
         """
         with torch.no_grad():
             fp = self.field_write.weight.mean(dim=0)  # [hidden_size]
             # 融合 embed_adapter：weight 形状 [hidden_size, base_embed_dim]
-            # mean(dim=1) → [hidden_size]，反映 neuron 对输入的适应方向
+            # mean(dim=1) → [hidden_size]，×2 增强训练信号对比度
             if hasattr(self, 'embed_adapter') and self.embed_adapter is not None:
                 ea = self.embed_adapter.weight.mean(dim=1)  # [hidden_size]
-                fp = fp + ea
+                fp = fp + 2.0 * ea
             self.fingerprint.copy_(fp / (fp.norm() + 1e-8))
 
     def establish_side_channel(
