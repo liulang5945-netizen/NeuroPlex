@@ -150,13 +150,21 @@ class VectorQuantizer(nn.Module):
 
     def __init__(self, num_embeddings: int = 8192, embedding_dim: int = 256,
                  commitment_cost: float = 0.25, ema_decay: float = 0.99,
-                 dead_code_threshold: int = 100):
+                 dead_code_threshold: int = 100,
+                 revival_threshold: float = 1e-3,
+                 revival_interval: int = 100):
         super().__init__()
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.commitment_cost = commitment_cost
         self.ema_decay = ema_decay
         self.dead_code_threshold = dead_code_threshold
+        # 低频码字重置：ema_cluster_size 归一化后 < revival_threshold 视为半死不活
+        # 归一化基准 = ema_cluster_size / ema_cluster_size.mean()，均匀分布时每个码字≈1.0
+        # revival_threshold=1e-3 意味着使用频率低于平均的 0.1% 就重置
+        self.revival_threshold = revival_threshold
+        # 每 revival_interval 步执行一次 revival（避免每步都做排序，开销大）
+        self.revival_interval = revival_interval
 
         # Codebook: [num_embeddings, embedding_dim]
         # 用 kaiming 初始化代替 uniform(-1/N, 1/N)，避免初始值过小
@@ -167,6 +175,7 @@ class VectorQuantizer(nn.Module):
         self.register_buffer("ema_cluster_size", torch.zeros(num_embeddings))
         self.register_buffer("ema_w", self.codebook.weight.data.clone())
         self.register_buffer("usage_count", torch.zeros(num_embeddings, dtype=torch.long))
+        self.register_buffer("_forward_step", torch.zeros(1, dtype=torch.long))
         self._ema_initialized = False
 
     def _init_ema_from_data(self, z_flat: torch.Tensor):
@@ -239,19 +248,28 @@ class VectorQuantizer(nn.Module):
 
                 # 更新使用计数
                 self.usage_count.data += cluster_size.long()
+                self._forward_step += 1
 
-                # Dead code revival: 重置长期未使用的码字
-                if self.training and (self.usage_count.max() > self.dead_code_threshold):
-                    dead_mask = self.usage_count < 1
-                    n_dead = dead_mask.sum().item()
-                    if n_dead > 0:
-                        # 随机采样当前 batch 的数据点替换 dead code
+                # Dead code revival: 基于近期 EMA 使用频率重置低频码字
+                # 旧逻辑 bug: usage_count.max() > 100 只触发一次，且只重置 usage_count==0 的码字
+                # 新逻辑: 每 revival_interval 步检查一次，重置 EMA 归一化使用率 < threshold 的码字
+                if int(self._forward_step.item()) % self.revival_interval == 0:
+                    # 归一化 ema_cluster_size（均匀分布时每个码字≈1.0）
+                    mean_size = self.ema_cluster_size.mean().clamp(min=1e-5)
+                    normalized_size = self.ema_cluster_size / mean_size
+                    # 低频掩码：近期使用率低于平均的 revival_threshold
+                    dead_mask = normalized_size < self.revival_threshold
+                    n_dead = int(dead_mask.sum().item())
+                    if n_dead > 0 and z_flat.shape[0] > 0:
+                        # 从当前 batch 随机采样数据点替换低频码字
                         n_replace = min(n_dead, z_flat.shape[0])
                         dead_indices = dead_mask.nonzero(as_tuple=True)[0][:n_replace]
                         rand_indices = torch.randperm(z_flat.shape[0], device=z_flat.device)[:n_replace]
                         self.codebook.weight.data[dead_indices] = z_flat[rand_indices].detach()
                         self.ema_w.data[dead_indices] = z_flat[rand_indices].detach()
-                        self.usage_count.data[dead_indices] = 1
+                        # 重置 EMA 统计（给重置的码字一个"初始配额"，避免立即又被判为低频）
+                        self.ema_cluster_size.data[dead_indices] = mean_size
+                        self.usage_count.data[dead_indices] = 0
 
         return quantized_st, indices_2d, loss
 
