@@ -81,9 +81,13 @@ class Cortex:
         else:
             field_dim = 4096
         self.field = ResonanceField(dim=field_dim)
+        # P1-1: CoactivationTracker（共激活追踪，供孤立检测+部落分组）
+        from taiji.resonance.tribal import CoactivationTracker
+        self.coaction = CoactivationTracker()
         self.ensemble = ResonanceEnsemble(
             self.neurons, self.field,
             max_rounds=max_rounds,
+            coaction=self.coaction,
         )
 
         # ── Shared embedding (Layer 1: shared sensory) ──

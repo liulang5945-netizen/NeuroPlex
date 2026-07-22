@@ -585,6 +585,32 @@ class SleepEngine:
             except Exception as e:
                 logger.debug(f"  neurogenesis 检查失败: {e}")
 
+        # 检查孤立激活模式（CoactivationTracker 第二触发源）
+        if self._lifecycle is not None and self.cortex is not None:
+            try:
+                coaction = getattr(self.cortex, "coaction", None)
+                if coaction is not None:
+                    isolated_nids = self._lifecycle.neurogenesis.detect_isolated_patterns(
+                        coaction, min_isolation_ratio=0.8
+                    )
+                    if isolated_nids and self.cortex is not None:
+                        logger.info(f"  孤立神经元检测: {isolated_nids}")
+                        for nid in isolated_nids:
+                            # 从 nid 推断 domain（格式: domain 或 domain_N）
+                            domain = nid.split("_")[0] if "_" in nid else nid
+                            try:
+                                new_nid = self.cortex.add_neuron(
+                                    domain, lifecycle=self._lifecycle
+                                )
+                                logger.info(f"  🌱 孤立协同神经元创建: {new_nid} (为 {nid})")
+                                report.recommendations.append(
+                                    f"[神经新生] 孤立神经元 {nid} → 创建协同神经元 {new_nid}"
+                                )
+                            except Exception as ne:
+                                logger.warning(f"  孤立协同神经元创建失败: {ne}")
+            except Exception as e:
+                logger.debug(f"  孤立模式检测失败: {e}")
+
         # 递增成熟度
         if self._lifecycle is not None:
             try:

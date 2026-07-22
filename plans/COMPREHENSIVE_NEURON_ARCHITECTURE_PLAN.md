@@ -1103,6 +1103,7 @@ Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head +
 | 2026-07-22 | metabolism→NE 接线 | 硬件负载驱动去甲肾上腺素，三调质全接线完成 |
 | 2026-07-22 | curiosity→DA 映射 | 好奇心驱动多巴胺升高（学习率↑），stress 优先于 curiosity（保守模式） |
 | 2026-07-22 | neurogenesis 运行时闭环 | Cortex.add_neuron + ensemble.add_neuron + maturity.register_new，hunger→neurogenesis 最后一公里打通 |
+| 2026-07-22 | CoactivationTracker 实现 | 双矩阵（fast/slow EMA）+ 部落分组 + 孤立模式检测接线 sleep_engine |
 
 ---
 
