@@ -1,37 +1,41 @@
 """Cortex — consciousness center via resonance field state.
 
-Phase 4: Replaces the monolithic ModelSelf with ResonanceEnsemble.
+Phase 4: Replaces the monolithic backbone with ResonanceEnsemble.
 The field state IS the consciousness — not a single model's hidden state,
 but the collective resonance pattern across domain-specialized neurons.
 
-Architecture:
-    Input tokens → Shared Embedding (256K) → ResonanceEnsemble
-        ├── zh neuron (standard)
-        ├── en neuron (standard)
-        ├── code neuron (expert)
-        ├── math neuron (expert)
-        └── general neuron (standard)
+Architecture (shared embedding):
+    Input text → General Tokenizer (256K) → Shared Embedding → ResonanceEnsemble
+        ├── zh neuron (via embed_adapter)
+        ├── en neuron (via embed_adapter)
+        ├── code neuron (via embed_adapter)
+        ├── math neuron (via embed_adapter)
+        └── general neuron (via embed_adapter)
             ↓
-    Resonance Field (shared consciousness)
+    Resonance Field (shared consciousness) → Field vectors NOW comparable!
             ↓
-    Weighted Logits → Token prediction
+    Per-neuron lm_head (domain vocab) → Domain-specific output
 
 Usage:
     cortex = Cortex(neurons_dir="data/neurons")
+    cortex.set_shared_embedding(embedding)
+    cortex.set_tokenizer_hub(hub)
     output = cortex.generate("今天天气怎么样？", max_tokens=256)
 """
 
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
+import logging
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.nn.functional as F
 
+logger = logging.getLogger("Cortex")
+
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, NeuronConfig,
-    ConfidenceGate, EarlyStopResonance, QualityFilter, DivisionPath,
 )
 
 
@@ -47,13 +51,13 @@ class Cortex:
         neurons_dir: str = "data/neurons",
         device: str = "cpu",
         max_rounds: int = 3,
-        confidence_threshold: float = 0.9,
-        enable_gating: bool = True,
+        shared_embedding: Optional[torch.nn.Embedding] = None,
+        general_tokenizer = None,
     ):
         self.device = device
         self.neurons_dir = neurons_dir
         self.max_rounds = max_rounds
-        self.enable_gating = enable_gating
+        self.is_loaded = False
 
         # ── Load neurons ──
         self.neurons: Dict[str, ResonanceNeuron] = {}
@@ -67,6 +71,12 @@ class Cortex:
                     f"[Cortex] neurons disagree on field_dim: {dims}. "
                     f"Re-distill legacy checkpoints under H9 (field_dim=4096) before loading."
                 )
+            hidden_sizes = {n.config.hidden_size for n in self.neurons.values()}
+            if len(hidden_sizes) > 1:
+                raise ValueError(
+                    f"[Cortex] neurons disagree on hidden_size: {hidden_sizes}. "
+                    f"All neurons must share the same hidden_size."
+                )
             field_dim = dims.pop()
         else:
             field_dim = 4096
@@ -74,88 +84,108 @@ class Cortex:
         self.ensemble = ResonanceEnsemble(
             self.neurons, self.field,
             max_rounds=max_rounds,
-            confidence_gate=ConfidenceGate(threshold=confidence_threshold) if enable_gating else None,
-            early_stop=EarlyStopResonance() if enable_gating else None,
         )
 
-        # ── Shared embedding (placeholder — in production, use SVD-initialized embedding) ──
-        self._shared_embedding: Optional[torch.nn.Embedding] = None
-        self._embed_pipeline = None  # H10: callable(input_ids) -> [B, L, base_embed_dim]
+        # ── Shared embedding (Layer 1: shared sensory) ──
+        # nn.Embedding(256000, 512) — ALL neurons share this.
+        # Can be hot-swapped for larger vocabs.
+        self._shared_embedding: Optional[torch.nn.Embedding] = shared_embedding
+
+        # ── General tokenizer (256K, hot-swappable I/O protocol) ──
+        self._general_sp = general_tokenizer
+
+        # ── Domain tokenizer hub ──
+        # Manages per-domain tokenizers (zh=20K, en=16K, code=12K, math=10K).
+        # Used for domain-specific lm_head targets and decoding.
+        self._tokenizer_hub = None
+
+        # ── Legacy tokenizer (for non-P7 paths) ──
         self._tokenizer = None
 
-        # ── Phase 5.1: Thalamic Router ──
-        # 丘脑路由器：输入路由到匹配域的 neuron，错误 neuron 不参与 forward
-        # None = 关闭丘脑路由（向后兼容，所有 neuron 都 forward）
-        self.thalamic_router = None
-        # 教师 hidden state 提取器（与 _embed_pipeline 共用教师模型）
-        self._teacher_model = None
-        self._extract_hidden_fn = None
-        # 路由 top-K：hard route 用 1，soft route 用 2
-        self._route_top_k = 2
-        # 最近一次路由信息（用于诊断日志）
+        # ── Route tracking ──
         self._last_routing: Optional[Dict] = None
-        # Phase 5.2: 待处理的新生信号（unknown_buffer 满）
-        self._pending_neurogenesis: bool = False
 
-        # ── P6-6: SharedContextEncoder（自主进化 encoder，上下文感知 hidden state）──
-        # 注册后，think() 和 _route_input() 优先用 encoder.encode() 替代 standalone_embedding lookup
-        # 这是 P6-8 训练成果上线的必要条件
-        self._context_encoder = None
+        # ── P1-2: NeuromodulatorState（自主进化调质）──
+        self._neuromodulator = None
 
-        # ── P6-3: GammaOscillator（40Hz 同步绑定）──
-        # 显式初始化（P0-1 fix: 避免 hasattr 探测的脆弱模式）
+        # ── P6-3: GammaOscillator ──
         self.gamma_oscillator = None
 
-        # ── P6-4: WorkingMemory（前额叶工作记忆）──
+        # ── P6-4: WorkingMemory ──
         self.working_memory = None
 
         # ── State ──
         self.is_loaded = len(self.neurons) > 0
         print(f"[Cortex] Loaded {len(self.neurons)} neurons, field_dim={field_dim}")
+        if self._shared_embedding is not None:
+            print(f"[Cortex] Shared embedding: {self._shared_embedding.num_embeddings} × {self._shared_embedding.embedding_dim}")
 
     def _load_neurons(self):
-        """Load all distilled neurons from disk."""
-        for domain in ["zh", "en", "code", "math", "general"]:
-            # Prefer Phase 2 field-conditioned checkpoints; fall back to base.
+        """Load all distilled neurons from disk.
+
+        H3 修复：原来硬编码 5 域 ['zh','en','code','math','general']，
+        新生 neuron（如 neuron_physics_1.pt）被静默忽略。
+        现改为扫描 neurons_dir 下所有 neuron_*.pt 文件动态加载。
+        """
+        import glob
+        # 扫描所有 neuron_*.pt（排除 _fieldcond.pt 等非 neuron 文件）
+        ckpt_paths = sorted(glob.glob(os.path.join(self.neurons_dir, "neuron_*.pt")))
+        for ckpt_path in ckpt_paths:
+            name = os.path.basename(ckpt_path)
+            # 跳过 fieldcond 版（下面会优先加载）、W_base 等非 neuron 文件
+            if "_fieldcond" in name or name.startswith("_"):
+                continue
+            # 从文件名提取 domain：neuron_{domain}.pt → {domain}
+            domain = name[len("neuron_"):-len(".pt")]
+
+            # 优先 fieldcond 版本，回退到 base 版本
             fc_path = os.path.join(self.neurons_dir, f"neuron_{domain}_fieldcond.pt")
-            base_path = os.path.join(self.neurons_dir, f"neuron_{domain}.pt")
-            ckpt_path = fc_path if os.path.exists(fc_path) else base_path
-            if os.path.exists(ckpt_path):
-                ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
-                cfg: NeuronConfig = ckpt["neuron_config"]
-                sd = ckpt["state_dict"]
+            load_path = fc_path if os.path.exists(fc_path) else ckpt_path
+            if load_path != ckpt_path:
+                # 用 fieldcond 版本覆盖
+                ckpt_path = load_path
 
-                # v3 兼容性处理：旧 ckpt → 新代码结构
-                sd = self._migrate_state_dict(sd, cfg)
+            if not os.path.exists(ckpt_path):
+                continue
+            ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+            cfg: NeuronConfig = ckpt["neuron_config"]
+            sd = ckpt["state_dict"]
 
-                neuron = ResonanceNeuron(cfg).to(self.device)
-                # H1: auto-detect v1 vs v2 from the actual parameter keys present.
-                # v2 neurons carry field_pool_query + field_read_gate; v1
-                # checkpoints must run in v1-compat mode.
-                has_v2 = {"field_pool_query", "field_read_gate.weight"} <= set(sd.keys())
-                neuron.load_state_dict(sd, strict=False)
-                neuron.v1_compat = not has_v2
-                neuron.eval()
-                neuron.freeze_fingerprint()
-                self.neurons[domain] = neuron
-                n_params = sum(p.numel() for p in neuron.parameters())
-                print(f"  [{domain}] {cfg.spec} neuron: {n_params/1e6:.0f}M params")
+            # v3 兼容性处理：旧 ckpt → 新代码结构
+            sd = self._migrate_state_dict(sd, cfg)
+
+            neuron = ResonanceNeuron(cfg).to(self.device)
+            # H1: auto-detect v1 vs v2 from the actual parameter keys present.
+            # v2 neurons carry field_pool_query + field_read_gate; v1
+            # checkpoints must run in v1-compat mode.
+            has_v2 = {"field_pool_query", "field_read_gate.weight"} <= set(sd.keys())
+            neuron.load_state_dict(sd, strict=False)
+            neuron.v1_compat = not has_v2
+            neuron.eval()
+            neuron.freeze_fingerprint()
+            self.neurons[domain] = neuron
+            n_params = sum(p.numel() for p in neuron.parameters())
+            print(f"  [{domain}] {cfg.spec} neuron: {n_params/1e6:.0f}M params")
 
     def _migrate_state_dict(self, sd: dict, cfg: NeuronConfig) -> dict:
         """v3 兼容性：旧 ckpt → 新代码结构。
 
         处理：
-        1. lm_head.weight → 如果 cfg.lm_head_rank>0，禁用低秩（保持传统模式）
-        2. side_channels.* → excite_channels.*
-        3. 其他新增字段（refractory_counter 等）由 strict=False 跳过
+        1. side_channels.* → excite_channels.*
+        2. 其他新增字段（refractory_counter 等）由 strict=False 跳过
+
+        M2 修复：旧 ckpt 含 lm_head.weight 时，原来静默降级到传统模式（lm_head_rank=0），
+        导致 W_base 共享机制失效。现改为显式报错，提示用户运行迁移脚本。
         """
         sd_keys = set(sd.keys())
 
-        # 1. lm_head 兼容：旧 ckpt 有 lm_head.weight，新代码期望 lm_head_delta_u/v
+        # 1. lm_head 兼容性检查（M2：报错而非静默降级）
         if "lm_head.weight" in sd_keys and cfg.lm_head_rank > 0:
-            # 旧 ckpt + 新 cfg：禁用低秩模式，保持传统 lm_head
-            cfg.lm_head_rank = 0
-            print(f"  [compat] 检测到旧 lm_head，切换到传统模式 (lm_head_rank=0)")
+            raise RuntimeError(
+                f"旧 ckpt 含 lm_head.weight 但 cfg.lm_head_rank={cfg.lm_head_rank}（低秩模式）。"
+                f"低秩模式需要 lm_head_delta_u/delta_v，不能用传统 lm_head.weight。"
+                f"请运行迁移: python scripts/migrate_ckpt_v3.py --enable-low-rank"
+            )
 
         # 2. side_channels → excite_channels 重命名
         side_keys = [k for k in sd_keys if k.startswith("side_channels.")]
@@ -168,86 +198,155 @@ class Cortex:
         return sd
 
     def set_tokenizer(self, tokenizer) -> None:
-        """Set the tokenizer for encode/decode."""
+        """Set the tokenizer for encode/decode (legacy shared tokenizer)."""
         self._tokenizer = tokenizer
+
+    def set_tokenizer_hub(self, tokenizer_hub) -> None:
+        """注册域 tokenizer hub 和 general tokenizer。
+
+        注册后：
+        - generate() 用 general tokenizer encode 输入 → shared_embedding
+        - neuron lm_head 输出在 domain vocab → hub 的域 tokenizer decode
+        - general tokenizer 可热插拔升级
+
+        Args:
+            tokenizer_hub: TokenizerHub 实例（含域 tokenizer + general tokenizer）
+        """
+        from taiji.resonance.translator import TokenizerHub
+        if not isinstance(tokenizer_hub, TokenizerHub):
+            raise TypeError(
+                f"[Cortex] set_tokenizer_hub expects TokenizerHub, "
+                f"got {type(tokenizer_hub).__name__}"
+            )
+        self._tokenizer_hub = tokenizer_hub
+        domains = tokenizer_hub.list_domains()
+        print(f"[Cortex] TokenizerHub registered (P7 模式)")
+        print(f"  domains: {domains}")
+        for d in domains:
+            print(f"  {d}: vocab={tokenizer_hub.vocab_size(d)}")
 
     def set_shared_embedding(self, embedding: torch.nn.Embedding) -> None:
         """Set the shared embedding table (highest precedence source)."""
         self._shared_embedding = embedding
 
-    def set_standalone_embedding(self, standalone_embedding) -> None:
-        """P6-1: 注册独立 embedding 表（脱教师推理）。
+    def set_general_tokenizer(self, general_sp) -> None:
+        """Set the general 256K tokenizer for I/O protocol.
 
-        注册后，think() 会优先用这个 embedding 表 lookup，不再 forward 教师。
-        这取代了 set_teacher_pipeline 的依赖路径。
+        This tokenizer encodes raw text → general token IDs for shared embedding lookup.
+        Can be hot-swapped: upgrading from 16K to 256K tokenizer doesn't require retraining neurons.
+        """
+        self._general_sp = general_sp
+
+    # ── 状态持久化（经验积累） ──
+
+    def save_state(self, path: str) -> None:
+        """保存可学习状态到磁盘（经验积累持久化）。
+
+        保存内容：
+        - shared_embedding 权重（感官层，经验驱动学习积累）
+        - 每个 neuron 的 lm_head 权重（输出层）
+        - 每个 neuron 的 embed_adapter 权重（如果有）
+
+        不保存：frozen backbone（来自蒸馏 ckpt，不变）、field state（运行时状态）
 
         Args:
-            standalone_embedding: StandaloneEmbedding 实例
+            path: 保存路径（目录或文件路径）
         """
-        self._shared_embedding = standalone_embedding
-        # 标记：独立模式，无需教师
-        self._teacher_model = None
-        self._extract_hidden_fn = None
-        self._embed_pipeline = None
-        # P0-3 fix: 移到正确 device
-        if hasattr(standalone_embedding, 'to'):
-            standalone_embedding.to(self.device)
-        print(f"[Cortex] StandaloneEmbedding registered (脱教师模式)")
-        print(f"  vocab={standalone_embedding.vocab_size}, "
-              f"dim={standalone_embedding.embed_dim}")
-        print(f"  推理时不再 forward 教师模型")
+        import os
+        if os.path.isdir(path) or path.endswith(os.sep):
+            os.makedirs(path, exist_ok=True)
+            path = os.path.join(path, "cortex_state.pt")
+        else:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
-    def set_context_encoder(self, encoder) -> None:
-        """P0-3: 注册 SharedContextEncoder（P6-6 训练产物上线）。
+        state = {"version": 3, "saved_at": __import__("time").time()}
 
-        注册后，think() 和 _route_input() 优先用 encoder.encode() 替代
-        standalone_embedding lookup，让 P6-8 训练的上下文感知能力真正生效。
+        # shared_embedding（fp16 压缩：524MB → 262MB）
+        if self._shared_embedding is not None:
+            sd = self._shared_embedding.state_dict()
+            sd_fp16 = {k: v.half() if v.is_floating_point() else v
+                       for k, v in sd.items()}
+            state["shared_embedding"] = sd_fp16
+            state["shared_embedding_dtype"] = "fp16"
 
-        encoder 必须实现 encode(input_ids) -> [B, L, hidden_dim] 接口。
-        通常 hidden_dim 与 standalone_embedding.embed_dim 一致（如 512）。
+        # per-neuron 可学习参数
+        neuron_states = {}
+        for nid, neuron in self.neurons.items():
+            nsd = {}
+            if hasattr(neuron, "lm_head") and neuron.lm_head is not None:
+                nsd["lm_head"] = neuron.lm_head.state_dict()
+            if hasattr(neuron, "embed_adapter") and neuron.embed_adapter is not None:
+                nsd["embed_adapter"] = neuron.embed_adapter.state_dict()
+            if nsd:
+                neuron_states[nid] = nsd
+        state["neurons"] = neuron_states
+
+        # neuromodulator state（自主进化调质：多巴胺/血清素/去甲肾上腺素）
+        # 使跨会话调质状态连续，自主进化不中断
+        if self._neuromodulator is not None:
+            state["neuromodulator"] = self._neuromodulator.get_state_dict()
+            logger.debug("[Cortex]   neuromodulator 已保存")
+
+        torch.save(state, path)
+        logger.info(f"[Cortex] 状态已保存: {path} "
+                    f"(shared_emb={'yes' if 'shared_embedding' in state else 'no'}, "
+                    f"neurons={len(neuron_states)}, "
+                    f"neuromodulator={'yes' if 'neuromodulator' in state else 'no'})")
+
+    def load_state(self, path: str, strict: bool = False) -> bool:
+        """从磁盘加载可学习状态（恢复经验积累）。
 
         Args:
-            encoder: SharedContextEncoder 实例
+            path: 状态文件路径（cortex_state.pt）或目录
+            strict: True 时要求所有参数必须匹配
+
+        Returns:
+            True 如果成功加载，False 如果文件不存在
         """
-        self._context_encoder = encoder
-        if hasattr(encoder, 'to'):
-            encoder.to(self.device)
-        encoder.eval()  # 推理模式
-        print(f"[Cortex] SharedContextEncoder registered (P6-8 训练成果上线)")
-        print(f"  推理路径：input_ids → encoder.encode() → shared_emb")
-        print(f"  路由路径：input_ids → encoder.encode() → prototypes_embed 匹配")
+        import os
+        if os.path.isdir(path):
+            path = os.path.join(path, "cortex_state.pt")
+        if not os.path.exists(path):
+            logger.debug(f"[Cortex] 状态文件不存在: {path}")
+            return False
 
-    def set_teacher_pipeline(self, teacher_model, shared_proj) -> None:
-        """H10: register a teacher-model + SharedEmbedProj chain to derive
-        shared embeddings from token IDs. Used when no preloaded embedding
-        table is available. shared_proj must be an nn.Module mapping
-        [..., 2048] -> [..., base_embed_dim].
-        """
-        import torch as _torch
-        from taiji.training.checkpoint_bridge import extract_hidden_states
+        state = torch.load(path, map_location=self.device, weights_only=False)
+        logger.info(f"[Cortex] 加载状态: {path} (version={state.get('version', 1)})")
 
-        # 缓存教师模型，供 ThalamicRouter 路由用
-        self._teacher_model = teacher_model
-        self._extract_hidden_fn = extract_hidden_states
+        # shared_embedding（fp16 → fp32 恢复）
+        if "shared_embedding" in state and self._shared_embedding is not None:
+            sd = state["shared_embedding"]
+            target_dtype = self._shared_embedding.weight.dtype
+            sd_restored = {k: v.to(target_dtype) if v.is_floating_point() else v
+                           for k, v in sd.items()}
+            self._shared_embedding.load_state_dict(sd_restored, strict=strict)
+            logger.info("[Cortex]   shared_embedding 已恢复 (dtype=%s)",
+                        state.get("shared_embedding_dtype", "fp32"))
 
-        def _pipeline(input_ids: _torch.Tensor) -> _torch.Tensor:
-            with _torch.no_grad():
-                hidden = extract_hidden_states(teacher_model, input_ids)  # [B, L, 2048]
-                return shared_proj(hidden)                                  # [B, L, 512]
+        # per-neuron
+        neuron_states = state.get("neurons", {})
+        loaded = 0
+        for nid, nsd in neuron_states.items():
+            neuron = self.neurons.get(nid)
+            if neuron is None:
+                continue
+            if "lm_head" in nsd and hasattr(neuron, "lm_head"):
+                neuron.lm_head.load_state_dict(nsd["lm_head"], strict=False)
+            if "embed_adapter" in nsd and hasattr(neuron, "embed_adapter"):
+                neuron.embed_adapter.load_state_dict(nsd["embed_adapter"], strict=False)
+            loaded += 1
+        logger.info(f"[Cortex]   {loaded}/{len(neuron_states)} neurons 恢复")
 
-        self._embed_pipeline = _pipeline
-
-    def set_thalamic_router(self, router, top_k: int = 2) -> None:
-        """Phase 5.1: 注册丘脑路由器。
-
-        Args:
-            router: ThalamicRouter 实例
-            top_k: 路由 top-K neuron 参与推理（hard=1, soft=2）
-        """
-        self.thalamic_router = router
-        self._route_top_k = top_k
-        print(f"[Cortex] ThalamicRouter enabled (top_k={top_k}, "
-              f"domains={router.list_domains() if router else []})")
+        # neuromodulator state 恢复（跨会话调质连续性）
+        if "neuromodulator" in state and self._neuromodulator is not None:
+            self._neuromodulator.load_state_dict(state["neuromodulator"])
+            logger.info("[Cortex]   neuromodulator 已恢复 "
+                        "(DA=%.2f, 5HT=%.2f, NE=%.2f)" % (
+                            self._neuromodulator.dopamine,
+                            self._neuromodulator.serotonin,
+                            self._neuromodulator.norepinephrine,
+                        ))
+        return True
 
     def set_gamma_oscillator(self, oscillator) -> None:
         """P6-3: 注册 Gamma 同步振荡器并按 domain 分配 phase。
@@ -315,163 +414,30 @@ class Cortex:
 
         未注册时 ensemble 退化为默认值 1.0（向后兼容）。
         """
+        self._neuromodulator = neuromodulator
         self.ensemble.neuromodulator = neuromodulator
         print(f"[Cortex] NeuromodulatorState enabled "
               f"(dopamine={neuromodulator.dopamine:.2f}, "
               f"serotonin={neuromodulator.serotonin:.2f}, "
               f"norepinephrine={neuromodulator.norepinephrine:.2f})")
 
-    def _route_input(self, input_ids: torch.Tensor) -> Optional[List[str]]:
-        """Phase 5.1 / P6-2 / P0-3: 用 ThalamicRouter 对输入路由，返回 active_nids。
-
-        P0-3 扩展：当 SharedContextEncoder 已注册时，优先用 route_top_k_by_hidden，
-        让 P6-8 训练的上下文感知能力真正生效。
-
-        路由优先级：
-        (a) SharedContextEncoder.encode() → route_top_k_by_hidden（P0-3，最佳）
-        (b) standalone_embedding → route_top_k_by_embedding（P6-2，fallback）
-        (c) teacher hidden state → route_top_k（旧路径，兼容）
-
-        Returns:
-            active_nids: List[str] 参与 forward 的 neuron IDs
-                         None 表示不做路由（全部参与）
-        """
-        if self.thalamic_router is None:
-            self._last_routing = None
-            return None
-
-        # P0-3: 优先用 SharedContextEncoder（P6-8 训练成果上线）
-        if self._context_encoder is not None:
-            if not getattr(self.thalamic_router, 'prototypes_embed', None):
-                # 还没建 embedding prototypes，暂时不路由
-                self._last_routing = None
-                return None
-            with torch.no_grad():
-                hidden_states = self._context_encoder.encode(input_ids)
-                weights, top_nids = self.thalamic_router.route_top_k_by_hidden(
-                    hidden_states, k=self._route_top_k,
-                )
-                decision = self.thalamic_router.get_routing_decision_by_hidden(
-                    hidden_states,
-                )
-                is_unknown = decision.get('is_unknown', False)
-                routing_mode = 'encoder'
-        # P6-2: 脱教师路径 — standalone_embedding 已注册时用
-        elif self._shared_embedding is not None and not callable(getattr(self, '_extract_hidden_fn', None)):
-            if not getattr(self.thalamic_router, 'prototypes_embed', None):
-                self._last_routing = None
-                return None
-            with torch.no_grad():
-                weights, top_nids = self.thalamic_router.route_top_k_by_embedding(
-                    input_ids, self._shared_embedding, k=self._route_top_k,
-                )
-                decision = self.thalamic_router.get_routing_decision_by_embedding(
-                    input_ids, self._shared_embedding,
-                )
-                is_unknown = decision.get('is_unknown', False)
-                routing_mode = 'embedding'
-        elif self._teacher_model is not None:
-            with torch.no_grad():
-                hidden = self._extract_hidden_fn(self._teacher_model, input_ids)
-                weights, top_nids = self.thalamic_router.route_top_k(
-                    hidden[0], k=self._route_top_k,
-                )
-                decision = self.thalamic_router.get_routing_decision(hidden[0])
-                is_unknown = decision.get('is_unknown', False)
-                routing_mode = 'teacher'
-        else:
-            self._last_routing = None
-            return None
-
-        if not top_nids:
-            self._last_routing = None
-            return None
-
-        # P0-1 fix: 校验 top_nids 真的存在于 self.neurons（避免路由失败静默 fallback）
-        valid_nids = [nid for nid in top_nids if nid in self.neurons]
-        if not valid_nids:
-            print(f"[Cortex] 警告：路由返回的 top_nids {top_nids} "
-                  f"不在 neurons {list(self.neurons.keys())} 中，路由失效")
-            self._last_routing = None
-            return None
-        top_nids = valid_nids
-
-        # 缓存路由信息用于日志
-        self._last_routing = {
-            'weights': weights,
-            'top_nids': top_nids,
-            'strategy': 'hard' if self._route_top_k == 1 else 'soft',
-            'is_unknown': is_unknown,
-            'max_sim': decision.get('max_sim', 0.0),
-            'mode': routing_mode,
-        }
-
-        # Phase 5.2: 未知域 buffer 检查（不阻塞当前 generate）
-        if is_unknown:
-            should_trigger, buf_size = self.thalamic_router.check_unknown_buffer()
-            if should_trigger:
-                self._pending_neurogenesis = True
-                print(f"[Cortex] 未知域 buffer 已满 ({buf_size})，"
-                      f"待 sleep cycle 触发神经新生")
-
-        return top_nids
-
-    def drain_unknown_buffer(self) -> Optional[torch.Tensor]:
-        """Phase 5.2: 清空并返回 unknown_buffer（sleep cycle 时调用）。
-
-        Returns:
-            [N, hidden_dim] tensor，N=0 表示无未知样本
-        """
-        if self.thalamic_router is None:
-            return None
-        self._pending_neurogenesis = False
-        return self.thalamic_router.drain_unknown_buffer()
-
-    def think(self, input_ids: torch.Tensor, route: bool = True) -> Dict:
+    def think(self, shared_embeddings: torch.Tensor) -> Dict:
         """Run one round of resonance thinking.
 
+        All neurons receive the same shared_embeddings (from shared embedding table).
+        This ensures field vectors are comparable — cosine similarity is meaningful.
+
         Args:
-            input_ids: [B, L] token IDs.
-            route: Phase 5.1 - 是否用 ThalamicRouter 路由（默认 True）
+            shared_embeddings: [B, L, base_embed_dim] from shared_embedding(general_ids).
 
         Returns:
-            dict with field_state, weighted_logits, final_scores, n_rounds.
+            dict with field_state, neuron_logits, final_scores, n_rounds.
         """
-        # P0-3 fix: shared_emb 优先级
-        # (a) SharedContextEncoder.encode() — P6-8 训练成果，上下文感知
-        # (b) set_shared_embedding / set_standalone_embedding — 纯 lookup
-        # (c) set_teacher_pipeline — 教师 hidden state
-        # (d) fail loudly
-        input_ids = input_ids.to(self.device)
-        if self._context_encoder is not None:
-            with torch.no_grad():
-                shared_emb = self._context_encoder.encode(input_ids)
-        elif self._shared_embedding is not None:
-            shared_emb = self._shared_embedding(input_ids)
-        elif self._embed_pipeline is not None:
-            shared_emb = self._embed_pipeline(input_ids)
-        else:
-            raise RuntimeError(
-                "[Cortex.think] no shared_embedding source. Either call "
-                "set_context_encoder(encoder) for P6-8 trained encoder, "
-                "set_shared_embedding(embedding_table) with a preloaded table, "
-                "or set_teacher_pipeline(teacher_model, shared_proj) to derive "
-                "embeddings from teacher hidden states on the fly."
-            )
-
-        # Phase 5.1: 丘脑路由 - 只激活匹配域的 neuron
-        active_nids = None
-        if route:
-            active_nids = self._route_input(input_ids)
-
+        shared_embeddings = shared_embeddings.to(self.device)
         result = self.ensemble.forward(
-            shared_emb, return_logits=True,
-            enable_gating=self.enable_gating,
-            active_nids=active_nids,
+            shared_embeddings=shared_embeddings,
+            return_logits=True,
         )
-        # 把路由信息附加到结果（便于诊断）
-        if self._last_routing:
-            result['routing'] = self._last_routing
         return result
 
     @torch.no_grad()
@@ -481,49 +447,226 @@ class Cortex:
         max_tokens: int = 256,
         temperature: float = 0.8,
         top_k: int = 50,
+        domain: Optional[str] = None,
+        repetition_penalty: float = 1.2,
     ) -> str:
-        """Generate text using resonance ensemble.
+        """Generate text using resonance ensemble (P7 only).
 
         Args:
             prompt: input text.
             max_tokens: maximum tokens to generate.
             temperature: sampling temperature.
             top_k: top-k sampling.
+            domain: P7 域指定（"zh"/"en"/"code"/"math"/"general"），
+                    None 时自动推断。
+            repetition_penalty: 重复惩罚系数（1.0=无惩罚，1.2=默认）。
 
         Returns:
             generated text string.
         """
-        if self._tokenizer is None:
-            raise RuntimeError("Tokenizer not set. Call cortex.set_tokenizer() first.")
+        if self._tokenizer_hub is None:
+            raise RuntimeError("TokenizerHub not set. Call cortex.set_tokenizer_hub() first.")
 
-        # Encode
-        prompt_ids = self._tokenizer.encode(prompt)
-        input_ids = list(prompt_ids)
+        # 读侧保护：与 sleep 训练互斥，最多等待 10 秒
+        # sleep 训练用 try_start_training() 非阻塞获取，失败跳过；generate 持有锁时 sleep 让步
+        from taiji.core.app_state import app_state
+        acquired = app_state.train_lock.acquire(timeout=10)
+        if not acquired:
+            logger.warning("Cortex.generate 等待训练锁超时（10s），可能并发")
+        try:
+            return self._generate_p7(
+                prompt, max_tokens, temperature, top_k, domain,
+                repetition_penalty,
+            )
+        finally:
+            if acquired:
+                app_state.train_lock.release()
 
-        # P6-4: 若启用 WorkingMemory，把 memory 内容作为前缀拼接
-        memory_enabled = (
-            self.working_memory is not None
-            and not self.working_memory.is_empty()
-        )
-        if memory_enabled:
-            memory_ids = self.working_memory.get_context_ids()
-            input_ids = memory_ids + input_ids
+    def detect_modality(self, input_data: Union[str, torch.Tensor, dict]) -> str:
+        """P8: 检测输入数据的模态。
 
-        ids_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
+        路由顺序：
+        1. 显式 dict {"modality": "image", "data": ...} → 直接取
+        2. torch.Tensor → 根据维度推断（3D float → image/audio 连续特征）
+        3. str → "text"
 
-        generated = []
+        Args:
+            input_data: str / torch.Tensor / dict
+
+        Returns:
+            modality name ("text"/"image"/"audio"/"video")
+        """
+        if isinstance(input_data, dict):
+            return input_data.get("modality", "text")
+        if isinstance(input_data, torch.Tensor):
+            # [B, L, raw_dim] float → 连续特征（图像/音频）
+            if input_data.dim() == 3 and input_data.dtype != torch.long:
+                # 默认归为 image，具体模态由调用方通过 dict 指定
+                return "image"
+            # [B, L] long → token id（文本或离散化的多模态）
+            return "text"
+        return "text"
+
+    def _infer_domain(self, text: str) -> str:
+        """P7: 从文本内容启发式推断域。
+
+        检测顺序：code > math > zh > en > general。
+        仅在对应域 neuron 已加载时返回该域。
+
+        Returns:
+            domain name ("zh"/"en"/"code"/"math"/"general")
+        """
+        neuron_domains = set(self.neurons.keys())
+        if not neuron_domains:
+            return "general"
+
+        # 1. 代码检测：编程关键字 + 代码结构特征
+        code_keywords = [
+            'def ', 'class ', 'import ', 'from ', 'return ',
+            'function ', 'const ', 'let ', 'var ', 'async ',
+            'if __name__', 'print(', 'lambda ',
+        ]
+        code_patterns = ['{', '};', '=>', 'self.', 'std::']
+        if 'code' in neuron_domains:
+            code_score = sum(1 for kw in code_keywords if kw in text)
+            code_score += sum(1 for p in code_patterns if p in text)
+            # 三引号代码块是强信号
+            if '```' in text:
+                code_score += 5
+            if code_score >= 2:
+                return 'code'
+
+        # 2. 数学检测：数学符号密度 + 公式特征
+        if 'math' in neuron_domains:
+            math_chars = set('=+-*/^∑∫∏√∞∂∇∈⊂∪∩∀∃≤≥≠≈±')
+            math_count = sum(1 for c in text if c in math_chars)
+            # 纯数字表达式（如 "1+1=", "5*3-2"）
+            stripped = text.replace(' ', '').replace('\n', '')
+            digit_math = sum(1 for c in stripped if c.isdigit() or c in '+-*/=()^.')
+            total_len = max(len(stripped), 1)
+            if math_count >= 3 or (digit_math / total_len > 0.5 and len(stripped) > 2):
+                return 'math'
+
+        # 3. 中文检测（CJK 统一汉字区块）
+        cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        if cjk_count > len(text.replace(' ', '')) * 0.3:
+            return 'zh' if 'zh' in neuron_domains else next(iter(neuron_domains))
+
+        # 4. 默认：en 或 general
+        if 'en' in neuron_domains:
+            return 'en'
+        if 'general' in neuron_domains:
+            return 'general'
+        return next(iter(neuron_domains))
+
+    def _generate_p7(
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        top_k: int,
+        domain: Optional[str] = None,
+        repetition_penalty: float = 1.2,
+    ) -> str:
+        """Generate text using shared embedding + domain-specific lm_head.
+
+        Flow:
+        1. Encode prompt with general tokenizer → general_ids
+        2. shared_embedding(general_ids) → shared_emb
+        3. Ensemble resonance → neuron_logits (per-neuron, domain vocab)
+        4. Sample in domain vocab
+        5. Decode with domain tokenizer
+        6. For autoregressive: decode domain token → re-encode with general tokenizer
+
+        Args:
+            prompt: input text.
+            max_tokens: maximum tokens to generate.
+            temperature: sampling temperature.
+            top_k: top-k sampling.
+            domain: target domain.
+
+        Returns:
+            generated text string.
+        """
+        if self._tokenizer_hub is None:
+            raise RuntimeError("TokenizerHub not set. Call cortex.set_tokenizer_hub() first.")
+        if self._shared_embedding is None:
+            raise RuntimeError("Shared embedding not set. Call cortex.set_shared_embedding() first.")
+        if self._general_sp is None:
+            raise RuntimeError("General tokenizer not set. Call cortex.set_general_tokenizer() first.")
+
+        hub = self._tokenizer_hub
+
+        # 1. Determine domain
+        if domain is None:
+            domain = self._infer_domain(prompt)
+        if domain not in hub.list_domains():
+            domain = hub.list_domains()[0] if hub.list_domains() else "general"
+
+        # 2. Encode prompt with general tokenizer → shared embedding
+        prompt_general_ids = self._general_sp.encode(prompt)
+        if not prompt_general_ids:
+            prompt_general_ids = [0]
+        general_ids = list(prompt_general_ids)
+
+        # 3. Domain EOS
+        eos_id = hub.eos_token_id(domain)
+
+        # Get domain tokenizer for decoding
+        domain_sp = hub.get_tokenizer(domain)
+
+        generated_pieces = []
+        generated_token_ids = set()
+        generated_token_list = []  # 保持顺序，用于 no-repeat-ngram
+        no_repeat_ngram_size = 3
+
         for _ in range(max_tokens):
-            # Get logits from ensemble
-            result = self.think(ids_tensor)
+            # Trim context to prevent memory issues and maintain coherence
+            if len(general_ids) > 512:
+                general_ids = general_ids[-512:]
 
-            if "weighted_logits" not in result:
+            # Embed general IDs → [1, L, 512]
+            ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+            shared_emb = self._shared_embedding(ids_tensor)
+
+            result = self.think(shared_emb)
+
+            # Get domain neuron's logits (domain vocab)
+            neuron_logits = result.get("neuron_logits", {})
+            if domain in neuron_logits:
+                logits = neuron_logits[domain][:, -1, :] / temperature
+            elif neuron_logits:
+                first_logits = next(iter(neuron_logits.values()))
+                logits = first_logits[:, -1, :] / temperature
+            elif "weighted_logits" in result:
+                logits = result["weighted_logits"][:, -1, :] / temperature
+            else:
                 break
 
-            logits = result["weighted_logits"][:, -1, :] / temperature  # [B, vocab]
+            # Repetition penalty: penalize tokens that have been generated
+            if generated_token_ids and repetition_penalty > 1.0:
+                for tid in generated_token_ids:
+                    if logits[0, tid] > 0:
+                        logits[0, tid] /= repetition_penalty
+                    else:
+                        logits[0, tid] *= repetition_penalty
 
-            # Top-k sampling
+            # No-repeat-ngram: ban tokens that would complete an existing n-gram
+            if no_repeat_ngram_size > 0 and len(generated_token_list) >= no_repeat_ngram_size - 1:
+                ngram_prefix = tuple(generated_token_list[-(no_repeat_ngram_size - 1):])
+                # 查找已生成文本中所有匹配前缀的 n-gram 的下一个 token
+                banned_ids = set()
+                for i in range(len(generated_token_list) - no_repeat_ngram_size + 1):
+                    if tuple(generated_token_list[i:i + no_repeat_ngram_size - 1]) == ngram_prefix:
+                        banned_ids.add(generated_token_list[i + no_repeat_ngram_size - 1])
+                # 将 banned tokens 的 logit 设为 -inf
+                for tid in banned_ids:
+                    logits[0, tid] = float('-inf')
+
+            # Top-k sampling in domain vocab
             if top_k > 0:
-                top_k_vals, top_k_indices = torch.topk(logits, min(top_k, logits.shape[-1]))
+                actual_k = min(top_k, logits.shape[-1])
+                top_k_vals, top_k_indices = torch.topk(logits, actual_k)
                 probs = F.softmax(top_k_vals, dim=-1)
                 sampled_idx_in_topk = torch.multinomial(probs, 1)
                 next_token = top_k_indices[0, sampled_idx_in_topk[0]].item()
@@ -531,34 +674,213 @@ class Cortex:
                 probs = F.softmax(logits, dim=-1)
                 next_token = torch.multinomial(probs, 1).item()
 
-            # P1-4: 每生成一个 token 推进 Gamma 相位（40Hz 同步绑定）
+            generated_token_ids.add(next_token)
+            generated_token_list.append(next_token)
+
             if self.gamma_oscillator is not None:
                 self.tick_gamma()
 
-            # Check for EOS (P0-1 fix: 处理 tensor 类型的 eos_id)
-            eos_id = getattr(self._tokenizer, 'eos_token_id', None)
-            if eos_id is None:
-                eos_id = getattr(self._tokenizer, 'eos_id', None)
-            if callable(eos_id):
-                eos_id = eos_id()
-            # 归一化 eos_id 为 int（防止 tokenizer 返回 tensor 导致误判）
-            if isinstance(eos_id, torch.Tensor):
-                eos_id = eos_id.item() if eos_id.numel() == 1 else None
+            # EOS check
             if eos_id is not None and next_token == eos_id:
                 break
 
-            generated.append(next_token)
-            ids_tensor = torch.cat([ids_tensor, torch.tensor([[next_token]], device=self.device)], dim=1)
+            # Decode domain token → text piece → re-encode with general tokenizer
+            if domain_sp is not None:
+                piece = domain_sp.id_to_piece(next_token)
+                generated_pieces.append(piece)
+                # Re-encode with general tokenizer for next iteration
+                # Remove "▁" prefix for clean concatenation
+                new_general_ids = self._general_sp.encode(piece)
+                if new_general_ids:
+                    general_ids.extend(new_general_ids)
+            else:
+                general_ids.append(next_token)
 
-        # P6-4: 若启用 WorkingMemory，记录本轮对话（P0-1 fix: 只在生成非空时记录）
-        if self.working_memory is not None and generated:
-            self.working_memory.append_round(
-                prompt_ids=prompt_ids,
-                generated_ids=generated,
+        # Decode with domain tokenizer
+        if generated_pieces:
+            return "".join(generated_pieces).replace("▁", " ")
+        return ""
+
+    @torch.no_grad()
+    def generate_multimodal(
+        self,
+        input_data: Union[torch.Tensor, dict],
+        max_tokens: int = 256,
+        temperature: float = 0.8,
+        top_k: int = 50,
+        domain: Optional[str] = None,
+        modality: Optional[str] = None,
+    ) -> Union[str, torch.Tensor]:
+        """P8: 多模态生成入口。
+
+        与 generate() 并列，专用于非文本模态（图像/音频/视频）。
+        文本输入仍走 generate()。
+
+        Args:
+            input_data: 多模态输入，支持两种格式：
+                - torch.Tensor [B, L, raw_dim] float: 连续特征（图像 patch / 音频 frame）
+                - dict {"modality": "image", "data": tensor, "domain": "general"}: 显式指定
+            max_tokens: 最大生成 token 数。
+            temperature: 采样温度。
+            top_k: top-k 采样。
+            domain: 目标域（None 时用 "general"）。
+            modality: 模态（None 时从 input_data 推断）。
+
+        Returns:
+            生成的 token id 列表（list[int]），由调用方通过 hub.decode(ids, modality=...) 解码。
+        """
+        if self._tokenizer_hub is None:
+            raise RuntimeError("TokenizerHub not set. Call cortex.set_tokenizer_hub() first.")
+
+        # 1. 解析输入
+        if isinstance(input_data, dict):
+            actual_modality = modality or input_data.get("modality", "image")
+            features = input_data.get("data", input_data.get("features"))
+            domain = domain or input_data.get("domain", "general")
+        else:
+            actual_modality = modality or self.detect_modality(input_data)
+            features = input_data
+            domain = domain or "general"
+
+        if actual_modality == "text":
+            # 文本走 generate()，这里不应到达
+            raise ValueError("text 模态请用 generate()")
+
+        if features is None:
+            raise ValueError("多模态输入缺少 data/features 字段")
+
+        # 2. 读侧保护（与 generate 共用 train_lock）
+        from taiji.core.app_state import app_state
+        acquired = app_state.train_lock.acquire(timeout=10)
+        if not acquired:
+            logger.warning("Cortex.generate_multimodal 等待训练锁超时（10s），可能并发")
+        try:
+            return self._generate_multimodal_p8(
+                features, actual_modality, domain,
+                max_tokens, temperature, top_k,
+            )
+        finally:
+            if acquired:
+                app_state.train_lock.release()
+
+    def _generate_multimodal_p8(
+        self,
+        features: torch.Tensor,
+        modality: str,
+        domain: str,
+        max_tokens: int,
+        temperature: float,
+        top_k: int,
+    ) -> list:
+        """P8: 多模态生成的内部实现（走 ensemble 共振路径）。
+
+        策略：
+        1. 所有注册了该模态投影层的 neuron 都参与共振（小神经元协同）
+        2. 每个 neuron 独立预编码多模态 embedding（neuron_embeddings）
+        3. ensemble.forward 多轮共振，mm_logits_modality 让所有 neuron 输出同 vocab 的 codebook logits
+        4. 取 weighted_logits（共振加权）采样，自回归生成
+        """
+        hub = self._tokenizer_hub
+
+        # 1. 找出所有支持该模态的 neuron
+        mm_nids = [
+            nid for nid, neuron in self.neurons.items()
+            if modality in neuron.mm_projections and modality in neuron.mm_lm_heads
+        ]
+        if not mm_nids:
+            logger.warning(
+                f"无 neuron 注册了模态 '{modality}' 投影层和输出头，fallback 到 text 路径"
+            )
+            if features.dim() == 2 and features.dtype == torch.long:
+                ids = features.tolist()[0] if features.dim() == 2 else features.tolist()
+                return ids[:max_tokens]
+            raise RuntimeError(
+                f"无 neuron 支持模态 '{modality}'，且输入不是离散 token id"
             )
 
-        # Decode
-        return self._tokenizer.decode(generated) if generated else ""
+        # 2. 输入维度归一化
+        features = features.to(self.device)
+        if features.dim() == 2 and features.dtype != torch.long:
+            features = features.unsqueeze(0)  # [L, D] → [1, L, D]
+
+        # 3. 为每个 neuron 预编码多模态 embedding
+        # 每个 neuron 的 mm_projections 独立，所以 embedding 不同
+        neuron_embeddings: Dict[str, torch.Tensor] = {}
+        for nid in mm_nids:
+            neuron = self.neurons[nid]
+            emb = neuron.encode_multimodal_input(features, modality)  # [1, L, base_embed_dim]
+            neuron_embeddings[nid] = emb
+
+        # 4. 多模态 EOS
+        eos_id = hub.eos_token_id(domain=domain, modality=modality)
+
+        # 5. 自回归生成（多 neuron 共振）
+        generated = []
+        codec = hub.modal_encoders.get(modality)
+        has_codebook = (
+            codec is not None
+            and hasattr(codec, "model")
+            and hasattr(codec.model, "quantizer")
+        )
+
+        for step in range(max_tokens):
+            # 多轮共振：所有 neuron 参与，mm_logits_modality 统一输出 codebook logits
+            res = self.ensemble.forward(
+                neuron_embeddings=neuron_embeddings,
+                return_logits=True,
+                active_filter=True,
+                active_nids=mm_nids,
+                mm_logits_modality=modality,
+            )
+
+            # 取加权 logits（所有 neuron vocab 相同，ensemble 已加权合并）
+            if "weighted_logits" in res:
+                logits = res["weighted_logits"]  # [B, L, mm_vocab]
+            elif "neuron_logits" in res and res["neuron_logits"]:
+                # fallback: 取第一个 neuron 的 logits
+                first_nid = next(iter(res["neuron_logits"].keys()))
+                logits = res["neuron_logits"][first_nid]
+            else:
+                raise RuntimeError("共振未返回 logits，无法生成")
+
+            logits = logits[:, -1, :] / temperature  # [B, mm_vocab]
+
+            if top_k > 0:
+                actual_k = min(top_k, logits.shape[-1])
+                top_k_vals, top_k_indices = torch.topk(logits, actual_k)
+                probs = F.softmax(top_k_vals, dim=-1)
+                sampled_idx_in_topk = torch.multinomial(probs, 1)
+                next_token = top_k_indices[0, sampled_idx_in_topk[0]].item()
+            else:
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, 1).item()
+
+            if eos_id is not None and eos_id >= 0 and next_token == eos_id:
+                break
+
+            generated.append(next_token)
+
+            # 自回归：把 next_token 编码为新 embedding，拼接到每个 neuron 的 embedding
+            next_token_tensor = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
+            if has_codebook:
+                codebook = codec.model.quantizer.codebook  # Embedding
+                next_feat = codebook(next_token_tensor)  # [1, 1, latent_dim]
+                for nid in mm_nids:
+                    neuron = self.neurons[nid]
+                    next_emb = neuron.encode_multimodal_input(next_feat, modality)
+                    neuron_embeddings[nid] = torch.cat(
+                        [neuron_embeddings[nid], next_emb], dim=1
+                    )
+            else:
+                # codec 不可用时用 zeros 填充（退化）
+                first_emb = next(iter(neuron_embeddings.values()))
+                next_emb = torch.zeros(1, 1, first_emb.shape[-1], device=self.device)
+                for nid in mm_nids:
+                    neuron_embeddings[nid] = torch.cat(
+                        [neuron_embeddings[nid], next_emb], dim=1
+                    )
+
+        return generated
 
     def get_field_state(self) -> torch.Tensor:
         """Get current resonance field state (consciousness snapshot)."""

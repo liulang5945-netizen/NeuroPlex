@@ -26,7 +26,10 @@ class NeuronConfig:
     max_position_embeddings: int = 4096
     rope_theta: float = 500000.0
 
-    # ── Embedding (shared across all neurons) ──
+    # ── Embedding (per-neuron, domain-specific tokenizer) ──
+    # P7: 每 neuron 独立 embedding + 独立 lm_head，域专用 vocab
+    # vocab_size 由域 tokenizer 决定（zh=20k, en=16k, code=12k, math=10k）
+    # 默认 256000 仅用于兼容旧 ckpt；新 neuron 应显式传入域 vocab
     vocab_size: int = 256000
     base_embed_dim: int = 512
 
@@ -51,11 +54,12 @@ class NeuronConfig:
     # 防止强神经元垄断场，强制信息轮替
     refractory_cooldown: int = 2
 
-    # ── lm_head 低秩分解配置 ──
-    # 共享基矩阵 W_base [hidden, vocab] + 每个神经元低秩残差 U_i @ V_i
-    # 保留 per-neuron 输出差异，同时控制参数量
-    # lm_head_rank=0 表示禁用低秩分解（使用传统 per-neuron lm_head）
-    lm_head_rank: int = 64
+    # ── lm_head 配置 ──
+    # P7: 默认 lm_head_rank=0（独立 lm_head，从零训练）
+    # 每 neuron 自带完整 lm_head [hidden, vocab]，不共享 W_base
+    # 域专用 vocab (10k-20k) 让独立 lm_head 参数量可控 (5-10M)
+    # lm_head_rank > 0 保留用于实验性低秩训练（非共享）
+    lm_head_rank: int = 0
 
     # ── Approximate parameter count (excluding shared embedding) ──
     @property
@@ -92,9 +96,10 @@ COMPACT = NeuronConfig(
     num_key_value_heads=2,
     intermediate_size=1536,
     spec="compact",
-    # H9: unified field_dim=4096 across all specs so every neuron can
-    # co-resonate directly (no padding, no complementarity noise).
-    field_dim=4096,
+    # P8: field_dim proportional to hidden_size (512 × 4 = 2048)
+    # Reduces communication overhead from 27.5% to 16%,
+    # within the 20-33% target range for all specs.
+    field_dim=2048,
 )
 
 STANDARD = NeuronConfig(
@@ -104,8 +109,7 @@ STANDARD = NeuronConfig(
     num_key_value_heads=4,
     intermediate_size=2304,
     spec="standard",
-    # H9: unified field_dim=4096; old 3072 checkpoints are legacy-only.
-    field_dim=4096,
+    field_dim=3072,  # P8: proportional to hidden_size (20% communication, within 20-33% target)
 )
 
 
@@ -141,4 +145,81 @@ TINY_TEST = NeuronConfig(
     intermediate_size=512,
     field_dim=512,
     spec="tiny_test",
+    # 注意：TINY_TEST 是唯一 field_dim != 4096 的 spec，仅用于单元测试，
+    # 严禁用于生产 cortex（会触发 cortex.py 的 field_dim 一致性错误）。
 )
+
+
+# ============================================================================
+# 全局默认 spec（神经新生 / fallback / 蒸馏的统一入口）
+# ============================================================================
+# 所有新创建的生产 neuron 都应使用此 spec，避免硬编码不一致。
+# 修改时同步：scripts/training/train_neuron.py
+DEFAULT_NEURON_SPEC = "compact"  # COMPACT: hidden=512, layers=6, ~85M/neuron
+
+
+# ============================================================================
+# P7: 域专用 tokenizer vocab 映射
+# ============================================================================
+# 每 neuron 用域专用 tokenizer，独立 embedding + 独立 lm_head
+# vocab 大小由域 tokenizer 决定（taiji/domains/{domain}/sp_{domain}.model）
+# general 域复用 en tokenizer（16k），避免重新训 tokenizer
+DOMAIN_VOCAB_SIZES = {
+    "zh": 20000,
+    "en": 16000,
+    "code": 12000,
+    "math": 10000,
+    "general": 16000,  # general 复用 en tokenizer
+}
+
+# general 域实际使用的 tokenizer 名（用于 tokenizer 加载）
+GENERAL_TOKENIZER_DOMAIN = "en"
+
+
+def get_default_neuron_config(spec: str = None) -> "NeuronConfig":
+    """根据 spec 名称返回 NeuronConfig 实例。
+
+    Args:
+        spec: spec 名称 ("compact" / "foundation" / "standard" / "expert")
+              None 表示使用 DEFAULT_NEURON_SPEC
+
+    Returns:
+        对应的 NeuronConfig 实例（不是引用，是独立实例）
+    """
+    if spec is None:
+        spec = DEFAULT_NEURON_SPEC
+    spec_map = {
+        "compact": COMPACT,
+        "foundation": FOUNDATION,
+        "standard": STANDARD,
+        "expert": EXPERT,
+    }
+    if spec not in spec_map:
+        raise ValueError(
+            f"未知 spec: {spec}. 可选: {list(spec_map.keys())}. "
+            f"默认: {DEFAULT_NEURON_SPEC}"
+        )
+    # 返回独立副本，避免修改全局常量
+    base = spec_map[spec]
+    from dataclasses import replace
+    return replace(base)
+
+
+def get_domain_neuron_config(domain: str, spec: str = None) -> "NeuronConfig":
+    """P7: 返回域专用 NeuronConfig（vocab_size 对齐域 tokenizer）。
+
+    Args:
+        domain: 域名 ("zh" / "en" / "code" / "math" / "general")
+        spec: spec 名称（None 用 DEFAULT_NEURON_SPEC）
+
+    Returns:
+        NeuronConfig 实例，vocab_size 已设置为域 tokenizer 大小
+    """
+    if domain not in DOMAIN_VOCAB_SIZES:
+        raise ValueError(
+            f"未知 domain: {domain}. 可选: {list(DOMAIN_VOCAB_SIZES.keys())}"
+        )
+    cfg = get_default_neuron_config(spec)
+    cfg.vocab_size = DOMAIN_VOCAB_SIZES[domain]
+    cfg.neuron_id = domain
+    return cfg

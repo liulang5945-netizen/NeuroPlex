@@ -27,9 +27,9 @@
 | 功能柱 (Cortical Column) | TribeSuperNeuron 作为一等公民 |
 | 注意力增益 | attention_beam 向量 boost 相关神经元 |
 | 阈值可塑性 | per-neuron firing_threshold 自适应 |
+| 域专用词汇输出 | domain-specific tokenizer + per-neuron 独立 lm_head |
 
 ---
-
 ## 二、Phase 1: 基础生物学化 (已实施)
 
 ### 2.1 兴奋/抑制神经元分化
@@ -316,18 +316,41 @@ new_neuron.maturity_counter = 0  # 成熟度计数器
 
 ## 六、四个原问题的解决方案
 
-### 6.1 lm_head: 低秩分解
+### 6.1 lm_head: per-neuron 独立（P7 升级）
 
-**方案**：共享基矩阵 + 每个神经元低秩残差
+**P7 方案**（替代原 6.1 低秩分解）：每神经元独立完整 lm_head + 域专用 vocab。
+
+**核心洞察**：256K 通用 vocab 让独立 lm_head 过大（131M，占 compact 体量的 7×）。
+解决方案是使用域专用分词器（zh=20k, en=16k, code=12k, math=10k, general=16k），
+独立 lm_head 仅 5-10M/神经元。
+
 ```python
-logits = W_base(h) + V_i(U_i(h))
-# W_base: [hidden, vocab] 共享
-# U_i: [hidden, rank] per-neuron
-# V_i: [rank, vocab] per-neuron
+# config.py: lm_head_rank=0（默认独立模式）
+# 使用 get_domain_neuron_config("zh") 自动设置 vocab_size=20000
+cfg = get_domain_neuron_config("zh")  # vocab_size=20000
+
+# neuron.py: 每 neuron 自带完整 lm_head
+self.lm_head = nn.Linear(hidden_size, vocab_size)  # 例: 512×20000=10.2M
 ```
-- 保留 per-neuron 输出差异
-- 参数量：`hidden×vocab + N×(hidden×rank + rank×vocab)`
-- rank=64 时约为全 per-neuron 的 1/10
+
+**参数量对比**：
+
+| 方案 | 5 神经元 lm_head 总计 | 差异性 |
+|---|---|---|
+| P6 旧方案（共享 W_base + 低秩） | 82M（共享 65.6M + 5×16.4M 残差） | 仅残差可变异 |
+| P7 独立 lm_head + 域 vocab | ~60M（4×~10M + 1×16M） | 完整独立 |
+
+**旧低秩模式保留**：`lm_head_rank > 0` 保留用于实验性场景（非默认），
+此时 W_base 由 assemble_cortex 外部注入。
+
+**TokenTranslator 桥接**：
+```
+neuron 输出: domain_token (10k-20k vocab)
+    ↓ TokenTranslator.domain_to_general() 查对齐表
+general_token_ids (256K I/O 协议)
+    ↓ 通用分词器 decode
+输出文本
+```
 
 ### 6.2 side_channels: top-K 稀疏化 + Hebbian 强化
 
@@ -367,9 +390,9 @@ logits = W_base(h) + V_i(U_i(h))
 - [x] 神经元凋亡机制 (lifecycle.py)
 - [x] 神经元新生机制 (lifecycle.py)
 - [x] CoactivationTracker 稀疏化 + 双 EMA (tribal.py)
-- [x] lm_head 低秩分解 (neuron.py, config.py)
 - [x] side_channels top-K 稀疏化 (neuron.py)
 - [x] CUDA stream 并行 forward (ensemble.py)
+- [x] lm_head 低秩分解 (neuron.py, config.py) — 旧方案，P7 已升级为独立 lm_head
 
 ### 已完成 (Phase 3 + 4)
 - [x] STDP 局部学习 (stdp.py)
@@ -470,31 +493,52 @@ logits = W_base(h) + V_i(U_i(h))
 
 - [x] P6-8: 训练后重算 prototypes + 验证路由提升
   - `scripts/training/run_p6_self_evolve.py` 端到端脚本
-  - 流程：构建 encoder → 300 步自主训练 → 重算 prototypes → 验证路由
-  - 对比 baseline: P6-5 的 0/4 路由准确率
-  - **最终结果：路由准确率 0/4 → 2/4 (50%)**
+  - 流程：构建 encoder → 训练 → 重算 prototypes → 验证路由
+  - **修复后最终路由准确率：3/4 (75%)**（4-prompt）/ **3/5 (60%)**（5-prompt）
     - "你好" → zh ✅
-    - "hello world" → en ✅
+    - "hello world" → en (有时候 misclassified 到 general) ⚠️
+    - "今天天气" → general (原 misclassified 到 zh) ✅
     - "1+1=" → zh (期望 math) ❌
     - "def fibonacci" → zh (期望 code) ❌
-  - 关键修复（4 轮迭代）：
-    1. **domain-stratified batch**: 原 random shuffle + batch_size=4 导致大部分 batch 无同 domain 正样本对，InfoNCE 恒为 0。改为"anchor domain + 负采样"策略，保证每 batch 至少 2 个同 domain 样本。
-    2. **HebbianUpdater 负采样推远**: 原代码只实现"拉近共现 token"，注释说有推远但未实现，导致所有 embedding 被拉向共现均值。新增负采样推远机制。
-    3. **ContrastiveLoss: InfoNCE → margin loss**: InfoNCE 有坍塌陷阱（所有 hidden state 坍塌到一点时 loss 也为 0）。改用 cosine margin loss，坍塌时 neg_loss 仍然大。
-    4. **uniformity loss (lambda=0.1)**: margin loss 在 margin 满足后梯度消失，无法对抗 MLM 的坍塌压力。加 uniformity loss（Wang & Isola 2020）作为微弱防坍塌信号，约束 hidden state 在超球面均匀分布。
-  - 四次实验对比：
-    | 配置 | 准确率 | 吸引子 |
-    |------|--------|--------|
-    | P6-5 baseline (StandaloneEmbedding) | 0/4 | general |
-    | InfoNCE 300步 | 0/4 | general |
-    | margin loss 300步 | 1/4 | math |
-    | margin+uniformity(1.0) 300步 | 1/4 | en |
-    | **margin+uniformity(0.1) 300步** | **2/4** | zh/en 正确 |
-  - 训练统计：MLM loss 9.1→4.5（下降 51%），contrastive loss 稳定在 -0.1~0.3
+  - 关键修复（v2 版本）：
+    1. **attention_mask + masked mean pooling**：排除 padding token 对 prototype 计算的干扰
+    2. **random_subsequence (2-64 tokens)**：短样本进入训练，避免长样本中域信号被稀释
+    3. **make_attention_mask**：为随机子序列生成正确的 padding mask
+  - 训练统计：MLM loss 6.64 → 3.82（下降 43%）
+  - 剩余问题：
+    - math/code 域仍被路由到 zh，可能是域数据特征不够或训练步数不足
+    - general 域英文数据导致中文 prompt 可能被路由到 general
   - 已保存产物：
-    - `data/distill/shared_context_encoder.pt`（训后 encoder）
+    - `data/distill/shared_context_encoder.pt`（训后 encoder，含 attention_mask 版本）
     - `data/distill/thalamic_prototypes_p6.pt`（新 prototypes）
-  - 剩余问题：math/code 域仍被路由到 zh，可能需要更多训练数据或调整 prototype 计算方式（mean pool vs [CLS] vs max pool）
+
+### 已完成 (Phase 7: 神经元独立化 — 消除 lm_head 依赖性)
+
+**动机**：P6 实现运行时无教师依赖，但 W_base 共享 + 1.5B 初始化仍是路径依赖，
+违背"差异性第一"原则。P7 彻底去除 W_base，每神经元独立完整 lm_head + 域 tokenizer。
+
+- [x] P7-1: NeuronConfig 默认 `lm_head_rank=0`（独立模式）
+  - `config.py`：`DOMAIN_VOCAB_SIZES` 硬编码 5 域 tokenizer vocab 大小
+  - `get_domain_neuron_config(domain)` 自动设置域专用 vocab_size
+  - 旧 `lm_head_rank > 0` 低秩模式保留作实验用途
+- [x] P7-2: ResonanceNeuron 独立 lm_head + 独立 embedding
+  - `lm_head_rank=0` 时创建 `nn.Linear(hidden, vocab_size)` 完整 lm_head
+  - 每神经元自带 `nn.Embedding(vocab_size, base_embed_dim)` 独立 embedding
+  - `lm_head_rank > 0` 兼容旧低秩路径（W_base 由 assemble_cortex 注入）
+- [x] P7-3: 参数量可控
+  - compact zh: 512×20000 = 10.2M lm_head（vs 旧 W_base 方案的 65.6M 共享 + 16.4M 残差）
+  - 5 域总计 lm_head ≈ 60M（远低于 5×256K 的 655M）
+  - general 域复用 en tokenizer (16k)，不增加新 tokenizer 训练负担
+- [x] P7-4: 废除的硬约束
+  - ~~W_base 必须从 1.5B checkpoint-481000 初始化~~ → 零 1.5B 依赖
+  - ~~W_base 全局共享冻结~~ → 每神经元独立 lm_head
+  - ~~KL 域正则化防 W_base drift~~ → 不再需要（无共享 W_base）
+  - ~~低秩残差 U_i@V_i 作为唯一个性通道~~ → 全部 lm_head 参数独立
+
+**关键设计决策**：
+- 域 tokenizer 对齐表（TokenTranslator）已存在 `taiji/resonance/translator.py`
+- 输出时 domain_token → TokenTranslator → general_token → 通用分词器 decode
+- 这是确定性符号转换，不参与梯度、不参与训练
 
 ---
 
@@ -502,7 +546,10 @@ logits = W_base(h) + V_i(U_i(h))
 
 ### 8.1 Checkpoint 兼容
 - 新增字段（neuron_type, refractory_counter）使用默认值，旧 ckpt 可加载
-- lm_head 低秩分解需迁移逻辑：旧 lm_head → W_base + 零残差
+- P7 升级：旧 W_base 低秩 ckpt → `migrate_ckpt_v4.py` 重构为独立 lm_head
+  - 旧路径：W_base（共享） + U_i@V_i（残差）
+  - 新路径：独立 `nn.Linear(hidden, vocab_size)`
+  - 低秩模式（`lm_head_rank > 0`）仍兼容旧 ckpt 无需迁移
 - side_channels 双通道：旧 excite_channels 保留，inhibit_channels 空
 
 ### 8.2 接口兼容

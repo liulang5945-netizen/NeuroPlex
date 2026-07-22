@@ -1,0 +1,429 @@
+{
+  "data": [
+    {
+      "id": "page-chat",
+      "title": "对话",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "deviceType": "freeSize",
+        "windowSize": {
+          "width": 1440,
+          "height": 974
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/chat.html",
+        "interactions": [
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-workspace",
+      "title": "IDE 工作区",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061100000,
+      "canvasData": {
+        "x": 620,
+        "y": 0,
+        "group": 0,
+        "deviceType": "freeSize",
+        "windowSize": {
+          "width": 1440,
+          "height": 974
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/workspace.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-kb",
+      "title": "知识库管理",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 1240,
+        "y": 0,
+        "group": 0,
+        "deviceType": "freeSize",
+        "windowSize": {
+          "width": 1440,
+          "height": 974
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/kb.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-life-status",
+      "title": "生命状态",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 1860,
+        "y": 0,
+        "group": 0,
+        "deviceType": "freeSize",
+        "windowSize": {
+          "width": 1440,
+          "height": 974
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/life-status.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-training",
+      "title": "微调训练",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 2480,
+        "y": 0,
+        "group": 0,
+        "deviceType": "freeSize",
+        "windowSize": {
+          "width": 1440,
+          "height": 974
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/training.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-agent-config",
+      "title": "智能体配置",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 3100,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/agent-config.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          },
+          {
+            "domId": "nav-settings",
+            "targetPageId": "page-settings",
+            "hideEdge": true,
+            "transitionLabel": "设置"
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-settings",
+      "title": "设置",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1753061100000,
+      "canvasData": {
+        "x": 3720,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings.html",
+        "interactions": [
+          {
+            "domId": "nav-chat",
+            "targetPageId": "page-chat",
+            "hideEdge": true,
+            "transitionLabel": "对话"
+          },
+          {
+            "domId": "nav-workspace",
+            "targetPageId": "page-workspace",
+            "hideEdge": true,
+            "transitionLabel": "IDE 工作区"
+          },
+          {
+            "domId": "nav-agent",
+            "targetPageId": "page-agent-config",
+            "hideEdge": true,
+            "transitionLabel": "智能体配置"
+          },
+          {
+            "domId": "nav-kb",
+            "targetPageId": "page-kb",
+            "hideEdge": true,
+            "transitionLabel": "知识库管理"
+          },
+          {
+            "domId": "nav-training",
+            "targetPageId": "page-training",
+            "hideEdge": true,
+            "transitionLabel": "微调训练"
+          },
+          {
+            "domId": "nav-life",
+            "targetPageId": "page-life-status",
+            "hideEdge": true,
+            "transitionLabel": "生命状态"
+          }
+        ]
+      }
+    },
+    {
+      "id": "image-001",
+      "title": "态极太极水墨 logo",
+      "type": "image",
+      "version": 2,
+      "createdAt": 1753061000000,
+      "canvasData": {
+        "x": 0,
+        "y": 398
+      },
+      "devMetadata": {
+        "imageSrc": "assets/logo-taiji-taiji-ink.jpg"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "态极控制台 · 豆包风格",
+    "designLibrary": {
+      "name": "豆包",
+      "id": "dl_builtin_doubao",
+      "version": null,
+      "scope": "built-in-global",
+      "path": "c:\\Users\\23747\\.trae-cn\\design_libraries\\dl_builtin_doubao",
+      "versionSource": "metadata.json"
+    },
+    "visualEditorEnabled": true,
+    "showEdge": false
+  }
+}

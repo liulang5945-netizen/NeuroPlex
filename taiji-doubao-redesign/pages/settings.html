@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>态极控制台 · 设置</title>
+    <style id="theme-vars">
+/* Source: structured-spec */
+:root {
+  
+  /* solo-design consumption aliases: explicit prefix for fill-html-head.mjs */
+  --doubao-background: var(--background, #ffffff);
+  --doubao-foreground: var(--foreground, #0f172a);
+  --doubao-card: var(--card, var(--background));
+  --doubao-card-foreground: var(--card-foreground, var(--foreground));
+  --doubao-popover: var(--popover, var(--card));
+  --doubao-popover-foreground: var(--popover-foreground, var(--card-foreground, var(--foreground)));
+  --doubao-primary: var(--primary, #111827);
+  --doubao-primary-foreground: var(--primary-foreground, #ffffff);
+  --doubao-secondary: var(--secondary, var(--muted, var(--card)));
+  --doubao-secondary-foreground: var(--secondary-foreground, var(--foreground));
+  --doubao-muted: var(--muted, var(--card));
+  --doubao-muted-foreground: var(--muted-foreground, var(--foreground));
+  --doubao-accent: var(--accent, var(--secondary, var(--muted, var(--card))));
+  --doubao-accent-foreground: var(--accent-foreground, var(--foreground));
+  --doubao-destructive: var(--destructive, #ef4444);
+  --doubao-destructive-foreground: var(--destructive-foreground, #ffffff);
+  --doubao-border: var(--border, currentColor);
+  --doubao-input: var(--input, var(--border));
+  --doubao-ring: var(--ring, var(--primary));
+  --doubao-chart-1: var(--chart-1, var(--primary));
+  --doubao-chart-2: var(--chart-2, var(--secondary, var(--primary)));
+  --doubao-chart-3: var(--chart-3, var(--accent, var(--primary)));
+  --doubao-chart-4: var(--chart-4, var(--muted-foreground, var(--foreground)));
+  --doubao-chart-5: var(--chart-5, var(--foreground));
+  --doubao-sidebar: var(--sidebar, var(--background));
+  --doubao-sidebar-foreground: var(--sidebar-foreground, var(--foreground));
+  --doubao-sidebar-primary: var(--sidebar-primary, var(--primary));
+  --doubao-sidebar-primary-foreground: var(--sidebar-primary-foreground, var(--primary-foreground));
+  --doubao-sidebar-accent: var(--sidebar-accent, var(--accent, var(--muted, var(--card))));
+  --doubao-sidebar-accent-foreground: var(--sidebar-accent-foreground, var(--accent-foreground, var(--foreground)));
+
+/* semantic */
+  /* semantic */
+  --background: #ffffff;
+  --foreground: #0e1115;
+  --card: #ffffff;
+  --card-foreground: #0e1115;
+  --popover: #f9f9fa;
+  --popover-foreground: #0e1115;
+
+  /* semantic */
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --secondary: #eff1f4;
+  --secondary-foreground: #333942;
+  --muted: #eff1f4;
+  --muted-foreground: #7f8d9f;
+  --accent: #e5e9ff;
+  --accent-foreground: #00266b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e7eaef;
+  --input: #e7eaef;
+  --ring: #557fff;
+
+  /* chart */
+  /* chart */
+  --chart-1: #557fff;
+  --chart-2: #0065fd;
+  --chart-3: #0057da;
+  --chart-4: #0043ad;
+  --chart-5: #002e7d;
+  /* sidebar */
+  --sidebar: #eff1f4;
+  --sidebar-foreground: #0e1115;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d4daff;
+  --sidebar-accent-foreground: #00266b;
+  --sidebar-border: #e7eaef;
+  --sidebar-ring: #0065fd;
+
+  /* Source: structured-spec | Typography tokens */
+  --font-sans: Stack Sans Text, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+
+  /* Source: structured-spec | Radius token */
+  --radius: 1.2rem;
+  --radius-sm: 0.6rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.2rem;
+  --radius-small: 0.6rem;
+  --radius-medium: 0.9rem;
+  --radius-large: 1.2rem;
+  --primary-radius-sm: var(--radius-sm);
+  --primary-radius-md: var(--radius-md);
+  --primary-radius-lg: var(--radius-lg);
+
+  /* Source: structured-spec | Shadow construction tokens */
+  --shadow-x: 0;
+  --shadow-y: 1px;
+  --shadow-blur: 0px;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0;
+  --shadow-color: #0e1115;
+  --shadow-2xs: 0 1px 0px 0px rgb(14 17 21 / 0);
+  --shadow-xs: 0 1px 0px 0px rgb(14 17 21 / 0);
+  --shadow-sm: 0 1px 0px 0px rgb(14 17 21 / 0), 0 1px 2px -1px rgb(14 17 21 / 0);
+  --shadow: 0 1px 0px 0px rgb(14 17 21 / 0), 0 1px 2px -1px rgb(14 17 21 / 0);
+  --shadow-md: 0 1px 0px 0px rgb(14 17 21 / 0), 0 2px 4px -1px rgb(14 17 21 / 0);
+  --shadow-lg: 0 1px 0px 0px rgb(14 17 21 / 0), 0 4px 6px -1px rgb(14 17 21 / 0);
+  --shadow-xl: 0 1px 0px 0px rgb(14 17 21 / 0), 0 8px 10px -1px rgb(14 17 21 / 0);
+  --shadow-2xl: 0 1px 0px 0px rgb(14 17 21 / 0);
+
+  /* Source: structured-spec | Rhythm tokens */
+  --tracking-normal: 0em;
+  --spacing: 0.24rem;
+}
+
+/* Source: structured-spec */
+.dark {
+  /* semantic */
+  --background: #0e1115;
+  --foreground: #eff1f4;
+  --card: #0e1115;
+  --card-foreground: #eff1f4;
+  --popover: #22252a;
+  --popover-foreground: #e5e5e5;
+
+  /* semantic */
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --secondary: #22252a;
+  --secondary-foreground: #e5e5e5;
+  --muted: #161a20;
+  --muted-foreground: #afbbcb;
+  --accent: #00266b;
+  --accent-foreground: #bfdbfe;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #333942;
+  --input: #333942;
+  --ring: #00266b;
+
+  /* chart */
+  --chart-1: #60a5fa;
+  --chart-2: #3b82f6;
+  --chart-3: #2563eb;
+  --chart-4: #1d4ed8;
+  --chart-5: #1e40af;
+  --sidebar: #171717;
+  --sidebar-foreground: #e5e5e5;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #00266b;
+  --sidebar-accent-foreground: #bfdbfe;
+  --sidebar-border: #404040;
+  --sidebar-ring: #00266b;
+
+  /* Source: structured-spec | Typography tokens */
+  --font-sans: Stack Sans Text, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+
+  /* Source: structured-spec | Radius token */
+  --radius: 1.2rem;
+  --radius-sm: 0.6rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.2rem;
+  --radius-small: 0.6rem;
+  --radius-medium: 0.9rem;
+  --radius-large: 1.2rem;
+  --primary-radius-sm: var(--radius-sm);
+  --primary-radius-md: var(--radius-md);
+  --primary-radius-lg: var(--radius-lg);
+
+  /* Source: structured-spec | Shadow construction tokens */
+  --shadow-x: 0;
+  --shadow-y: 1px;
+  --shadow-blur: 0px;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0;
+  --shadow-color: #000000;
+  --shadow-2xs: 0 1px 0px 0px rgb(0 0 0 / 0);
+  --shadow-xs: 0 1px 0px 0px rgb(0 0 0 / 0);
+  --shadow-sm: 0 1px 0px 0px rgb(0 0 0 / 0), 0 1px 2px -1px rgb(0 0 0 / 0);
+  --shadow: 0 1px 0px 0px rgb(0 0 0 / 0), 0 1px 2px -1px rgb(0 0 0 / 0);
+  --shadow-md: 0 1px 0px 0px rgb(0 0 0 / 0), 0 2px 4px -1px rgb(0 0 0 / 0);
+  --shadow-lg: 0 1px 0px 0px rgb(0 0 0 / 0), 0 4px 6px -1px rgb(0 0 0 / 0);
+  --shadow-xl: 0 1px 0px 0px rgb(0 0 0 / 0), 0 8px 10px -1px rgb(0 0 0 / 0);
+  --shadow-2xl: 0 1px 0px 0px rgb(0 0 0 / 0);
+}
+
+    </style>
+    <style id="component-vars">
+/* ═══════════════════════════════════════════════════════════════
+   components.css — Design System Component Definitions
+   Auto-extracted from preview/component-*.html
+   DO NOT EDIT MANUALLY — regenerate via extract-components-css.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── App Card ──────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="flame" viewBox="0 0 24 24"><path d="M12 3c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 1-4 2 1 3 0 3-4Z"/></symbol>
+   </svg>
+   
+   <div class="grid">
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-2))">✍️</span>
+       <span class="body">
+         <span class="title">全能写作助手</span>
+         <p class="desc">提供多种文案创作选择，轻松完成各种文案任务。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>1384.1万人聊过</span><span class="dot"></span><span>@豆包官方</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--primary))">🖼️</span>
+       <span class="body">
+         <span class="title">识图生成提示词</span>
+         <p class="desc">上传图片，根据图片内容精准生成提示词，帮助二次创作。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>111.1万人聊过</span><span class="dot"></span><span>@豆包识图</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--destructive),var(--destructive))">💗</span>
+       <span class="body">
+         <span class="title">高情商回复</span>
+         <p class="desc">聊天时不知道怎么回复，找来帮你看~</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>1324.6万人聊过</span><span class="dot"></span><span>@艾比斯之梦</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-4))">📊</span>
+       <span class="body">
+         <span class="title">EXCEL大全</span>
+         <p class="desc">拥有卓越数据处理能力，助您解决 Excel 各类难题。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>24.6万人聊过</span><span class="dot"></span><span>@春风十里oh~</span></span>
+       </span>
+     </button>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:720px}
+  .card{display:flex;gap:13px;padding:16px;text-align:left;border:1px solid var(--border);border-radius:14px;background:var(--card);cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
+  .card:hover{border-color:color-mix(in srgb,var(--primary) 40%,var(--border));background:color-mix(in srgb,var(--accent) 22%,var(--card));transform:translateY(-2px)}
+  .ic{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:13px;font-size:20px;color:var(--primary-foreground)}
+  .body{flex:1;min-width:0}
+  .title{margin:2px 0 5px;font-size:15px;font-weight:600}
+  .desc{margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--muted-foreground);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
+  .count{display:inline-flex;align-items:center;gap:4px}
+  .dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.6}
+  .icon{width:13px;height:13px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Button ────────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+     <symbol id="send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+     <symbol id="trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></symbol>
+     <symbol id="edit" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/></symbol>
+   </svg>
+   
+   <div class="stack">
+     <div class="group">
+       <span class="label">Primary · 主操作</span>
+       <div class="row">
+         <button class="btn primary sm"><svg class="icon"><use href="#plus"/></svg>创建</button>
+         <button class="btn primary"><svg class="icon"><use href="#plus"/></svg>创建 AI 智能体</button>
+         <button class="btn primary lg"><svg class="icon"><use href="#send"/></svg>发送</button>
+         <button class="btn primary" disabled>处理中…</button>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Quiet · 次级与轮廓</span>
+       <div class="row">
+         <button class="btn ghost">我创建的</button>
+         <button class="btn outline"><svg class="icon"><use href="#edit"/></svg>编辑</button>
+         <button class="btn ghost sm">取消</button>
+         <button class="btn outline icon-only" aria-label="新建"><svg class="icon"><use href="#plus"/></svg></button>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Destructive · 删除</span>
+       <div class="row">
+         <button class="btn destructive"><svg class="icon"><use href="#trash"/></svg>删除对话</button>
+         <button class="btn destructive sm" disabled>删除</button>
+       </div>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .stack{display:flex;flex-direction:column;gap:20px;max-width:680px}
+  .group{display:flex;flex-direction:column;gap:10px}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .icon{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 16px;border:1px solid transparent;border-radius:999px;font:500 13px/1 var(--font-sans);cursor:pointer;transition:background-color .16s,border-color .16s,color .16s,transform .12s}
+  .btn:active{transform:translateY(1px)}
+  .btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .primary{background:var(--primary);color:var(--primary-foreground)}
+  .primary:hover{background:color-mix(in srgb,var(--primary) 90%,var(--foreground))}
+  .ghost{background:var(--muted);color:var(--foreground)}
+  .ghost:hover{background:color-mix(in srgb,var(--muted) 82%,var(--foreground) 14%)}
+  .outline{background:var(--background);color:var(--foreground);border-color:var(--border)}
+  .outline:hover{background:var(--muted)}
+  .destructive{background:var(--destructive);color:var(--destructive-foreground)}
+  .destructive:hover{background:color-mix(in srgb,var(--destructive) 90%,var(--foreground))}
+  .sm{height:32px;padding:0 13px;font-size:12px}
+  .lg{height:44px;padding:0 20px;font-size:14px}
+  .icon-only{width:38px;height:38px;padding:0}
+  .divider{border:0;border-top:1px solid var(--border);margin:4px 0}
+
+/* ── Chat Composer ─────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+     <symbol id="bolt" viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/></symbol>
+     <symbol id="ppt" viewBox="0 0 24 24"><path d="M5 4h14v11H5z"/><path d="M12 15v4M9 20h6"/></symbol>
+     <symbol id="table" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 10h16M10 5v14"/></symbol>
+     <symbol id="image" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 16l4-4 3 3 4-5 5 6"/><circle cx="8" cy="9.5" r="1"/></symbol>
+     <symbol id="pen" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/></symbol>
+     <symbol id="video" viewBox="0 0 24 24"><path d="M4 6h12v12H4z"/><path d="M16 10l4-2v8l-4-2"/></symbol>
+     <symbol id="more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+     <symbol id="wave" viewBox="0 0 24 24"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h0"/></symbol>
+     <symbol id="send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+   </svg>
+   
+   <div class="wrap">
+     <span class="label">Empty · 待输入</span>
+     <div class="composer">
+       <textarea rows="1" placeholder="发消息或按住空格说话..."></textarea>
+       <div class="tools">
+         <button class="composer-chip round" aria-label="添加"><svg class="icon"><use href="#plus"/></svg></button>
+         <button class="composer-chip"><svg class="icon"><use href="#bolt"/></svg>快速</button>
+         <button class="composer-chip"><svg class="icon"><use href="#ppt"/></svg>PPT 生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#table"/></svg>AI 表格</button>
+         <button class="composer-chip"><svg class="icon"><use href="#image"/></svg>图像生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#pen"/></svg>帮我写作</button>
+         <button class="composer-chip"><svg class="icon"><use href="#video"/></svg>视频生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#more"/></svg>更多</button>
+         <span class="spacer"></span>
+         <button class="voice" aria-label="语音"><svg class="icon"><use href="#wave"/></svg></button>
+       </div>
+     </div>
+   
+     <span class="label">Active · 有内容</span>
+     <div class="composer">
+       <textarea rows="2">帮我写一篇关于豆包 AI 的产品介绍，语气专业又亲切</textarea>
+       <div class="tools">
+         <button class="composer-chip round" aria-label="添加"><svg class="icon"><use href="#plus"/></svg></button>
+         <button class="composer-chip"><svg class="icon"><use href="#bolt"/></svg>快速</button>
+         <button class="composer-chip"><svg class="icon"><use href="#image"/></svg>图像生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#more"/></svg>更多</button>
+         <span class="spacer"></span>
+         <button class="send" aria-label="发送"><svg class="icon"><use href="#send"/></svg></button>
+       </div>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .wrap{max-width:720px;display:flex;flex-direction:column;gap:14px}
+  .composer{border:1px solid var(--border);border-radius:22px;background:var(--card);padding:14px 16px 10px;transition:border-color .16s,box-shadow .16s}
+  .composer:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent)}
+  textarea{width:100%;border:0;outline:0;background:transparent;resize:none;color:inherit;font:15px/1.5 var(--font-sans);min-height:24px;max-height:160px}
+  textarea::placeholder{color:var(--muted-foreground)}
+  .tools{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .composer-chip{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:999px;background:transparent;color:color-mix(in srgb,var(--foreground) 78%,var(--muted-foreground));padding:7px 11px;font:13px var(--font-sans);cursor:pointer;transition:background .14s,color .14s}
+  .composer-chip:hover{background:var(--muted);color:var(--foreground)}
+  .composer-chip.round{width:34px;height:34px;padding:0;justify-content:center;border:1px solid var(--border)}
+  .spacer{flex:1}
+  .send{width:36px;height:36px;border:0;border-radius:999px;background:var(--primary);color:var(--primary-foreground);display:grid;place-items:center;cursor:pointer;transition:background .15s}
+  .send:hover{background:color-mix(in srgb,var(--primary) 90%,var(--foreground))}
+  .voice{width:36px;height:36px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer}
+  .voice:hover{background:var(--muted);color:var(--foreground)}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .icon{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Data Table ────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></symbol>
+     <symbol id="dots" viewBox="0 0 24 24"><path d="M12 6h.01M12 12h.01M12 18h.01"/></symbol>
+   </svg>
+   
+   <div class="panel">
+     <div class="head">
+       <h2>智能体运行</h2>
+       <span class="sub">· 4 个任务</span>
+       <span class="spacer"></span>
+       <button class="btn"><svg class="icon"><use href="#filter"/></svg>筛选</button>
+     </div>
+     <table>
+       <thead>
+         <tr>
+           <th style="width:36px"><input class="cb" type="checkbox" aria-label="全选"></th>
+           <th>任务</th>
+           <th>状态</th>
+           <th>对话量</th>
+           <th>更新</th>
+           <th style="width:48px"></th>
+         </tr>
+       </thead>
+       <tbody>
+         <tr class="selected">
+           <td><input class="cb" type="checkbox" checked aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-2))">✍️</span>全能写作助手</span></td>
+           <td><span class="status-chip run">运行中</span></td>
+           <td><span class="metric">1384.1万</span> <span class="trend-up">↑ 12%</span></td>
+           <td class="muted">2 分钟前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--primary))">🖼️</span>识图生成提示词</span></td>
+           <td><span class="status-chip ok">已完成</span></td>
+           <td><span class="metric">111.1万</span> <span class="trend-up">↑ 4%</span></td>
+           <td class="muted">1 小时前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-4))">📊</span>EXCEL大全</span></td>
+           <td><span class="status-chip ok">已完成</span></td>
+           <td><span class="metric">24.6万</span> <span class="trend-down">↓ 2%</span></td>
+           <td class="muted">昨天</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--muted-foreground),var(--foreground))">📄</span>论文助手</span></td>
+           <td><span class="status-chip wait">排队中</span></td>
+           <td class="muted">—</td>
+           <td class="muted">3 天前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+       </tbody>
+     </table>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .panel{max-width:760px;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
+  .head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .head h2{margin:0;font-size:15px;font-weight:600}
+  .head .sub{font-size:12px;color:var(--muted-foreground)}
+  .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border:1px solid var(--border);border-radius:999px;background:var(--background);color:var(--foreground);font:500 12px var(--font-sans);cursor:pointer}
+  .btn:hover{background:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font:600 11px/1 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);padding:11px 16px;border-bottom:1px solid var(--border)}
+  td{padding:13px 16px;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent);font-size:13px}
+  tr:last-child td{border-bottom:0}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+  tr.selected{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+  .name{display:flex;align-items:center;gap:10px;font-weight:500}
+  .ic{width:28px;height:28px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:14px;color:var(--primary-foreground)}
+  .status-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:500 12px var(--font-sans)}
+  .status-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+  .ok{background:color-mix(in srgb,var(--chart-2) 18%,transparent);color:var(--chart-2)}
+  .run{background:color-mix(in srgb,var(--chart-1) 16%,transparent);color:var(--chart-1)}
+  .wait{background:color-mix(in srgb,var(--muted-foreground) 16%,transparent);color:var(--muted-foreground)}
+  .metric{font-variant-numeric:tabular-nums;font-weight:600}
+  .trend-up{color:var(--chart-2);font-size:12px}
+  .trend-down{color:var(--destructive);font-size:12px}
+  .muted{color:var(--muted-foreground)}
+  .act{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--muted-foreground);cursor:pointer}
+  .act:hover{background:var(--muted);color:var(--foreground)}
+  .cb{width:16px;height:16px;accent-color:var(--primary)}
+  .icon{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Search Input ──────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+   </svg>
+   
+   <div class="stack">
+     <div class="group">
+       <span class="label">Sidebar · 带快捷键</span>
+       <div class="search">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input placeholder="搜索..." aria-label="搜索">
+         <span class="kbd">⌘K</span>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Filled · 带清除</span>
+       <div class="search filled">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="全能写作助手" aria-label="搜索会话">
+         <button class="clear" aria-label="清除">×</button>
+       </div>
+     </div>
+   
+     <div class="group">
+       <span class="label">Disabled</span>
+       <div class="search disabled">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="索引同步中，暂不可搜索" aria-label="禁用搜索" disabled>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Error · 校验</span>
+       <div class="search error">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="@@@" aria-label="错误搜索">
+       </div>
+       <span class="helper err">搜索关键词不能仅包含特殊字符</span>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .stack{display:flex;flex-direction:column;gap:20px;max-width:520px}
+  .group{display:flex;flex-direction:column;gap:10px}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .search{display:flex;align-items:center;gap:9px;height:40px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--muted);color:var(--foreground);transition:background .16s,border-color .16s,box-shadow .16s}
+  .search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit}
+  .search input::placeholder{color:var(--muted-foreground)}
+  .search:focus-within{background:var(--card);border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent)}
+  .filled{background:var(--card);border-color:var(--border)}
+  .disabled{opacity:.5}
+  .disabled input{-webkit-text-fill-color:currentColor}
+  .error{border-color:var(--destructive);background:var(--card)}
+  .error:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--destructive) 18%,transparent)}
+  .helper{font-size:12px;color:var(--muted-foreground);padding-left:2px}
+  .helper.err{color:var(--destructive)}
+  .kbd{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:color-mix(in srgb,var(--muted-foreground) 14%,transparent);color:var(--muted-foreground);font:600 11px/1 var(--font-sans)}
+  .clear{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:50%;background:color-mix(in srgb,var(--muted-foreground) 16%,transparent);color:var(--foreground);cursor:pointer;font-size:13px;line-height:1}
+  .clear:hover{background:color-mix(in srgb,var(--muted-foreground) 28%,transparent)}
+  .icon{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--muted-foreground)}
+  .divider{border:0;border-top:1px solid var(--border);margin:4px 0}
+
+/* ── Sidebar Nav ───────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+     <symbol id="bean" viewBox="0 0 24 24"><path d="M12 3c4 0 7 2.8 7 6.5 0 2-1 3.6-2.6 4.7.4 1 .6 2 .6 3.3 0 .8-.6 1.5-1.5 1.5-.8 0-1.4-.5-1.7-1.2-1.2.5-2.6.7-3.8.5"/><path d="M12 3C8 3 5 5.8 5 9.5 5 13 8 16 12 16"/></symbol>
+     <symbol id="chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12Z"/></symbol>
+     <symbol id="task" viewBox="0 0 24 24"><path d="M9 5h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7"/><path d="M9 3h2a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 12h6M8 16h4"/></symbol>
+     <symbol id="create" viewBox="0 0 24 24"><path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z"/><path d="M12 3v18M4 7l8 4 8-4"/></symbol>
+     <symbol id="cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 9.5a3.5 3.5 0 0 1-.5 8.5H7Z"/></symbol>
+     <symbol id="compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5 13 13l-3.5 1.5L11 11l3.5-1.5Z"/></symbol>
+     <symbol id="dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+   </svg>
+   
+   <div class="rail">
+     <div class="search-wrap">
+       <div class="search">
+         <svg class="icon" style="width:18px;height:18px;color:var(--muted-foreground)"><use href="#i-search"/></svg>
+         <input placeholder="搜索..." aria-label="搜索">
+         <span class="kbd">⌘K</span>
+       </div>
+     </div>
+   
+     <nav class="nav">
+       <button class="item"><svg class="icon"><use href="#bean"/></svg><span class="lbl">豆包</span></button>
+       <button class="item active"><svg class="icon"><use href="#chat"/></svg><span class="lbl">新对话</span><span class="sc">⌘K</span></button>
+       <button class="item"><svg class="icon"><use href="#task"/></svg><span class="lbl">新办公任务</span></button>
+       <button class="item"><svg class="icon"><use href="#create"/></svg><span class="lbl">AI 创作</span></button>
+       <button class="item"><svg class="icon"><use href="#cloud"/></svg><span class="lbl">云盘</span></button>
+       <button class="item"><svg class="icon"><use href="#compass"/></svg><span class="lbl">发现智能体</span></button>
+   
+       <div class="section">历史对话</div>
+       <button class="hist"><span class="av" style="background:var(--primary)">鱼</span><span class="lbl">同一锅鱼评价</span></button>
+       <button class="hist"><span class="av" style="background:var(--chart-3)">袁</span><span class="lbl">论袁的魅力</span></button>
+       <button class="hist"><span class="av" style="background:var(--primary)">EN</span><span class="lbl">英语学习助手</span></button>
+       <button class="hist"><span class="av" style="background:var(--destructive)">漫</span><span class="lbl">AI 漫画生成</span></button>
+     </nav>
+   
+     <div class="footer">
+       <span class="uav">豆</span>
+       <span class="uname">用户8081875236843</span>
+       <svg class="icon" style="color:var(--muted-foreground)"><use href="#dots"/></svg>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .rail{width:248px;background:var(--sidebar);border:1px solid var(--sidebar-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+  .search-wrap{padding:14px 14px 8px}
+  .search{display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;border-radius:10px;background:color-mix(in srgb,var(--background) 70%,var(--sidebar));border:1px solid transparent}
+  .search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:13px var(--font-sans)}
+  .search input::placeholder{color:var(--muted-foreground)}
+  .kbd{padding:2px 6px;border-radius:6px;background:color-mix(in srgb,var(--muted-foreground) 14%,transparent);color:var(--muted-foreground);font:600 11px/1 var(--font-sans)}
+  .nav{padding:4px 10px 8px;display:flex;flex-direction:column;gap:2px}
+  .item{display:flex;align-items:center;gap:11px;width:100%;padding:9px 11px;border:0;border-radius:10px;background:transparent;color:var(--sidebar-foreground);font:14px var(--font-sans);text-align:left;cursor:pointer;transition:background .14s,color .14s}
+  .item:hover{background:color-mix(in srgb,var(--background) 64%,var(--sidebar))}
+  .item.active{background:var(--background);color:var(--foreground);font-weight:600}
+  .item .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .icon{color:color-mix(in srgb,var(--foreground) 72%,var(--muted-foreground))}
+  .item.active .icon{color:var(--primary)}
+  .sc{color:var(--muted-foreground);font-size:12px}
+  .section{padding:14px 12px 6px;font-size:12px;color:var(--muted-foreground)}
+  .hist{display:flex;align-items:center;gap:10px;width:100%;padding:8px 11px;border:0;border-radius:10px;background:transparent;color:color-mix(in srgb,var(--foreground) 82%,var(--muted-foreground));font:13px var(--font-sans);text-align:left;cursor:pointer}
+  .hist:hover{background:color-mix(in srgb,var(--background) 64%,var(--sidebar));color:var(--foreground)}
+  .av{width:18px;height:18px;flex:none;border-radius:6px;display:grid;place-items:center;font-size:10px;color:var(--primary-foreground)}
+  .hist .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .footer{margin-top:auto;border-top:1px solid var(--sidebar-border);padding:10px 12px;display:flex;align-items:center;gap:10px}
+  .uav{width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;font:600 13px/1 var(--font-sans);color:var(--primary-foreground);background:linear-gradient(135deg,var(--chart-1),var(--chart-4))}
+  .uname{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .icon{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --radius-sm: var(--radius-sm);
+    --radius-md: var(--radius-md);
+    --radius-lg: var(--radius-lg);
+  }
+  @layer base {
+    body { background: var(--background); color: var(--foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--background); }
+      .text-background { color: var(--background); }
+      .border-background { border-color: var(--background); }
+      .ring-background { --tw-ring-color: var(--background); }
+      .bg-foreground { background-color: var(--foreground); }
+      .text-foreground { color: var(--foreground); }
+      .border-foreground { border-color: var(--foreground); }
+      .ring-foreground { --tw-ring-color: var(--foreground); }
+      .bg-card { background-color: var(--card); }
+      .text-card { color: var(--card); }
+      .border-card { border-color: var(--card); }
+      .ring-card { --tw-ring-color: var(--card); }
+      .bg-card-foreground { background-color: var(--card-foreground); }
+      .text-card-foreground { color: var(--card-foreground); }
+      .border-card-foreground { border-color: var(--card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--card-foreground); }
+      .bg-popover { background-color: var(--popover); }
+      .text-popover { color: var(--popover); }
+      .border-popover { border-color: var(--popover); }
+      .ring-popover { --tw-ring-color: var(--popover); }
+      .bg-popover-foreground { background-color: var(--popover-foreground); }
+      .text-popover-foreground { color: var(--popover-foreground); }
+      .border-popover-foreground { border-color: var(--popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--popover-foreground); }
+      .bg-primary { background-color: var(--primary); }
+      .text-primary { color: var(--primary); }
+      .border-primary { border-color: var(--primary); }
+      .ring-primary { --tw-ring-color: var(--primary); }
+      .bg-primary-foreground { background-color: var(--primary-foreground); }
+      .text-primary-foreground { color: var(--primary-foreground); }
+      .border-primary-foreground { border-color: var(--primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--primary-foreground); }
+      .bg-secondary { background-color: var(--secondary); }
+      .text-secondary { color: var(--secondary); }
+      .border-secondary { border-color: var(--secondary); }
+      .ring-secondary { --tw-ring-color: var(--secondary); }
+      .bg-secondary-foreground { background-color: var(--secondary-foreground); }
+      .text-secondary-foreground { color: var(--secondary-foreground); }
+      .border-secondary-foreground { border-color: var(--secondary-foreground); }
+      .ring-secondary-foreground { --tw-ring-color: var(--secondary-foreground); }
+      .bg-muted { background-color: var(--muted); }
+      .text-muted { color: var(--muted); }
+      .border-muted { border-color: var(--muted); }
+      .ring-muted { --tw-ring-color: var(--muted); }
+      .bg-muted-foreground { background-color: var(--muted-foreground); }
+      .text-muted-foreground { color: var(--muted-foreground); }
+      .border-muted-foreground { border-color: var(--muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--muted-foreground); }
+      .bg-accent { background-color: var(--accent); }
+      .text-accent { color: var(--accent); }
+      .border-accent { border-color: var(--accent); }
+      .ring-accent { --tw-ring-color: var(--accent); }
+      .bg-accent-foreground { background-color: var(--accent-foreground); }
+      .text-accent-foreground { color: var(--accent-foreground); }
+      .border-accent-foreground { border-color: var(--accent-foreground); }
+      .ring-accent-foreground { --tw-ring-color: var(--accent-foreground); }
+      .bg-destructive { background-color: var(--destructive); }
+      .text-destructive { color: var(--destructive); }
+      .border-destructive { border-color: var(--destructive); }
+      .ring-destructive { --tw-ring-color: var(--destructive); }
+      .bg-destructive-foreground { background-color: var(--destructive-foreground); }
+      .text-destructive-foreground { color: var(--destructive-foreground); }
+      .border-destructive-foreground { border-color: var(--destructive-foreground); }
+      .ring-destructive-foreground { --tw-ring-color: var(--destructive-foreground); }
+      .bg-border { background-color: var(--border); }
+      .text-border { color: var(--border); }
+      .border-border { border-color: var(--border); }
+      .ring-border { --tw-ring-color: var(--border); }
+      .bg-input { background-color: var(--input); }
+      .text-input { color: var(--input); }
+      .border-input { border-color: var(--input); }
+      .ring-input { --tw-ring-color: var(--input); }
+      .bg-ring { background-color: var(--ring); }
+      .text-ring { color: var(--ring); }
+      .border-ring { border-color: var(--ring); }
+      .ring-ring { --tw-ring-color: var(--ring); }
+      .bg-chart-1 { background-color: var(--chart-1); }
+      .text-chart-1 { color: var(--chart-1); }
+      .border-chart-1 { border-color: var(--chart-1); }
+      .ring-chart-1 { --tw-ring-color: var(--chart-1); }
+      .bg-chart-2 { background-color: var(--chart-2); }
+      .text-chart-2 { color: var(--chart-2); }
+      .border-chart-2 { border-color: var(--chart-2); }
+      .ring-chart-2 { --tw-ring-color: var(--chart-2); }
+      .bg-chart-3 { background-color: var(--chart-3); }
+      .text-chart-3 { color: var(--chart-3); }
+      .border-chart-3 { border-color: var(--chart-3); }
+      .ring-chart-3 { --tw-ring-color: var(--chart-3); }
+      .bg-chart-4 { background-color: var(--chart-4); }
+      .text-chart-4 { color: var(--chart-4); }
+      .border-chart-4 { border-color: var(--chart-4); }
+      .ring-chart-4 { --tw-ring-color: var(--chart-4); }
+      .bg-chart-5 { background-color: var(--chart-5); }
+      .text-chart-5 { color: var(--chart-5); }
+      .border-chart-5 { border-color: var(--chart-5); }
+      .ring-chart-5 { --tw-ring-color: var(--chart-5); }
+      .bg-sidebar { background-color: var(--sidebar); }
+      .text-sidebar { color: var(--sidebar); }
+      .border-sidebar { border-color: var(--sidebar); }
+      .ring-sidebar { --tw-ring-color: var(--sidebar); }
+      .bg-sidebar-foreground { background-color: var(--sidebar-foreground); }
+      .text-sidebar-foreground { color: var(--sidebar-foreground); }
+      .border-sidebar-foreground { border-color: var(--sidebar-foreground); }
+      .ring-sidebar-foreground { --tw-ring-color: var(--sidebar-foreground); }
+      .bg-sidebar-primary { background-color: var(--sidebar-primary); }
+      .text-sidebar-primary { color: var(--sidebar-primary); }
+      .border-sidebar-primary { border-color: var(--sidebar-primary); }
+      .ring-sidebar-primary { --tw-ring-color: var(--sidebar-primary); }
+      .bg-sidebar-primary-foreground { background-color: var(--sidebar-primary-foreground); }
+      .text-sidebar-primary-foreground { color: var(--sidebar-primary-foreground); }
+      .border-sidebar-primary-foreground { border-color: var(--sidebar-primary-foreground); }
+      .ring-sidebar-primary-foreground { --tw-ring-color: var(--sidebar-primary-foreground); }
+      .bg-sidebar-accent { background-color: var(--sidebar-accent); }
+      .text-sidebar-accent { color: var(--sidebar-accent); }
+      .border-sidebar-accent { border-color: var(--sidebar-accent); }
+      .ring-sidebar-accent { --tw-ring-color: var(--sidebar-accent); }
+      .bg-sidebar-accent-foreground { background-color: var(--sidebar-accent-foreground); }
+      .text-sidebar-accent-foreground { color: var(--sidebar-accent-foreground); }
+      .border-sidebar-accent-foreground { border-color: var(--sidebar-accent-foreground); }
+      .ring-sidebar-accent-foreground { --tw-ring-color: var(--sidebar-accent-foreground); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <link rel="stylesheet" href="../assets/themes.css">
+</head>
+<body data-layout-guard="uikit-v1">
+<div class="app">
+
+<!-- ═══ 侧边栏 ═══ -->
+<aside class="sidebar" data-component="sidebar-nav">
+  <div class="sidebar-search">
+    <div class="search-field" data-component="search-input">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input placeholder="搜索..." aria-label="搜索">
+      <span class="kbd">⌘K</span>
+    </div>
+  </div>
+  <nav class="nav-scroll" aria-label="主导航">
+    <div class="nav-section-label">工作台</div>
+    <button class="nav-item" data-dom-id="nav-chat">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12Z"/><circle cx="9.5" cy="12" r="0.8" fill="currentColor" stroke="none"/><circle cx="14.5" cy="12" r="0.8" fill="currentColor" stroke="none"/><path d="M9.5 15c1.2 1 3.8 1 5 0"/></svg>
+      <span class="nav-label">对话</span>
+      <span class="nav-shortcut">⌘K</span>
+    </button>
+    <button class="nav-item" data-dom-id="nav-workspace">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="15" rx="3"/><path d="M3 9h18"/><circle cx="6" cy="6.5" r="0.6" fill="currentColor" stroke="none"/><circle cx="8.5" cy="6.5" r="0.6" fill="currentColor" stroke="none"/><path d="M8 13l-2 2 2 2M13 13l2 2-2 2"/></svg>
+      <span class="nav-label">IDE 工作区</span>
+    </button>
+
+    <div class="nav-section-label">能力</div>
+    <button class="nav-item" data-dom-id="nav-agent">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2.5"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><rect x="4" y="7" width="16" height="13" rx="5"/><circle cx="9" cy="13" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="13" r="1.5" fill="currentColor" stroke="none"/><path d="M9.5 17c1.2 1 4 1 5 0"/><path d="M4 12H2.5M21.5 12H20"/></svg>
+      <span class="nav-label">智能体配置</span>
+    </button>
+    <button class="nav-item" data-dom-id="nav-kb">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-1.8-1.8-5.5-2.3-8-2v15c2.5-.3 6.2.2 8 2"/><path d="M12 6c1.8-1.8 5.5-2.3 8-2v15c-2.5-.3-6.2.2-8 2"/><path d="M12 6v15"/></svg>
+      <span class="nav-label">知识库管理</span>
+    </button>
+    <button class="nav-item" data-dom-id="nav-training">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="18" cy="12" r="2.2"/><circle cx="12" cy="4" r="1.5"/><circle cx="12" cy="20" r="1.5"/><path d="M8 7.5 12 5M8 16.5 12 19M8 16l7-4M8 8l7 3"/></svg>
+      <span class="nav-label">微调训练</span>
+    </button>
+
+    <div class="nav-section-label">系统</div>
+    <button class="nav-item" data-dom-id="nav-life">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l1.5-5 3 10 1.5-5h8"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2 3" opacity="0.4"/></svg>
+      <span class="nav-label">生命状态</span>
+    </button>
+    <button class="nav-item active" data-dom-id="nav-settings">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
+      <span class="nav-label">设置</span>
+    </button>
+  </nav>
+</aside>
+
+<!-- ═══ 主区域 ═══ -->
+<main class="main">
+  <!-- 顶栏：无 logo，标题 + 副标题，右侧 spacer -->
+  <header class="topbar">
+    <!-- 左侧留空 -->
+    <span style="width:0"></span>
+    <div class="topbar-title-wrap">
+      <span class="topbar-title">设置</span>
+      <span class="topbar-sub">态极系统配置与偏好</span>
+    </div>
+    <span class="topbar-spacer"></span>
+    <!-- 无主题切换器 -->
+  </header>
+
+  <!-- 滚动内容区 -->
+  <div class="scroll-area">
+    <div class="settings-wrap">
+      <div class="settings-layout">
+
+        <!-- 左侧：设置导航 -->
+        <nav class="settings-nav" aria-label="设置导航">
+          <button class="sn-item active" data-section="general">
+            <svg class="sn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
+            通用设置
+          </button>
+          <button class="sn-item" data-section="neuron">
+            <svg class="sn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="18" cy="12" r="2.2"/><circle cx="12" cy="4" r="1.5"/><circle cx="12" cy="20" r="1.5"/><path d="M8 7.5 12 5M8 16.5 12 19M8 16l7-4M8 8l7 3"/></svg>
+            神经元设置
+          </button>
+          <button class="sn-item" data-section="privacy">
+            <svg class="sn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            数据与隐私
+          </button>
+          <button class="sn-item" data-section="about">
+            <svg class="sn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+            关于
+          </button>
+        </nav>
+
+        <!-- 右侧：设置内容 -->
+        <div class="settings-content">
+
+          <!-- ═══ 1. 通用设置 ═══ -->
+          <section class="settings-section active" id="section-general">
+            <h2>通用设置</h2>
+
+            <!-- 主题预览 -->
+            <div class="setting-row" style="flex-direction:column;align-items:stretch;padding-top:0;">
+              <span class="setting-label">外观主题</span>
+              <div class="theme-previews">
+                <div class="theme-preview-card active" data-theme="classic" title="经典蓝">
+                  <span class="theme-swatch theme-chip-classic"></span>
+                  <span class="theme-name">经典蓝</span>
+                </div>
+                <div class="theme-preview-card" data-theme="dark" title="深邃暗色">
+                  <span class="theme-swatch theme-chip-dark"></span>
+                  <span class="theme-name">深邃暗色</span>
+                </div>
+                <div class="theme-preview-card" data-theme="teal" title="自然青绿">
+                  <span class="theme-swatch theme-chip-teal"></span>
+                  <span class="theme-name">自然青绿</span>
+                </div>
+                <div class="theme-preview-card" data-theme="violet" title="科技紫调">
+                  <span class="theme-swatch theme-chip-violet"></span>
+                  <span class="theme-name">科技紫调</span>
+                </div>
+                <div class="theme-preview-card" data-theme="warm" title="暖橙活力">
+                  <span class="theme-swatch theme-chip-warm"></span>
+                  <span class="theme-name">暖橙活力</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 默认语言 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">默认语言</span>
+                <p class="setting-desc">界面与交互的显示语言</p>
+              </div>
+              <div class="setting-right">
+                <select aria-label="默认语言">
+                  <option value="zh-CN" selected>简体中文</option>
+                  <option value="zh-TW">繁體中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 时区 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">时区</span>
+                <p class="setting-desc">用于定时任务、日志时间戳等</p>
+              </div>
+              <div class="setting-right">
+                <select aria-label="时区">
+                  <option value="Asia/Shanghai" selected>Asia/Shanghai (UTC+8)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                  <option value="Asia/Seoul">Asia/Seoul (UTC+9)</option>
+                  <option value="Asia/Singapore">Asia/Singapore (UTC+8)</option>
+                  <option value="America/Los_Angeles">America/Los_Angeles (UTC-8)</option>
+                  <option value="America/New_York">America/New_York (UTC-5)</option>
+                  <option value="Europe/London">Europe/London (UTC+0)</option>
+                  <option value="Europe/Berlin">Europe/Berlin (UTC+1)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 界面密度 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">界面密度</span>
+                <p class="setting-desc">调整元素间距与信息密度</p>
+              </div>
+              <div class="setting-right">
+                <div class="radio-group" role="radiogroup" aria-label="界面密度">
+                  <label class="radio-chip">
+                    <input type="radio" name="density" value="compact">
+                    <span class="rc-label">紧凑</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="density" value="default" checked>
+                    <span class="rc-label">默认</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="density" value="comfortable">
+                    <span class="rc-label">宽松</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ 2. 神经元设置 ═══ -->
+          <section class="settings-section" id="section-neuron">
+            <h2>神经元设置</h2>
+
+            <!-- 共振阈值 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">共振阈值</span>
+                <p class="setting-desc">神经元激活的同步判定阈值（越高越严谨）</p>
+              </div>
+              <div class="setting-right">
+                <div class="range-wrap">
+                  <input type="range" min="0" max="1" step="0.01" value="0.72" aria-label="共振阈值" id="resonance-threshold">
+                  <span class="range-value" id="resonance-value">0.72</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 超时（毫秒） -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">响应超时</span>
+                <p class="setting-desc">神经元链路最大等待时间（毫秒）</p>
+              </div>
+              <div class="setting-right">
+                <input type="number" min="10" max="10000" value="100" aria-label="响应超时（毫秒）">
+              </div>
+            </div>
+
+            <!-- 自动巩固 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">自动巩固</span>
+                <p class="setting-desc">高频突触自动强化并写入持久记忆</p>
+              </div>
+              <div class="setting-right">
+                <label class="toggle" aria-label="自动巩固开关">
+                  <input type="checkbox" checked>
+                  <span class="track"><span class="thumb"></span></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 睡眠模式 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">睡眠模式</span>
+                <p class="setting-desc">非活跃时段暂停后台共振计算以节省算力，每日首次唤醒需约 2 秒预热</p>
+              </div>
+              <div class="setting-right">
+                <label class="toggle" aria-label="睡眠模式开关">
+                  <input type="checkbox">
+                  <span class="track"><span class="thumb"></span></span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ 3. 数据与隐私 ═══ -->
+          <section class="settings-section" id="section-privacy">
+            <h2>数据与隐私</h2>
+
+            <!-- 对话保留 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">对话保留</span>
+                <p class="setting-desc">历史对话的自动保留时长</p>
+              </div>
+              <div class="setting-right">
+                <select aria-label="对话保留">
+                  <option value="30">30 天</option>
+                  <option value="90" selected>90 天</option>
+                  <option value="180">180 天</option>
+                  <option value="365">365 天</option>
+                  <option value="forever">永久保留</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 自动清理 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">自动清理</span>
+                <p class="setting-desc">过期对话与缓存文件到达保留期限后自动移除</p>
+              </div>
+              <div class="setting-right">
+                <label class="toggle" aria-label="自动清理开关">
+                  <input type="checkbox" checked>
+                  <span class="track"><span class="thumb"></span></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 导出数据 -->
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">导出数据</span>
+                <p class="setting-desc">导出所有对话记录、配置快照与神经元状态</p>
+              </div>
+              <div class="setting-right">
+                <button class="btn-sm btn-outline">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  导出
+                </button>
+              </div>
+            </div>
+
+            <!-- 危险区 -->
+            <div class="setting-row" style="border-bottom:none;padding-bottom:0;">
+              <div class="danger-zone" style="width:100%;">
+                <h3>
+                  <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+                  危险操作
+                </h3>
+                <p>重置将清除所有本地配置、神经元状态与缓存文件，此操作不可撤销。建议先导出数据再进行重置。</p>
+                <button class="btn-destructive">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h5v6h-5z"/><path d="M14.5 9.5 13 7h-2l-1.5 2.5"/></svg>
+                  重置态极
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═══ 4. 关于 ═══ -->
+          <section class="settings-section" id="section-about">
+            <h2>关于</h2>
+
+            <div class="setting-row" style="padding-top:0;">
+              <div class="about-meta">
+                <div class="meta-line">
+                  <span style="font-weight:600;">态极神经元系统</span>
+                  <span class="meta-tag">v2.4.1</span>
+                </div>
+                <div class="meta-line" style="color:var(--muted-foreground);font-size:0.8rem;">
+                  共振场引擎
+                  <span class="meta-tag">ResonanceField v3.0</span>
+                </div>
+                <div class="meta-line" style="color:var(--muted-foreground);font-size:0.8rem;">
+                  渲染后端
+                  <span class="meta-tag">WASM+GPU</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-left">
+                <span class="setting-label">开源许可</span>
+                <p class="setting-desc">查看本系统使用的第三方组件许可协议</p>
+              </div>
+              <div class="setting-right">
+                <button class="btn-sm btn-ghost">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
+                  查看许可
+                </button>
+              </div>
+            </div>
+          </section>
+
+        </div><!-- /.settings-content -->
+      </div><!-- /.settings-layout -->
+    </div><!-- /.settings-wrap -->
+  </div><!-- /.scroll-area -->
+</main>
+
+</div><!-- /.app -->
+
+<style id="app-shell">
+/* ═══ 态极控制台 · 应用外壳（豆包设计语言） ═══ */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; min-height: 100%; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body { min-height: 100vh; }
+button, input, textarea { font: inherit; color: inherit; }
+button { appearance: none; cursor: pointer; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted-foreground) 28%, transparent); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted-foreground) 45%, transparent); }
+
+.app { height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); background: var(--background); overflow: hidden; }
+
+/* 侧边栏 */
+.sidebar { display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--sidebar-border); min-height: 0; }
+.sidebar-search { padding: 14px 14px 8px; }
+.search-field { height: 38px; padding: 0 12px; border-radius: calc(var(--radius) * 0.5); background: color-mix(in srgb, var(--background) 70%, var(--sidebar)); border: 1px solid transparent; display: flex; align-items: center; gap: 9px; transition: border-color 160ms ease, background 160ms ease; }
+.search-field:focus-within { border-color: var(--ring); background: var(--background); }
+.search-field input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 0.86rem; }
+.search-field input::placeholder { color: var(--muted-foreground); }
+.kbd { display: inline-flex; align-items: center; gap: 1px; padding: 2px 6px; border-radius: 6px; background: color-mix(in srgb, var(--muted-foreground) 14%, transparent); color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
+.icon { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon-sm { width: 15px; height: 15px; }
+.nav-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item { width: 100%; border: 0; background: transparent; color: var(--sidebar-foreground); border-radius: calc(var(--radius) * 0.5); padding: 9px 11px; display: flex; align-items: center; gap: 11px; text-align: left; font-size: 0.9rem; line-height: 1.2; transition: background 140ms ease, color 140ms ease; }
+.nav-item:hover { background: color-mix(in srgb, var(--background) 64%, var(--sidebar)); }
+.nav-item.active { background: var(--background); color: var(--foreground); font-weight: 600; }
+.nav-item .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-item .icon { color: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground)); }
+.nav-item.active .icon { color: var(--primary); }
+.nav-shortcut { color: var(--muted-foreground); font-size: 0.72rem; opacity: 0; transition: opacity 140ms ease; }
+.nav-item:hover .nav-shortcut { opacity: 1; }
+.nav-section-label { padding: 14px 12px 6px; font-size: 0.74rem; color: var(--muted-foreground); }
+
+/* 主区域 */
+.main { min-width: 0; display: flex; flex-direction: column; background: var(--background); min-height: 0; }
+.topbar { height: 52px; flex: none; padding: 0 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+.icon-btn { width: 34px; height: 34px; border: 0; background: transparent; color: var(--muted-foreground); border-radius: 9px; display: grid; place-items: center; transition: background 140ms ease, color 140ms ease; }
+.icon-btn:hover { background: var(--muted); color: var(--foreground); }
+.topbar-title { font-size: 0.92rem; font-weight: 600; }
+.topbar-sub { font-size: 0.72rem; color: var(--muted-foreground); margin-top: 1px; }
+.topbar-spacer { flex: 1; }
+
+/* 品牌标识 */
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1rem; color: var(--foreground); letter-spacing: -0.01em; }
+.brand-logo { width: 28px; height: 28px; color: var(--primary); flex: none; }
+
+/* 按钮 */
+.btn { height: 36px; padding: 0 15px; border-radius: 999px; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 7px; font-size: 0.86rem; font-weight: 500; transition: background 150ms ease, border-color 150ms ease, transform 120ms ease, color 150ms ease; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn-primary:hover { background: color-mix(in srgb, var(--primary) 90%, var(--foreground)); }
+.btn-ghost { background: var(--muted); color: var(--foreground); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--muted) 80%, var(--foreground) 12%); }
+.btn-outline { background: var(--background); color: var(--foreground); border-color: var(--border); }
+.btn-outline:hover { background: var(--muted); }
+
+/* 滚动区 */
+.scroll-area { flex: 1; min-height: 0; overflow-y: auto; }
+
+@media (max-width: 880px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+}
+</style>
+
+<script>
+// 主题切换逻辑
+(function(){
+  function applyTheme(t){
+    var html=document.documentElement;
+    if(t==='dark'){ html.classList.add('dark'); html.removeAttribute('data-theme'); }
+    else { html.classList.remove('dark'); if(t && t!=='classic'){ html.setAttribute('data-theme', t); } else { html.removeAttribute('data-theme'); } }
+    try{ localStorage.setItem('taiji-theme', t||'classic'); }catch(e){}
+    document.querySelectorAll('.theme-preview-card').forEach(function(c){
+      c.classList.toggle('active', c.getAttribute('data-theme')===t);
+    });
+    document.querySelectorAll('.theme-chip').forEach(function(c){
+      c.classList.toggle('active', c.getAttribute('data-theme')===t);
+    });
+  }
+  var saved='classic';
+  try{ saved=localStorage.getItem('taiji-theme')||'classic'; }catch(e){}
+  function init(){
+    applyTheme(saved);
+    document.querySelectorAll('.theme-preview-card').forEach(function(c){
+      c.addEventListener('click', function(){ applyTheme(c.getAttribute('data-theme')); });
+    });
+    document.querySelectorAll('.theme-chip').forEach(function(c){
+      c.addEventListener('click', function(){ applyTheme(c.getAttribute('data-theme')); });
+    });
+    /* 设置分区导航切换 */
+    document.querySelectorAll('.settings-nav .sn-item').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var sec = btn.getAttribute('data-section');
+        document.querySelectorAll('.settings-nav .sn-item').forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        document.querySelectorAll('.settings-section').forEach(function(s){ s.classList.remove('active'); });
+        var target = document.getElementById('section-' + sec);
+        if(target) target.classList.add('active');
+      });
+    });
+    /* 共振阈值滑块实时显示 */
+    var range = document.getElementById('resonance-threshold');
+    var val = document.getElementById('resonance-value');
+    if(range && val){
+      range.addEventListener('input', function(){
+        val.textContent = parseFloat(range.value).toFixed(2);
+      });
+    }
+    /* 危险按钮确认 */
+    var resetBtn = document.querySelector('.btn-destructive');
+    if(resetBtn){
+      resetBtn.addEventListener('click', function(){
+        if(confirm('确定要重置态极吗？所有本地配置与数据将被清除，此操作不可撤销。')){
+          alert('已重置');
+        }
+      });
+    }
+  }
+  if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init); }
+  else { init(); }
+})();
+</script>
+
+
+    <style>
+    /* ═══ 态极控制台 · 设置页专属样式 ═══ */
+
+    /* --- 设置容器 --- */
+    .settings-wrap {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 28px 24px 48px;
+    }
+
+    /* --- 双栏布局：左侧导航 + 右侧内容 --- */
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      gap: 32px;
+      align-items: start;
+    }
+
+    /* --- 左侧 sticky 导航 --- */
+    .settings-nav {
+      position: sticky;
+      top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-top: 6px;
+    }
+    .settings-nav .sn-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--muted-foreground);
+      border-radius: calc(var(--radius) * 0.45);
+      padding: 9px 14px;
+      text-align: left;
+      font-size: 0.88rem;
+      font-weight: 450;
+      line-height: 1.35;
+      cursor: pointer;
+      transition: background 150ms ease, color 150ms ease, font-weight 150ms ease;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .settings-nav .sn-item:hover {
+      background: var(--muted);
+      color: var(--foreground);
+    }
+    .settings-nav .sn-item.active {
+      background: color-mix(in srgb, var(--primary) 12%, transparent);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .settings-nav .sn-item .sn-icon {
+      width: 17px;
+      height: 17px;
+      flex: none;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.7;
+    }
+    .settings-nav .sn-item.active .sn-icon {
+      opacity: 1;
+    }
+
+    /* --- 右侧内容区 --- */
+    .settings-content {
+      min-width: 0;
+    }
+    .settings-section {
+      display: none;
+      flex-direction: column;
+    }
+    .settings-section.active {
+      display: flex;
+    }
+    .settings-section h2 {
+      font-size: 1.15rem;
+      font-weight: 650;
+      margin: 0 0 18px;
+      color: var(--foreground);
+      letter-spacing: -0.01em;
+    }
+
+    /* --- 设置行 --- */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .setting-row:last-child {
+      border-bottom: none;
+    }
+    .setting-row .setting-left {
+      min-width: 0;
+      flex: 1;
+    }
+    .setting-row .setting-right {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .setting-label {
+      font-size: 0.88rem;
+      font-weight: 500;
+      color: var(--foreground);
+      line-height: 1.3;
+    }
+    .setting-desc {
+      font-size: 0.76rem;
+      color: var(--muted-foreground);
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+
+    /* --- 表单控件基础 --- */
+    input,
+    select,
+    textarea {
+      background: var(--background);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) * 0.45);
+      padding: 7px 12px;
+      font-size: 0.86rem;
+      font-family: var(--font-sans);
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--ring);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent);
+    }
+    select {
+      padding-right: 32px;
+      appearance: none;
+      -webkit-appearance: none;
+      color: var(--muted-foreground);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 15px;
+      cursor: pointer;
+    }
+    input[type="number"] {
+      width: 90px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* --- Range 滑块 --- */
+    .range-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .range-value {
+      font-size: 0.82rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--primary);
+      min-width: 42px;
+      text-align: right;
+    }
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 140px;
+      height: 6px;
+      background: var(--border);
+      border-radius: 999px;
+      border: 0;
+      padding: 0;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]:focus {
+      box-shadow: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid var(--background);
+      box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 18%, transparent);
+      transition: transform 120ms ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid var(--background);
+      box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 18%, transparent);
+    }
+
+    /* --- Toggle 开关 --- */
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+      border: 0;
+      padding: 0;
+    }
+    .toggle .track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 200ms ease;
+    }
+    .toggle .thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: var(--background);
+      border-radius: 50%;
+      transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 1px 3px color-mix(in srgb, var(--foreground) 16%, transparent);
+    }
+    .toggle input:checked + .track {
+      background: var(--primary);
+    }
+    .toggle input:checked + .track .thumb {
+      transform: translateX(18px);
+    }
+    .toggle input:focus-visible + .track {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
+    }
+
+    /* --- Radio 组 --- */
+    .radio-group {
+      display: flex;
+      gap: 4px;
+      background: var(--muted);
+      border-radius: calc(var(--radius) * 0.5);
+      padding: 3px;
+    }
+    .radio-chip {
+      position: relative;
+      cursor: pointer;
+    }
+    .radio-chip input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .radio-chip .rc-label {
+      display: block;
+      padding: 5px 13px;
+      border-radius: calc(var(--radius) * 0.4);
+      font-size: 0.8rem;
+      font-weight: 450;
+      color: var(--muted-foreground);
+      transition: background 150ms ease, color 150ms ease, font-weight 150ms ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .radio-chip input:checked + .rc-label {
+      background: var(--background);
+      color: var(--foreground);
+      font-weight: 600;
+      box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+    }
+    .radio-chip:hover .rc-label {
+      color: var(--foreground);
+    }
+
+    /* --- 主题预览网格 --- */
+    .theme-previews {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+    .theme-preview-card {
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 8px 10px;
+      cursor: pointer;
+      background: var(--background);
+      text-align: center;
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 140ms ease;
+    }
+    .theme-preview-card:hover {
+      border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+      transform: translateY(-1px);
+    }
+    .theme-preview-card.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent);
+    }
+    .theme-swatch {
+      width: 100%;
+      height: 36px;
+      border-radius: 8px;
+      display: block;
+    }
+    .theme-swatch.theme-chip-classic { background: linear-gradient(135deg, #0065fd, #0057da); }
+    .theme-swatch.theme-chip-dark { background: linear-gradient(135deg, #0f1419, #4d8cff); }
+    .theme-swatch.theme-chip-teal { background: linear-gradient(135deg, #0d9488, #5eead4); }
+    .theme-swatch.theme-chip-violet { background: linear-gradient(135deg, #7c3aed, #c4b5fd); }
+    .theme-swatch.theme-chip-warm { background: linear-gradient(135deg, #ea580c, #fdba74); }
+    .theme-preview-card .theme-name {
+      font-size: 0.72rem;
+      margin-top: 7px;
+      color: var(--muted-foreground);
+      font-weight: 450;
+      transition: color 150ms ease;
+    }
+    .theme-preview-card.active .theme-name {
+      color: var(--foreground);
+      font-weight: 600;
+    }
+
+    /* --- 危险区 --- */
+    .danger-zone {
+      border: 1px solid var(--destructive);
+      border-radius: 13px;
+      padding: 20px;
+      margin-top: 8px;
+      background: color-mix(in srgb, var(--destructive) 4%, transparent);
+    }
+    .danger-zone h3 {
+      color: var(--destructive);
+      margin: 0 0 6px;
+      font-size: 0.94rem;
+      font-weight: 650;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .danger-zone h3 .dz-icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+    }
+    .danger-zone p {
+      font-size: 0.78rem;
+      color: var(--muted-foreground);
+      margin: 0 0 14px;
+      line-height: 1.5;
+    }
+    .btn-destructive {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 36px;
+      padding: 0 16px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: var(--destructive);
+      color: var(--destructive-foreground);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 150ms ease, transform 120ms ease;
+    }
+    .btn-destructive:hover {
+      background: color-mix(in srgb, var(--destructive) 88%, var(--foreground) 12%);
+    }
+    .btn-destructive:active {
+      transform: translateY(1px);
+    }
+    .btn-destructive:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+
+    /* --- 关于区块 --- */
+    .about-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px 0;
+    }
+    .about-meta .meta-line {
+      font-size: 0.86rem;
+      color: var(--foreground);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .about-meta .meta-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: var(--muted);
+      color: var(--muted-foreground);
+      font-family: var(--font-mono);
+    }
+    .about-actions {
+      margin-top: 12px;
+    }
+
+    /* --- 顶栏标题区 --- */
+    .topbar-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0px;
+      line-height: 1.2;
+    }
+    .topbar-title-wrap .topbar-title {
+      font-size: 0.94rem;
+      font-weight: 650;
+      color: var(--foreground);
+    }
+    .topbar-title-wrap .topbar-sub {
+      font-size: 0.72rem;
+      color: var(--muted-foreground);
+    }
+
+    /* --- 按钮扩展 --- */
+    .btn-sm {
+      height: 32px;
+      padding: 0 13px;
+      font-size: 0.8rem;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 150ms ease, border-color 150ms ease, transform 120ms ease;
+    }
+    .btn-sm:active {
+      transform: translateY(1px);
+    }
+    .btn-sm:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+    .btn-sm.btn-outline {
+      background: var(--background);
+      color: var(--foreground);
+      border-color: var(--border);
+    }
+    .btn-sm.btn-outline:hover {
+      background: var(--muted);
+    }
+    .btn-sm.btn-ghost {
+      background: var(--muted);
+      color: var(--foreground);
+    }
+    .btn-sm.btn-ghost:hover {
+      background: color-mix(in srgb, var(--muted) 80%, var(--foreground) 14%);
+    }
+
+    /* --- 响应式 --- */
+    @media (max-width: 880px) {
+      .settings-layout {
+        grid-template-columns: 1fr;
+      }
+      .settings-nav {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .settings-nav .sn-item {
+        width: auto;
+        padding: 7px 12px;
+        font-size: 0.8rem;
+      }
+      .theme-previews {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    @media (max-width: 500px) {
+      .settings-wrap {
+        padding: 16px 12px 32px;
+      }
+      .theme-previews {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .setting-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+    }
+  </style>
+</body>
+</html>

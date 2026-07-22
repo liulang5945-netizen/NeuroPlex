@@ -726,8 +726,11 @@ def main():
         teacher_dirs = torch.load(dir_path, map_location="cpu", weights_only=True)
         print(f"  Loaded teacher directions for {len(teacher_dirs)} domains")
 
-    DOMAIN_SPECS = {"zh": "foundation", "en": "foundation", "code": "foundation",
-                    "math": "foundation", "general": "foundation"}  # v3: unified 117M neurons
+    # C3 修复：使用全局 DEFAULT_NEURON_SPEC，避免硬编码 spec 与生产不一致。
+    # 历史值: "foundation" (hidden=384)；现默认 "compact" (hidden=512)。
+    # 若需蒸馏其他 spec，传入 --spec 参数覆盖。
+    from taiji.resonance import DEFAULT_NEURON_SPEC
+    DOMAIN_SPECS = {d: DEFAULT_NEURON_SPEC for d in ["zh", "en", "code", "math", "general"]}
 
     print(f"\n[3/4] Distilling neurons ({args.steps} steps each)...")
     results, neurons = {}, {}

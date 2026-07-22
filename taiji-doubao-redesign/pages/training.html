@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微调训练 · 态极控制台</title>
+    <style id="theme-vars">
+/* Source: structured-spec */
+:root {
+  
+  /* solo-design consumption aliases: explicit prefix for fill-html-head.mjs */
+  --doubao-background: var(--background, #ffffff);
+  --doubao-foreground: var(--foreground, #0f172a);
+  --doubao-card: var(--card, var(--background));
+  --doubao-card-foreground: var(--card-foreground, var(--foreground));
+  --doubao-popover: var(--popover, var(--card));
+  --doubao-popover-foreground: var(--popover-foreground, var(--card-foreground, var(--foreground)));
+  --doubao-primary: var(--primary, #111827);
+  --doubao-primary-foreground: var(--primary-foreground, #ffffff);
+  --doubao-secondary: var(--secondary, var(--muted, var(--card)));
+  --doubao-secondary-foreground: var(--secondary-foreground, var(--foreground));
+  --doubao-muted: var(--muted, var(--card));
+  --doubao-muted-foreground: var(--muted-foreground, var(--foreground));
+  --doubao-accent: var(--accent, var(--secondary, var(--muted, var(--card))));
+  --doubao-accent-foreground: var(--accent-foreground, var(--foreground));
+  --doubao-destructive: var(--destructive, #ef4444);
+  --doubao-destructive-foreground: var(--destructive-foreground, #ffffff);
+  --doubao-border: var(--border, currentColor);
+  --doubao-input: var(--input, var(--border));
+  --doubao-ring: var(--ring, var(--primary));
+  --doubao-chart-1: var(--chart-1, var(--primary));
+  --doubao-chart-2: var(--chart-2, var(--secondary, var(--primary)));
+  --doubao-chart-3: var(--chart-3, var(--accent, var(--primary)));
+  --doubao-chart-4: var(--chart-4, var(--muted-foreground, var(--foreground)));
+  --doubao-chart-5: var(--chart-5, var(--foreground));
+  --doubao-sidebar: var(--sidebar, var(--background));
+  --doubao-sidebar-foreground: var(--sidebar-foreground, var(--foreground));
+  --doubao-sidebar-primary: var(--sidebar-primary, var(--primary));
+  --doubao-sidebar-primary-foreground: var(--sidebar-primary-foreground, var(--primary-foreground));
+  --doubao-sidebar-accent: var(--sidebar-accent, var(--accent, var(--muted, var(--card))));
+  --doubao-sidebar-accent-foreground: var(--sidebar-accent-foreground, var(--accent-foreground, var(--foreground)));
+
+/* semantic */
+  /* semantic */
+  --background: #ffffff;
+  --foreground: #0e1115;
+  --card: #ffffff;
+  --card-foreground: #0e1115;
+  --popover: #f9f9fa;
+  --popover-foreground: #0e1115;
+
+  /* semantic */
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --secondary: #eff1f4;
+  --secondary-foreground: #333942;
+  --muted: #eff1f4;
+  --muted-foreground: #7f8d9f;
+  --accent: #e5e9ff;
+  --accent-foreground: #00266b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e7eaef;
+  --input: #e7eaef;
+  --ring: #557fff;
+
+  /* chart */
+  /* chart */
+  --chart-1: #557fff;
+  --chart-2: #0065fd;
+  --chart-3: #0057da;
+  --chart-4: #0043ad;
+  --chart-5: #002e7d;
+  /* sidebar */
+  --sidebar: #eff1f4;
+  --sidebar-foreground: #0e1115;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d4daff;
+  --sidebar-accent-foreground: #00266b;
+  --sidebar-border: #e7eaef;
+  --sidebar-ring: #0065fd;
+
+  /* Source: structured-spec | Typography tokens */
+  --font-sans: Stack Sans Text, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+
+  /* Source: structured-spec | Radius token */
+  --radius: 1.2rem;
+  --radius-sm: 0.6rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.2rem;
+  --radius-small: 0.6rem;
+  --radius-medium: 0.9rem;
+  --radius-large: 1.2rem;
+  --primary-radius-sm: var(--radius-sm);
+  --primary-radius-md: var(--radius-md);
+  --primary-radius-lg: var(--radius-lg);
+
+  /* Source: structured-spec | Shadow construction tokens */
+  --shadow-x: 0;
+  --shadow-y: 1px;
+  --shadow-blur: 0px;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0;
+  --shadow-color: #0e1115;
+  --shadow-2xs: 0 1px 0px 0px rgb(14 17 21 / 0);
+  --shadow-xs: 0 1px 0px 0px rgb(14 17 21 / 0);
+  --shadow-sm: 0 1px 0px 0px rgb(14 17 21 / 0), 0 1px 2px -1px rgb(14 17 21 / 0);
+  --shadow: 0 1px 0px 0px rgb(14 17 21 / 0), 0 1px 2px -1px rgb(14 17 21 / 0);
+  --shadow-md: 0 1px 0px 0px rgb(14 17 21 / 0), 0 2px 4px -1px rgb(14 17 21 / 0);
+  --shadow-lg: 0 1px 0px 0px rgb(14 17 21 / 0), 0 4px 6px -1px rgb(14 17 21 / 0);
+  --shadow-xl: 0 1px 0px 0px rgb(14 17 21 / 0), 0 8px 10px -1px rgb(14 17 21 / 0);
+  --shadow-2xl: 0 1px 0px 0px rgb(14 17 21 / 0);
+
+  /* Source: structured-spec | Rhythm tokens */
+  --tracking-normal: 0em;
+  --spacing: 0.24rem;
+}
+
+/* Source: structured-spec */
+.dark {
+  /* semantic */
+  --background: #0e1115;
+  --foreground: #eff1f4;
+  --card: #0e1115;
+  --card-foreground: #eff1f4;
+  --popover: #22252a;
+  --popover-foreground: #e5e5e5;
+
+  /* semantic */
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --secondary: #22252a;
+  --secondary-foreground: #e5e5e5;
+  --muted: #161a20;
+  --muted-foreground: #afbbcb;
+  --accent: #00266b;
+  --accent-foreground: #bfdbfe;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #333942;
+  --input: #333942;
+  --ring: #00266b;
+
+  /* chart */
+  --chart-1: #60a5fa;
+  --chart-2: #3b82f6;
+  --chart-3: #2563eb;
+  --chart-4: #1d4ed8;
+  --chart-5: #1e40af;
+  --sidebar: #171717;
+  --sidebar-foreground: #e5e5e5;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #00266b;
+  --sidebar-accent-foreground: #bfdbfe;
+  --sidebar-border: #404040;
+  --sidebar-ring: #00266b;
+
+  /* Source: structured-spec | Typography tokens */
+  --font-sans: Stack Sans Text, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+
+  /* Source: structured-spec | Radius token */
+  --radius: 1.2rem;
+  --radius-sm: 0.6rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.2rem;
+  --radius-small: 0.6rem;
+  --radius-medium: 0.9rem;
+  --radius-large: 1.2rem;
+  --primary-radius-sm: var(--radius-sm);
+  --primary-radius-md: var(--radius-md);
+  --primary-radius-lg: var(--radius-lg);
+
+  /* Source: structured-spec | Shadow construction tokens */
+  --shadow-x: 0;
+  --shadow-y: 1px;
+  --shadow-blur: 0px;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0;
+  --shadow-color: #000000;
+  --shadow-2xs: 0 1px 0px 0px rgb(0 0 0 / 0);
+  --shadow-xs: 0 1px 0px 0px rgb(0 0 0 / 0);
+  --shadow-sm: 0 1px 0px 0px rgb(0 0 0 / 0), 0 1px 2px -1px rgb(0 0 0 / 0);
+  --shadow: 0 1px 0px 0px rgb(0 0 0 / 0), 0 1px 2px -1px rgb(0 0 0 / 0);
+  --shadow-md: 0 1px 0px 0px rgb(0 0 0 / 0), 0 2px 4px -1px rgb(0 0 0 / 0);
+  --shadow-lg: 0 1px 0px 0px rgb(0 0 0 / 0), 0 4px 6px -1px rgb(0 0 0 / 0);
+  --shadow-xl: 0 1px 0px 0px rgb(0 0 0 / 0), 0 8px 10px -1px rgb(0 0 0 / 0);
+  --shadow-2xl: 0 1px 0px 0px rgb(0 0 0 / 0);
+}
+
+    </style>
+    <style id="component-vars">
+/* ═══════════════════════════════════════════════════════════════
+   components.css — Design System Component Definitions
+   Auto-extracted from preview/component-*.html
+   DO NOT EDIT MANUALLY — regenerate via extract-components-css.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── App Card ──────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="flame" viewBox="0 0 24 24"><path d="M12 3c1 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 1-4 2 1 3 0 3-4Z"/></symbol>
+   </svg>
+   
+   <div class="grid">
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-2))">✍️</span>
+       <span class="body">
+         <span class="title">全能写作助手</span>
+         <p class="desc">提供多种文案创作选择，轻松完成各种文案任务。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>1384.1万人聊过</span><span class="dot"></span><span>@豆包官方</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--primary))">🖼️</span>
+       <span class="body">
+         <span class="title">识图生成提示词</span>
+         <p class="desc">上传图片，根据图片内容精准生成提示词，帮助二次创作。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>111.1万人聊过</span><span class="dot"></span><span>@豆包识图</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--destructive),var(--destructive))">💗</span>
+       <span class="body">
+         <span class="title">高情商回复</span>
+         <p class="desc">聊天时不知道怎么回复，找来帮你看~</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>1324.6万人聊过</span><span class="dot"></span><span>@艾比斯之梦</span></span>
+       </span>
+     </button>
+   
+     <button class="card">
+       <span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-4))">📊</span>
+       <span class="body">
+         <span class="title">EXCEL大全</span>
+         <p class="desc">拥有卓越数据处理能力，助您解决 Excel 各类难题。</p>
+         <span class="meta"><span class="count"><svg class="icon"><use href="#flame"/></svg>24.6万人聊过</span><span class="dot"></span><span>@春风十里oh~</span></span>
+       </span>
+     </button>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:760px}
+  .card{display:flex;gap:13px;padding:16px;text-align:left;border:1px solid var(--border);border-radius:14px;background:var(--card);cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
+  .card:hover{border-color:color-mix(in srgb,var(--primary) 40%,var(--border));background:color-mix(in srgb,var(--accent) 22%,var(--card));transform:translateY(-2px)}
+  .ic{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:13px;font-size:20px;color:var(--primary-foreground)}
+  .body{flex:1;min-width:0}
+  .title{margin:2px 0 5px;font-size:15px;font-weight:600}
+  .desc{margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--muted-foreground);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground)}
+  .count{display:inline-flex;align-items:center;gap:4px}
+  .dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.6}
+  .icon{width:13px;height:13px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Button ────────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+     <symbol id="send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+     <symbol id="trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></symbol>
+     <symbol id="edit" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/></symbol>
+   </svg>
+   
+   <div class="stack">
+     <div class="group">
+       <span class="label">Primary · 主操作</span>
+       <div class="row">
+         <button class="btn primary sm"><svg class="icon"><use href="#plus"/></svg>创建</button>
+         <button class="btn primary"><svg class="icon"><use href="#plus"/></svg>创建 AI 智能体</button>
+         <button class="btn primary lg"><svg class="icon"><use href="#send"/></svg>发送</button>
+         <button class="btn primary" disabled>处理中…</button>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Quiet · 次级与轮廓</span>
+       <div class="row">
+         <button class="btn ghost">我创建的</button>
+         <button class="btn outline"><svg class="icon"><use href="#edit"/></svg>编辑</button>
+         <button class="btn ghost sm">取消</button>
+         <button class="btn outline icon-only" aria-label="新建"><svg class="icon"><use href="#plus"/></svg></button>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Destructive · 删除</span>
+       <div class="row">
+         <button class="btn destructive"><svg class="icon"><use href="#trash"/></svg>删除对话</button>
+         <button class="btn destructive sm" disabled>删除</button>
+       </div>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .stack{display:flex;flex-direction:column;gap:20px;max-width:760px}
+  .group{display:flex;flex-direction:column;gap:10px}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .icon{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 16px;border:1px solid transparent;border-radius:999px;font:500 13px/1 var(--font-sans);cursor:pointer;transition:background-color .16s,border-color .16s,color .16s,transform .12s}
+  .btn:active{transform:translateY(1px)}
+  .btn:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .primary{background:var(--primary);color:var(--primary-foreground)}
+  .primary:hover{background:color-mix(in srgb,var(--primary) 90%,var(--foreground))}
+  .ghost{background:var(--muted);color:var(--foreground)}
+  .ghost:hover{background:color-mix(in srgb,var(--muted) 82%,var(--foreground) 14%)}
+  .outline{background:var(--background);color:var(--foreground);border-color:var(--border)}
+  .outline:hover{background:var(--muted)}
+  .destructive{background:var(--destructive);color:var(--destructive-foreground)}
+  .destructive:hover{background:color-mix(in srgb,var(--destructive) 90%,var(--foreground))}
+  .sm{height:32px;padding:0 13px;font-size:12px}
+  .lg{height:44px;padding:0 20px;font-size:14px}
+  .icon-only{width:38px;height:38px;padding:0}
+  .divider{border:0;border-top:1px solid var(--border);margin:4px 0}
+
+/* ── Chat Composer ─────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+     <symbol id="bolt" viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/></symbol>
+     <symbol id="ppt" viewBox="0 0 24 24"><path d="M5 4h14v11H5z"/><path d="M12 15v4M9 20h6"/></symbol>
+     <symbol id="table" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 10h16M10 5v14"/></symbol>
+     <symbol id="image" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 16l4-4 3 3 4-5 5 6"/><circle cx="8" cy="9.5" r="1"/></symbol>
+     <symbol id="pen" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/></symbol>
+     <symbol id="video" viewBox="0 0 24 24"><path d="M4 6h12v12H4z"/><path d="M16 10l4-2v8l-4-2"/></symbol>
+     <symbol id="more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+     <symbol id="wave" viewBox="0 0 24 24"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h0"/></symbol>
+     <symbol id="send" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+   </svg>
+   
+   <div class="wrap">
+     <span class="label">Empty · 待输入</span>
+     <div class="composer">
+       <textarea rows="1" placeholder="发消息或按住空格说话..."></textarea>
+       <div class="tools">
+         <button class="composer-chip round" aria-label="添加"><svg class="icon"><use href="#plus"/></svg></button>
+         <button class="composer-chip"><svg class="icon"><use href="#bolt"/></svg>快速</button>
+         <button class="composer-chip"><svg class="icon"><use href="#ppt"/></svg>PPT 生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#table"/></svg>AI 表格</button>
+         <button class="composer-chip"><svg class="icon"><use href="#image"/></svg>图像生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#pen"/></svg>帮我写作</button>
+         <button class="composer-chip"><svg class="icon"><use href="#video"/></svg>视频生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#more"/></svg>更多</button>
+         <span class="spacer"></span>
+         <button class="voice" aria-label="语音"><svg class="icon"><use href="#wave"/></svg></button>
+       </div>
+     </div>
+   
+     <span class="label">Active · 有内容</span>
+     <div class="composer">
+       <textarea rows="2">帮我写一篇关于豆包 AI 的产品介绍，语气专业又亲切</textarea>
+       <div class="tools">
+         <button class="composer-chip round" aria-label="添加"><svg class="icon"><use href="#plus"/></svg></button>
+         <button class="composer-chip"><svg class="icon"><use href="#bolt"/></svg>快速</button>
+         <button class="composer-chip"><svg class="icon"><use href="#image"/></svg>图像生成</button>
+         <button class="composer-chip"><svg class="icon"><use href="#more"/></svg>更多</button>
+         <span class="spacer"></span>
+         <button class="send" aria-label="发送"><svg class="icon"><use href="#send"/></svg></button>
+       </div>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .wrap{max-width:760px;display:flex;flex-direction:column;gap:14px}
+  .composer{border:1px solid var(--border);border-radius:22px;background:var(--card);padding:14px 16px 10px;transition:border-color .16s,box-shadow .16s}
+  .composer:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent)}
+  textarea{width:100%;border:0;outline:0;background:transparent;resize:none;color:inherit;font:15px/1.5 var(--font-sans);min-height:24px;max-height:160px}
+  textarea::placeholder{color:var(--muted-foreground)}
+  .tools{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .composer-chip{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:999px;background:transparent;color:color-mix(in srgb,var(--foreground) 78%,var(--muted-foreground));padding:7px 11px;font:13px var(--font-sans);cursor:pointer;transition:background .14s,color .14s}
+  .composer-chip:hover{background:var(--muted);color:var(--foreground)}
+  .composer-chip.round{width:34px;height:34px;padding:0;justify-content:center;border:1px solid var(--border)}
+  .spacer{flex:1}
+  .send{width:36px;height:36px;border:0;border-radius:999px;background:var(--primary);color:var(--primary-foreground);display:grid;place-items:center;cursor:pointer;transition:background .15s}
+  .send:hover{background:color-mix(in srgb,var(--primary) 90%,var(--foreground))}
+  .voice{width:36px;height:36px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer}
+  .voice:hover{background:var(--muted);color:var(--foreground)}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .icon{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Data Table ────────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></symbol>
+     <symbol id="dots" viewBox="0 0 24 24"><path d="M12 6h.01M12 12h.01M12 18h.01"/></symbol>
+   </svg>
+   
+   <div class="panel">
+     <div class="head">
+       <h2>智能体运行</h2>
+       <span class="sub">· 4 个任务</span>
+       <span class="spacer"></span>
+       <button class="btn"><svg class="icon"><use href="#filter"/></svg>筛选</button>
+     </div>
+     <table>
+       <thead>
+         <tr>
+           <th style="width:36px"><input class="cb" type="checkbox" aria-label="全选"></th>
+           <th>任务</th>
+           <th>状态</th>
+           <th>对话量</th>
+           <th>更新</th>
+           <th style="width:48px"></th>
+         </tr>
+       </thead>
+       <tbody>
+         <tr class="selected">
+           <td><input class="cb" type="checkbox" checked aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-2))">✍️</span>全能写作助手</span></td>
+           <td><span class="status-chip run">运行中</span></td>
+           <td><span class="metric">1384.1万</span> <span class="trend-up">↑ 12%</span></td>
+           <td class="muted">2 分钟前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--primary))">🖼️</span>识图生成提示词</span></td>
+           <td><span class="status-chip ok">已完成</span></td>
+           <td><span class="metric">111.1万</span> <span class="trend-up">↑ 4%</span></td>
+           <td class="muted">1 小时前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-4))">📊</span>EXCEL大全</span></td>
+           <td><span class="status-chip ok">已完成</span></td>
+           <td><span class="metric">24.6万</span> <span class="trend-down">↓ 2%</span></td>
+           <td class="muted">昨天</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+         <tr>
+           <td><input class="cb" type="checkbox" aria-label="选择"></td>
+           <td><span class="name"><span class="ic" style="background:linear-gradient(135deg,var(--muted-foreground),var(--foreground))">📄</span>论文助手</span></td>
+           <td><span class="status-chip wait">排队中</span></td>
+           <td class="muted">—</td>
+           <td class="muted">3 天前</td>
+           <td><button class="act" aria-label="更多"><svg class="icon"><use href="#dots"/></svg></button></td>
+         </tr>
+       </tbody>
+     </table>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .panel{max-width:760px;border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden}
+  .head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .head h2{margin:0;font-size:15px;font-weight:600}
+  .head .sub{font-size:12px;color:var(--muted-foreground)}
+  .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border:1px solid var(--border);border-radius:999px;background:var(--background);color:var(--foreground);font:500 12px var(--font-sans);cursor:pointer}
+  .btn:hover{background:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font:600 11px/1 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);padding:11px 16px;border-bottom:1px solid var(--border)}
+  td{padding:13px 16px;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent);font-size:13px}
+  tr:last-child td{border-bottom:0}
+  tbody tr{transition:background .12s}
+  tbody tr:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+  tr.selected{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+  .name{display:flex;align-items:center;gap:10px;font-weight:500}
+  .ic{width:28px;height:28px;flex:none;border-radius:8px;display:grid;place-items:center;font-size:14px;color:var(--primary-foreground)}
+  .status-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:500 12px var(--font-sans)}
+  .status-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+  .ok{background:color-mix(in srgb,var(--chart-2) 18%,transparent);color:var(--chart-2)}
+  .run{background:color-mix(in srgb,var(--chart-1) 16%,transparent);color:var(--chart-1)}
+  .wait{background:color-mix(in srgb,var(--muted-foreground) 16%,transparent);color:var(--muted-foreground)}
+  .metric{font-variant-numeric:tabular-nums;font-weight:600}
+  .trend-up{color:var(--chart-2);font-size:12px}
+  .trend-down{color:var(--destructive);font-size:12px}
+  .muted{color:var(--muted-foreground)}
+  .act{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--muted-foreground);cursor:pointer}
+  .act:hover{background:var(--muted);color:var(--foreground)}
+  .cb{width:16px;height:16px;accent-color:var(--primary)}
+  .icon{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Search Input ──────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+   </svg>
+   
+   <div class="stack">
+     <div class="group">
+       <span class="label">Sidebar · 带快捷键</span>
+       <div class="search">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input placeholder="搜索..." aria-label="搜索">
+         <span class="kbd">⌘K</span>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Filled · 带清除</span>
+       <div class="search filled">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="全能写作助手" aria-label="搜索会话">
+         <button class="clear" aria-label="清除">×</button>
+       </div>
+     </div>
+   
+     <div class="group">
+       <span class="label">Disabled</span>
+       <div class="search disabled">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="索引同步中，暂不可搜索" aria-label="禁用搜索" disabled>
+       </div>
+     </div>
+   
+     <hr class="divider">
+   
+     <div class="group">
+       <span class="label">Error · 校验</span>
+       <div class="search error">
+         <svg class="icon"><use href="#i-search"/></svg>
+         <input value="@@@" aria-label="错误搜索">
+       </div>
+       <span class="helper err">搜索关键词不能仅包含特殊字符</span>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .stack{display:flex;flex-direction:column;gap:20px;max-width:520px}
+  .group{display:flex;flex-direction:column;gap:10px}
+  .label{font:600 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)}
+  .search{display:flex;align-items:center;gap:9px;height:40px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--muted);color:var(--foreground);transition:background .16s,border-color .16s,box-shadow .16s}
+  .search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit}
+  .search input::placeholder{color:var(--muted-foreground)}
+  .search:focus-within{background:var(--card);border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent)}
+  .filled{background:var(--card);border-color:var(--border)}
+  .disabled{opacity:.5}
+  .disabled input{-webkit-text-fill-color:currentColor}
+  .error{border-color:var(--destructive);background:var(--card)}
+  .error:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--destructive) 18%,transparent)}
+  .helper{font-size:12px;color:var(--muted-foreground);padding-left:2px}
+  .helper.err{color:var(--destructive)}
+  .kbd{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:color-mix(in srgb,var(--muted-foreground) 14%,transparent);color:var(--muted-foreground);font:600 11px/1 var(--font-sans)}
+  .clear{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:50%;background:color-mix(in srgb,var(--muted-foreground) 16%,transparent);color:var(--foreground);cursor:pointer;font-size:13px;line-height:1}
+  .clear:hover{background:color-mix(in srgb,var(--muted-foreground) 28%,transparent)}
+  .icon{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--muted-foreground)}
+  .divider{border:0;border-top:1px solid var(--border);margin:4px 0}
+
+/* ── Sidebar Nav ───────────────────────────────────────────── */
+/* @anatomy
+   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+     <symbol id="bean" viewBox="0 0 24 24"><path d="M12 3c4 0 7 2.8 7 6.5 0 2-1 3.6-2.6 4.7.4 1 .6 2 .6 3.3 0 .8-.6 1.5-1.5 1.5-.8 0-1.4-.5-1.7-1.2-1.2.5-2.6.7-3.8.5"/><path d="M12 3C8 3 5 5.8 5 9.5 5 13 8 16 12 16"/></symbol>
+     <symbol id="chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12Z"/></symbol>
+     <symbol id="task" viewBox="0 0 24 24"><path d="M9 5h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7"/><path d="M9 3h2a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M8 12h6M8 16h4"/></symbol>
+     <symbol id="create" viewBox="0 0 24 24"><path d="M12 3 4 7v10l8 4 8-4V7l-8-4Z"/><path d="M12 3v18M4 7l8 4 8-4"/></symbol>
+     <symbol id="cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 9.5a3.5 3.5 0 0 1-.5 8.5H7Z"/></symbol>
+     <symbol id="compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5 13 13l-3.5 1.5L11 11l3.5-1.5Z"/></symbol>
+     <symbol id="dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+   </svg>
+   
+   <div class="rail">
+     <div class="search-wrap">
+       <div class="search">
+         <svg class="icon" style="width:18px;height:18px;color:var(--muted-foreground)"><use href="#i-search"/></svg>
+         <input placeholder="搜索..." aria-label="搜索">
+         <span class="kbd">⌘K</span>
+       </div>
+     </div>
+   
+     <nav class="nav">
+       <button class="item"><svg class="icon"><use href="#bean"/></svg><span class="lbl">豆包</span></button>
+       <button class="item active"><svg class="icon"><use href="#chat"/></svg><span class="lbl">新对话</span><span class="sc">⌘K</span></button>
+       <button class="item"><svg class="icon"><use href="#task"/></svg><span class="lbl">新办公任务</span></button>
+       <button class="item"><svg class="icon"><use href="#create"/></svg><span class="lbl">AI 创作</span></button>
+       <button class="item"><svg class="icon"><use href="#cloud"/></svg><span class="lbl">云盘</span></button>
+       <button class="item"><svg class="icon"><use href="#compass"/></svg><span class="lbl">发现智能体</span></button>
+   
+       <div class="section">历史对话</div>
+       <button class="hist"><span class="av" style="background:var(--primary)">鱼</span><span class="lbl">同一锅鱼评价</span></button>
+       <button class="hist"><span class="av" style="background:var(--chart-3)">袁</span><span class="lbl">论袁的魅力</span></button>
+       <button class="hist"><span class="av" style="background:var(--primary)">EN</span><span class="lbl">英语学习助手</span></button>
+       <button class="hist"><span class="av" style="background:var(--destructive)">漫</span><span class="lbl">AI 漫画生成</span></button>
+     </nav>
+   
+     <div class="footer">
+       <span class="uav">豆</span>
+       <span class="uname">用户8081875236843</span>
+       <svg class="icon" style="color:var(--muted-foreground)"><use href="#dots"/></svg>
+     </div>
+   </div>
+*/
+*{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.4}
+  .rail{width:248px;background:var(--sidebar);border:1px solid var(--sidebar-border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+  .search-wrap{padding:14px 14px 8px}
+  .search{display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;border-radius:10px;background:color-mix(in srgb,var(--background) 70%,var(--sidebar));border:1px solid transparent}
+  .search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:13px var(--font-sans)}
+  .search input::placeholder{color:var(--muted-foreground)}
+  .kbd{padding:2px 6px;border-radius:6px;background:color-mix(in srgb,var(--muted-foreground) 14%,transparent);color:var(--muted-foreground);font:600 11px/1 var(--font-sans)}
+  .nav{padding:4px 10px 8px;display:flex;flex-direction:column;gap:2px}
+  .item{display:flex;align-items:center;gap:11px;width:100%;padding:9px 11px;border:0;border-radius:10px;background:transparent;color:var(--sidebar-foreground);font:14px var(--font-sans);text-align:left;cursor:pointer;transition:background .14s,color .14s}
+  .item:hover{background:color-mix(in srgb,var(--background) 64%,var(--sidebar))}
+  .item.active{background:var(--background);color:var(--foreground);font-weight:600}
+  .item .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .icon{color:color-mix(in srgb,var(--foreground) 72%,var(--muted-foreground))}
+  .item.active .icon{color:var(--primary)}
+  .sc{color:var(--muted-foreground);font-size:12px}
+  .section{padding:14px 12px 6px;font-size:12px;color:var(--muted-foreground)}
+  .hist{display:flex;align-items:center;gap:10px;width:100%;padding:8px 11px;border:0;border-radius:10px;background:transparent;color:color-mix(in srgb,var(--foreground) 82%,var(--muted-foreground));font:13px var(--font-sans);text-align:left;cursor:pointer}
+  .hist:hover{background:color-mix(in srgb,var(--background) 64%,var(--sidebar));color:var(--foreground)}
+  .av{width:18px;height:18px;flex:none;border-radius:6px;display:grid;place-items:center;font-size:10px;color:var(--primary-foreground)}
+  .hist .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .footer{margin-top:auto;border-top:1px solid var(--sidebar-border);padding:10px 12px;display:flex;align-items:center;gap:10px}
+  .uav{width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;font:600 13px/1 var(--font-sans);color:var(--primary-foreground);background:linear-gradient(135deg,var(--chart-1),var(--chart-4))}
+  .uname{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .icon{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --radius-sm: var(--radius-sm);
+    --radius-md: var(--radius-md);
+    --radius-lg: var(--radius-lg);
+  }
+  @layer base {
+    body { background: var(--background); color: var(--foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--background); }
+      .text-background { color: var(--background); }
+      .border-background { border-color: var(--background); }
+      .ring-background { --tw-ring-color: var(--background); }
+      .bg-foreground { background-color: var(--foreground); }
+      .text-foreground { color: var(--foreground); }
+      .border-foreground { border-color: var(--foreground); }
+      .ring-foreground { --tw-ring-color: var(--foreground); }
+      .bg-card { background-color: var(--card); }
+      .text-card { color: var(--card); }
+      .border-card { border-color: var(--card); }
+      .ring-card { --tw-ring-color: var(--card); }
+      .bg-card-foreground { background-color: var(--card-foreground); }
+      .text-card-foreground { color: var(--card-foreground); }
+      .border-card-foreground { border-color: var(--card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--card-foreground); }
+      .bg-popover { background-color: var(--popover); }
+      .text-popover { color: var(--popover); }
+      .border-popover { border-color: var(--popover); }
+      .ring-popover { --tw-ring-color: var(--popover); }
+      .bg-popover-foreground { background-color: var(--popover-foreground); }
+      .text-popover-foreground { color: var(--popover-foreground); }
+      .border-popover-foreground { border-color: var(--popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--popover-foreground); }
+      .bg-primary { background-color: var(--primary); }
+      .text-primary { color: var(--primary); }
+      .border-primary { border-color: var(--primary); }
+      .ring-primary { --tw-ring-color: var(--primary); }
+      .bg-primary-foreground { background-color: var(--primary-foreground); }
+      .text-primary-foreground { color: var(--primary-foreground); }
+      .border-primary-foreground { border-color: var(--primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--primary-foreground); }
+      .bg-secondary { background-color: var(--secondary); }
+      .text-secondary { color: var(--secondary); }
+      .border-secondary { border-color: var(--secondary); }
+      .ring-secondary { --tw-ring-color: var(--secondary); }
+      .bg-secondary-foreground { background-color: var(--secondary-foreground); }
+      .text-secondary-foreground { color: var(--secondary-foreground); }
+      .border-secondary-foreground { border-color: var(--secondary-foreground); }
+      .ring-secondary-foreground { --tw-ring-color: var(--secondary-foreground); }
+      .bg-muted { background-color: var(--muted); }
+      .text-muted { color: var(--muted); }
+      .border-muted { border-color: var(--muted); }
+      .ring-muted { --tw-ring-color: var(--muted); }
+      .bg-muted-foreground { background-color: var(--muted-foreground); }
+      .text-muted-foreground { color: var(--muted-foreground); }
+      .border-muted-foreground { border-color: var(--muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--muted-foreground); }
+      .bg-accent { background-color: var(--accent); }
+      .text-accent { color: var(--accent); }
+      .border-accent { border-color: var(--accent); }
+      .ring-accent { --tw-ring-color: var(--accent); }
+      .bg-accent-foreground { background-color: var(--accent-foreground); }
+      .text-accent-foreground { color: var(--accent-foreground); }
+      .border-accent-foreground { border-color: var(--accent-foreground); }
+      .ring-accent-foreground { --tw-ring-color: var(--accent-foreground); }
+      .bg-destructive { background-color: var(--destructive); }
+      .text-destructive { color: var(--destructive); }
+      .border-destructive { border-color: var(--destructive); }
+      .ring-destructive { --tw-ring-color: var(--destructive); }
+      .bg-destructive-foreground { background-color: var(--destructive-foreground); }
+      .text-destructive-foreground { color: var(--destructive-foreground); }
+      .border-destructive-foreground { border-color: var(--destructive-foreground); }
+      .ring-destructive-foreground { --tw-ring-color: var(--destructive-foreground); }
+      .bg-border { background-color: var(--border); }
+      .text-border { color: var(--border); }
+      .border-border { border-color: var(--border); }
+      .ring-border { --tw-ring-color: var(--border); }
+      .bg-input { background-color: var(--input); }
+      .text-input { color: var(--input); }
+      .border-input { border-color: var(--input); }
+      .ring-input { --tw-ring-color: var(--input); }
+      .bg-ring { background-color: var(--ring); }
+      .text-ring { color: var(--ring); }
+      .border-ring { border-color: var(--ring); }
+      .ring-ring { --tw-ring-color: var(--ring); }
+      .bg-chart-1 { background-color: var(--chart-1); }
+      .text-chart-1 { color: var(--chart-1); }
+      .border-chart-1 { border-color: var(--chart-1); }
+      .ring-chart-1 { --tw-ring-color: var(--chart-1); }
+      .bg-chart-2 { background-color: var(--chart-2); }
+      .text-chart-2 { color: var(--chart-2); }
+      .border-chart-2 { border-color: var(--chart-2); }
+      .ring-chart-2 { --tw-ring-color: var(--chart-2); }
+      .bg-chart-3 { background-color: var(--chart-3); }
+      .text-chart-3 { color: var(--chart-3); }
+      .border-chart-3 { border-color: var(--chart-3); }
+      .ring-chart-3 { --tw-ring-color: var(--chart-3); }
+      .bg-chart-4 { background-color: var(--chart-4); }
+      .text-chart-4 { color: var(--chart-4); }
+      .border-chart-4 { border-color: var(--chart-4); }
+      .ring-chart-4 { --tw-ring-color: var(--chart-4); }
+      .bg-chart-5 { background-color: var(--chart-5); }
+      .text-chart-5 { color: var(--chart-5); }
+      .border-chart-5 { border-color: var(--chart-5); }
+      .ring-chart-5 { --tw-ring-color: var(--chart-5); }
+      .bg-sidebar { background-color: var(--sidebar); }
+      .text-sidebar { color: var(--sidebar); }
+      .border-sidebar { border-color: var(--sidebar); }
+      .ring-sidebar { --tw-ring-color: var(--sidebar); }
+      .bg-sidebar-foreground { background-color: var(--sidebar-foreground); }
+      .text-sidebar-foreground { color: var(--sidebar-foreground); }
+      .border-sidebar-foreground { border-color: var(--sidebar-foreground); }
+      .ring-sidebar-foreground { --tw-ring-color: var(--sidebar-foreground); }
+      .bg-sidebar-primary { background-color: var(--sidebar-primary); }
+      .text-sidebar-primary { color: var(--sidebar-primary); }
+      .border-sidebar-primary { border-color: var(--sidebar-primary); }
+      .ring-sidebar-primary { --tw-ring-color: var(--sidebar-primary); }
+      .bg-sidebar-primary-foreground { background-color: var(--sidebar-primary-foreground); }
+      .text-sidebar-primary-foreground { color: var(--sidebar-primary-foreground); }
+      .border-sidebar-primary-foreground { border-color: var(--sidebar-primary-foreground); }
+      .ring-sidebar-primary-foreground { --tw-ring-color: var(--sidebar-primary-foreground); }
+      .bg-sidebar-accent { background-color: var(--sidebar-accent); }
+      .text-sidebar-accent { color: var(--sidebar-accent); }
+      .border-sidebar-accent { border-color: var(--sidebar-accent); }
+      .ring-sidebar-accent { --tw-ring-color: var(--sidebar-accent); }
+      .bg-sidebar-accent-foreground { background-color: var(--sidebar-accent-foreground); }
+      .text-sidebar-accent-foreground { color: var(--sidebar-accent-foreground); }
+      .border-sidebar-accent-foreground { border-color: var(--sidebar-accent-foreground); }
+      .ring-sidebar-accent-foreground { --tw-ring-color: var(--sidebar-accent-foreground); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <link rel="stylesheet" href="../assets/themes.css">
+</head>
+<body data-layout-guard="uikit-v1">
+  <div class="app">
+    <!-- ═══ 侧边栏（来自 partial，nav-training 已 active） ═══ -->
+    <aside class="sidebar" data-component="sidebar-nav">
+      <div class="sidebar-search">
+        <div class="search-field" data-component="search-input">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input placeholder="搜索..." aria-label="搜索">
+          <span class="kbd">⌘K</span>
+        </div>
+      </div>
+      <nav class="nav-scroll" aria-label="主导航">
+        <div class="nav-section-label">工作台</div>
+        <button class="nav-item" data-dom-id="nav-chat">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-5A8 8 0 1 1 21 12Z"/><circle cx="9.5" cy="12" r="0.8" fill="currentColor" stroke="none"/><circle cx="14.5" cy="12" r="0.8" fill="currentColor" stroke="none"/><path d="M9.5 15c1.2 1 3.8 1 5 0"/></svg>
+          <span class="nav-label">对话</span>
+          <span class="nav-shortcut">⌘K</span>
+        </button>
+        <button class="nav-item" data-dom-id="nav-workspace">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="15" rx="3"/><path d="M3 9h18"/><circle cx="6" cy="6.5" r="0.6" fill="currentColor" stroke="none"/><circle cx="8.5" cy="6.5" r="0.6" fill="currentColor" stroke="none"/><path d="M8 13l-2 2 2 2M13 13l2 2-2 2"/></svg>
+          <span class="nav-label">IDE 工作区</span>
+        </button>
+
+        <div class="nav-section-label">能力</div>
+        <button class="nav-item" data-dom-id="nav-agent">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2.5"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><rect x="4" y="7" width="16" height="13" rx="5"/><circle cx="9" cy="13" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="13" r="1.5" fill="currentColor" stroke="none"/><path d="M9.5 17c1.2 1 4 1 5 0"/><path d="M4 12H2.5M21.5 12H20"/></svg>
+          <span class="nav-label">智能体配置</span>
+        </button>
+        <button class="nav-item" data-dom-id="nav-kb">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-1.8-1.8-5.5-2.3-8-2v15c2.5-.3 6.2.2 8 2"/><path d="M12 6c1.8-1.8 5.5-2.3 8-2v15c-2.5-.3-6.2.2-8 2"/><path d="M12 6v15"/></svg>
+          <span class="nav-label">知识库管理</span>
+        </button>
+        <button class="nav-item active" data-dom-id="nav-training">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="18" cy="12" r="2.2"/><circle cx="12" cy="4" r="1.5"/><circle cx="12" cy="20" r="1.5"/><path d="M8 7.5 12 5M8 16.5 12 19M8 16l7-4M8 8l7 3"/></svg>
+          <span class="nav-label">微调训练</span>
+        </button>
+
+        <div class="nav-section-label">系统</div>
+        <button class="nav-item" data-dom-id="nav-life">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l1.5-5 3 10 1.5-5h8"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2 3" opacity="0.4"/></svg>
+          <span class="nav-label">生命状态</span>
+        </button>
+        <button class="nav-item" data-dom-id="nav-settings">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
+          <span class="nav-label">设置</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- ═══ 主区域 ═══ -->
+    <main class="main">
+      <header class="topbar"><div class="topbar-center">
+          <div class="topbar-title">微调训练 · member_0042</div>
+          <div class="topbar-sub">语言域 · 训练进度 67%</div>
+        </div>
+
+        <div class="topbar-right">
+          <button class="btn btn-outline btn-danger" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            停止训练
+          </button>
+          <button class="btn btn-primary" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7M8 14h8"/></svg>
+            保存检查点
+          </button>
+        </div>
+      </header>
+
+      <div class="scroll-area" style="padding:28px;max-width:800px;margin:0 auto">
+        <!-- 标签页 -->
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="overview" role="tab">训练概览</button>
+          <button class="tab" data-tab="hyperparams" role="tab">超参数</button>
+          <button class="tab" data-tab="dataset" role="tab">数据集</button>
+          <button class="tab" data-tab="logs" role="tab">日志</button>
+        </div>
+
+        <!-- ═══ Tab 1 · 训练概览 ═══ -->
+        <section class="tab-panel active" data-panel="overview">
+          <!-- 进度英雄卡 -->
+          <div class="tk-card">
+            <div class="progress-hero">
+              <div>
+                <div class="card-sub" style="margin-bottom:6px">神经元 member_0042 · 语言域微调</div>
+                <div class="pct">67<span class="unit">%</span></div>
+              </div>
+              <div class="right-meta">
+                <span class="status-chip-run">训练中</span>
+              </div>
+            </div>
+            <div class="progress-bar"><div class="fill"></div></div>
+            <div class="progress-meta">
+              <span class="pm-item"><svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>当前 epoch <b>3 / 5</b></span>
+              <span class="pm-item"><svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>step <b>670 / 1000</b></span>
+              <span class="pm-item"><svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l1.5-5 3 10 1.5-5h8"/></svg>剩余约 <b>2h 15min</b></span>
+              <span class="pm-item"><svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="M4 10h16M8 14h4"/></svg>GPU <b>A100 × 4</b></span>
+            </div>
+          </div>
+
+          <!-- 双列图表 -->
+          <div class="charts-grid">
+            <!-- Loss 曲线 -->
+            <div class="tk-card chart-card">
+              <div class="chart-head">
+                <h4>Loss 曲线</h4>
+                <span class="legend"><i style="background:var(--chart-2)"></i>训练损失</span>
+              </div>
+              <svg class="chart-svg" viewBox="0 0 500 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="训练损失曲线">
+                <defs>
+                  <linearGradient id="lossFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="var(--chart-2)" stop-opacity="0.28"/>
+                    <stop offset="100%" stop-color="var(--chart-2)" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <!-- 网格 -->
+                <line class="grid-line" x1="50" y1="20" x2="480" y2="20"/>
+                <line class="grid-line" x1="50" y1="65" x2="480" y2="65"/>
+                <line class="grid-line" x1="50" y1="110" x2="480" y2="110"/>
+                <line class="grid-line" x1="50" y1="154" x2="480" y2="154"/>
+                <line class="grid-line" x1="50" y1="199" x2="480" y2="199"/>
+                <line class="axis-line" x1="50" y1="244" x2="480" y2="244"/>
+                <!-- Y 轴标签 -->
+                <text class="axis-text" x="44" y="23" text-anchor="end">5</text>
+                <text class="axis-text" x="44" y="68" text-anchor="end">4</text>
+                <text class="axis-text" x="44" y="113" text-anchor="end">3</text>
+                <text class="axis-text" x="44" y="157" text-anchor="end">2</text>
+                <text class="axis-text" x="44" y="202" text-anchor="end">1</text>
+                <text class="axis-text" x="44" y="247" text-anchor="end">0</text>
+                <!-- X 轴标签 -->
+                <text class="axis-text" x="50" y="260" text-anchor="middle">0</text>
+                <text class="axis-text" x="136" y="260" text-anchor="middle">200</text>
+                <text class="axis-text" x="222" y="260" text-anchor="middle">400</text>
+                <text class="axis-text" x="308" y="260" text-anchor="middle">600</text>
+                <text class="axis-text" x="394" y="260" text-anchor="middle">800</text>
+                <text class="axis-text" x="480" y="260" text-anchor="middle">1000</text>
+                <text class="axis-text" x="265" y="275" text-anchor="middle" fill="var(--muted-foreground)">step</text>
+                <!-- 当前步垂直线 -->
+                <line x1="338" y1="20" x2="338" y2="244" stroke="var(--chart-1)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+                <text class="axis-text" x="338" y="14" text-anchor="middle" fill="var(--chart-1)">当前</text>
+                <!-- 面积填充（实际） -->
+                <path d="M50 42 L93 74 L136 105 L179 132 L222 152 L265 168 L308 180 L338 189 L338 244 L50 244 Z" fill="url(#lossFill)"/>
+                <!-- 实际损失线 -->
+                <path d="M50 42 L93 74 L136 105 L179 132 L222 152 L265 168 L308 180 L338 189" fill="none" stroke="var(--chart-2)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- 预测损失线（虚线） -->
+                <path d="M338 189 L394 196 L437 199 L480 201" fill="none" stroke="var(--chart-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 4" opacity="0.55"/>
+                <!-- 预测图例点 -->
+                <circle cx="480" cy="201" r="3" fill="var(--chart-2)" opacity="0.5"/>
+                <!-- 当前点标注 -->
+                <circle cx="338" cy="189" r="4.5" fill="var(--chart-2)" stroke="var(--background)" stroke-width="2"/>
+                <g transform="translate(258,168)">
+                  <rect x="0" y="0" width="78" height="20" rx="5" fill="var(--chart-2)"/>
+                  <text x="39" y="14" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--primary-foreground)">loss 1.23</text>
+                </g>
+                <line x1="336" y1="178" x2="338" y2="186" stroke="var(--chart-2)" stroke-width="1.2"/>
+              </svg>
+            </div>
+
+            <!-- 学习率曲线 -->
+            <div class="tk-card chart-card">
+              <div class="chart-head">
+                <h4>学习率曲线</h4>
+                <span class="legend"><i style="background:var(--chart-3)"></i>warmup + cosine decay</span>
+              </div>
+              <svg class="chart-svg" viewBox="0 0 500 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="学习率曲线">
+                <defs>
+                  <linearGradient id="lrFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="var(--chart-3)" stop-opacity="0.26"/>
+                    <stop offset="100%" stop-color="var(--chart-3)" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <!-- 网格 -->
+                <line class="grid-line" x1="50" y1="20" x2="480" y2="20"/>
+                <line class="grid-line" x1="50" y1="95" x2="480" y2="95"/>
+                <line class="grid-line" x1="50" y1="169" x2="480" y2="169"/>
+                <line class="axis-line" x1="50" y1="244" x2="480" y2="244"/>
+                <!-- Y 轴标签 -->
+                <text class="axis-text" x="44" y="23" text-anchor="end">3e-5</text>
+                <text class="axis-text" x="44" y="98" text-anchor="end">2e-5</text>
+                <text class="axis-text" x="44" y="172" text-anchor="end">1e-5</text>
+                <text class="axis-text" x="44" y="247" text-anchor="end">0</text>
+                <!-- X 轴标签 -->
+                <text class="axis-text" x="50" y="260" text-anchor="middle">0</text>
+                <text class="axis-text" x="136" y="260" text-anchor="middle">200</text>
+                <text class="axis-text" x="222" y="260" text-anchor="middle">400</text>
+                <text class="axis-text" x="308" y="260" text-anchor="middle">600</text>
+                <text class="axis-text" x="394" y="260" text-anchor="middle">800</text>
+                <text class="axis-text" x="480" y="260" text-anchor="middle">1000</text>
+                <text class="axis-text" x="265" y="275" text-anchor="middle">step</text>
+                <!-- warmup 标记区 -->
+                <rect x="50" y="20" width="43" height="224" fill="var(--chart-1)" opacity="0.05"/>
+                <text class="axis-text" x="71" y="14" text-anchor="middle" fill="var(--chart-1)">warmup</text>
+                <!-- 面积填充 -->
+                <path d="M50 244 L72 158 L93 72 L136 77 L179 92 L222 115 L265 143 L308 173 L351 201 L394 224 L437 239 L480 244 L50 244 Z" fill="url(#lrFill)"/>
+                <!-- 学习率线 -->
+                <path d="M50 244 L72 158 L93 72 L136 77 L179 92 L222 115 L265 143 L308 173 L351 201 L394 224 L437 239 L480 244" fill="none" stroke="var(--chart-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- 峰值标注 -->
+                <circle cx="93" cy="72" r="4" fill="var(--chart-3)" stroke="var(--background)" stroke-width="2"/>
+                <g transform="translate(103,58)">
+                  <rect x="0" y="0" width="92" height="20" rx="5" fill="var(--chart-3)"/>
+                  <text x="46" y="14" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--primary-foreground)">峰值 2.3e-5</text>
+                </g>
+                <line x1="97" y1="68" x2="103" y2="64" stroke="var(--chart-3)" stroke-width="1.2"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- 指标卡行 -->
+          <div class="metrics-row">
+            <div class="metric-card">
+              <div class="m-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 4 5-8 4 5"/></svg>Train Loss</div>
+              <div class="m-value">1.23</div>
+              <span class="m-trend down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M7 10l5 5 5-5"/></svg>较上轮 -0.19</span>
+            </div>
+            <div class="metric-card">
+              <div class="m-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-6 4 4 5-8 4 5"/><path d="M4 21h16"/></svg>Eval Loss</div>
+              <div class="m-value">1.45</div>
+              <span class="m-trend down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M7 10l5 5 5-5"/></svg>较上轮 -0.12</span>
+            </div>
+            <div class="metric-card">
+              <div class="m-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>Accuracy</div>
+              <div class="m-value">78.2<span style="font-size:1.1rem;color:var(--muted-foreground)">%</span></div>
+              <span class="m-trend up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M7 14l5-5 5 5"/></svg>较上轮 +2.4%</span>
+            </div>
+            <div class="metric-card">
+              <div class="m-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/></svg>学习率</div>
+              <div class="m-value">2.3e<span style="font-size:1.1rem;color:var(--muted-foreground)">-5</span></div>
+              <span class="m-trend flat">cosine decay 中</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══ Tab 2 · 超参数 ═══ -->
+        <section class="tab-panel" data-panel="hyperparams">
+          <div class="tk-card">
+            <div class="card-head">
+              <h3><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;color:var(--primary)"><circle cx="6" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M8 7.5 12 5M8 16.5 12 19M8 16l7-4M8 8l7 3"/></svg>训练超参数</h3>
+              <span class="card-sub">LoRA 微调 · 神经元 member_0042</span>
+            </div>
+            <div class="hp-grid">
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/></svg>学习率 (Learning Rate)</label>
+                <input type="text" value="2.3e-5">
+                <span class="hp-desc">控制每步参数更新幅度，过大会发散，过小收敛慢</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 9h18M8 4v5"/></svg>批大小 (Batch Size)</label>
+                <input type="text" value="32">
+                <span class="hp-desc">每次迭代处理的样本数，受 GPU 显存约束</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Epoch 数</label>
+                <input type="text" value="5">
+                <span class="hp-desc">完整遍历训练数据的次数，过多易过拟合</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l1.5-5 3 10 1.5-5h8"/></svg>预热步数 (Warmup Steps)</label>
+                <input type="text" value="100">
+                <span class="hp-desc">学习率从零线性升至峰值的步数</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12c2-4 6-4 8 0s6 4 8 0"/></svg>权重衰减 (Weight Decay)</label>
+                <input type="text" value="0.01">
+                <span class="hp-desc">L2 正则化系数，抑制过拟合</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M11 10v4M15 10v4"/></svg>梯度累积 (Gradient Accumulation)</label>
+                <input type="text" value="4">
+                <span class="hp-desc">累积多步再更新，等效增大批量以节省显存</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/></svg>最大序列长度 (Max Seq Len)</label>
+                <input type="text" value="4096">
+                <span class="hp-desc">单样本最大 token 数，影响显存与上下文</span>
+              </div>
+              <div class="hp-field">
+                <label class="hp-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>LoRA rank</label>
+                <input type="text" value="16">
+                <span class="hp-desc">低秩适配矩阵的秩，影响可训练参数量</span>
+              </div>
+            </div>
+            <div class="hp-actions">
+              <button class="btn btn-primary" type="button">应用并重启训练</button>
+              <button class="btn btn-outline" type="button">恢复默认值</button>
+              <span style="flex:1"></span>
+              <span class="card-sub" style="align-self:center">可训练参数 0.42% · 总参数 7.0B</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══ Tab 3 · 数据集 ═══ -->
+        <section class="tab-panel" data-panel="dataset">
+          <div class="ds-wrap">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)">
+              <h3 style="margin:0;font-size:1rem;font-weight:600">训练数据集</h3>
+              <span class="card-sub">· 5 个子集 · 共 300,880 条样本</span>
+              <span style="flex:1"></span>
+              <button class="btn btn-outline" type="button" style="height:32px;font-size:0.8rem">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M12 5v14M5 12h14"/></svg>
+                添加数据集
+              </button>
+            </div>
+            <table class="ds-table">
+              <thead>
+                <tr>
+                  <th>数据集名称</th>
+                  <th>样本数</th>
+                  <th>域</th>
+                  <th>状态</th>
+                  <th style="width:160px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="ds-name"><span class="ds-ic" style="background:linear-gradient(135deg,var(--chart-1),var(--chart-2))">语</span>语言域 · 通用对话</span></td>
+                  <td><span class="ds-num">128,450</span></td>
+                  <td>语言</td>
+                  <td><span class="sc sc-run">训练中</span></td>
+                  <td><div class="ds-act"><button><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看</button><button class="danger"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>移除</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="ds-name"><span class="ds-ic" style="background:linear-gradient(135deg,var(--chart-2),var(--chart-3))">码</span>代码语料 · Python</span></td>
+                  <td><span class="ds-num">86,200</span></td>
+                  <td>代码</td>
+                  <td><span class="sc sc-run">训练中</span></td>
+                  <td><div class="ds-act"><button><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看</button><button class="danger"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>移除</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="ds-name"><span class="ds-ic" style="background:linear-gradient(135deg,var(--chart-3),var(--chart-4))">推</span>推理链 · 数学</span></td>
+                  <td><span class="ds-num">42,780</span></td>
+                  <td>推理</td>
+                  <td><span class="sc sc-ok">已完成</span></td>
+                  <td><div class="ds-act"><button><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看</button><button class="danger"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>移除</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="ds-name"><span class="ds-ic" style="background:linear-gradient(135deg,var(--chart-4),var(--chart-5))">令</span>多轮指令 · 工具调用</span></td>
+                  <td><span class="ds-num">31,050</span></td>
+                  <td>指令</td>
+                  <td><span class="sc sc-ok">已完成</span></td>
+                  <td><div class="ds-act"><button><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看</button><button class="danger"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>移除</button></div></td>
+                </tr>
+                <tr>
+                  <td><span class="ds-name"><span class="ds-ic" style="background:linear-gradient(135deg,var(--destructive),var(--chart-1))">安</span>安全对齐 · 红队</span></td>
+                  <td><span class="ds-num">12,400</span></td>
+                  <td>安全</td>
+                  <td><span class="sc sc-wait">排队中</span></td>
+                  <td><div class="ds-act"><button><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看</button><button class="danger"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>移除</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ═══ Tab 4 · 日志 ═══ -->
+        <section class="tab-panel" data-panel="logs">
+          <div class="log-panel">
+            <div class="log-head">
+              <div class="log-dots">
+                <i style="background:var(--destructive)"></i>
+                <i style="background:var(--warning, #eab308)"></i>
+                <i style="background:var(--chart-2)"></i>
+              </div>
+              <span class="log-title">training.log — neuron member_0042</span>
+              <span class="log-spacer"></span>
+              <span class="log-tag">实时 · tail -f</span>
+            </div>
+            <div class="log-body">
+              <div class="log-line log-info"><span class="log-time">14:32:01</span><span class="log-level">[INFO]</span><span class="log-msg">神经元 member_0042 微调任务已启动（<span class="hi">语言域</span>）</span></div>
+              <div class="log-line log-info"><span class="log-time">14:32:02</span><span class="log-level">[INFO]</span><span class="log-msg">加载基座模型 <span class="path">neuron-base-7b</span> · 量化 int8</span></div>
+              <div class="log-line log-success"><span class="log-time">14:32:05</span><span class="log-level">[SUCCESS]</span><span class="log-msg">LoRA 适配器已挂载，可训练参数 <span class="num">0.42%</span></span></div>
+              <div class="log-line log-info"><span class="log-time">14:32:06</span><span class="log-level">[INFO]</span><span class="log-msg">数据集就绪：5 个子集，共 <span class="num">300,880</span> 条样本已分词</span></div>
+              <div class="log-line log-info"><span class="log-time">14:35:18</span><span class="log-level">[INFO]</span><span class="log-msg">epoch 1 step 100: loss=<span class="num">2.874</span>, lr=<span class="num">2.30e-05</span></span></div>
+              <div class="log-line log-warn"><span class="log-time">14:41:22</span><span class="log-level">[WARN]</span><span class="log-msg">step 220: 梯度范数 <span class="num">1.82</span>，已裁剪至 1.0</span></div>
+              <div class="log-line log-info"><span class="log-time">14:48:07</span><span class="log-level">[INFO]</span><span class="log-msg">epoch 2 step 320: loss=<span class="num">1.942</span>, lr=<span class="num">2.30e-05</span></span></div>
+              <div class="log-line log-success"><span class="log-time">14:48:30</span><span class="log-level">[SUCCESS]</span><span class="log-msg">检查点已保存: <span class="path">ckpt-0042-epoch2.pt</span></span></div>
+              <div class="log-line log-info"><span class="log-time">14:55:44</span><span class="log-level">[INFO]</span><span class="log-msg">epoch 3 step 450: loss=<span class="num">1.234</span>, lr=<span class="num">2.30e-05</span></span></div>
+              <div class="log-line log-warn"><span class="log-time">14:57:11</span><span class="log-level">[WARN]</span><span class="log-msg">GPU 显存占用 <span class="num">92%</span>，接近阈值</span></div>
+              <div class="log-line log-info"><span class="log-time">14:58:33</span><span class="log-level">[INFO]</span><span class="log-msg">epoch 3 step 670: loss=<span class="num">1.234</span>, lr=<span class="num">2.30e-05</span></span></div>
+              <div class="log-line log-info"><span class="log-time">14:58:34</span><span="log-level">[INFO]</span><span class="log-msg">评估集准确率 <span class="hi">78.2%</span> · eval_loss=<span class="num">1.45</span></span></div>
+              <div class="log-line log-success"><span class="log-time">14:58:36</span><span class="log-level">[SUCCESS]</span><span class="log-msg">检查点已保存: <span class="path">ckpt-0042-epoch3.pt</span></span></div>
+              <div class="log-line log-success"><span class="log-time">14:58:40</span><span class="log-level">[SUCCESS]</span><span class="log-msg">检查点已上传至神经元存储 · 成本 0.42 token/千样本</span></div>
+              <div class="log-line log-info"><span class="log-time">14:58:42</span><span class="log-level">[INFO]</span><span class="log-msg">预计剩余 <span class="num">2h 15min</span> · 当前 epoch 3/5 · 训练进行中</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══ app-shell 样式块（来自 partial 末尾） ═══ -->
+  <style id="app-shell">
+  /* ═══ 态极控制台 · 应用外壳（态极设计语言） ═══ */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { min-height: 100vh; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { appearance: none; cursor: pointer; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted-foreground) 28%, transparent); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted-foreground) 45%, transparent); }
+
+  .app { height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); background: var(--background); overflow: hidden; }
+
+  /* 侧边栏 */
+  .sidebar { display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--sidebar-border); min-height: 0; }
+  .sidebar-search { padding: 14px 14px 8px; }
+  .search-field { height: 38px; padding: 0 12px; border-radius: calc(var(--radius) * 0.5); background: color-mix(in srgb, var(--background) 70%, var(--sidebar)); border: 1px solid transparent; display: flex; align-items: center; gap: 9px; transition: border-color 160ms ease, background 160ms ease; }
+  .search-field:focus-within { border-color: var(--ring); background: var(--background); }
+  .search-field input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 0.86rem; }
+  .search-field input::placeholder { color: var(--muted-foreground); }
+  .kbd { display: inline-flex; align-items: center; gap: 1px; padding: 2px 6px; border-radius: 6px; background: color-mix(in srgb, var(--muted-foreground) 14%, transparent); color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
+  .icon { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-sm { width: 15px; height: 15px; }
+  .nav-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .nav-item { width: 100%; border: 0; background: transparent; color: var(--sidebar-foreground); border-radius: calc(var(--radius) * 0.5); padding: 9px 11px; display: flex; align-items: center; gap: 11px; text-align: left; font-size: 0.9rem; line-height: 1.2; transition: background 140ms ease, color 140ms ease; }
+  .nav-item:hover { background: color-mix(in srgb, var(--background) 64%, var(--sidebar)); }
+  .nav-item.active { background: var(--background); color: var(--foreground); font-weight: 600; }
+  .nav-item .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-item .icon { color: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground)); }
+  .nav-item.active .icon { color: var(--primary); }
+  .nav-shortcut { color: var(--muted-foreground); font-size: 0.72rem; opacity: 0; transition: opacity 140ms ease; }
+  .nav-item:hover .nav-shortcut { opacity: 1; }
+  .nav-section-label { padding: 14px 12px 6px; font-size: 0.74rem; color: var(--muted-foreground); }
+  /* 主区域 */
+  .main { min-width: 0; display: flex; flex-direction: column; background: var(--background); min-height: 0; }
+  .topbar { height: 52px; flex: none; padding: 0 18px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .icon-btn { width: 34px; height: 34px; border: 0; background: transparent; color: var(--muted-foreground); border-radius: 9px; display: grid; place-items: center; transition: background 140ms ease, color 140ms ease; }
+  .icon-btn:hover { background: var(--muted); color: var(--foreground); }
+  .topbar-title { font-size: 0.92rem; font-weight: 600; }
+  .topbar-sub { font-size: 0.72rem; color: var(--muted-foreground); margin-top: 1px; }
+  .topbar-spacer { flex: 1; }
+
+  /* 品牌标识（水墨 logo + 态极文字） */
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1rem; color: var(--foreground); letter-spacing: -0.01em; }
+  .brand-logo { width: 30px; height: 30px; flex: none; object-fit: contain; border-radius: 50%; }
+
+  /* 按钮 */
+  .btn { height: 36px; padding: 0 15px; border-radius: 999px; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 7px; font-size: 0.86rem; font-weight: 500; transition: background 150ms ease, border-color 150ms ease, transform 120ms ease, color 150ms ease; }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+  .btn-primary:hover { background: color-mix(in srgb, var(--primary) 90%, var(--foreground)); }
+  .btn-ghost { background: var(--muted); color: var(--foreground); }
+  .btn-ghost:hover { background: color-mix(in srgb, var(--muted) 80%, var(--foreground) 12%); }
+  .btn-outline { background: var(--background); color: var(--foreground); border-color: var(--border); }
+  .btn-outline:hover { background: var(--muted); }
+
+  /* 滚动区 */
+  .scroll-area { flex: 1; min-height: 0; overflow-y: auto; }
+
+  @media (max-width: 880px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+  }
+  </style>
+
+  <!-- ═══ 主题切换 + 标签页切换 JS ═══ -->
+  <script>
+  // 主题切换逻辑
+  (function(){
+    function applyTheme(t){
+      var html=document.documentElement;
+      if(t==='dark'){ html.classList.add('dark'); html.removeAttribute('data-theme'); }
+      else { html.classList.remove('dark'); if(t && t!=='classic'){ html.setAttribute('data-theme', t); } else { html.removeAttribute('data-theme'); } }
+      try{ localStorage.setItem('taiji-theme', t||'classic'); }catch(e){}
+      document.querySelectorAll('.theme-chip').forEach(function(c){
+        c.classList.toggle('active', c.getAttribute('data-theme')===t);
+      });
+    }
+    var saved='classic';
+    try{ saved=localStorage.getItem('taiji-theme')||'classic'; }catch(e){}
+    function init(){
+      applyTheme(saved);
+      document.querySelectorAll('.theme-chip').forEach(function(c){
+        c.addEventListener('click', function(){ applyTheme(c.getAttribute('data-theme')); });
+      });
+    }
+    if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init); }
+    else { init(); }
+  })();
+
+  // 标签页切换逻辑
+  (function(){
+    function init(){
+      var tabs=document.querySelectorAll('.tab');
+      var panels=document.querySelectorAll('.tab-panel');
+      tabs.forEach(function(t){
+        t.addEventListener('click', function(){
+          var id=t.getAttribute('data-tab');
+          tabs.forEach(function(x){ x.classList.toggle('active', x===t); });
+          panels.forEach(function(p){ p.classList.toggle('active', p.getAttribute('data-panel')===id); });
+        });
+      });
+    }
+    if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init); }
+    else { init(); }
+  })();
+  </script>
+
+    <style>
+    /* ═══ 页面专属样式 · 微调训练 ═══ */
+    body { padding: 0; }
+
+    /* 顶栏居中标题 */
+    .topbar-center { flex: 1; text-align: center; min-width: 0; }
+    .topbar-center .topbar-title { font-size: 0.96rem; font-weight: 600; }
+    .topbar-center .topbar-sub { font-size: 0.74rem; color: var(--muted-foreground); margin-top: 2px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; flex: none; }
+    .btn-outline.btn-danger { color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
+    .btn-outline.btn-danger:hover { background: color-mix(in srgb, var(--destructive) 9%, transparent); }
+
+    /* 标签页 */
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
+    .tab { appearance: none; border: 0; background: transparent; color: var(--muted-foreground); padding: 11px 18px; font: 600 0.88rem/1 var(--font-sans); cursor: pointer; position: relative; transition: color .15s; }
+    .tab:hover { color: var(--foreground); }
+    .tab.active { color: var(--primary); }
+    .tab.active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 2px; background: var(--primary); border-radius: 2px; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; animation: tkFade .22s ease; }
+    @keyframes tkFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+    /* 卡片基础 */
+    .tk-card { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) * 0.7); padding: 22px; }
+    .tk-card .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .tk-card h3 { margin: 0; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .tk-card .card-sub { color: var(--muted-foreground); font-size: 0.78rem; }
+
+    /* 进度英雄卡 */
+    .progress-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .progress-hero .pct { font-size: 2.7rem; font-weight: 700; line-height: 1; color: var(--foreground); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .progress-hero .pct .unit { font-size: 1.1rem; color: var(--muted-foreground); font-weight: 500; margin-left: 2px; }
+    .progress-hero .right-meta { display: flex; align-items: center; gap: 18px; }
+    .status-chip-run { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; font: 600 0.76rem var(--font-sans); background: color-mix(in srgb, var(--chart-1) 16%, transparent); color: var(--chart-1); }
+    .status-chip-run::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: tkPulse 1.4s ease-in-out infinite; }
+    @keyframes tkPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+    .progress-bar { height: 12px; border-radius: 999px; background: var(--muted); overflow: hidden; margin-top: 16px; position: relative; }
+    .progress-bar .fill { height: 100%; width: 67%; background: linear-gradient(90deg, var(--chart-1), var(--chart-2)); border-radius: 999px; transition: width .4s ease; }
+    .progress-meta { display: flex; gap: 30px; color: var(--muted-foreground); font-size: 0.82rem; margin-top: 14px; flex-wrap: wrap; }
+    .progress-meta .pm-item { display: flex; align-items: center; gap: 6px; }
+    .progress-meta b { color: var(--foreground); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .progress-meta .pm-icon { width: 15px; height: 15px; opacity: .7; }
+
+    /* 双列图表 */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 18px 0; }
+    .chart-card .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .chart-card h4 { margin: 0; font-size: 0.92rem; font-weight: 600; }
+    .chart-card .legend { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--muted-foreground); }
+    .chart-card .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+    .chart-svg { width: 100%; height: auto; display: block; }
+    .axis-text { font: 600 9px var(--font-mono); fill: var(--muted-foreground); }
+    .grid-line { stroke: var(--border); stroke-width: 1; }
+    .axis-line { stroke: var(--border); stroke-width: 1.2; }
+
+    /* 指标卡 */
+    .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
+    .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) * 0.6); padding: 16px 18px; transition: border-color .16s, transform .16s; }
+    .metric-card:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); transform: translateY(-2px); }
+    .metric-card .m-label { font-size: 0.76rem; color: var(--muted-foreground); display: flex; align-items: center; gap: 7px; }
+    .metric-card .m-label .ic { width: 15px; height: 15px; color: var(--chart-2); }
+    .metric-card .m-value { font-size: 1.7rem; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+    .metric-card .m-trend { font-size: 0.74rem; margin-top: 5px; display: inline-flex; align-items: center; gap: 4px; }
+    .m-trend.up { color: var(--chart-2); }
+    .m-trend.down { color: var(--chart-1); }
+    .m-trend.flat { color: var(--muted-foreground); }
+
+    /* 超参数表单 */
+    .hp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; }
+    .hp-field { display: flex; flex-direction: column; gap: 7px; }
+    .hp-field .hp-label { font-size: 0.84rem; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .hp-field .hp-label .ic { width: 15px; height: 15px; color: var(--muted-foreground); }
+    .hp-field .hp-desc { font-size: 0.74rem; color: var(--muted-foreground); line-height: 1.4; }
+    .hp-field input { height: 40px; padding: 0 13px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 0.42); background: var(--background); color: var(--foreground); font: 0.88rem var(--font-mono); transition: border-color .16s, box-shadow .16s; }
+    .hp-field input:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent); }
+    .hp-actions { display: flex; gap: 10px; margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border); }
+
+    /* 数据集表格 */
+    .ds-wrap { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) * 0.7); overflow: hidden; }
+    .ds-table { width: 100%; border-collapse: collapse; }
+    .ds-table th { text-align: left; font: 600 0.72rem/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); padding: 12px 18px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 35%, transparent); }
+    .ds-table td { padding: 14px 18px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); font-size: 0.86rem; }
+    .ds-table tr:last-child td { border-bottom: 0; }
+    .ds-table tbody tr { transition: background .12s; }
+    .ds-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    .ds-name { display: flex; align-items: center; gap: 11px; font-weight: 500; }
+    .ds-ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--primary-foreground); flex: none; font-size: 0.9rem; }
+    .ds-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .sc { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font: 500 0.74rem var(--font-sans); }
+    .sc::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .sc-run { background: color-mix(in srgb, var(--chart-1) 16%, transparent); color: var(--chart-1); }
+    .sc-ok { background: color-mix(in srgb, var(--chart-2) 16%, transparent); color: var(--chart-2); }
+    .sc-wait { background: color-mix(in srgb, var(--muted-foreground) 16%, transparent); color: var(--muted-foreground); }
+    .ds-act { display: inline-flex; align-items: center; gap: 4px; }
+    .ds-act button { border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; padding: 5px 9px; border-radius: 7px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 5px; transition: background .14s, color .14s; }
+    .ds-act button .ic { width: 14px; height: 14px; }
+    .ds-act button:hover { background: var(--muted); color: var(--foreground); }
+    .ds-act button.danger:hover { color: var(--destructive); }
+
+    /* 日志面板 */
+    .log-panel { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) * 0.7); overflow: hidden; }
+    .log-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 45%, var(--card)); }
+    .log-dots { display: flex; gap: 6px; }
+    .log-dots i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+    .log-head .log-title { font-size: 0.82rem; font-weight: 600; font-family: var(--font-mono); color: var(--foreground); }
+    .log-head .log-spacer { flex: 1; }
+    .log-head .log-tag { font: 600 0.7rem var(--font-mono); color: var(--muted-foreground); padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; }
+    .log-body { font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.75; padding: 16px 20px; overflow-x: auto; background: color-mix(in srgb, var(--background) 86%, var(--card)); }
+    .log-line { display: flex; gap: 12px; white-space: nowrap; }
+    .log-time { color: var(--muted-foreground); flex: none; }
+    .log-level { flex: none; font-weight: 700; min-width: 68px; }
+    .log-msg { color: var(--foreground); }
+    .log-msg .hi { color: var(--chart-2); font-weight: 600; }
+    .log-msg .num { color: var(--chart-3); }
+    .log-msg .path { color: var(--chart-4); }
+    .log-info .log-level { color: var(--chart-1); }
+    .log-warn .log-level { color: var(--warning, #eab308); }
+    .log-success .log-level { color: var(--chart-2); }
+    .log-err .log-level { color: var(--destructive); }
+
+    @media (max-width: 1180px) {
+      .charts-grid, .hp-grid { grid-template-columns: 1fr; }
+      .metrics-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 720px) {
+      .metrics-row { grid-template-columns: 1fr; }
+      .progress-hero { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</body>
+</html>

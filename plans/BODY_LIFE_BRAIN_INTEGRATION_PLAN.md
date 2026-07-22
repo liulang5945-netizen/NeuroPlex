@@ -45,14 +45,14 @@
 
 - **Cortex + ResonanceEnsemble 是唯一的推理和学习主体**
 - 躯体是大脑的"感官和四肢"，生命系统是大脑的"本能和节律"
-- 所有学习最终都落到神经元参数更新（lm_head_delta / side_channels / neurogenesis / STDP）
+- 所有学习最终都落到神经元参数更新（per-neuron lm_head / side_channels / neurogenesis / STDP）
 
 ### 2.2 知识按域路由
 
 - 感知输入按 domain（zh/en/code/math/general）路由到对应神经元
 - feed_engine 摄入的样本按域分类
 - explore_engine 探索结果按域存储
-- sleep_engine 训练时按域调用对应神经元的 lm_head_delta
+- sleep_engine 训练时按域调用对应神经元进行独立 lm_head 训练
 
 ### 2.3 生命需求映射到神经元行为
 
@@ -68,7 +68,7 @@
 
 - **life/sleep_engine 是外层调度**：决定何时睡、睡多久、睡哪个阶段
 - **resonance/SleepConsolidator 是内层执行**：在 sleep_engine 的 Phase 2/3 中被调用
-- sleep_engine Phase 2 训练目标改为：Cortex 神经元 lm_head_delta + STDP + 可选 neurogenesis
+- sleep_engine Phase 2 训练目标改为：Cortex 神经元独立 lm_head + STDP + 可选 neurogenesis
 - sleep_engine Phase 3 调用 SleepConsolidator 做突触修剪和 fingerprint 更新
 
 ---
@@ -321,8 +321,8 @@ class SleepEngine:
                 continue
             neuron = self.cortex.neurons[domain]
 
-            # 训练该神经元的 lm_head_delta（低秩残差）
-            result = self._train_neuron_delta(neuron, samples)
+            # 训练该神经元的独立 lm_head（P7: 域专用 vocab）
+            result = self._train_neuron_lm_head(neuron, samples, domain)
             results[domain] = result
 
             # 记录 PPL，驱动凋亡判断
@@ -340,19 +340,24 @@ class SleepEngine:
 
         return {"trained_domains": results}
 
-    def _train_neuron_delta(self, neuron, samples) -> dict:
-        """训练单个神经元的 lm_head_delta（低秩残差）。"""
-        # 只训练 lm_head_delta_u 和 lm_head_delta_v
-        # W_base 保持冻结（共享基）
-        params = [
-            neuron.lm_head_delta_u.weight,
-            neuron.lm_head_delta_v.weight,
-        ]
+    def _train_neuron_lm_head(self, neuron, samples, domain: str) -> dict:
+        """P7: 训练单个神经元的独立 lm_head（域专用 vocab）。
+
+        旧方案 (_train_neuron_delta): W_base 共享冻结 + 低秩残差 U_i@V_i 训练
+        P7 方案: 每神经元独立完整 lm_head + 域 tokenizer（vocab=10k-20k）
+        """
+        # 域专用 vocab == neuron.lm_head 输出维度
+        # 训练独立 lm_head 权重（不再有冻结的 W_base）
+        params = [neuron.lm_head.weight]
+
+        # 可选：也训练 embedding adapter
+        if hasattr(neuron, 'embed_adapter'):
+            params.append(neuron.embed_adapter.weight)
+
         optimizer = torch.optim.AdamW(params, lr=5e-5)
 
         total_loss = 0
         for sample in samples:
-            # forward + CE loss
             with torch.enable_grad():
                 result = neuron.forward(
                     sample["embeddings"],
@@ -361,6 +366,7 @@ class SleepEngine:
                     return_logits=True,
                 )
                 logits = result["logits"]
+                # domain_token targets (not general 256K)
                 loss = F.cross_entropy(
                     logits.view(-1, logits.size(-1)),
                     sample["targets"].view(-1),
@@ -513,7 +519,7 @@ class PlayEngine:
 ┌─────────────────────────────────────────────────────────────┐
 │  Life: SleepEngine（睡眠整合）                               │
 │  Phase 1: 浅睡 - 记忆巩固（ContextManager + WorkingMemory）  │
-│  Phase 2: 深睡 - 训练神经元 lm_head_delta + STDP             │
+│  Phase 2: 深睡 - 训练神经元独立 lm_head + STDP               │
 │  Phase 3: 知识整合 - SleepConsolidator 修剪 + fingerprint    │
 │  Phase 3.5: 知识蒸馏（按域）                                 │
 │  Phase 4: 评估 - apoptosis 检查                             │
@@ -522,7 +528,7 @@ class PlayEngine:
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  Brain: 神经元参数已更新                                     │
-│  ├── lm_head_delta 微调                                     │
+│  ├── 独立 lm_head 训练（P7: 域专用 vocab）                   │
 │  ├── side_channels STDP 强化                                │
 │  ├── 弱连接修剪                                             │
 │  ├── fingerprint 更新                                       │
@@ -538,7 +544,7 @@ class PlayEngine:
 ## 五、实施优先级
 
 ### P0（必须，否则闭环不成立）
-1. **SleepEngine Phase 2 适配 Cortex**：训练目标从 ModelSelf 改为神经元 lm_head_delta
+1. **SleepEngine Phase 2 适配 Cortex**：训练目标从 ModelSelf 改为神经元独立 lm_head
 2. **FeedEngine 按域分类**：samples 必须按 domain 存储
 3. **BodyCore.set_cortex**：身体感知大脑存在
 
@@ -566,7 +572,7 @@ class PlayEngine:
 | 机制 | CPU 行为 |
 |------|---------|
 | CUDA stream 并行 | 自动退化为串行（已实现） |
-| lm_head 低秩分解 | 正常工作，反而更快 |
+| lm_head 独立模式 | 正常工作，每 neuron 仅 5-10M 参数量 |
 | 睡眠训练 | 正常工作，但慢 |
 | neurogenesis | 正常工作（蒸馏也支持 CPU） |
 | 神经调质 | 纯标量运算，无影响 |
@@ -583,7 +589,7 @@ class PlayEngine:
 
 - 推理时 `torch.no_grad()` + `torch.compile`（如果 PyTorch 版本支持）
 - 睡眠训练用小 batch_size（1-4）
-- 考虑 int8 量化（lm_head_delta_u/v）
+- 考虑 int8 量化（lm_head.weight，每 neuron 独立量化）
 - max_rounds 从 3 降到 2
 
 ---

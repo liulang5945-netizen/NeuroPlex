@@ -18,24 +18,57 @@ function _debouncedSaveUI(data) {
   }, 1000)
 }
 
+// 主题值规范化：旧值 'light' → 'classic'，保留 'auto'，其余原样
+function _normalizeTheme(raw) {
+  if (!raw) return 'classic'
+  if (raw === 'light') return 'classic'
+  return raw
+}
+
 export const useAppStore = defineStore('app', () => {
   // === State ===
-  const currentTheme = ref(localStorage.getItem('taiji_theme') || 'light')
+  // 5 套主题：classic(经典蓝) / dark(深邃暗色) / teal(自然青绿) / violet(科技紫调) / warm(暖橙活力)
+  // 向后兼容：旧值 'light' 映射为 'classic'，'auto' 根据系统偏好选择
+  const currentTheme = ref(_normalizeTheme(localStorage.getItem('taiji_theme') || 'classic'))
   const currentAccent = ref(localStorage.getItem('taiji_accent') || '')
   const currentBgImage = ref(localStorage.getItem('taiji_bg_image') || '')
   const currentLang = ref('zh')
   const showWorkspace = ref(false)
 
+  // === 主题元数据（供设置页使用） ===
+  const themes = [
+    { id: 'classic', name: '经典蓝', desc: '豆包原色，明亮专业', gradient: 'linear-gradient(135deg, #0065fd, #0057da)' },
+    { id: 'dark', name: '深邃暗色', desc: '深色护眼，专注沉浸', gradient: 'linear-gradient(135deg, #0f1419, #4d8cff)' },
+    { id: 'teal', name: '自然青绿', desc: '清新自然，舒缓视觉', gradient: 'linear-gradient(135deg, #0d9488, #5eead4)' },
+    { id: 'violet', name: '科技紫调', desc: '神秘紫调，科技质感', gradient: 'linear-gradient(135deg, #7c3aed, #c4b5fd)' },
+    { id: 'warm', name: '暖橙活力', desc: '温暖橙红，活力充沛', gradient: 'linear-gradient(135deg, #ea580c, #fdba74)' },
+  ]
+
   // === Getters ===
 
+  // resolvedTheme: 返回 'light' 或 'dark'，供 Naive UI 使用（只有亮/暗两种基础主题）
   const resolvedTheme = computed(() => {
-    if (currentTheme.value === 'auto') {
+    const t = currentTheme.value
+    if (t === 'auto') {
       if (typeof window !== 'undefined' && window.matchMedia) {
         return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
       }
       return 'dark'
     }
-    return currentTheme.value
+    // dark 主题为暗色，其余 4 套为亮色
+    return t === 'dark' ? 'dark' : 'light'
+  })
+
+  // resolvedDataTheme: 返回实际 data-theme 属性值，供 CSS 变量使用
+  const resolvedDataTheme = computed(() => {
+    const t = currentTheme.value
+    if (t === 'auto') {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'classic' : 'dark'
+      }
+      return 'dark'
+    }
+    return t
   })
 
   // === Helpers ===
@@ -67,14 +100,14 @@ export const useAppStore = defineStore('app', () => {
   function applyTheme() {
     const r = document.documentElement
     r.classList.remove('theme-dark', 'theme-light')
+    // 设置 data-theme 属性，驱动 themes.css 的 5 套主题变量
+    const dt = resolvedDataTheme.value
+    r.setAttribute('data-theme', dt)
+    // 保留 theme-dark/theme-light class，兼容旧样式
     if (resolvedTheme.value === 'dark') {
       r.classList.add('theme-dark')
-      r.setAttribute('data-theme', 'dark')
-    } else if (resolvedTheme.value === 'light') {
-      r.classList.add('theme-light')
-      r.setAttribute('data-theme', 'light')
     } else {
-      r.removeAttribute('data-theme')
+      r.classList.add('theme-light')
     }
     applyAccent()
     applyBgImage()
@@ -159,8 +192,8 @@ export const useAppStore = defineStore('app', () => {
       needsApplyTheme = true
     }
     if (serverSettings.theme !== undefined) {
-      currentTheme.value = serverSettings.theme
-      localStorage.setItem('taiji_theme', serverSettings.theme)
+      currentTheme.value = _normalizeTheme(serverSettings.theme)
+      localStorage.setItem('taiji_theme', currentTheme.value)
       needsApplyTheme = true
     }
     if (serverSettings.lang !== undefined) {
@@ -187,8 +220,10 @@ export const useAppStore = defineStore('app', () => {
     currentBgImage,
     currentLang,
     showWorkspace,
+    themes,
     // Getters
     resolvedTheme,
+    resolvedDataTheme,
     // Actions
     t,
     toggleWorkspace,

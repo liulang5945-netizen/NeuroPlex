@@ -1,4 +1,4 @@
-"""Resonance ensemble — multi-round collaborative inference with gating.
+"""Resonance ensemble — multi-round collaborative inference.
 
 The ensemble orchestrates multiple ResonanceNeurons through the
 ResonanceField over 3-5 rounds of collaborative inference.
@@ -10,10 +10,8 @@ Each round:
 3. Resonance scores are computed (cosine similarity with field state)
 4. Low-resonance neurons are filtered out via dynamic thresholding
 
-Experiment 12 revealed three critical mechanisms (now integrated):
-- ConfidenceGate: skip resonance when prediction is already confident
-- EarlyStopResonance: stop iterating when logits converge
-- ResonanceTrigger: full trigger conditions for activation
+P7: 支持域专用 vocab（每 neuron 独立 embedding + 独立 lm_head）。
+同一批 token IDs 送给所有 neuron，但每 neuron 用自己的 embedding 编码。
 """
 
 from __future__ import annotations
@@ -28,31 +26,17 @@ import torch.nn.functional as F
 
 from .field import ResonanceField
 from .neuron import ResonanceNeuron
-from .gating import ConfidenceGate, EarlyStopResonance, ResonanceTrigger
-from .quality import QualityFilter
-from .division import DivisionPath
 
 
 class ResonanceEnsemble:
     """Orchestrates multi-round resonance inference across multiple neurons.
 
-    v2: Integrated three gating mechanisms from Experiment 12:
-    - ConfidenceGate: skip resonance for confident predictions
-    - EarlyStopResonance: stop when logits converge
-    - ResonanceTrigger: combined trigger conditions
+    P7: 简化为直接共振——移除 ConfidenceGate/EarlyStop/QualityFilter/DivisionPath/DomainRouter，
+    这些机制在旧 teacher-based 架构中设计，与新 P7 从头训练路径不兼容。
 
     Usage:
-        # Without gating (backward compatible):
         ensemble = ResonanceEnsemble(neurons, field)
-        result = ensemble.forward(shared_embeddings)
-
-        # With gating:
-        ensemble = ResonanceEnsemble(
-            neurons, field,
-            confidence_gate=ConfidenceGate(threshold=0.9),
-            early_stop=EarlyStopResonance(),
-        )
-        result = ensemble.forward(shared_embeddings, return_logits=True)
+        result = ensemble.forward(shared_embeddings=shared_emb, return_logits=True)
     """
 
     def __init__(
@@ -61,13 +45,7 @@ class ResonanceEnsemble:
         field: ResonanceField,
         max_rounds: int = 3,
         diversity_lambda: float = 0.01,
-        confidence_gate: Optional[ConfidenceGate] = None,
-        early_stop: Optional[EarlyStopResonance] = None,
-        resonance_trigger: Optional[ResonanceTrigger] = None,
-        quality_filter: Optional[QualityFilter] = None,
-        division_path: Optional[DivisionPath] = None,
-        logits_top_k: int = 16,
-        domain_router: Optional["DomainRouter"] = None,
+        logits_top_k: int = 64,
         stdp_tracker: Optional[Any] = None,
         coaction: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
@@ -77,26 +55,9 @@ class ResonanceEnsemble:
         self.max_rounds = max_rounds
         self.diversity_lambda = diversity_lambda
 
-        # ── Gating mechanisms (Experiment 12) ──
-        self.confidence_gate = confidence_gate
-        self.early_stop = early_stop
-        self.resonance_trigger = resonance_trigger
-
-        # ── Quality filtering (Experiment 9) ──
-        self.quality_filter = quality_filter
-
-        # ── Division-of-labor path ──
-        self.division_path = division_path
-
-        # ── Domain-aware routing (P2-2: field_vector × anchor) ──
-        self.domain_router = domain_router
-
-        # ── Bio-inspired trackers (P1 接线) ──
-        # STDPTracker: 推理期记录发放时序，sleep 期 apply_updates 强化 side_channels
+        # ── Bio-inspired trackers（P1 接线）──
         self.stdp_tracker = stdp_tracker
-        # CoactivationTracker: 推理期更新共激活，驱动动态部落化
         self.coaction = coaction
-        # NeuromodulatorState: 多巴胺/血清素调整 lr / refractory / field_write_scale
         self.neuromodulator = neuromodulator
 
         # ── 大规模内存控制（B2/B3 fix）──
@@ -110,22 +71,29 @@ class ResonanceEnsemble:
     def _parallel_forward(
         self,
         active_ids,
-        shared_embeddings: torch.Tensor,
+        shared_embeddings: Optional[torch.Tensor],
         field_state,
         round_num: int,
         return_logits_filter,
+        neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
+        mm_logits_modality: Optional[str] = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """并行 forward 多个神经元（人脑启发：神经元并行工作）。
 
         GPU 模式下用 CUDA stream 真并行，保留 per-neuron 独立性。
         CPU 模式下退化为串行（无 stream 开销）。
 
+        所有 neuron 共享同一份 shared_embeddings（来自外部共享嵌入表），
+        P8 多模态路径可通过 neuron_embeddings 为不同 neuron 提供不同输入。
+
         Args:
             active_ids: 要 forward 的 neuron id 集合
-            shared_embeddings: 共享嵌入
+            shared_embeddings: [B, L, base_embed_dim] 共享嵌入（所有 neuron 共用）
             field_state: 场状态（round 1 为 None）
             round_num: 轮次
             return_logits_filter: callable(nid) -> bool，决定哪些 neuron 返回 logits
+            neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
+            mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
 
         Returns:
             (round_vecs, round_logits)
@@ -133,23 +101,38 @@ class ResonanceEnsemble:
         round_vecs: Dict[str, torch.Tensor] = {}
         round_logits: Dict[str, torch.Tensor] = {}
 
-        is_cuda = shared_embeddings.is_cuda
+        # 确定参考 tensor（device 信息来源）
+        ref_tensor = (neuron_embeddings[next(iter(neuron_embeddings))]
+                      if neuron_embeddings else shared_embeddings)
+
+        def _get_emb(nid: str) -> torch.Tensor:
+            """获取 neuron 的输入 embedding，优先级：neuron_embeddings > shared_embeddings."""
+            if neuron_embeddings is not None and nid in neuron_embeddings:
+                return neuron_embeddings[nid]
+            return shared_embeddings
+
+        def _forward_neuron(nid: str, emb: torch.Tensor, need_logits: bool) -> Dict:
+            """单个 neuron forward，统一封装多模态参数。"""
+            kwargs = dict(
+                field_state=field_state,
+                round_num=round_num,
+                return_logits=need_logits,
+            )
+            if mm_logits_modality is not None:
+                kwargs["mm_logits_modality"] = mm_logits_modality
+            return self.neurons[nid].forward(emb, **kwargs)
+
+        is_cuda = ref_tensor.is_cuda
         if is_cuda and len(active_ids) > 1:
             # GPU 模式：CUDA stream 真并行
-            # 每个 neuron 在自己的 stream 上独立 forward
             streams = {nid: torch.cuda.Stream() for nid in active_ids}
             results: Dict[str, Dict] = {}
 
             for nid in active_ids:
-                neuron = self.neurons[nid]
                 need_logits = return_logits_filter(nid)
+                emb = _get_emb(nid)
                 with torch.cuda.stream(streams[nid]):
-                    results[nid] = neuron.forward(
-                        shared_embeddings,
-                        field_state=field_state,
-                        round_num=round_num,
-                        return_logits=need_logits,
-                    )
+                    results[nid] = _forward_neuron(nid, emb, need_logits)
 
             # 等待所有 stream 完成
             for nid in active_ids:
@@ -162,14 +145,9 @@ class ResonanceEnsemble:
         else:
             # CPU 模式或单神经元：串行
             for nid in active_ids:
-                neuron = self.neurons[nid]
                 need_logits = return_logits_filter(nid)
-                result = neuron.forward(
-                    shared_embeddings,
-                    field_state=field_state,
-                    round_num=round_num,
-                    return_logits=need_logits,
-                )
+                emb = _get_emb(nid)
+                result = _forward_neuron(nid, emb, need_logits)
                 round_vecs[nid] = result["field_vector"]
                 if need_logits:
                     round_logits[nid] = result["logits"]
@@ -178,21 +156,30 @@ class ResonanceEnsemble:
 
     def forward(
         self,
-        shared_embeddings: torch.Tensor,
+        shared_embeddings: Optional[torch.Tensor] = None,
         return_logits: bool = False,
         active_filter: bool = True,
-        enable_gating: bool = True,
         active_nids: Optional[List[str]] = None,
+        neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
+        mm_logits_modality: Optional[str] = None,
     ) -> Dict:
-        """Run the full resonance loop with optional gating.
+        """Run the full resonance loop.
+
+        所有 neuron 共享同一份 shared_embeddings（来自外部共享嵌入表）。
+        P8: 支持 neuron_embeddings 预编码路径（多模态）：
+        - neuron_embeddings: {nid: [B, L, base_embed_dim]} 跳过共享嵌入
+
+        至少提供 shared_embeddings 或 neuron_embeddings 之一。
+        优先级：neuron_embeddings > shared_embeddings。
 
         Args:
-            shared_embeddings: [B, L, base_embed_dim]
+            shared_embeddings: [B, L, base_embed_dim] 共享嵌入（所有 neuron 共用）
             return_logits: if True, each neuron also returns token logits
             active_filter: if True, filter out low-resonance neurons each round
-            enable_gating: if False, skip all gating (backward compatible mode)
             active_nids: 如果提供，只 forward 这些 neuron（Phase 5.1 丘脑路由用）
-                         None 表示全部参与（默认行为，向后兼容）
+                        None 表示全部参与（默认行为，向后兼容）
+            neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
+            mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
 
         Returns:
             dict with:
@@ -203,7 +190,17 @@ class ResonanceEnsemble:
             - skipped_resonance: True if gating skipped the resonance loop
             - skip_reason: explanation if resonance was skipped
         """
-        self.field.reset(batch_size=shared_embeddings.shape[0])
+        if shared_embeddings is None and neuron_embeddings is None:
+            raise ValueError(
+                "[ResonanceEnsemble.forward] 必须提供 shared_embeddings 或 neuron_embeddings"
+            )
+        # 参考 tensor：用于 batch_size 和 device 信息
+        if neuron_embeddings is not None:
+            ref = next(iter(neuron_embeddings.values()))
+        else:
+            ref = shared_embeddings
+
+        self.field.reset(batch_size=ref.shape[0])
         self.round_scores = []
         self.n_active_history = []
         self._logits_keep_ids = None  # 每次 forward 重置
@@ -218,7 +215,7 @@ class ResonanceEnsemble:
             self.stdp_tracker._firing_history.clear()
 
         neuron_ids = list(self.neurons.keys())
-        # Phase 5.1: 如果 ThalamicRouter 指定了 active_nids，只激活这些 neuron
+        # 如果指定了 active_nids，只激活这些 neuron（精简模式）
         if active_nids is not None:
             active_ids = set(nid for nid in active_nids if nid in self.neurons)
             if not active_ids:
@@ -226,13 +223,6 @@ class ResonanceEnsemble:
                 active_ids = set(neuron_ids)
         else:
             active_ids = set(neuron_ids)
-
-        # ── Quality filter: exclude weak neurons before resonance ──
-        if self.quality_filter is not None:
-            filtered_ids = self.quality_filter.filter(list(active_ids))
-            if not filtered_ids:
-                raise ValueError("All neurons filtered out by quality filter")
-            active_ids = set(filtered_ids)
 
         vectors: Dict[str, torch.Tensor] = {}
         all_logits: Dict[str, torch.Tensor] = {}
@@ -256,6 +246,8 @@ class ResonanceEnsemble:
             field_state=None,
             round_num=1,
             return_logits_filter=round1_logits_filter,
+            neuron_embeddings=neuron_embeddings,
+            mm_logits_modality=mm_logits_modality,
         )
 
         # Write round 1 to field
@@ -263,7 +255,12 @@ class ResonanceEnsemble:
         write_scale = (self.neuromodulator.get_field_write_scale()
                        if self.neuromodulator is not None else 1.0)
         for nid in active_ids:
-            self.field.write(nid, round_vecs[nid], scale=write_scale)
+            # P0#3: 抑制性神经元走 write_inhibit（乘法衰减），兴奋性走 write（累加）
+            neuron = self.neurons[nid]
+            if neuron.is_inhibitory:
+                self.field.write_inhibit(nid, round_vecs[nid], weight=1.0)
+            else:
+                self.field.write(nid, round_vecs[nid], scale=write_scale)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
             if self.stdp_tracker is not None:
                 self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
@@ -297,12 +294,17 @@ class ResonanceEnsemble:
                 # 大规模：只为 best_nid 重新 forward 获取 logits（gating 需要）
                 # 代价是 1 次额外 forward，但避免了 N 份 logits 同时存活
                 best_nid = ranked[0][0]
-                best_result = self.neurons[best_nid].forward(
-                    shared_embeddings,
+                best_kwargs = dict(
                     field_state=None,
                     round_num=1,
                     return_logits=True,
                 )
+                if mm_logits_modality is not None:
+                    best_kwargs["mm_logits_modality"] = mm_logits_modality
+                best_emb = (neuron_embeddings[best_nid]
+                            if neuron_embeddings is not None and best_nid in neuron_embeddings
+                            else shared_embeddings)
+                best_result = self.neurons[best_nid].forward(best_emb, **best_kwargs)
                 round_logits[best_nid] = best_result["logits"]
             else:
                 # 小规模：round 1 已获取所有 logits，丢弃非 top-K
@@ -311,40 +313,7 @@ class ResonanceEnsemble:
                     for nid in non_keep:
                         del round_logits[nid]
 
-        # ── Gating check: should we resonate? ──
-        if enable_gating and return_logits:
-            if self.resonance_trigger is not None:
-                best_nid = max(scores, key=scores.get)
-                should_res, reason = self.resonance_trigger.should_resonate(
-                    round_logits[best_nid], round_vecs
-                )
-                if not should_res:
-                    self.n_active_history.append(len(active_ids))
-                    return {
-                        "field_state": self.field.get_state(),
-                        "weighted_logits": round_logits[best_nid],
-                        "final_scores": scores,
-                        "n_rounds": 1,
-                        "n_active_history": self.n_active_history,
-                        "skipped_resonance": True,
-                        "skip_reason": reason,
-                    }
-            elif self.confidence_gate is not None:
-                best_nid = max(scores, key=scores.get)
-                if not self.confidence_gate.should_resonate(round_logits[best_nid]):
-                    confidence = self.confidence_gate.get_confidence(round_logits[best_nid])
-                    self.n_active_history.append(len(active_ids))
-                    return {
-                        "field_state": self.field.get_state(),
-                        "weighted_logits": round_logits[best_nid],
-                        "final_scores": scores,
-                        "n_rounds": 1,
-                        "n_active_history": self.n_active_history,
-                        "skipped_resonance": True,
-                        "skip_reason": f"confident prediction (max_prob={confidence:.3f})",
-                    }
-
-        # Track round 1 for early stop
+        # Track round 1 for logits averaging
         if return_logits and round_logits:
             logits_history.append(self._average_logits(round_logits))
         vectors = round_vecs
@@ -367,6 +336,8 @@ class ResonanceEnsemble:
                 field_state=self.field.get_normalised_state(),
                 round_num=round_num,
                 return_logits_filter=round2_logits_filter,
+                neuron_embeddings=neuron_embeddings,
+                mm_logits_modality=mm_logits_modality,
             )
 
             # 人脑启发：不应期调度（错峰写入）
@@ -379,8 +350,13 @@ class ResonanceEnsemble:
                     writable_ids.append(nid)
 
             for nid in writable_ids:
-                # P1-2: round 2+ 也应用 neuromodulator 调质
-                self.field.update(nid, round_vecs[nid], scale=write_scale)
+                # P0#3: 抑制性神经元走 write_inhibit，兴奋性走 update
+                neuron = self.neurons[nid]
+                if neuron.is_inhibitory:
+                    self.field.write_inhibit(nid, round_vecs[nid], weight=1.0)
+                else:
+                    # P1-2: round 2+ 也应用 neuromodulator 调质
+                    self.field.update(nid, round_vecs[nid], scale=write_scale)
                 self.neurons[nid].enter_refractory(multiplier=refractory_mult)
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:
@@ -447,12 +423,6 @@ class ResonanceEnsemble:
             vectors = round_vecs
             all_logits = round_logits
 
-            # ── Early stop check ──
-            if enable_gating and self.early_stop is not None and return_logits:
-                logits_history.append(self._average_logits(all_logits))
-                if self.early_stop.should_stop(logits_history):
-                    break
-
         # ── Final output ──
         result = {
             "field_state": self.field.get_state(),
@@ -464,138 +434,129 @@ class ResonanceEnsemble:
         }
 
         if return_logits and all_logits:
-            final_scores = self.round_scores[-1] if self.round_scores else scores
+            # P7: 返回每 neuron 的原始 logits（域 vocab 空间可能不同）
+            # 供 _generate_p7 提取目标 neuron logits 用于 decoding
+            result["neuron_logits"] = all_logits
 
-            if self.domain_router is not None:
-                # P2-2: Domain-aware routing
-                # 用最后一轮的 field_vector 与各 neuron 的 domain anchor 计算相似度，
-                # 相似度越高 -> 输入越属于该 neuron 的本域 -> 给更高权重
-                # 取代 entropy-based weighting（neuron 在非本域也强行自信会误导 entropy 路由）
-                last_vecs = {nid: vectors.get(nid, torch.zeros(1)) for nid in all_logits}
-                final_weights_dict = self.domain_router.route(last_vecs)
-
-                weight_list = [final_weights_dict.get(nid, 0.0) for nid in all_logits.keys()]
-                weights = torch.tensor(weight_list, device=shared_embeddings.device)
-
-                weighted_logits = None
-                for i, (nid, logits) in enumerate(all_logits.items()):
-                    w = weights[i]
-                    if weighted_logits is None:
-                        weighted_logits = w * logits
-                    else:
-                        weighted_logits = weighted_logits + w * logits
-                result["weighted_logits"] = weighted_logits
-                result["final_weights"] = {
-                    nid: float(weights[i].item())
-                    for i, nid in enumerate(all_logits.keys())
-                }
-            elif self.division_path is not None:
-                # Use division-of-labor weighting (scale layering + cluster dominance)
-                # Build clusters from neuron domains (simple: one cluster per neuron for now)
-                clusters = {"default": {nid: vectors.get(nid, torch.zeros(1)) for nid in all_logits}}
-                neuron_specs = {
-                    nid: getattr(self.neurons[nid].config, "spec", "compact")
-                    for nid in all_logits
-                }
-                # Use the first neuron's field vector as input_vector proxy
-                input_vec = next(iter(vectors.values()), torch.zeros(1))
-                final_weights_dict = self.division_path.compute_final_weights(
-                    input_vector=input_vec.mean(dim=0) if input_vec.dim() > 1 else input_vec,
-                    clusters=clusters,
-                    neuron_specs=neuron_specs,
-                    resonance_scores=final_scores,
+            # P7: 不同 neuron vocab 大小不同时跳过加权合并
+            vocab_sizes = [logits.shape[-1] for logits in all_logits.values()]
+            if len(set(vocab_sizes)) == 1:
+                self._compute_per_position_weights(
+                    all_logits, vectors, scores, result, ref,
                 )
-                weight_list = [final_weights_dict.get(nid, 0.0) for nid in all_logits.keys()]
-                weights = torch.tensor(weight_list, device=shared_embeddings.device)
-
-                # 修复：应用 division_path 权重生成 weighted_logits
-                weighted_logits = None
-                for i, (nid, logits) in enumerate(all_logits.items()):
-                    w = weights[i]
-                    if weighted_logits is None:
-                        weighted_logits = w * logits
-                    else:
-                        weighted_logits = weighted_logits + w * logits
-                result["weighted_logits"] = weighted_logits
-                result["final_weights"] = {
-                    nid: float(weights[i].item())
-                    for i, nid in enumerate(all_logits.keys())
-                }
-            else:
-                # Per-position routing (v2): logit-entropy weighting + complementarity.
-                # Each position independently picks the neuron that is most confident.
-                # Complementarity scores boost neurons bringing new information.
-                # Memory-efficient: process one neuron at a time for entropy.
-                neuron_ids = list(all_logits.keys())
-                entropies = []
-                for nid in neuron_ids:
-                    log_probs = F.log_softmax(all_logits[nid], dim=-1)
-                    probs = torch.exp(log_probs)
-                    ent = -(probs * log_probs).sum(dim=-1)  # [B, L]
-                    entropies.append(ent)
-                ent_stack = torch.stack(entropies)  # [N, B, L]
-                # Lower entropy = more confident = higher weight.
-                # H7: sharpen confidence temperature 2.0 -> 3.0 so a clearly
-                # more-confident neuron dominates its positions more decisively.
-                confidence = 1.0 / (ent_stack + 1e-8)  # [N, B, L]
-                position_weights = F.softmax(confidence * 3.0, dim=0)  # [N, B, L]
-
-                # H5: lift neurons the field actually resonated with. final_scores
-                # are the last round's leave-one-out resonance scores in [0,1]; map
-                # them to a multiplicative boost in [1,2] so the field's verdict
-                # survives into per-position routing instead of being washed out
-                # by the per-token softmax.
-                score_vals = torch.tensor(
-                    [float(final_scores.get(nid, 0.0)) for nid in neuron_ids],
-                    device=shared_embeddings.device,
-                )
-                position_weights = position_weights * (1.0 + score_vals).unsqueeze(-1).unsqueeze(-1)
-
-                # H6: reward neurons that correct the others' mistakes. This
-                # replaces the legacy geometric orthogonality term (kept on the
-                # field as complementarity_score for diagnostics only); routing
-                # now uses prediction_complementarity, as field.py documents.
-                if hasattr(self.field, 'prediction_complementarity') and len(neuron_ids) > 1:
-                    comp_vals = []
-                    for i, nid in enumerate(neuron_ids):
-                        other_logits = [all_logits[o] for j, o in enumerate(neuron_ids) if j != i]
-                        c = 0.0
-                        for other in other_logits:
-                            c += self.field.prediction_complementarity(other, all_logits[nid])
-                        comp_vals.append(c)
-                    comp_boost = torch.tensor(comp_vals, device=shared_embeddings.device)
-                    position_weights = position_weights * (1.0 + comp_boost).unsqueeze(-1).unsqueeze(-1)
-
-                # Non-zero floor so no specialist is ever fully silenced (a 0%
-                # neuron contributes nothing and can never be learned from),
-                # then renormalise so the mixture still sums to 1 over neurons.
-                position_weights = position_weights.clamp(min=0.01)
-                position_weights = position_weights / position_weights.sum(dim=0, keepdim=True)
-
-                # Apply per-position weights (memory-efficient: one at a time)
-                weighted_logits = None
-                for i, (nid, logits) in enumerate(all_logits.items()):
-                    w = position_weights[i]  # [B, L]
-                    if weighted_logits is None:
-                        weighted_logits = w.unsqueeze(-1) * logits
-                    else:
-                        weighted_logits = weighted_logits + w.unsqueeze(-1) * logits
-                result["weighted_logits"] = weighted_logits
-                result["final_weights"] = {
-                    nid: float(position_weights[i].mean().item())
-                    for i, nid in enumerate(neuron_ids)
-                }
+            # else: neuron_logits already in result, _generate_p7 handles extraction
 
         return result
 
     def _average_logits(
         self, logits_dict: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
-        """Compute simple average of logits across neurons for early stop."""
+        """Compute simple average of logits across neurons for early stop.
+
+        P7: 不同 neuron 的 logits 可能在不同 vocab 空间（10k-20k）。
+        先 pad 到统一大小再 stack。
+        """
         if not logits_dict:
             return torch.zeros(1)
-        stacked = torch.stack(list(logits_dict.values()))
+
+        logits_list = list(logits_dict.values())
+        # Check if all logits have the same shape
+        shapes = [logits.shape[-1] for logits in logits_list]
+        if len(set(shapes)) == 1:
+            stacked = torch.stack(logits_list)
+            return stacked.mean(dim=0)
+
+        # P7: neurons have different vocab sizes; pad to max
+        max_vocab = max(shapes)
+        device = logits_list[0].device
+        padded = []
+        for logits in logits_list:
+            if logits.shape[-1] < max_vocab:
+                pad = torch.zeros(
+                    *logits.shape[:-1], max_vocab - logits.shape[-1],
+                    device=device, dtype=logits.dtype,
+                )
+                logits = torch.cat([logits, pad], dim=-1)
+            padded.append(logits)
+        stacked = torch.stack(padded)
         return stacked.mean(dim=0)
+
+    def _compute_per_position_weights(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        vectors: Dict[str, torch.Tensor],
+        scores: Dict[str, float],
+        result: dict,
+        ref: torch.Tensor,
+    ) -> None:
+        """Per-position routing (v2): logit-entropy weighting + complementarity.
+
+        Each position independently picks the neuron that is most confident.
+        Complementarity scores boost neurons bringing new information.
+        Memory-efficient: process one neuron at a time for entropy.
+
+        Only called when all neurons share the same vocab size.
+        """
+        neuron_ids = list(all_logits.keys())
+        entropies = []
+        for nid in neuron_ids:
+            log_probs = F.log_softmax(all_logits[nid], dim=-1)
+            probs = torch.exp(log_probs)
+            ent = -(probs * log_probs).sum(dim=-1)  # [B, L]
+            entropies.append(ent)
+        ent_stack = torch.stack(entropies)  # [N, B, L]
+        # Lower entropy = more confident = higher weight.
+        # H7: sharpen confidence temperature 2.0 -> 3.0 so a clearly
+        # more-confident neuron dominates its positions more decisively.
+        confidence = 1.0 / (ent_stack + 1e-8)  # [N, B, L]
+        position_weights = F.softmax(confidence * 3.0, dim=0)  # [N, B, L]
+
+        # H5: lift neurons the field actually resonated with. final_scores
+        # are the last round's leave-one-out resonance scores in [0,1]; map
+        # them to a multiplicative boost in [1,2] so the field's verdict
+        # survives into per-position routing instead of being washed out
+        # by the per-token softmax.
+        final_scores = self.round_scores[-1] if self.round_scores else scores
+        score_vals = torch.tensor(
+            [float(final_scores.get(nid, 0.0)) for nid in neuron_ids],
+            device=ref.device,
+        )
+        position_weights = position_weights * (1.0 + score_vals).unsqueeze(-1).unsqueeze(-1)
+
+        # H6: reward neurons that correct the others' mistakes. This
+        # replaces the legacy geometric orthogonality term (kept on the
+        # field as complementarity_score for diagnostics only); routing
+        # now uses prediction_complementarity, as field.py documents.
+        if hasattr(self.field, 'prediction_complementarity') and len(neuron_ids) > 1:
+            comp_vals = []
+            for i, nid in enumerate(neuron_ids):
+                other_logits = [all_logits[o] for j, o in enumerate(neuron_ids) if j != i]
+                c = 0.0
+                for other in other_logits:
+                    c += self.field.prediction_complementarity(other, all_logits[nid])
+                comp_vals.append(c)
+            comp_boost = torch.tensor(comp_vals, device=ref.device)
+            position_weights = position_weights * (1.0 + comp_boost).unsqueeze(-1).unsqueeze(-1)
+
+        # Non-zero floor so no specialist is ever fully silenced (a 0%
+        # neuron contributes nothing and can never be learned from),
+        # then renormalise so the mixture still sums to 1 over neurons.
+        position_weights = position_weights.clamp(min=0.01)
+        position_weights = position_weights / position_weights.sum(dim=0, keepdim=True)
+
+        # Apply per-position weights (memory-efficient: one at a time)
+        weighted_logits = None
+        for i, (nid, logits) in enumerate(all_logits.items()):
+            w = position_weights[i]  # [B, L]
+            if weighted_logits is None:
+                weighted_logits = w.unsqueeze(-1) * logits
+            else:
+                weighted_logits = weighted_logits + w.unsqueeze(-1) * logits
+        result["weighted_logits"] = weighted_logits
+        result["final_weights"] = {
+            nid: float(position_weights[i].mean().item())
+            for i, nid in enumerate(neuron_ids)
+        }
 
     def evaluate_ppl(
         self,

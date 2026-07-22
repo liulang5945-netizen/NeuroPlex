@@ -76,13 +76,23 @@ const naiveTheme = computed(() => {
 })
 
 const themeOverrides = computed(() => {
-  const accent = appStore.currentAccent || '#1a1a1a'
+  // 5 套主题的主色映射（与 themes.css 保持一致）
+  const themePrimaryColors = {
+    classic: '#0065fd',
+    dark: '#4d8cff',
+    teal: '#0d9488',
+    violet: '#7c3aed',
+    warm: '#ea580c',
+  }
+  // 自定义 accent 优先，否则用当前主题的主色
+  const dt = appStore.resolvedDataTheme
+  const primary = appStore.currentAccent || themePrimaryColors[dt] || '#0065fd'
   return {
     common: {
-      primaryColor: accent,
-      primaryColorHover: accent + 'cc',
-      primaryColorPressed: accent + 'aa',
-      primaryColorSuppl: accent + '88',
+      primaryColor: primary,
+      primaryColorHover: primary + 'cc',
+      primaryColorPressed: primary + 'aa',
+      primaryColorSuppl: primary + '88',
       borderRadius: '12px',
       borderRadiusSmall: '8px',
       fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif',
@@ -118,7 +128,7 @@ provide('$confirm', $confirm)
 const { startHealthCheck, stopHealthCheck } = useApi()
 
 // 侧边栏宽度调整
-const sidebarWidth = ref(parseInt(localStorage.getItem('taiji_sidebar_width') || '260'))
+const sidebarWidth = ref(parseInt(localStorage.getItem('taiji_sidebar_width') || '248'))
 const isResizing = ref(false)
 
 function onSidebarResizeStart(event) {

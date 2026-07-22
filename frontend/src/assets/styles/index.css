@@ -7,6 +7,9 @@
 /* 设计变量系统 */
 @import './variables.css';
 
+/* 5 套主题系统（覆盖 variables.css 的默认值） */
+@import './themes.css';
+
 /* 动画系统 */
 @import './animations.css';
 

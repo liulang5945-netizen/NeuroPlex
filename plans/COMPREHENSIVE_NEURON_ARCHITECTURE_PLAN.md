@@ -198,10 +198,17 @@ EXPERT = NeuronConfig(
 
 ```python
 # 所有神经元共享
-vocab_size: 256000           # 总词表
+# P7 更新: vocab_size 改为域专用（10k-20k），不再是全局 256K
+# 使用 get_domain_neuron_config(domain) 自动设置
 base_embed_dim: 512          # 共享嵌入 (感官分辨率)
 field_dim: 4096              # 场维度
 ```
+
+> **P7 升级 (2026-07-21)**：`vocab_size` 从全局 256000 改为域专用 tokenizer 大小
+> (zh=20000, en=16000, code=12000, math=10000, general=16000)。
+> 每神经元自带独立 `nn.Embedding(vocab_size, 512)` 和独立 `nn.Linear(hidden, vocab_size)`，
+> 通过 `TokenTranslator` 桥接到 256K 通用 I/O 协议。
+> 旧代码 `vocab_size: 256000` 仅作兼容旧 ckpt 的默认值。
 
 ---
 
@@ -705,19 +712,37 @@ class EarlyStopResonance:
 
 ## 十九、下一步行动
 
-### 19.1 短期 (1-2 周)
+### 19.1 当前状态 (2026-07-21)
 
-1. **实现置信度门控 + 早停机制** — 验证共振仅在不确定时有效
-2. **多 tokenizer 共振完整测试** — 用转译层解决词表冲突
-3. **跨领域任务测试** — 设计需要多个域知识的任务
+**已完成**:
+- ✅ P7 共享嵌入架构（256K×512）
+- ✅ 5域联合训练（zh/en/code/math/general）
+- ✅ 场对比损失（intra多样性 + inter分离）
+- ✅ 三种多模态编解码器（图像/音频/视频）
+- ✅ 多模态端到端验证通过
+- ✅ 除法抑制机制
+- ✅ 所有神经元 PPL < 10
 
-### 19.2 中期 (1-2 月)
+**验证结果**:
+- zh: 133 → 9.7 (-92.7%)
+- en: 98 → 4.1 (-95.8%)
+- code: 44.6 → 3.0 (-93.3%)
+- math: 8.4 → 1.7 (-80.9%)
+- general: 117.6 → 4.3 (-96.3%)
 
-1. **蒸馏路线** — 从 1.5B 模型拆出高质量神经元
-2. **质量均衡** — 所有神经元 PPL < 50
+### 19.2 短期 (1-2 周)
+
+1. **训练多模态专用神经元** — 为图像/音频/视频域训练专用神经元
+2. **跨域共振测试** — 验证 zh+code、en+math 等跨域组合的 1+1>2 效果
+3. **生成质量评估** — 系统评估多神经元共振生成的文本质量
+
+### 19.3 中期 (1-2 月)
+
+1. **扩展神经元数量** — 增加到 10+ 神经元（如医学、法律、金融等领域）
+2. **质量均衡** — 所有神经元 PPL < 5
 3. **完整训练闭环** — 进化调度器 + 质量监控 + 自动剥离
 
-### 19.3 长期 (3-6 月)
+### 19.4 长期 (3-6 月)
 
 1. **共振簇** — 支持 30+ 神经元，验证规模效应
 2. **动态场扩张** — 拥堵触发时自动扩展 D
@@ -731,15 +756,40 @@ class EarlyStopResonance:
 taiji/resonance/
 ├── __init__.py     ✅ 导出全部公共接口
 ├── field.py        ✅ ResonanceField + D 自适应 + 部落压缩
-├── neuron.py       ✅ ResonanceNeuron + NeuronConfig + 三套规格预设
+├── neuron.py       ✅ ResonanceNeuron + NeuronConfig + 三套规格预设 + 多模态投影
 ├── ensemble.py     ✅ ResonanceEnsemble + 多轮共振 + PPL 评估
 ├── config.py       ✅ 神经元规格配置
+├── translator.py   ✅ TokenTranslator + batch_align_and_embed + TokenizerHub
 
-taiji_portable/domain_tokenizers/
-├── sp_code.model   ✅ 代码专用 tokenizer (12000 tokens)
-├── sp_math.model   ✅ 数学专用 tokenizer (10000 tokens)
-├── sp_zh.model     ✅ 中文专用 tokenizer (20000 tokens)
-├── sp_en.model     ✅ 英文专用 tokenizer (16000 tokens)
+taiji/multimodal/
+├── __init__.py     ✅ 导出多模态模块
+├── vqvae.py        ✅ VQ-VAE 图像编码器/解码器
+├── encodec.py      ✅ EnCodec 音频编码器/解码器
+├── video.py        ✅ VideoVQVAE 视频编码器/解码器
+└── io.py           ✅ 多模态文件输出 (save_image/save_audio/save_video)
+
+taiji/brain/
+├── cortex.py       ✅ Cortex 装配 + 多模态支持
+└── loader.py       ✅ assemble_cortex + 编解码器加载 + mm_projections 注册
+
+taiji/domains/
+├── zh/sp_zh.model       ✅ 中文专用 tokenizer (20000 tokens)
+├── en/sp_en.model       ✅ 英文专用 tokenizer (16000 tokens)
+├── code/sp_code.model   ✅ 代码专用 tokenizer (12000 tokens)
+├── math/sp_math.model   ✅ 数学专用 tokenizer (10000 tokens)
+└── general/sp_general.model ✅ 通用 tokenizer (16000 tokens)
+
+scripts/training/
+├── train_v3_neuron.py        ✅ P7 单神经元训练
+├── joint_and_generate_v3.py  ✅ 5域联合训练 + 生成测试
+├── pipeline_v3_full.py       ✅ 完整训练流水线
+├── verify_p7_e2e.py          ✅ P7 端到端验证
+├── verify_multimodal.py      ✅ 多模态端到端验证
+├── verify_h1h8.py            ✅ H1-H8 冒烟测试 (24/24)
+├── verify_1plus1.py          ✅ 1+1>2 验证
+├── train_vqvae.py            ✅ VQ-VAE 图像编解码器训练
+├── train_encodec.py          ✅ EnCodec 音频编解码器训练
+└── train_video.py            ✅ VideoVQVAE 视频编解码器训练
 
 tests/
 ├── test_resonance.py              ✅ 共振场验证测试 (6/6)
@@ -753,12 +803,241 @@ tests/
 ├── exp9_quality_filter.py         ✅ 质量过滤 + 强化训练
 ├── exp10_multi_neuron.py          ✅ 多神经元共振
 ├── exp11_translator.py            ✅ 转译层
-├── exp12_multi_translator.py      ✅ 多 tokenizer 共振
-├── train_single_neuron.py         ✅ 单神经元收敛测试
+└── exp12_multi_translator.py      ✅ 多 tokenizer 共振
 ```
 
 ---
 
+
+## 更新: 2026-07-21 —— P7 共享嵌入 + 联合训练 + 多模态
+
+### P7 架构核心变更
+
+**共享嵌入层**：所有神经元共用一张 `nn.Embedding(256000, 512)`，确保场向量来自同一语义空间。
+
+```
+输入文本 → 域专用 tokenizer → domain_ids
+    ↓
+domain_ids → TokenTranslator → shared_embeddings (512维)
+    ↓
+shared_embeddings → 各神经元 forward → field_vector (2048/3072/4096)
+    ↓
+field_vector → 共振场 → logits → 输出
+```
+
+**设计原则**：
+- 共享嵌入 = 感官分辨率（固定 512 维）
+- 域专用 tokenizer = 认知空间（每域独立优化）
+- TokenTranslator = 域→通用词表映射（通过 `batch_align_and_embed` 实现）
+
+### 联合训练 (Joint Training)
+
+**损失函数**：
+```
+L_total = L_LM + 0.3 * (L_intra + L_inter)
+```
+
+- **L_LM**：各域交叉熵损失（每神经元处理 3 个样本）
+- **L_intra**：同神经元不同样本场向量的多样性损失（使同一域内场向量分布更分散）
+- **L_inter**：不同神经元场向量的分离损失（使不同域的场向量保持距离，margin=0.5）
+
+**训练结果**（2000 步初始训练 + 300 步联合训练）：
+
+| 域 | 初始 PPL | 联合后 PPL | 改进 |
+|----|---------|-----------|------|
+| zh | 133 | 9.7 | -92.7% |
+| en | 98 | 4.1 | -95.8% |
+| code | 44.6 | 3.0 | -93.3% |
+| math | 8.4 | 1.7 | -80.9% |
+| general | 117.6 | 4.3 | -96.3% |
+
+**场向量余弦相似度**（联合训练后）：
+- cos(zh, en) ≈ 0.65
+- cos(code, math) ≈ 0.72
+- cos(zh, code) ≈ 0.45
+
+### 多模态神经元
+
+**三种模态编解码器**：
+
+| 模态 | 编解码器 | Codebook 大小 | 训练状态 | PSNR |
+|------|---------|--------------|---------|------|
+| 图像 | VQ-VAE | 8192 | ✅ 已训练 | 25.9dB |
+| 音频 | EnCodec | 4096 | ✅ 已训练 | 22.4dB |
+| 视频 | VideoVQVAE | 256 | ✅ 已训练 | 25.6dB |
+
+**集成方式**（loader.py Step 10）：
+1. 加载编解码器 checkpoint
+2. 注册到 TokenizerHub（`register_modality`）
+3. 为所有神经元注册 `mm_projections`（输入投影）和 `mm_lm_heads`（输出头）
+
+**端到端路径**：
+```
+原始输入 → codec.encode → token_ids
+    ↓
+token_ids → codec.decode_features → raw_features (256/128维)
+    ↓
+raw_features → mm_projections → shared_embeddings (512维)
+    ↓
+shared_embeddings → neuron.forward(mm_logits_modality=modality) → logits
+    ↓
+logits → codec.decode → 重建输出
+```
+
+### 抑制性神经元机制
+
+**除法抑制（Divisive Inhibition）**：替代 v=-v 符号翻转。
+
+```python
+# 抑制性神经元写入场
+field.write_inhibit(neuron_id, vector)
+# 内部: mask *= (1 - w * |v|)
+```
+
+- 每个抑制性神经元学习一个权重 w
+- 通过乘法掩码实现维度选择性衰减（GABA-like 抑制）
+- 场状态读取时自动应用抑制掩码：`get_normalised_state() = state ⊙ inhibitory_mask`
+
+**配置要求**：NeuronConfig.neuron_type ∈ {"excitatory", "inhibitory"}，约 20% 应为抑制性。
+
+### 硬约束更新
+
+| 约束 | 状态 | 说明 |
+|------|------|------|
+| field_dim 统一 | ✅ | compact=2048, standard=3072, expert=4096 |
+| 跨规格共振 | ⚠️ | 需 field_dim 投影 |
+| _AdaptiveField padding | ✅ 已移除 | 防止方向噪声 |
+| TribalSuperNeuron reset | ✅ | 每次写入前 reset(batch_size=B) |
+| 场写入/更新分离 | ✅ | write(round1累加), update(round2+替换) |
+| 神经元标识符 | ✅ | 使用 'member_{i}' 格式 |
+| Checkpoint 加载 | ✅ | strict=False |
+| EOS token 检测 | ✅ | getattr(tokenizer, 'eos_token_id', None) |
+| sub_field_state 归一化 | ✅ | 传递前调用 get_normalised_state() |
+| _write_history 上限 | ✅ | deque(maxlen=HISTORY_MAXLEN) |
+| 除法抑制 | ✅ | field.write_inhibit |
+| 共享嵌入 | ✅ | nn.Embedding(256000, 512) |
+| 多模态投影 | ✅ | mm_projections + mm_lm_heads |
+| 跨 tokenizer 自回归对齐 | ✅ | 逐 token 映射（domain_ids → general_ids）保证 input/target 等长 |
+| 自适应学习率 | ✅ | lr = base_lr × neuromodulator.get_lr_multiplier() |
+| 调质状态持久化 | ✅ | NeuromodulatorState 纳入 cortex_state.pt |
+
+---
+
+## 更新: 2026-07-22 —— 经验驱动学习管道 + 自主进化调质系统
+
+### P8: 经验驱动学习（非蒸馏）
+
+态极从随机初始化开始，通过 feed+sleep 循环逐步积累经验，无需外部教师模型蒸馏。
+
+**核心管道**：
+```
+用户输入/知识文本
+    ↓
+FeedEngine.feed_text() → samples（含 "text" 字段）
+    ↓
+SleepEngine._train_single_neuron()
+    ├── 输入：domain_ids → 逐 token 映射 → general_ids → shared_embedding 查表
+    ├── 目标：domain_ids（域 vocab，lm_head 输出空间）
+    └── Loss：自回归 CE loss（input/target 等长，shift 对齐正确）
+    ↓
+Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head + neuromodulator）
+```
+
+**关键修复：跨 tokenizer 自回归对齐**
+
+问题：输入用 general tokenizer (256K vocab) 编码（"今天天气"→2 tokens），目标用 domain tokenizer (20K vocab) 编码（9 tokens），长度不一致导致 shift CE loss 对齐失败。
+
+修复：逐 token 映射 — 先用 domain tokenizer 编码，再将每个 domain token 的 piece 用 general tokenizer 重新编码取第一个 id，保证 input/target 等长。
+
+**验证结果**：
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| Loss 下降率 | 21% | 91.7% |
+| next-token 准确率 | 0% | 5.9% (随机基线 0.025%) |
+| top-5 准确率 | 0% | 22.1% |
+| 训练数据 token top-10 重叠 | 1/10 | 7/10 |
+
+### P9: 自主进化调质系统
+
+态极自主进化时，学习率由神经调质系统自动调控，无需外部干预。
+
+**双信号驱动机制**：
+```
+训练反馈                    神经调质              学习率
+┌─────────┐               ┌──────────┐         ┌──────────┐
+│ Loss    │──快速信号──→  │ 多巴胺   │──×1.5──→│ lr_mult  │
+│ 变化率  │  (每轮)       │ (DA)     │  +0.5   │ 0.5x-2x │
+└─────────┘               └──────────┘         └──────────┘
+┌─────────┐               ┌──────────┐
+│准确率   │──慢速信号──→  │ 血清素   │
+│ 变化    │  (每5轮)      │ (5HT)    │
+└─────────┘               └──────────┘
+```
+
+**调质驱动规则**：
+| 信号 | 条件 | 调质目标值 | 效果 |
+|------|------|-----------|------|
+| Loss Δ < -20% | 快速下降 | DA=0.85 | lr×2.0（乘胜追击）|
+| Loss Δ < -5% | 正常下降 | DA=0.6 | lr×1.4 |
+| Loss Δ < 5% | 停滞 | DA=0.3 | lr×0.95 |
+| Loss Δ ≥ 5% | 上升 | DA=0.15 | lr×0.72（精细调整）|
+| Acc Δ > 2% | 准确率提升 | 5HT=0.7 | 满足 |
+| Acc Δ ±2% | 持平 | 5HT=0.5 | 中性 |
+| Acc Δ < -2% | 下降 | 5HT=0.3 | 不满足 |
+
+**EMA 趋近**：调质不会突变，alpha=0.1 缓慢调整。多巴胺从 0.50→0.57 需要约 3 轮训练。
+
+**持久化**：NeuromodulatorState 纳入 cortex_state.pt（version 3），跨会话调质状态连续。assemble_cortex 自动加载。
+
+### P10: 三调质全接线（metabolism → 去甲肾上腺素 + life_scheduler → curiosity/DA）
+
+**三调质各司其职**：
+| 调质 | 驱动源 | 更新频率 | 作用 |
+|------|--------|---------|------|
+| 多巴胺 (DA) | loss 变化率 / curiosity | 每轮训练 / 每次心跳 | 学习率倍数 (0.5x-2.0x) |
+| 血清素 (5HT) | next-token 准确率 | 每 5 轮 | 满足度/收敛状态 |
+| 去甲肾上腺素 (NE) | CPU 负载 | 每次训练前 | field_write 强度 (0.7x-1.4x) |
+
+**NE 映射规则（避免正反馈循环）**：
+- CPU 负载 0% → NE=0.9（专注模式，field_write 增强）
+- CPU 负载 100% → NE=0.2（节能模式，field_write 减弱）
+- 设计原则：高负载→NE↓→field_write↓→减少计算量（而非高负载→NE↑→更多计算→更高负载）
+
+**life_scheduler 调质覆盖规则（极端需求时介入）**：
+| 需求 | 条件 | 调质覆盖 | 效果 |
+|------|------|---------|------|
+| stress（压力） | >70 | DA↓ (0.15-0.4) | 降低学习率，保守模式 |
+| curiosity（好奇） | >70 | DA↑ (0.6-0.85) | 提升学习率，加速探索 |
+| boredom（无聊） | >80 | 5HT↓ (0.2-0.5) | 不满足，渴望刺激 |
+| fatigue（疲劳） | >80 | NE↓ (0.15-0.4) | 强制节能 |
+
+**DA 优先级**：stress（保守）> curiosity（探索）。两者同时高时 stress 优先，避免在压力下过度探索。
+
+**覆盖优先级（三系统协同）**：
+- NE：metabolism 总是设置（硬件通道），life_scheduler 仅在 fatigue>80 时覆盖
+- DA：sleep_engine 设置（loss 驱动），metabolism 仅在内存>90%时覆盖，life_scheduler 在 stress>70 或 curiosity>70 时覆盖
+- 5HT：sleep_engine 设置（准确率驱动），metabolism 仅在资源不健康时覆盖，life_scheduler 在 boredom>80 时覆盖
+
+### 生成质量改进
+
+**no-repeat-ngram (n=3)**：禁止生成已完成现有 n-gram 的 token，将 logits 设为 -inf。重复率从 0.57 降至 0.11。
+
+**repetition_penalty (1.2)**：CTRL 论文风格，对已生成 token 的 logit 除以惩罚系数。
+
+**512 token 上下文截断**：防止内存溢出，保持生成连贯性。
+
+### 本次新增文件
+
+- `scripts/training/train_v3_neuron.py` — P7 单神经元训练
+- `scripts/training/joint_and_generate_v3.py` — 5域联合训练 + 生成测试
+- `scripts/training/pipeline_v3_full.py` — 完整训练流水线
+- `scripts/training/train_vqvae.py` — VQ-VAE 图像编解码器训练
+- `scripts/training/train_encodec.py` — EnCodec 音频编解码器训练
+- `scripts/training/train_video.py` — VideoVQVAE 视频编解码器训练
+- `scripts/training/verify_multimodal.py` — 多模态端到端验证
+- `taiji/multimodal/io.py` — 多模态文件输出模块
+
+---
 
 ## 更新: 2026-07-17 —— 1+1>2 验证通过
 
@@ -810,6 +1089,19 @@ tests/
 | 2026-07-15 | 领域专用 tokenizer | 知识缺口被验证真实存在 |
 | 2026-07-15 | 转译层设计 | 解决多 tokenizer 共振 |
 | 2026-07-15 | 置信度门控 + 早停机制 | 避免过思考，共振仅在不确定时启动 |
+| 2026-07-17 | H1-H10 机制修复 | 解决共振场架构中的隐藏缺陷 |
+| 2026-07-20 | P7 共享嵌入架构 | 解决场向量语义不可比问题 |
+| 2026-07-20 | 场对比损失 v3 | 解决场向量拓扑结构问题（intra多样性 + inter分离）|
+| 2026-07-20 | 除法抑制机制 | 替代 v=-v 符号翻转，实现 GABA-like 抑制 |
+| 2026-07-21 | 多模态编解码器集成 | 扩展神经元支持图像/音频/视频模态 |
+| 2026-07-21 | 5域联合训练 | 协同优化场向量拓扑，实现跨域互补 |
+| 2026-07-22 | 经验驱动学习基础设施 | 状态持久化 + 样本利用率修复 + 凋亡宽限期 + fp16 压缩 |
+| 2026-07-22 | 跨 tokenizer 自回归对齐修复 | 逐 token 映射保证 input/target 等长，loss 降幅 21%→91% |
+| 2026-07-22 | no-repeat-ngram 采样 | 抑制模式坍塌，重复率 0.57→0.11 |
+| 2026-07-22 | 自主进化调质系统 | 双信号驱动学习率（loss→多巴胺, 准确率→血清素），无需外部干预 |
+| 2026-07-22 | 调质状态持久化 | NeuromodulatorState 纳入 cortex_state.pt，跨会话自主进化连续 |
+| 2026-07-22 | metabolism→NE 接线 | 硬件负载驱动去甲肾上腺素，三调质全接线完成 |
+| 2026-07-22 | curiosity→DA 映射 | 好奇心驱动多巴胺升高（学习率↑），stress 优先于 curiosity（保守模式） |
 
 ---
 
@@ -839,12 +1131,14 @@ class ResonanceField(nn.Module):
         return 0.30 + congestion * 3.0
 ```
 
-### B.2 ResonanceNeuron (共振神经元)
+### B.2 ResonanceNeuron (共振神经元) — P7 独立 lm_head 版本
 
 ```python
 class ResonanceNeuron(nn.Module):
     def __init__(self, config):
-        # 嵌入适配器: 共享基底 → 神经元内部
+        # P7: per-neuron 独立 embedding + 独立 lm_head（域专用 vocab）
+        self.embedding = nn.Embedding(config.vocab_size, config.base_embed_dim)
+        # 嵌入适配器: 域嵌入 → 神经元内部
         self.embed_adapter = nn.Linear(config.base_embed_dim, config.hidden_size)
         # Transformer 体
         self.layers = nn.ModuleList([TransformerBlock(...) for _ in range(...)])
@@ -852,6 +1146,8 @@ class ResonanceNeuron(nn.Module):
         self.field_write = nn.Linear(config.hidden_size, config.field_dim)
         # 场读取投影 (每层一个)
         self.field_read_layers = nn.ModuleList([...])
+        # P7: 独立 lm_head（vocab=10k-20k，5-10M 参数）
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
     def forward(self, shared_embeddings, field_state=None, round_num=1):
         h = self.embed_adapter(shared_embeddings)
@@ -863,6 +1159,10 @@ class ResonanceNeuron(nn.Module):
         # L2 归一化场写入
         v = self.field_write(h[:, -1, :])
         return {"field_vector": v / (v.norm() + 1e-8)}
+
+    def compute_logits(self, h):
+        # P7: 独立 lm_head（不再需要 W_base + 低秩残差）
+        return self.lm_head(h)
 ```
 
 ### B.3 ResonanceEnsemble (共振集成)

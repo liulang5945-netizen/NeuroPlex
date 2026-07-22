@@ -72,6 +72,25 @@ def test_real_e2e():
               f"v1_compat={n.v1_compat}")
     print(f"  wired modules: {list(modules.keys())}")
 
+    # M4 修复：断言 W_base 已注入（C1 修复后必需）
+    # 若此断言失败，说明 assemble_cortex 未注入 W_base，
+    # 生产推理时 logits ≈ 0 → 输出无意义 token
+    first_n = next(iter(cortex.neurons.values()))
+    if first_n.config.lm_head_rank > 0:
+        if "w_base" not in modules:
+            print(f"  ❌ W_base 未注入！modules 里没有 'w_base' 键")
+            print(f"     lm_head_rank={first_n.config.lm_head_rank}, 期望 W_base 已注入")
+            return False
+        # 校验所有低秩 neuron 的 lm_head_base 都不为 None
+        n_injected = sum(
+            1 for n in cortex.neurons.values()
+            if getattr(n, "lm_head_base", None) is not None
+        )
+        if n_injected != len(cortex.neurons):
+            print(f"  ❌ W_base 注入不完整: {n_injected}/{len(cortex.neurons)} neurons")
+            return False
+        print(f"  ✓ W_base 已注入 {n_injected}/{len(cortex.neurons)} neurons")
+
     # 必须有 5 个真实神经元
     if len(cortex.neurons) != 5:
         print(f"  ⚠️  期望 5 个神经元，实际 {len(cortex.neurons)}")

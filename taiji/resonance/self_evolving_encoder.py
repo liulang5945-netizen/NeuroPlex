@@ -71,12 +71,14 @@ class SharedContextEncoder(nn.Module):
         intermediate_size: int = 1408,
         max_seq_len: int = 4096,
         dropout: float = 0.0,
+        n_domains: int = 0,  # P6-9 fix: domain classifier head（>0 启用）
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.n_domains = n_domains
 
         # Token embedding（可训练，启动期从教师 SVD 初始化）
         self.embedding = nn.Embedding(vocab_size, embed_dim)
@@ -113,21 +115,35 @@ class SharedContextEncoder(nn.Module):
         if hidden_dim == embed_dim:
             self.lm_head.weight = self.embedding.weight
 
+        # P6-9 fix: domain classifier head（supervised domain routing signal）
+        # 让 encoder 显式学习 domain 区分，避免 representation collapse
+        # 用 mean pool 后的 hidden state -> n_domains logits
+        if n_domains > 0:
+            self.domain_classifier = nn.Linear(hidden_dim, n_domains)
+        else:
+            self.domain_classifier = None
+
     def forward(
         self,
         input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         return_hidden: bool = True,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        return_domain_logits: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """前向传播：input_ids -> hidden states (+ 可选 logits).
 
         Args:
             input_ids: [B, L] token IDs
+            attention_mask: [B, L] 可选，1=有效 token，0=padding。
+                P6-9 fix: 用于 mean pool 排除 padding，避免短 prompt 被 padding 淹没。
             return_hidden: 是否返回 hidden states（用于路由/encoder 输出）
+            return_domain_logits: 是否返回 domain 分类 logits（P6-9）
 
         Returns:
-            (logits, hidden)
+            (logits, hidden, domain_logits)
             - logits: [B, L, vocab_size] MLM 预测（用于自监督训练）
             - hidden: [B, L, hidden_dim] 上下文感知的 hidden states（用于路由）
+            - domain_logits: [B, n_domains] domain 分类 logits（P6-9，可选）
         """
         B, L = input_ids.shape
         device = input_ids.device
@@ -148,14 +164,43 @@ class SharedContextEncoder(nn.Module):
         # MLM head
         logits = self.lm_head(h)
 
-        if return_hidden:
-            return logits, h
-        return logits, None
+        # P6-9: domain classifier（attention-masked mean pool 后过 classifier）
+        # 关键修复：用 attention_mask 排除 padding tokens，否则短 prompt
+        # （如 "你好"=2 tokens padded 到 64）的 mean pool 被 padding 主导
+        domain_logits = None
+        if return_domain_logits and self.domain_classifier is not None:
+            if attention_mask is not None:
+                # masked mean pool: 只对有效 tokens 取平均
+                mask = attention_mask.to(h.dtype).unsqueeze(-1)  # [B, L, 1]
+                pooled = (h * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)  # [B, hidden_dim]
+            else:
+                pooled = h.mean(dim=1)  # [B, hidden_dim]
+            domain_logits = self.domain_classifier(pooled)  # [B, n_domains]
 
-    def encode(self, input_ids: torch.Tensor) -> torch.Tensor:
+        if return_hidden:
+            return logits, h, domain_logits
+        return logits, None, domain_logits
+
+    def encode(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """便捷方法：只返回 hidden states（用于路由）."""
-        _, hidden = self.forward(input_ids, return_hidden=True)
+        _, hidden, _ = self.forward(input_ids, attention_mask=attention_mask, return_hidden=True)
         return hidden
+
+    def classify_domain(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """P6-9: 直接返回 domain logits（用于 supervised routing）."""
+        _, _, domain_logits = self.forward(
+            input_ids, attention_mask=attention_mask,
+            return_hidden=False, return_domain_logits=True,
+        )
+        return domain_logits  # [B, n_domains]
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -165,6 +210,7 @@ class SharedContextEncoder(nn.Module):
                 "embed_dim": self.embed_dim,
                 "hidden_dim": self.hidden_dim,
                 "num_layers": self.num_layers,
+                "n_domains": self.n_domains,  # P6-9
             },
             "state_dict": self.state_dict(),
         }, path)
@@ -189,6 +235,7 @@ class SharedContextEncoder(nn.Module):
         num_heads: int = 8,
         num_kv_heads: int = 2,
         intermediate_size: int = 1408,
+        n_domains: int = 0,  # P6-9
     ) -> "SharedContextEncoder":
         """从已有 StandaloneEmbedding 构建（复用其 embedding 权重作为初始化）.
 
@@ -196,6 +243,7 @@ class SharedContextEncoder(nn.Module):
             standalone_embedding: StandaloneEmbedding 实例（已从教师 SVD 初始化）
             hidden_dim: encoder hidden dim
             num_layers: encoder 层数（推荐 2-4）
+            n_domains: P6-9 domain classifier head 的类别数（0=不启用）
             ...
         """
         m = cls(
@@ -206,11 +254,13 @@ class SharedContextEncoder(nn.Module):
             num_heads=num_heads,
             num_kv_heads=num_kv_heads,
             intermediate_size=intermediate_size,
+            n_domains=n_domains,
         )
         # 复用 embedding 权重
         m.embedding.weight.data = standalone_embedding.embedding.weight.data.clone()
         print(f"[SharedContextEncoder] Built from StandaloneEmbedding "
-              f"(vocab={m.vocab_size}, embed_dim={m.embed_dim}, layers={num_layers})")
+              f"(vocab={m.vocab_size}, embed_dim={m.embed_dim}, layers={num_layers}, "
+              f"n_domains={n_domains})")
         return m
 
 
@@ -500,7 +550,8 @@ class MLMLoss(nn.Module):
         masked_input[masked_positions] = self.mask_token_id
 
         # Forward
-        logits, _ = encoder(masked_input, return_hidden=False)  # [B, L, vocab]
+        # P6-9: forward 现在返回 (logits, hidden, domain_logits) 3-tuple
+        logits, _, _ = encoder(masked_input, return_hidden=False)  # [B, L, vocab]
 
         # 只计算被 mask 位置的 loss
         masked_logits = logits[masked_positions]  # [N_masked, vocab]
@@ -534,6 +585,7 @@ class SelfEvolver:
         contrastive_loss: ContrastiveLoss,
         mlm_loss: MLMLoss,
         weights: Tuple[float, float, float] = (1.0, 0.5, 1.0),
+        w_domain: float = 2.0,  # P6-9: domain classification loss weight
     ):
         """
         Args:
@@ -542,57 +594,85 @@ class SelfEvolver:
             contrastive_loss: domain 对比损失
             mlm_loss: MLM 自监督损失
             weights: (hebbian, contrastive, mlm) 三机制权重
+            w_domain: P6-9 domain classification loss 权重（supervised signal，
+                     直接优化 domain 区分，避免 representation collapse）
         """
         self.encoder = encoder
         self.hebbian = hebbian_updater
         self.contrastive = contrastive_loss
         self.mlm = mlm_loss
         self.w_hebbian, self.w_contrastive, self.w_mlm = weights
+        self.w_domain = w_domain  # P6-9
 
         # 训练统计
-        self.last_loss = {"total": 0.0, "mlm": 0.0, "contrastive": 0.0, "hebbian": 0.0}
+        self.last_loss = {
+            "total": 0.0, "mlm": 0.0, "contrastive": 0.0,
+            "hebbian": 0.0, "domain": 0.0,  # P6-9
+        }
 
     def training_step(
         self,
         batch: Dict[str, torch.Tensor],
         domain_labels: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """一个训练 step：计算三机制组合 loss.
+        """一个训练 step：计算组合 loss（mlm + contrastive + domain classification）.
 
         Args:
             batch: {"input_ids": [B, L]}
-            domain_labels: [B] 可选，若提供则计算 contrastive loss
+            domain_labels: [B] 可选，若提供则计算 contrastive loss + domain classification loss
 
         Returns:
             total_loss (scalar tensor, 可 backward)
         """
         input_ids = batch["input_ids"]
+        attention_mask = batch.get("attention_mask")  # P6-9 fix
 
-        # 1. 更新 Hebbian 共现统计（无梯度）
+        # 1. 更新 Hebbian 共现统计（无梯度，只在有效 tokens 上统计）
         with torch.no_grad():
             self.hebbian.update_cooc(input_ids)
 
-        # 2. MLM loss（自监督，主要训练信号）
+        # 2. MLM loss（自监督）
         mlm_loss = self.mlm(self.encoder, input_ids)
 
-        # 3. Contrastive loss（可选，需要 domain labels）
+        # 3. Contrastive loss + Domain classification loss
+        # P6-9: 共享一次 forward，同时算 contrastive 和 domain classifier
+        # P6-9 fix: 传 attention_mask 让 mean pool 排除 padding
         if domain_labels is not None:
-            # P6-8 fix: 移除无用的无梯度 forward（变量被立即覆盖，浪费计算）
-            # 一次有梯度 forward，mean pool 得到句级 hidden state
-            _, hidden = self.encoder(input_ids, return_hidden=True)
-            sent_hidden = hidden.mean(dim=1)  # [B, hidden_dim]
+            # 一次有梯度 forward，同时返回 hidden 和 domain_logits
+            _, hidden, domain_logits = self.encoder(
+                input_ids,
+                attention_mask=attention_mask,
+                return_hidden=True,
+                return_domain_logits=(self.encoder.domain_classifier is not None),
+            )
+            # P6-9 fix: contrastive loss 也用 attention-masked mean pool
+            if attention_mask is not None:
+                mask = attention_mask.to(hidden.dtype).unsqueeze(-1)  # [B, L, 1]
+                sent_hidden = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+            else:
+                sent_hidden = hidden.mean(dim=1)  # [B, hidden_dim]
             contrastive_loss = self.contrastive(sent_hidden, domain_labels)
+
+            # P6-9: domain classification loss（supervised）
+            if domain_logits is not None:
+                domain_loss = F.cross_entropy(domain_logits, domain_labels)
+            else:
+                domain_loss = torch.tensor(0.0, device=input_ids.device)
         else:
             contrastive_loss = torch.tensor(0.0, device=input_ids.device)
+            domain_loss = torch.tensor(0.0, device=input_ids.device)
 
         # 4. 组合 loss
-        total = self.w_mlm * mlm_loss + self.w_contrastive * contrastive_loss
+        total = (self.w_mlm * mlm_loss
+                 + self.w_contrastive * contrastive_loss
+                 + self.w_domain * domain_loss)  # P6-9
 
         self.last_loss = {
             "total": float(total.item()),
             "mlm": float(mlm_loss.item()),
             "contrastive": float(contrastive_loss.item()),
-            "hebbian": 0.0,  # Hebbian 在 apply_hebbian_to_embedding 时才更新
+            "hebbian": 0.0,
+            "domain": float(domain_loss.item()),  # P6-9
         }
 
         return total

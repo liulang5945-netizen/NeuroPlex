@@ -54,7 +54,10 @@ def main() -> None:
     print(f"      hidden samples: {tuple(hidden_samples.shape)}, "
           f"loaded in {time.time()-t0:.1f}s")
 
-    for h_dim in (384, 768):
+    # C4 修复：同时支持 FOUNDATION/COMPACT/STANDARD，避免切换 spec 时缺投影。
+    # 历史值: (384, 768)；现补齐 512（COMPACT 默认 spec 所需）。
+    HIDDEN_DIMS = (384, 512, 768)
+    for h_dim in HIDDEN_DIMS:
         hp = get_or_build_hidden_proj(hidden_samples, target_dim=h_dim)
         print(f"      hidden_proj_{h_dim}: {hp.weight.shape}")
 

@@ -12,6 +12,12 @@ Key properties:
 - W_cond is now ACTIVE: it projects the field state to a "conditioned"
   subspace before scoring, so it learns which cross-neuron patterns matter.
 
+P0#3 — Divisive inhibition:
+- Excitatory neurons accumulate additively: state += v_e
+- Inhibitory neurons apply multiplicative decay: mask *= (1 - w * |v_i|)
+- Effective field = state ⊙ mask (Hadamard product)
+- GABA-like: inhibition divides/shunts, not subtracts
+
 Fixes (this version):
   H2: state is [B, D], one independent field per sample (no cross-sample bleed)
   H5: score() uses leave-one-out (excludes the neuron's own contribution)
@@ -52,6 +58,9 @@ class ResonanceField(nn.Module):
         self._device = device or torch.device("cpu")
 
         self.register_buffer("state", torch.zeros(dim))
+        # P0#3: inhibitory mask — accumulative multiplicative decay
+        # Starts as all-ones (no inhibition). Updated by write_inhibit().
+        self.register_buffer("inhibitory_mask", torch.ones(dim))
         # H2: per-sample field state, set lazily on first write with batch dim
         self._batch_size: int = 1
 
@@ -68,10 +77,13 @@ class ResonanceField(nn.Module):
         # gets an independent field, so there is never cross-sample bleed.
         if batch_size > 1:
             self.state = torch.zeros(batch_size, self.dim)
+            self.inhibitory_mask = torch.ones(batch_size, self.dim)
         else:
             self.state = torch.zeros(self.dim)
+            self.inhibitory_mask = torch.ones(self.dim)
         self._batch_size = batch_size
         self._contributions.clear()
+        self._inhibit_contributions.clear() if hasattr(self, '_inhibit_contributions') else None
         self.scores.clear()
         self._write_history.clear()
         self.n_active = 0
@@ -162,6 +174,65 @@ class ResonanceField(nn.Module):
         self._write_history[neuron_id].append(v_norm.detach())
         return v_scaled
 
+    def write_inhibit(self, neuron_id: str, vector: torch.Tensor,
+                      weight: float = 1.0) -> torch.Tensor:
+        """P0#3: 抑制性神经元写入——乘法衰减掩码。
+
+        GABA-like divisive inhibition: mask *= (1 - weight * |v|)
+        而非旧的 v=-v 符号翻转（在 L2 归一化字段中被抹掉）。
+
+        Args:
+            neuron_id: neuron identifier.
+            vector: [D] or [B, D] field vector (positive direction).
+            weight: inhibition strength (0-1, default 1.0).
+                    由 neuron 的置信度/共振分驱动，弱神经元抑制效果弱。
+
+        Returns:
+            updated inhibitory_mask.
+        """
+        if vector.dim() == 1:
+            vector = vector.unsqueeze(0)
+        # Use absolute value: inhibitory neuron's "preferred direction" becomes
+        # the dimensions it attenuates. L2-normalized to keep scale bounded.
+        v_abs = vector.abs()
+        v_abs = v_abs / (v_abs.norm(dim=-1, keepdim=True) + 1e-8)
+
+        # Divisive: mask_d = mask_d * (1 - w * |v_d|)
+        # Multiple inhibitors accumulate multiplicatively
+        # Clamp to [0, 1] to prevent mask from going negative
+        decay = 1.0 - weight * v_abs
+        decay = decay.clamp(min=0.0, max=1.0)
+
+        B = decay.shape[0]
+        if self.inhibitory_mask.dim() == 1 and B == 1:
+            self.inhibitory_mask = self.inhibitory_mask * decay.squeeze(0)
+        elif self.inhibitory_mask.dim() == 1 and B > 1:
+            self.inhibitory_mask = self.inhibitory_mask.unsqueeze(0).expand(B, -1).clone()
+            self.inhibitory_mask = self.inhibitory_mask * decay
+        else:
+            self.inhibitory_mask = self.inhibitory_mask * decay
+
+        # Track contributions for potential undo (leave-one-out)
+        if not hasattr(self, '_inhibit_contributions'):
+            self._inhibit_contributions: Dict[str, torch.Tensor] = {}
+        self._inhibit_contributions[neuron_id] = decay.detach()
+
+        return self.inhibitory_mask
+
+    def get_effective_state(self) -> torch.Tensor:
+        """P0#3: 返回有效场状态 = excitatory_state ⊙ inhibitory_mask。
+
+        L2 归一化后用于 scoring。抑制掩码的乘法衰减在归一化后
+        仍保留方向偏置（swamped 的维度对 cosine 贡献减小）。
+        """
+        if self.state.dim() == 1:
+            effective = self.state * self.inhibitory_mask
+        else:
+            effective = self.state * self.inhibitory_mask
+        # Normalize for stable cosine scoring
+        norm = effective.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        return effective / norm
+
     def _leave_one_out_state(self, exclude_id: str) -> torch.Tensor:
         """Field state with one neuron's contribution removed (H5 fix)."""
         contrib = self._contributions.get(exclude_id)
@@ -193,7 +264,9 @@ class ResonanceField(nn.Module):
         return state_n * cond
 
     def score(self, vector: torch.Tensor, neuron_id: Optional[str] = None) -> float:
-        score_state = self._leave_one_out_state(neuron_id) if neuron_id else self.state
+        # P0#3: use effective state (excitatory ⊙ inhibitory_mask) for scoring
+        effective = self.get_effective_state()
+        score_state = self._leave_one_out_state(neuron_id) if neuron_id else effective
         cond = self._condition(score_state)
         # Normalise cond to a 2-D [..., D] tensor. When the field state is [D]
         # (batch_size=1) cond is [1, D] and broadcasts against a [B, D] vector;
@@ -307,14 +380,8 @@ class ResonanceField(nn.Module):
         return self.state
 
     def get_normalised_state(self) -> torch.Tensor:
-        if self.state.dim() == 1:
-            if self.state.norm() < 1e-8:
-                return self.state
-            return self.state / (self.state.norm() + 1e-8)
-        # [B, D] per-sample normalisation (H2): each sample's field uses its own
-        # norm, not the global Frobenius norm of the whole batch.
-        norms = self.state.norm(dim=-1, keepdim=True)
-        return self.state / (norms + 1e-8)
+        """P0#3: 返回抑制掩码调制后的归一化场状态。"""
+        return self.get_effective_state()
 
     def write_history(self, neuron_id: str) -> List[torch.Tensor]:
         # deque 支持 list() 转换和迭代，对外保持 list 语义

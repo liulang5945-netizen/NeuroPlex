@@ -1,0 +1,509 @@
+/**
+ * 态极控制台 - 豆包设计 token 体系（themes.css）
+ * 完整同步画布 taiji-doubao-redesign 的变量定义
+ * 同时定义豆包变量名（--background/--foreground/--card 等）和旧变量名（--bg/--text/--bg-card 等）
+ * 通过 <html data-theme="classic|dark|teal|violet|warm"> 切换
+ */
+
+/* ═══ 字体 / 圆角 / 阴影 / 动画（全主题共享） ═══ */
+:root {
+  --font-sans: "Stack Sans Text", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif, system-ui;
+  --font-serif: "Source Serif 4", "Noto Serif SC", Georgia, serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --font: var(--font-sans);
+  --font-display: var(--font-serif);
+
+  --radius: 1.2rem;
+  --radius-sm: 0.6rem;
+  --radius-md: 0.9rem;
+  --radius-lg: 1.2rem;
+  --radius-xl: 1.6rem;
+  --radius-full: 9999px;
+  --radius-small: 0.6rem;
+  --radius-medium: 0.9rem;
+  --radius-large: 1.2rem;
+
+  --sidebar-width: 248px;
+  --sidebar-min-width: 200px;
+  --toolbar-height: 52px;
+  --input-height: 38px;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition: color 0.2s var(--ease), background-color 0.2s var(--ease), border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), opacity 0.2s var(--ease), transform 0.2s var(--ease);
+  --transition-fast: color 0.12s var(--ease), background-color 0.12s var(--ease), border-color 0.12s var(--ease), opacity 0.12s var(--ease);
+  --transition-slow: color 0.4s var(--ease), background-color 0.4s var(--ease), opacity 0.4s var(--ease);
+
+  --tracking-normal: 0em;
+  --spacing: 0.24rem;
+}
+
+/* ═══════════════════════════════════════════════
+   1. 经典蓝（默认 = 画布 :root）
+   豆包原色主调，明亮专业
+   ═══════════════════════════════════════════════ */
+:root,
+[data-theme="classic"],
+[data-theme="light"] {
+  /* 豆包 token */
+  --background: #ffffff;
+  --foreground: #0e1115;
+  --card: #ffffff;
+  --card-foreground: #0e1115;
+  --popover: #f9f9fa;
+  --popover-foreground: #0e1115;
+
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --primary-hover: #0057da;
+  --primary-light: rgba(0,101,253,0.12);
+  --primary-subtle: rgba(0,101,253,0.06);
+  --primary-gradient: linear-gradient(135deg, #0065fd 0%, #0057da 100%);
+
+  --secondary: #eff1f4;
+  --secondary-foreground: #333942;
+  --muted: #eff1f4;
+  --muted-foreground: #7f8d9f;
+  --accent: #e5e9ff;
+  --accent-foreground: #00266b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --danger: #ef4444;
+  --danger-foreground: #ffffff;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+  --info: #0065fd;
+  --border: #e7eaef;
+  --input: #e7eaef;
+  --ring: #557fff;
+
+  --danger-light: rgba(239,68,68,0.10);
+  --success-light: rgba(22,163,74,0.10);
+  --warning-light: rgba(245,158,11,0.10);
+  --info-light: rgba(0,101,253,0.10);
+
+  --chart-1: #557fff;
+  --chart-2: #0065fd;
+  --chart-3: #0057da;
+  --chart-4: #0043ad;
+  --chart-5: #002e7d;
+
+  --sidebar: #eff1f4;
+  --sidebar-foreground: #0e1115;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d4daff;
+  --sidebar-accent-foreground: #00266b;
+  --sidebar-border: #e7eaef;
+  --sidebar-ring: #0065fd;
+
+  --shadow-color: #0e1115;
+  --shadow-sm: 0 1px 2px rgba(14,17,21,0.04), 0 1px 3px rgba(14,17,21,0.06);
+  --shadow-md: 0 4px 12px rgba(14,17,21,0.06), 0 2px 4px rgba(14,17,21,0.04);
+  --shadow-lg: 0 12px 28px rgba(14,17,21,0.08), 0 4px 8px rgba(14,17,21,0.04);
+  --shadow-xl: 0 20px 48px rgba(14,17,21,0.10), 0 8px 16px rgba(14,17,21,0.06);
+  --shadow-glow: 0 0 0 3px rgba(0,101,253,0.12);
+
+  --state-hover: rgba(0,101,253,0.08);
+  --state-focus: rgba(0,101,253,0.12);
+  --state-press: rgba(0,101,253,0.16);
+
+  /* 旧变量名映射（兼容现有组件） */
+  --bg: var(--background);
+  --bg-base: #f1f3f5;
+  --bg-surface: var(--card);
+  --bg-elevated: var(--card);
+  --bg-hover: var(--state-hover);
+  --bg-muted: var(--muted);
+  --bg-card: var(--card);
+  --bg-input: var(--muted);
+  --text: var(--foreground);
+  --text-secondary: #333942;
+  --text-muted: var(--muted-foreground);
+  --border-strong: #d4d8df;
+  --border-subtle: #f0f2f5;
+  --ink-light: #333942;
+  --ink-dark: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --editor-bg: var(--background);
+  --terminal-bg: #0e1115;
+  --sidebar-bg: var(--sidebar);
+  --toolbar-bg: var(--background);
+  --glass-bg: rgba(255,255,255,0.85);
+  --glass-bg-thick: rgba(255,255,255,0.92);
+  --glass-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+}
+
+/* ═══════════════════════════════════════════════
+   2. 深邃暗色（画布 .dark）
+   ═══════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --background: #0e1115;
+  --foreground: #eff1f4;
+  --card: #0e1115;
+  --card-foreground: #eff1f4;
+  --popover: #22252a;
+  --popover-foreground: #e5e5e5;
+
+  --primary: #0065fd;
+  --primary-foreground: #ffffff;
+  --primary-hover: #0057da;
+  --primary-light: rgba(0,101,253,0.16);
+  --primary-subtle: rgba(0,101,253,0.08);
+  --primary-gradient: linear-gradient(135deg, #0065fd 0%, #0057da 100%);
+
+  --secondary: #22252a;
+  --secondary-foreground: #e5e5e5;
+  --muted: #161a20;
+  --muted-foreground: #afbbcb;
+  --accent: #00266b;
+  --accent-foreground: #bfdbfe;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --danger: #ef4444;
+  --danger-foreground: #ffffff;
+  --success: #22c55e;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+  --info: #0065fd;
+  --border: #333942;
+  --input: #333942;
+  --ring: #00266b;
+
+  --danger-light: rgba(239,68,68,0.14);
+  --success-light: rgba(34,197,94,0.14);
+  --warning-light: rgba(245,158,11,0.14);
+  --info-light: rgba(0,101,253,0.14);
+
+  --chart-1: #60a5fa;
+  --chart-2: #3b82f6;
+  --chart-3: #2563eb;
+  --chart-4: #1d4ed8;
+  --chart-5: #1e40af;
+
+  --sidebar: #171717;
+  --sidebar-foreground: #e5e5e5;
+  --sidebar-primary: #0065fd;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #00266b;
+  --sidebar-accent-foreground: #bfdbfe;
+  --sidebar-border: #404040;
+  --sidebar-ring: #00266b;
+
+  --shadow-color: #000000;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-lg: 0 12px 36px rgba(0,0,0,0.40);
+  --shadow-xl: 0 20px 56px rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 0 3px rgba(0,101,253,0.18);
+
+  --state-hover: rgba(255,255,255,0.06);
+  --state-focus: rgba(0,101,253,0.12);
+  --state-press: rgba(0,101,253,0.16);
+
+  --bg: var(--background);
+  --bg-base: #0a0d11;
+  --bg-surface: var(--card);
+  --bg-elevated: #1a1e24;
+  --bg-hover: var(--state-hover);
+  --bg-muted: var(--muted);
+  --bg-card: var(--card);
+  --bg-input: #1a1e24;
+  --text: var(--foreground);
+  --text-secondary: var(--secondary-foreground);
+  --text-muted: var(--muted-foreground);
+  --border-strong: #3d4452;
+  --border-subtle: #1f242c;
+  --ink-light: var(--secondary-foreground);
+  --ink-dark: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --editor-bg: var(--background);
+  --terminal-bg: #0a0d11;
+  --sidebar-bg: var(--sidebar);
+  --toolbar-bg: #12151a;
+  --glass-bg: rgba(14,17,21,0.85);
+  --glass-bg-thick: rgba(14,17,21,0.92);
+  --glass-border: var(--border);
+}
+
+/* ═══════════════════════════════════════════════
+   3. 自然青绿
+   ═══════════════════════════════════════════════ */
+[data-theme="teal"] {
+  --background: #f9fbfa;
+  --foreground: #0e1512;
+  --card: #ffffff;
+  --card-foreground: #0e1512;
+  --popover: #eaf5f3;
+  --popover-foreground: #0e1512;
+
+  --primary: #0d9488;
+  --primary-foreground: #ffffff;
+  --primary-hover: #0f766e;
+  --primary-light: rgba(13,148,136,0.12);
+  --primary-subtle: rgba(13,148,136,0.06);
+  --primary-gradient: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+
+  --secondary: #eaf5f3;
+  --secondary-foreground: #1a2e2b;
+  --muted: #eaf5f3;
+  --muted-foreground: #5e7a74;
+  --accent: #ccfbf1;
+  --accent-foreground: #003d36;
+  --destructive: #ef4444;
+  --danger: #ef4444;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --info: #0d9488;
+  --border: #d4e3df;
+  --input: #d4e3df;
+  --ring: #2dd4bf;
+
+  --danger-light: rgba(239,68,68,0.10);
+  --success-light: rgba(22,163,74,0.10);
+  --warning-light: rgba(245,158,11,0.10);
+  --info-light: rgba(13,148,136,0.10);
+
+  --chart-1: #2dd4bf;
+  --chart-2: #0d9488;
+  --chart-3: #0f766e;
+  --chart-4: #115e59;
+  --chart-5: #134e4a;
+
+  --sidebar: #f0f5f3;
+  --sidebar-foreground: #0e1512;
+  --sidebar-primary: #0d9488;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ccfbf1;
+  --sidebar-accent-foreground: #003d36;
+  --sidebar-border: #d4e3df;
+  --sidebar-ring: #0d9488;
+
+  --shadow-color: #0e1512;
+  --shadow-sm: 0 1px 3px rgba(13,148,136,0.06);
+  --shadow-md: 0 4px 16px rgba(13,148,136,0.08);
+  --shadow-lg: 0 12px 36px rgba(13,148,136,0.10);
+  --shadow-xl: 0 20px 56px rgba(13,148,136,0.12);
+  --shadow-glow: 0 0 0 3px rgba(13,148,136,0.14);
+
+  --state-hover: rgba(13,148,136,0.08);
+  --state-focus: rgba(13,148,136,0.12);
+  --state-press: rgba(13,148,136,0.16);
+
+  --bg: var(--background);
+  --bg-base: #eef5f2;
+  --bg-surface: var(--card);
+  --bg-elevated: var(--card);
+  --bg-hover: var(--state-hover);
+  --bg-muted: var(--muted);
+  --bg-card: var(--card);
+  --bg-input: var(--muted);
+  --text: var(--foreground);
+  --text-secondary: #1a2e2b;
+  --text-muted: var(--muted-foreground);
+  --border-strong: #b8d4cd;
+  --border-subtle: #e3eeea;
+  --ink-light: #1a2e2b;
+  --ink-dark: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --editor-bg: var(--background);
+  --terminal-bg: #0e1512;
+  --sidebar-bg: var(--sidebar);
+  --toolbar-bg: var(--background);
+  --glass-bg: rgba(255,255,255,0.85);
+  --glass-bg-thick: rgba(255,255,255,0.92);
+  --glass-border: var(--border);
+}
+
+/* ═══════════════════════════════════════════════
+   4. 科技紫调
+   ═══════════════════════════════════════════════ */
+[data-theme="violet"] {
+  --background: #faf9fe;
+  --foreground: #140e24;
+  --card: #ffffff;
+  --card-foreground: #140e24;
+  --popover: #f3f0ff;
+  --popover-foreground: #140e24;
+
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --primary-hover: #6d28d9;
+  --primary-light: rgba(124,58,237,0.12);
+  --primary-subtle: rgba(124,58,237,0.06);
+  --primary-gradient: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+
+  --secondary: #f3f0ff;
+  --secondary-foreground: #2a1f4d;
+  --muted: #f3f0ff;
+  --muted-foreground: #6b5b95;
+  --accent: #ede9fe;
+  --accent-foreground: #3b0764;
+  --destructive: #ef4444;
+  --danger: #ef4444;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --info: #7c3aed;
+  --border: #e0d9f2;
+  --input: #e0d9f2;
+  --ring: #a78bfa;
+
+  --danger-light: rgba(239,68,68,0.10);
+  --success-light: rgba(22,163,74,0.10);
+  --warning-light: rgba(245,158,11,0.10);
+  --info-light: rgba(124,58,237,0.10);
+
+  --chart-1: #a78bfa;
+  --chart-2: #7c3aed;
+  --chart-3: #6d28d9;
+  --chart-4: #5b21b6;
+  --chart-5: #4c1d95;
+
+  --sidebar: #f3f1fb;
+  --sidebar-foreground: #140e24;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ede9fe;
+  --sidebar-accent-foreground: #3b0764;
+  --sidebar-border: #e0d9f2;
+  --sidebar-ring: #7c3aed;
+
+  --shadow-color: #140e24;
+  --shadow-sm: 0 1px 3px rgba(124,58,237,0.06);
+  --shadow-md: 0 4px 16px rgba(124,58,237,0.08);
+  --shadow-lg: 0 12px 36px rgba(124,58,237,0.10);
+  --shadow-xl: 0 20px 56px rgba(124,58,237,0.12);
+  --shadow-glow: 0 0 0 3px rgba(124,58,237,0.14);
+
+  --state-hover: rgba(124,58,237,0.08);
+  --state-focus: rgba(124,58,237,0.12);
+  --state-press: rgba(124,58,237,0.16);
+
+  --bg: var(--background);
+  --bg-base: #f0ecfa;
+  --bg-surface: var(--card);
+  --bg-elevated: var(--card);
+  --bg-hover: var(--state-hover);
+  --bg-muted: var(--muted);
+  --bg-card: var(--card);
+  --bg-input: var(--muted);
+  --text: var(--foreground);
+  --text-secondary: #2a1f4d;
+  --text-muted: var(--muted-foreground);
+  --border-strong: #c8bce0;
+  --border-subtle: #ede8f7;
+  --ink-light: #2a1f4d;
+  --ink-dark: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --editor-bg: var(--background);
+  --terminal-bg: #140e24;
+  --sidebar-bg: var(--sidebar);
+  --toolbar-bg: var(--background);
+  --glass-bg: rgba(255,255,255,0.85);
+  --glass-bg-thick: rgba(255,255,255,0.92);
+  --glass-border: var(--border);
+}
+
+/* ═══════════════════════════════════════════════
+   5. 暖橙活力
+   ═══════════════════════════════════════════════ */
+[data-theme="warm"] {
+  --background: #fffbeb;
+  --foreground: #1f1408;
+  --card: #ffffff;
+  --card-foreground: #1f1408;
+  --popover: #fff7ed;
+  --popover-foreground: #1f1408;
+
+  --primary: #ea580c;
+  --primary-foreground: #ffffff;
+  --primary-hover: #c2410c;
+  --primary-light: rgba(234,88,12,0.12);
+  --primary-subtle: rgba(234,88,12,0.06);
+  --primary-gradient: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+
+  --secondary: #fff7ed;
+  --secondary-foreground: #3d2008;
+  --muted: #fff7ed;
+  --muted-foreground: #8c6a4a;
+  --accent: #fed7aa;
+  --accent-foreground: #7c2d12;
+  --destructive: #ef4444;
+  --danger: #ef4444;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --info: #ea580c;
+  --border: #f0dcc8;
+  --input: #f0dcc8;
+  --ring: #fb923c;
+
+  --danger-light: rgba(239,68,68,0.10);
+  --success-light: rgba(22,163,74,0.10);
+  --warning-light: rgba(245,158,11,0.10);
+  --info-light: rgba(234,88,12,0.10);
+
+  --chart-1: #fb923c;
+  --chart-2: #ea580c;
+  --chart-3: #c2410c;
+  --chart-4: #9a3412;
+  --chart-5: #7c2d12;
+
+  --sidebar: #fdf5eb;
+  --sidebar-foreground: #1f1408;
+  --sidebar-primary: #ea580c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fed7aa;
+  --sidebar-accent-foreground: #7c2d12;
+  --sidebar-border: #f0dcc8;
+  --sidebar-ring: #ea580c;
+
+  --shadow-color: #1f1408;
+  --shadow-sm: 0 1px 3px rgba(234,88,12,0.06);
+  --shadow-md: 0 4px 16px rgba(234,88,12,0.08);
+  --shadow-lg: 0 12px 36px rgba(234,88,12,0.10);
+  --shadow-xl: 0 20px 56px rgba(234,88,12,0.12);
+  --shadow-glow: 0 0 0 3px rgba(234,88,12,0.14);
+
+  --state-hover: rgba(234,88,12,0.08);
+  --state-focus: rgba(234,88,12,0.12);
+  --state-press: rgba(234,88,12,0.16);
+
+  --bg: var(--background);
+  --bg-base: #fdf3e3;
+  --bg-surface: var(--card);
+  --bg-elevated: var(--card);
+  --bg-hover: var(--state-hover);
+  --bg-muted: var(--muted);
+  --bg-card: var(--card);
+  --bg-input: var(--muted);
+  --text: var(--foreground);
+  --text-secondary: #3d2008;
+  --text-muted: var(--muted-foreground);
+  --border-strong: #e0c4a0;
+  --border-subtle: #f7ead8;
+  --ink-light: #3d2008;
+  --ink-dark: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --editor-bg: var(--background);
+  --terminal-bg: #1f1408;
+  --sidebar-bg: var(--sidebar);
+  --toolbar-bg: var(--background);
+  --glass-bg: rgba(255,255,255,0.85);
+  --glass-bg-thick: rgba(255,255,255,0.92);
+  --glass-border: var(--border);
+}
+
+/* ═══ 主题切换过渡 ═══ */
+html, body, .sidebar, .app-wrapper {
+  transition: background-color 0.3s var(--ease), color 0.3s var(--ease), border-color 0.3s var(--ease);
+}

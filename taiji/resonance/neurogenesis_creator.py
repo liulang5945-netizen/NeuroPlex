@@ -202,16 +202,17 @@ class NeurogenesisCreator:
             创建结果 dict
         """
         try:
-            from taiji.resonance import ResonanceNeuron, NeuronConfig
+            from taiji.resonance import ResonanceNeuron, NeuronConfig, get_default_neuron_config
 
             new_id = self._generate_neuron_id(domain)
 
-            # 创建标准配置的新神经元
-            new_cfg = NeuronConfig(
-                spec=f"{domain}-new-{new_id}",
-                field_dim=4096,
-                neuron_type="excitatory",
-            )
+            # 创建新神经元（使用全局默认 spec，避免与现有 neuron 不一致）
+            # C2 修复：原来用 NeuronConfig 默认（hidden=768 STANDARD），
+            # 与生产 5 域（COMPACT 512）不一致，导致 W_base shape 不匹配。
+            new_cfg = get_default_neuron_config()  # 用 DEFAULT_NEURON_SPEC
+            new_cfg.spec = f"{domain}-new-{new_id}"
+            new_cfg.field_dim = 4096
+            new_cfg.neuron_type = "excitatory"
             new_neuron = ResonanceNeuron(new_cfg).to(self.device)
 
             # 尝试从 1.5B 教师蒸馏

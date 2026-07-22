@@ -1,11 +1,16 @@
-"""Resonance neuron — wraps a ModelSelfBackbone with field I/O.
+"""Resonance neuron — wraps a backbone with field I/O.
 
 Each neuron:
-1. Receives shared base embeddings (Level 0 → Level 1)
+1. Receives shared base embeddings (Level 1: shared 256K → 512)
 2. Projects through its own adapter into a per-neuron concept space
 3. Processes through a standard Transformer (layers.py, zero changes)
-4. Writes a normalised field vector (Level 1 → Level 2)
-5. Reads field state for conditioning (Level 2 → Level 1)
+4. Writes a normalised field vector (Level 2 → Level 3)
+5. Reads field state for conditioning (Level 3 → Level 2)
+
+注意：neuron 不再拥有独立的 nn.Embedding。所有 neuron 共享
+一张外部 nn.Embedding(256000, 512)（Layer 1 共享感官层）。
+TokenTranslator 将域 tokenizer 的输出映射到通用 token ID，
+再查共享嵌入表。
 """
 
 from __future__ import annotations
@@ -49,8 +54,22 @@ class ResonanceNeuron(nn.Module):
         # 由 ensemble 调度，防止强神经元垄断场
         self.register_buffer("refractory_counter", torch.zeros(1, dtype=torch.long))
 
-        # ── Embedding adapter (P0: shared base → per-neuron concept space) ──
+        # ── Embedding adapter (shared base → per-neuron concept space) ──
+        # neuron 不再拥有独立 embedding 表。所有 neuron 共享一张
+        # nn.Embedding(256000, 512)（Layer 1 共享感官层），由外部传入。
+        # embed_adapter 是 per-neuron 的独立映射，保留神经元个性。
         self.embed_adapter = nn.Linear(c.base_embed_dim, c.hidden_size, bias=False)
+
+        # ── 多模态投影层（P8 预留）──
+        # 非文本模态（图像 patch / 音频 frame）的连续特征投影到 base_embed_dim，
+        # 再走 embed_adapter → Transformer body（与文本路径共用 forward）。
+        # 每个模态独立投影层，避免模态间干扰。
+        # text 模态不需要投影（外部 shared_embedding 已完成查表）。
+        # 离散 token id（VQ-VAE codebook 索引）走外部 shared_embedding。
+        self.mm_projections = nn.ModuleDict()  # {modality: Linear(raw_dim, base_embed_dim)}
+        # 多模态输出头：每个模态独立 lm_head，映射到 codec vocab（codebook size）。
+        # 与文本 lm_head 分离，避免模态间词汇干扰。
+        self.mm_lm_heads = nn.ModuleDict()  # {modality: Linear(hidden_size, codec_vocab_size)}
 
         # ── Transformer body (reuses layers.py, zero changes) ──
         self.layers = nn.ModuleList([
@@ -86,24 +105,20 @@ class ResonanceNeuron(nn.Module):
         # replacing the old broadcast (same vector to all positions).
         self.field_read_gate = nn.Linear(c.hidden_size, 1, bias=True)
 
-        # ── Language modelling head（低秩分解：共享基 + per-neuron 残差）──
-        # 人脑启发：所有神经元共享基础"语言能力"（W_base），
-        # 但每个神经元有个体表达偏好（U_i @ V_i 低秩残差）
-        # logits = W_base(h) + V_i(U_i(h))
-        # 兼容旧 ckpt：lm_head_rank=0 时使用传统 per-neuron lm_head
+        # ── Language modelling head ──
+        # P7: 每 neuron 自带完整独立 lm_head [hidden, domain_vocab]
+        # 域专用 vocab (10k-20k) 让独立 lm_head 参数量可控 (5-10M)
+        # lm_head_rank > 0 保留用于实验性低秩训练（非共享，per-neuron only）
         if c.lm_head_rank > 0:
-            # 低秩模式：W_base 由外部注入（共享），U_i/V_i 是 per-neuron
+            # 低秩模式：U_i/V_i 是 per-neuron 低秩分解（实验性）
             self.lm_head_delta_u = nn.Linear(c.hidden_size, c.lm_head_rank, bias=False)
             self.lm_head_delta_v = nn.Linear(c.lm_head_rank, c.vocab_size, bias=False)
-            # W_base 不在此处创建（由 Cortex/Ensemble 统一注入共享实例）
-            # 初始时 W_base=None，forward 时若 W_base 为 None 则只用残差（用于独立训练）
-            self.lm_head_base: Optional[nn.Module] = None
-            # 初始化残差为小值，训练初期 logits ≈ W_base(h)
             nn.init.normal_(self.lm_head_delta_u.weight, std=0.01)
             nn.init.normal_(self.lm_head_delta_v.weight, std=0.01)
         else:
-            # 传统模式：per-neuron 完整 lm_head
+            # P7 默认：per-neuron 独立 lm_head
             self.lm_head = nn.Linear(c.hidden_size, c.vocab_size, bias=False)
+            nn.init.normal_(self.lm_head.weight, std=c.hidden_size ** -0.5)
 
         # ── Direction fingerprint (frozen, for future prescreening) ──
         self.register_buffer("fingerprint", torch.zeros(c.hidden_size))
@@ -125,30 +140,15 @@ class ResonanceNeuron(nn.Module):
         """兼容旧代码：side_channels 现在统一指向 excite_channels。"""
         return self.excite_channels
 
-    def set_shared_lm_head(self, shared_base: nn.Module) -> None:
-        """注入共享 lm_head 基矩阵（由 Cortex/Ensemble 统一调用）。
+    def compute_logits(self, h: torch.Tensor) -> torch.Tensor:
+        """计算 logits。
 
-        低秩分解模式下，W_base 是所有神经元共享的，
-        由外部创建一次后注入到每个神经元。
+        P7 默认 (lm_head_rank=0): 独立 lm_head 直出。
+        实验性 (lm_head_rank>0): per-neuron 低秩分解 V_i(U_i(h))。
         """
         if self.config.lm_head_rank > 0:
-            self.lm_head_base = shared_base
-        else:
-            raise RuntimeError(
-                "set_shared_lm_head 仅在 lm_head_rank > 0（低秩模式）时可用"
-            )
-
-    def compute_logits(self, h: torch.Tensor) -> torch.Tensor:
-        """计算 logits，支持低秩分解和传统两种模式。"""
-        if self.config.lm_head_rank > 0:
-            # 低秩模式：logits = W_base(h) + V_i(U_i(h))
-            delta = self.lm_head_delta_v(self.lm_head_delta_u(h))
-            if self.lm_head_base is not None:
-                return self.lm_head_base(h) + delta
-            return delta
-        else:
-            # 传统模式
-            return self.lm_head(h)
+            return self.lm_head_delta_v(self.lm_head_delta_u(h))
+        return self.lm_head(h)
 
     @property
     def is_inhibitory(self) -> bool:
@@ -174,6 +174,127 @@ class ResonanceNeuron(nn.Module):
         if self.refractory_counter.item() > 0:
             self.refractory_counter -= 1
 
+    def register_modality_projection(self, modality: str, raw_dim: int) -> None:
+        """P8: 注册非文本模态的投影层。
+
+        图像/音频等连续特征需先投影到 base_embed_dim，再走 embed_adapter → Transformer。
+        每个 neuron 对每个模态有独立投影层（per-neuron 个性）。
+
+        Args:
+            modality: 模态名（"image"/"audio"/"video"）。
+            raw_dim: 原始特征维度（如 VQ-VAE codebook dim、EnCodec frame dim）。
+        """
+        if modality == "text":
+            return  # text 模态走外部 shared_embedding，不需要投影
+        if modality in self.mm_projections:
+            return  # 已注册，幂等
+        self.mm_projections[modality] = nn.Linear(raw_dim, self.config.base_embed_dim, bias=False)
+        nn.init.normal_(self.mm_projections[modality].weight, std=self.config.base_embed_dim ** -0.5)
+
+    def register_modality_lm_head(self, modality: str, vocab_size: int) -> None:
+        """P8: 注册非文本模态的输出头（lm_head）。
+
+        每个模态独立输出头，映射到 codec vocab（codebook size）。
+        与文本 lm_head 分离，避免模态间词汇干扰。
+
+        Args:
+            modality: 模态名（"image"/"audio"/"video"）。
+            vocab_size: codec codebook 大小。
+        """
+        if modality == "text":
+            return  # text 模态走自带的 lm_head
+        if modality in self.mm_lm_heads:
+            return  # 已注册，幂等
+        self.mm_lm_heads[modality] = nn.Linear(
+            self.config.hidden_size, vocab_size, bias=False,
+        )
+        nn.init.normal_(self.mm_lm_heads[modality].weight,
+                        std=self.config.hidden_size ** -0.5)
+
+    def auto_register_modalities(self, tokenizer_hub) -> None:
+        """P8: 自动注册所有已注册到 TokenizerHub 的非文本模态。
+
+        从 TokenizerHub 获取所有模态编码器，自动注册投影层和输出头。
+        新增模态或新增 neuron 时无需手动修改代码。
+
+        Args:
+            tokenizer_hub: TokenizerHub 实例
+        """
+        for modality in tokenizer_hub.list_modalities():
+            encoder = tokenizer_hub.modal_encoders.get(modality)
+            if encoder is None:
+                continue
+
+            # 获取 latent_dim（codebook 维度）
+            latent_dim = 256
+            if hasattr(encoder, "model") and hasattr(encoder.model, "quantizer"):
+                if hasattr(encoder.model.quantizer, "codebook"):
+                    latent_dim = encoder.model.quantizer.codebook.weight.shape[-1]
+
+            # 获取 vocab_size（codebook size）
+            vocab_size = encoder.vocab_size()
+
+            # 注册投影层和输出头
+            self.register_modality_projection(modality, raw_dim=latent_dim)
+            self.register_modality_lm_head(modality, vocab_size=vocab_size)
+
+    def compute_mm_logits(self, h: torch.Tensor, modality: str) -> torch.Tensor:
+        """P8: 计算指定模态的 logits。
+
+        Args:
+            h: [B, L, hidden_size] transformer 输出
+            modality: 模态名
+
+        Returns:
+            logits: [B, L, vocab_size]
+        """
+        if modality == "text":
+            return self.compute_logits(h)
+        if modality not in self.mm_lm_heads:
+            raise ValueError(
+                f"模态 '{modality}' 未注册输出头，请先调用 register_modality_lm_head"
+            )
+        return self.mm_lm_heads[modality](h)
+
+    def encode_multimodal_input(
+        self,
+        features: torch.Tensor,
+        modality: str,
+    ) -> torch.Tensor:
+        """P8: 把非文本模态的连续特征编码为 shared_emb.
+
+        与外部 shared_embedding 输出同构（[B, L, base_embed_dim]），可直接送入 forward()。
+        需先调用 register_modality_projection(modality, raw_dim) 注册投影层。
+
+        支持连续特征输入：
+        - 连续特征 [B, L, raw_dim] float → mm_projections[modality] 投影
+
+        注意：离散 token id（VQ-VAE codebook 索引）应走外部 shared_embedding，
+        不再由 neuron 内部处理。
+
+        Args:
+            features: [B, L, raw_dim] float (连续特征)
+            modality: 模态名（"image"/"audio"/"video"）
+
+        Returns:
+            shared_embeddings: [B, L, base_embed_dim]
+        """
+        if modality == "text":
+            raise ValueError("text 模态请使用外部 shared_embedding(general_ids)")
+
+        # 连续特征路径：投影到 base_embed_dim
+        if features.dim() != 3:
+            raise ValueError(
+                f"多模态输入应为 [B, L, raw_dim] float，got {features.shape}"
+            )
+
+        if modality not in self.mm_projections:
+            raise ValueError(
+                f"模态 '{modality}' 未注册投影层，请先调用 register_modality_projection('{modality}', raw_dim)"
+            )
+        proj = self.mm_projections[modality]
+        return proj(features.float())
+
     def forward(
         self,
         shared_embeddings: torch.Tensor,
@@ -181,21 +302,25 @@ class ResonanceNeuron(nn.Module):
         round_num: int = 1,
         return_logits: bool = False,
         side_signals: Optional[Dict[int, torch.Tensor]] = None,
+        mm_logits_modality: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass through the neuron.
 
         Args:
             shared_embeddings: [B, L, base_embed_dim] from the shared embedding table
+                               (外部 shared_embedding(general_ids) 生成)
             field_state: [D] current field state vector (from round 2 onward)
             round_num: current resonance round (1 = independent, 2+ = conditioned)
             return_logits: if True, also return lm_head logits (for PPL)
             side_signals: optional {neuron_id: vector} for side-channel communication
+            mm_logits_modality: if set, 返回该模态的 lm_head logits（而非文本 lm_head）。
+                                优先级高于 return_logits（return_logits 文本，mm_logits_modality 多模态）。
 
         Returns:
             dict with keys:
             - field_vector: [B, D] L2-normalised write vector
             - hidden_before_write: [B, hidden] for diversity loss
-            - logits: [B, L, vocab] (only if return_logits=True)
+            - logits: [B, L, vocab] (only if return_logits=True or mm_logits_modality set)
         """
         # ── Step 1: Embedding adapter (shared base → neuron concept space) ──
         h = self.embed_adapter(shared_embeddings)  # [B, L, hidden]
@@ -241,15 +366,14 @@ class ResonanceNeuron(nn.Module):
         h = self.norm(h)
 
         # ── Step 4: Field write ──
-        # 人脑启发：抑制性神经元的 field_vector 取反，对场做负向贡献
-        # 这样 field.write(nid, v) 时 v 已携带正负号，field 无需感知 neuron_type
+        # P0#3: 不再对抑制性神经元取反（v=-v）。
+        # field_vector 始终为正方向；抑制效果由 field.write_inhibit() 的
+        # 乘法掩码实现（divisive inhibition，GABA-like）。
         if self.v1_compat:
             # v1: last-token write (matches old checkpoint training distribution)
             hidden_last = h[:, -1, :]  # [B, hidden]
             v_raw = self.field_write(hidden_last)  # [B, D]
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
-            if self.is_inhibitory:
-                v = -v  # 抑制性神经元取反
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
                 "hidden_before_write": hidden_last,
@@ -261,8 +385,6 @@ class ResonanceNeuron(nn.Module):
             pooled = (attn_weights.unsqueeze(-1) * h).sum(dim=1)  # [B, hidden]
             v_raw = self.field_write(pooled)  # [B, D]
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
-            if self.is_inhibitory:
-                v = -v  # 抑制性神经元取反
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
                 "hidden_before_write": pooled,
@@ -272,6 +394,8 @@ class ResonanceNeuron(nn.Module):
         # ── Step 5: Optional logits (for PPL evaluation) ──
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
+        if mm_logits_modality is not None:
+            result["logits"] = self.compute_mm_logits(h, mm_logits_modality)  # [B, L, mm_vocab]
 
         return result
 
@@ -309,9 +433,10 @@ class ResonanceNeuron(nn.Module):
     @torch.no_grad()
     def select_top_k_peers(
         self,
-        peer_fingerprints: Dict[int, torch.Tensor],
+        peer_fingerprints: Dict[int, torch.Tensor] = None,
         k: int = 8,
         sim_range: tuple = (0.3, 0.7),
+        broker = None,
     ) -> list:
         """选择 top-K 互补 peer 建立侧信道（人脑启发：稀疏连接）。
 
@@ -319,39 +444,65 @@ class ResonanceNeuron(nn.Module):
         选择标准：fingerprint cosine 相似度在 [sim_range] 区间的 peer
         （太相似=冗余，太正交=无关，中间=互补）。
 
+        P8: 支持 ChannelBroker LSH 路径，将 peer 发现从 O(N²) 降为
+        O(N log N)，使万级神经元扩展成为可能。
+
         Args:
-            peer_fingerprints: {peer_id: fingerprint_tensor}
+            peer_fingerprints: {peer_id: fingerprint_tensor}（旧 O(N) 路径，向后兼容）
             k: 最多选择 K 个 peer
             sim_range: 互补相似度区间
+            broker: ChannelBroker 实例（P8 LSH 路径，优先使用）
 
         Returns:
             选中的 peer_id 列表
         """
+        # P8: LSH 路径优先
+        if broker is not None and broker.num_registered > 0:
+            return broker.query_peers(self.fingerprint, k, sim_range)
+
+        # 旧 O(N) 路径：批量化矩阵乘法（避免 Python 循环）
+        # P8: 用矩阵乘法一次性算所有 peer cosine
+        if peer_fingerprints is None:
+            return []
+
         if self.fingerprint.norm() < 1e-8:
             return []  # fingerprint 未冻结
 
         fp_norm = self.fingerprint / (self.fingerprint.norm() + 1e-8)
-        candidates = []
-        for pid, pfp in peer_fingerprints.items():
-            if pfp.norm() < 1e-8:
-                continue
-            pfp_norm = pfp / (pfp.norm() + 1e-8)
-            sim = float(torch.dot(fp_norm, pfp_norm).item())
-            if sim_range[0] <= sim <= sim_range[1]:
-                candidates.append((pid, sim))
 
-        # 按相似度降序选 top-K（更接近上界的更"互补"）
-        candidates.sort(key=lambda x: x[1], reverse=True)
-        return [pid for pid, _ in candidates[:k]]
+        # 批量 cosine：stack 所有指纹 → [N, d] × [d] → [N]
+        peer_ids = list(peer_fingerprints.keys())
+        peer_stack = torch.stack([peer_fingerprints[pid] for pid in peer_ids])  # [N, d]
+        peer_norms = peer_stack.norm(dim=-1, keepdim=True).clamp(min=1e-8)
+        peer_normed = peer_stack / peer_norms  # [N, d] normalized
+        sims = (peer_normed @ fp_norm).squeeze(-1)  # [N]
+
+        # 在 sim_range 内选 top-K
+        sim_min, sim_max = sim_range
+        mask = (sims >= sim_min) & (sims <= sim_max)
+        valid_indices = mask.nonzero(as_tuple=True)[0]
+        valid_sims = sims[valid_indices]
+
+        if valid_sims.numel() == 0:
+            return []
+
+        # 按相似度降序取 top-K
+        _, sorted_idx = torch.sort(valid_sims, descending=True)
+        top_k_idx = valid_indices[sorted_idx[:k]]
+        return [peer_ids[int(i)] for i in top_k_idx]
 
     def establish_top_k_channels(
         self,
-        peer_fingerprints: Dict[int, torch.Tensor],
+        peer_fingerprints: Dict[int, torch.Tensor] = None,
         k: int = 8,
         sim_range: tuple = (0.3, 0.7),
+        broker = None,
     ) -> list:
-        """自动选择 top-K peer 并建立兴奋/抑制双通道。"""
-        selected = self.select_top_k_peers(peer_fingerprints, k, sim_range)
+        """自动选择 top-K peer 并建立兴奋/抑制双通道。
+
+        P8: 支持 ChannelBroker LSH 路径，peer_fingerprints 可省略。
+        """
+        selected = self.select_top_k_peers(peer_fingerprints, k, sim_range, broker)
         for pid in selected:
             self.establish_side_channel(pid, "excite")
             self.establish_side_channel(pid, "inhibit")

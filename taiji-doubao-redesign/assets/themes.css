@@ -1,0 +1,185 @@
+/* ═══════════════════════════════════════════════════════════════
+   态极控制台 · 多主题切换样式（themes.css）— 豆包 token 体系完整版
+   五套主题：经典蓝 / 深邃暗色 / 自然青绿 / 科技紫调 / 暖橙活力
+   通过 <html> 的 data-theme 属性切换：data-theme="dark|teal|violet|warm"
+   默认（无 data-theme）= 经典蓝（豆包原色）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* === 1. 深邃暗色（全量覆盖） === */
+[data-theme="dark"] {
+  --background: #0e1115;
+  --foreground: #eff1f4;
+  --primary: #4d8cff;
+  --primary-foreground: #ffffff;
+  --secondary: #22262b;
+  --secondary-foreground: #cbd5e1;
+  --muted: #161a20;
+  --muted-foreground: #8896a6;
+  --accent: #1a2e5c;
+  --accent-foreground: #c2d9ff;
+  --card: #12151a;
+  --popover: #1a1e24;
+  --border: #2b303a;
+  --input: #2b303a;
+  --ring: #2b5080;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --sidebar: #0f1217;
+  --sidebar-foreground: #cbd5e1;
+  --sidebar-border: #2b303a;
+  --sidebar-accent: #1a2e5c;
+  --sidebar-accent-foreground: #c2d9ff;
+  --chart-1: #4d8cff;
+  --chart-2: #3069e0;
+  --chart-3: #1c4ec2;
+  --chart-4: #8b9cb5;
+  --chart-5: #606d82;
+  --color-primary: #4d8cff;
+  --color-primary-hover: #3069e0;
+  --color-background: #0e1115;
+  --color-foreground: #eff1f4;
+  --color-card: #12151a;
+  --color-border: #2b303a;
+  --color-muted: #161a20;
+  --color-muted-foreground: #8896a6;
+  --color-secondary: #22262b;
+  --state-hover: rgba(77,140,255,0.12);
+  --state-focus: rgba(77,140,255,0.18);
+  --state-press: rgba(77,140,255,0.24);
+}
+
+/* === 2. 自然青绿（亮色，主色换为青绿） === */
+[data-theme="teal"] {
+  --background: #f9fbfa;
+  --foreground: #0e1512;
+  --primary: #0d9488;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf5f3;
+  --secondary-foreground: #1a2e2b;
+  --muted: #eaf5f3;
+  --muted-foreground: #5e7a74;
+  --accent: #ccfbf1;
+  --accent-foreground: #0f766e;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --border: #d4e3df;
+  --input: #e0ede8;
+  --ring: #0d9488;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --sidebar: #f0f5f3;
+  --sidebar-foreground: #1a2e2b;
+  --sidebar-border: #dce8e3;
+  --sidebar-accent: #ccfbf1;
+  --sidebar-accent-foreground: #0f766e;
+  --chart-1: #0d9488;
+  --chart-2: #14b8a6;
+  --chart-3: #0f766e;
+  --chart-4: #5eead4;
+  --chart-5: #99f6e4;
+  --color-primary: #0d9488;
+  --color-primary-hover: #0f766e;
+  --color-background: #f9fbfa;
+  --color-foreground: #0e1512;
+  --color-card: #ffffff;
+  --color-border: #d4e3df;
+  --color-muted: #eaf5f3;
+  --color-muted-foreground: #5e7a74;
+  --color-secondary: #eaf5f3;
+  --state-hover: rgba(13,148,136,0.08);
+  --state-focus: rgba(13,148,136,0.12);
+  --state-press: rgba(13,148,136,0.16);
+}
+
+/* === 3. 科技紫调（亮色，主色换为紫罗兰） === */
+[data-theme="violet"] {
+  --background: #faf9fe;
+  --foreground: #140e24;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f0ff;
+  --secondary-foreground: #2a1f4d;
+  --muted: #f3f0ff;
+  --muted-foreground: #6b5b95;
+  --accent: #ede9fe;
+  --accent-foreground: #6d28d9;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --border: #e0d9f2;
+  --input: #ece6f7;
+  --ring: #7c3aed;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --sidebar: #f3f1fb;
+  --sidebar-foreground: #2a1f4d;
+  --sidebar-border: #e2dcf2;
+  --sidebar-accent: #ede9fe;
+  --sidebar-accent-foreground: #6d28d9;
+  --chart-1: #7c3aed;
+  --chart-2: #a78bfa;
+  --chart-3: #6d28d9;
+  --chart-4: #c4b5fd;
+  --chart-5: #ddd6fe;
+  --color-primary: #7c3aed;
+  --color-primary-hover: #6d28d9;
+  --color-background: #faf9fe;
+  --color-foreground: #140e24;
+  --color-card: #ffffff;
+  --color-border: #e0d9f2;
+  --color-muted: #f3f0ff;
+  --color-muted-foreground: #6b5b95;
+  --color-secondary: #f3f0ff;
+  --state-hover: rgba(124,58,237,0.08);
+  --state-focus: rgba(124,58,237,0.12);
+  --state-press: rgba(124,58,237,0.16);
+}
+
+/* === 4. 暖橙活力（亮色，主色换为橙红） === */
+[data-theme="warm"] {
+  --background: #fffbeb;
+  --foreground: #1f1408;
+  --primary: #ea580c;
+  --primary-foreground: #ffffff;
+  --muted: #fff7ed;
+  --secondary: #fff7ed;
+  --secondary-foreground: #3d2008;
+  --muted-foreground: #8c6a4a;
+  --accent: #ffedd5;
+  --accent-foreground: #c2410c;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --border: #f0dcc8;
+  --input: #f8ead8;
+  --ring: #ea580c;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --sidebar: #fdf5eb;
+  --sidebar-foreground: #3d2008;
+  --sidebar-border: #f0dcc8;
+  --sidebar-accent: #ffedd5;
+  --sidebar-accent-foreground: #c2410c;
+  --chart-1: #ea580c;
+  --chart-2: #f97316;
+  --chart-3: #fb923c;
+  --chart-4: #fdba74;
+  --chart-5: #fed7aa;
+  --color-primary: #ea580c;
+  --color-primary-hover: #c2410c;
+  --color-background: #fffbeb;
+  --color-foreground: #1f1408;
+  --color-card: #ffffff;
+  --color-border: #f0dcc8;
+  --color-muted: #fff7ed;
+  --color-muted-foreground: #8c6a4a;
+  --color-secondary: #fff7ed;
+  --state-hover: rgba(234,88,12,0.08);
+  --state-focus: rgba(234,88,12,0.12);
+  --state-press: rgba(234,88,12,0.16);
+}
+
+/* === 主题预览色块（设置页用） === */
+.theme-swatch.theme-chip-classic { background: linear-gradient(135deg, #0065fd, #0057da); }
+.theme-swatch.theme-chip-dark { background: linear-gradient(135deg, #0f1419, #4d8cff); }
+.theme-swatch.theme-chip-teal { background: linear-gradient(135deg, #0d9488, #5eead4); }
+.theme-swatch.theme-chip-violet { background: linear-gradient(135deg, #7c3aed, #c4b5fd); }
+.theme-swatch.theme-chip-warm { background: linear-gradient(135deg, #ea580c, #fdba74); }

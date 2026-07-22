@@ -31,7 +31,7 @@ html, body {
 }
 
 .sidebar {
-  width: var(--sidebar-width, 260px);
+  width: var(--sidebar-width, 248px);
   min-width: 200px;
   max-width: 400px;
   background: var(--sidebar-bg);
