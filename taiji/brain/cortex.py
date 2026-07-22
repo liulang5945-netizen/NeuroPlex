@@ -639,6 +639,7 @@ class Cortex:
         top_k: int = 50,
         domain: Optional[str] = None,
         repetition_penalty: float = 1.2,
+        n_candidates: int = 1,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -650,6 +651,8 @@ class Cortex:
             domain: P7 域指定（"zh"/"en"/"code"/"math"/"general"），
                     None 时自动推断。
             repetition_penalty: 重复惩罚系数（1.0=无惩罚，1.2=默认）。
+            n_candidates: SMCS EPE 候选数。>1 时生成多条候选，用混合后验评分
+                         （inter-response 一致性 + intra-response 置信度）选最优。
 
         Returns:
             generated text string.
@@ -664,13 +667,92 @@ class Cortex:
         if not acquired:
             logger.warning("Cortex.generate 等待训练锁超时（10s），可能并发")
         try:
-            return self._generate_p7(
-                prompt, max_tokens, temperature, top_k, domain,
-                repetition_penalty,
-            )
+            if n_candidates <= 1:
+                return self._generate_p7(
+                    prompt, max_tokens, temperature, top_k, domain,
+                    repetition_penalty,
+                )
+            # SMCS EPE: 生成多条候选，混合后验评分选最优
+            candidates = []
+            for _ in range(n_candidates):
+                try:
+                    text = self._generate_p7(
+                        prompt, max_tokens, temperature, top_k, domain,
+                        repetition_penalty,
+                    )
+                    if text:
+                        candidates.append(text)
+                except Exception:
+                    continue
+            if not candidates:
+                return ""
+            if len(candidates) == 1:
+                return candidates[0]
+            return self._select_best_candidate(candidates)
         finally:
             if acquired:
                 app_state.train_lock.release()
+
+    def _select_best_candidate(self, candidates: List[str]) -> str:
+        """SMCS EPE 混合后验评分选最优候选。
+
+        评分维度：
+        1. Intra-response 置信度：候选长度（太短=低置信，太长=可能跑偏）
+        2. Inter-response 一致性：与其他候选的 n-gram 重叠度（高一致=多采样收敛）
+        3. 重复率惩罚：单候选内部 token 重复率（越低越好）
+
+        综合分 = 一致性 + 长度置信 - 重复率
+        """
+        if not candidates:
+            return ""
+        n = len(candidates)
+        if n == 1:
+            return candidates[0]
+
+        # 1. 计算 4-gram 集合（用于 inter-response 一致性）
+        def to_ngrams(text: str, n: int = 4) -> set:
+            tokens = text.split()
+            if len(tokens) < n:
+                return set(tokens)
+            return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)}
+
+        ngram_sets = [to_ngrams(c) for c in candidates]
+
+        scores = []
+        for i, text in enumerate(candidates):
+            # Intra: 长度置信度（对数尺度，中等长度最优）
+            length = len(text.split())
+            if length == 0:
+                scores.append(-1e9)
+                continue
+            length_score = -abs((length - 30) / max(length, 1)) * 0.3
+
+            # Inter: 与其他候选的平均 n-gram 重叠
+            if ngram_sets[i] and n > 1:
+                overlaps = []
+                for j in range(n):
+                    if j != i and ngram_sets[j]:
+                        overlap = len(ngram_sets[i] & ngram_sets[j]) / max(
+                            len(ngram_sets[i] | ngram_sets[j]), 1
+                        )
+                        overlaps.append(overlap)
+                inter_score = sum(overlaps) / max(len(overlaps), 1)
+            else:
+                inter_score = 0.0
+
+            # 重复率：单候选内部重复 token 比例
+            tokens = text.split()
+            if tokens:
+                unique_ratio = len(set(tokens)) / len(tokens)
+            else:
+                unique_ratio = 0.0
+            repeat_penalty = (1 - unique_ratio) * 0.5
+
+            total = inter_score + length_score - repeat_penalty
+            scores.append(total)
+
+        best_idx = scores.index(max(scores))
+        return candidates[best_idx]
 
     def detect_modality(self, input_data: Union[str, torch.Tensor, dict]) -> str:
         """P8: 检测输入数据的模态。
