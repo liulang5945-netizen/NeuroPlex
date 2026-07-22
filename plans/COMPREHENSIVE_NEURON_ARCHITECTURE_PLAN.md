@@ -1107,6 +1107,8 @@ Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head +
 | 2026-07-22 | CoactivationTracker 持久化 | cortex_state.pt version 3 纳入 coaction，跨会话部落分组连续 |
 | 2026-07-22 | ApoptosisTracker 完整闭环 | Cortex.remove_neuron + _sleep_phase_evaluation + activation_count 修复（从 coaction 获取）+ 凋亡后自动清理 |
 | 2026-07-22 | MaturityTracker 应用闭环 | ensemble 共振权重 ×get_resonance_weight（幼稚态0.1）+ sleep_engine lr ×get_lr_multiplier（幼稚态×3.0）。生命周期闭环完成：neurogenesis→maturity→apoptosis→cleanup |
+| 2026-07-22 | recursive_improver 死接线清理 | 移除 sleep_engine.set_brain_interfaces 的 recursive_improver 参数（零调用方），Phase 5 使用全局单例 get_recursive_improver() |
+| 2026-07-22 | SleepConsolidator 持久化 | get_state_dict/load_state_dict + cortex.set_sleep_consolidator 注入 + save_state/load_state 接入。跨会话 replay buffer + last_consolidation_step 不丢失 |
 
 ---
 
