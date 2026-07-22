@@ -707,6 +707,7 @@ class Cortex:
         domain: Optional[str] = None,
         repetition_penalty: float = 1.2,
         n_candidates: int = 1,
+        routing_level: int = 1,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -720,6 +721,9 @@ class Cortex:
             repetition_penalty: 重复惩罚系数（1.0=无惩罚，1.2=默认）。
             n_candidates: SMCS EPE 候选数。>1 时生成多条候选，用混合后验评分
                          （inter-response 一致性 + intra-response 置信度）选最优。
+            routing_level: 硬件受限路由等级。
+                           1=域路由（domain+general, 默认），
+                           2=指纹 top-k 路由（fingerprint cosine 选最相关 neuron）。
 
         Returns:
             generated text string.
@@ -737,7 +741,7 @@ class Cortex:
             if n_candidates <= 1:
                 return self._generate_p7(
                     prompt, max_tokens, temperature, top_k, domain,
-                    repetition_penalty,
+                    repetition_penalty, routing_level=routing_level,
                 )
             # SMCS EPE: 生成多条候选，混合后验评分选最优
             candidates = []
@@ -745,7 +749,7 @@ class Cortex:
                 try:
                     text = self._generate_p7(
                         prompt, max_tokens, temperature, top_k, domain,
-                        repetition_penalty,
+                        repetition_penalty, routing_level=routing_level,
                     )
                     if text:
                         candidates.append(text)
@@ -898,6 +902,64 @@ class Cortex:
             return 'general'
         return next(iter(neuron_domains))
 
+    @torch.no_grad()
+    def _fingerprint_route(
+        self,
+        general_ids: List[int],
+        top_k: int = 2,
+    ) -> List[str]:
+        """Level 2 指纹路由：用 prompt embedding vs neuron fingerprint cosine 选 top-k。
+
+        将 prompt 的 shared embedding 均值池化，与所有 neuron 的 frozen fingerprint
+        计算 cosine 相似度，选最相关的 top-k 个 neuron。general neuron 始终包含。
+
+        维度匹配：shared_embedding 输出 base_embed_dim，fingerprint 维度 hidden_size。
+        当两者一致（COMPACT 规格：均为 512）时直接计算；
+        否则 fallback 到 Level 1 域路由。
+
+        Args:
+            general_ids: prompt 的 general tokenizer id 列表。
+            top_k: 选择的 neuron 数量（不含 general）。
+
+        Returns:
+            active neuron id 列表。
+        """
+        if not self.neurons or self._shared_embedding is None:
+            return list(self.neurons.keys())
+
+        # 1. prompt embedding 均值池化 → [base_embed_dim]
+        ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+        prompt_emb = self._shared_embedding(ids_tensor)  # [1, L, base_embed_dim]
+        prompt_vec = prompt_emb.mean(dim=1).squeeze(0)    # [base_embed_dim]
+        prompt_norm = prompt_vec / (prompt_vec.norm() + 1e-8)
+
+        # 2. 与所有 neuron fingerprint 计算 cosine
+        scores: List[tuple] = []  # [(nid, score), ...]
+        for nid, neuron in self.neurons.items():
+            fp = getattr(neuron, "fingerprint", None)
+            if fp is None or fp.norm() < 1e-8:
+                continue
+            # 维度检查：不匹配则跳过该 neuron
+            if fp.shape[0] != prompt_norm.shape[0]:
+                continue
+            sim = float(torch.dot(prompt_norm, fp / (fp.norm() + 1e-8)))
+            scores.append((nid, sim))
+
+        # 3. 全部维度不匹配 → fallback 全量激活
+        if not scores:
+            return list(self.neurons.keys())
+
+        # 4. 选 top-k（排除 general，单独保证）
+        scores.sort(key=lambda x: x[1], reverse=True)
+        non_general = [(nid, s) for nid, s in scores if nid != "general"]
+        selected = [nid for nid, _ in non_general[:top_k]]
+
+        # general 始终包含
+        if "general" in self.neurons and "general" not in selected:
+            selected.append("general")
+
+        return selected if selected else list(self.neurons.keys())
+
     def _generate_p7(
         self,
         prompt: str,
@@ -906,6 +968,7 @@ class Cortex:
         top_k: int,
         domain: Optional[str] = None,
         repetition_penalty: float = 1.2,
+        routing_level: int = 1,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -992,11 +1055,15 @@ class Cortex:
         # 中文短句字符数少，n=3 会误杀正常重复用字；n=4 给中文更多重复容忍度
         no_repeat_ngram_size = 4 if domain == "zh" else 3
 
-        # Level 1 域路由：硬件受限时仅激活 domain neuron + general neuron
-        # 将 per-token forward 成本从 N× 降到 2×（-60% when N=5）
-        active_nids = [domain]
-        if "general" in self.neurons and domain != "general":
-            active_nids.append("general")
+        # 硬件受限路由：根据 routing_level 选择激活策略
+        if routing_level >= 2:
+            # Level 2 指纹 top-k 路由：用 prompt embedding vs fingerprint cosine
+            active_nids = self._fingerprint_route(general_ids, top_k=2)
+        else:
+            # Level 1 域路由：仅激活 domain neuron + general neuron
+            active_nids = [domain]
+            if "general" in self.neurons and domain != "general":
+                active_nids.append("general")
 
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
