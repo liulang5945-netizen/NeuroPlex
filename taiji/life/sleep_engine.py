@@ -127,7 +127,6 @@ class SleepEngine:
         self._sleep_consolidator: Optional[Any] = None  # SleepConsolidator
         self._stdp_tracker: Optional[Any] = None  # STDPTracker
         self._feed_engine: Optional[Any] = None  # FeedEngine
-        self._recursive_improver: Optional[Any] = None  # RecursiveImprover
         self._current_step: int = 0  # 全局步数计数器（供 SleepConsolidator）
         # P1-2: 神经调质状态（多巴胺/血清素/去甲肾上腺素）
         # 自主进化核心：双信号驱动调质，自动调节学习率
@@ -161,7 +160,6 @@ class SleepEngine:
         sleep_consolidator: Optional[Any] = None,
         stdp_tracker: Optional[Any] = None,
         feed_engine: Optional[Any] = None,
-        recursive_improver: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
     ):
         """
@@ -173,8 +171,11 @@ class SleepEngine:
             sleep_consolidator: SleepConsolidator（睡眠巩固）
             stdp_tracker: STDPTracker（局部学习）
             feed_engine: FeedEngine（数据喂养）
-            recursive_improver: RecursiveImprover（策略改进）
             neuromodulator: NeuromodulatorState（P1-2，多巴胺/血清素/去甲肾上腺素）
+
+        Note:
+            RecursiveImprover 通过全局单例 get_recursive_improver() 访问，
+            Phase 5 _sleep_phase_recursive_improvement 直接导入使用，无需注入。
         """
         if cortex is not None:
             self.cortex = cortex
@@ -186,8 +187,6 @@ class SleepEngine:
             self._stdp_tracker = stdp_tracker
         if feed_engine is not None:
             self._feed_engine = feed_engine
-        if recursive_improver is not None:
-            self._recursive_improver = recursive_improver
 
         # P1-2: 神经调质状态（若未提供则自动创建默认实例）
         if neuromodulator is not None:
