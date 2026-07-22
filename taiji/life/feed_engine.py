@@ -28,6 +28,8 @@ from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import torch
+
 logger = logging.getLogger("FeedEngine")
 
 
@@ -108,14 +110,6 @@ class FeedEngine:
         self._domain_success_counts: Dict[str, int] = {}
         self._domain_total_counts: Dict[str, int] = {}
 
-        # 域检测器（神经元架构：自动识别输入域，路由到对应 neuron）
-        self._domain_detector = None
-        try:
-            from taiji.resonance.domain_detector import get_detector
-            self._domain_detector = get_detector()
-        except ImportError:
-            logger.warning("DomainDetector 不可用，域自动检测将回退到 general")
-
         self._data_dir_ready = False
         self._load_history()
 
@@ -190,6 +184,15 @@ class FeedEngine:
             logger.warning(f"File not found: {file_path}")
             return None
 
+        # 多模态文件路由：图片/音频/视频走 feed_multimodal
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp'):
+            return self.feed_multimodal("image", file_path=file_path)
+        elif ext in ('.wav', '.mp3', '.flac', '.ogg'):
+            return self.feed_multimodal("audio", file_path=file_path)
+        elif ext in ('.mp4', '.mov', '.avi', '.webm'):
+            return self.feed_multimodal("video", file_path=file_path)
+
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read(self.config.max_content_length)
@@ -227,6 +230,107 @@ class FeedEngine:
             category=category,
             domain=domain,
         )
+
+    def feed_multimodal(self, modality: str,
+                        data: Optional[torch.Tensor] = None,
+                        file_path: Optional[str] = None,
+                        tokenizer_hub=None) -> Optional[FeedItem]:
+        """
+        喂态极多模态资料（图片/音频/视频）。
+
+        Args:
+            modality: 模态类型："image", "audio", "video"
+            data: 多模态张量数据（可选，与 file_path 二选一）
+            file_path: 文件路径（可选，与 data 二选一）
+            tokenizer_hub: TokenizerHub 实例（可选，不提供则从全局获取）
+
+        Returns:
+            FeedItem 或 None（如果 codec 不可用）
+        """
+        if modality not in ("image", "audio", "video"):
+            logger.warning(f"Unknown modality: {modality}")
+            return None
+
+        if tokenizer_hub is None:
+            try:
+                from taiji.resonance.translator import get_tokenizer_hub
+                tokenizer_hub = get_tokenizer_hub()
+            except ImportError:
+                logger.warning("TokenizerHub not available")
+                return None
+
+        encoder = tokenizer_hub.modal_encoders.get(modality)
+        if encoder is None:
+            logger.warning(f"No encoder registered for modality '{modality}'")
+            return None
+
+        # 加载数据
+        if file_path is not None:
+            if not os.path.exists(file_path):
+                logger.warning(f"Multimodal file not found: {file_path}")
+                return None
+            try:
+                data = encoder.load(file_path)
+            except Exception as e:
+                logger.warning(f"Failed to load {modality} file {file_path}: {e}")
+                return None
+        elif data is None:
+            logger.warning("Neither data nor file_path provided")
+            return None
+
+        # codec encode：连续特征 → codebook token id 序列
+        try:
+            token_ids = encoder.encode(data)
+        except Exception as e:
+            logger.warning(f"Failed to encode {modality} data: {e}")
+            return None
+
+        if not isinstance(token_ids, list):
+            token_ids = token_ids.tolist()
+
+        # 生成训练样本：自回归重建任务（输入前半部分 → 预测后半部分）
+        if len(token_ids) < 4:
+            logger.debug(f"{modality} token sequence too short: {len(token_ids)}")
+            return None
+
+        split_idx = len(token_ids) // 2
+        sample = {
+            "type": "multimodal",
+            "modality": modality,
+            "input_ids": token_ids[:split_idx],
+            "target_ids": token_ids[split_idx:],
+            "domain": "general",
+        }
+
+        # 计算内容哈希（用于去重）
+        content_hash = hashlib.md5(
+            json.dumps({"modality": modality, "token_ids": token_ids}).encode()
+        ).hexdigest()
+
+        if self.config.dedup_enabled and content_hash in self._content_hashes:
+            logger.debug(f"Duplicate {modality} content skipped")
+            return None
+
+        item = FeedItem(
+            source="multimodal",
+            source_path=file_path or f"{modality}_data",
+            content_hash=content_hash,
+            quality_score=0.8,
+            category=f"multimodal_{modality}",
+            sample_count=1,
+            status="digested",
+        )
+
+        # 保存样本（写入 jsonl 和按域分类缓冲）
+        self._append_samples([sample])
+        self._domain_samples.setdefault("general", []).append(sample)
+        self._content_hashes.add(content_hash)
+        self._feed_items.append(item)
+
+        logger.info(f"Fed {modality} sample: {len(token_ids)} tokens, "
+                    f"input={len(sample['input_ids'])}, target={len(sample['target_ids'])}")
+
+        return item
 
     def feed_directory(self, dir_path: str, extensions: List[str] = None,
                        category: str = "code",
@@ -300,13 +404,7 @@ class FeedEngine:
     # ─── 神经元架构：域分类样本接口 ─────────────────
 
     def _detect_domain(self, content: str) -> str:
-        """使用 DomainDetector 自动检测文本所属域。"""
-        if self._domain_detector is not None:
-            try:
-                domain, _ = self._domain_detector.detect(content)
-                return domain
-            except Exception as e:
-                logger.debug(f"域检测失败，回退到 general: {e}")
+        """检测文本所属域（P7: 简化回退到 general）。"""
         return "general"
 
     def get_pending_samples_by_domain(self) -> Dict[str, list]:
@@ -519,6 +617,7 @@ class FeedEngine:
             samples.append({
                 "type": "react",
                 "domain": domain,
+                "text": seg_code,  # 保留原始代码，供 sleep_engine 直接训练使用
                 "task": task,
                 "steps": [{
                     "thought": thought,
@@ -561,7 +660,9 @@ class FeedEngine:
                               domain: str = "general") -> List[dict]:
         """知识文本 -> 问答训练样本（带 domain 标签）"""
         samples = []
-        paragraphs = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 30]
+        # 阈值从 30 降至 10：中文句子字符数较短（每个汉字算 1），
+        # 30 会过滤掉大多数中文短句，导致经验积累无效。
+        paragraphs = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 10]
 
         for i, para in enumerate(paragraphs[:5]):  # 最多 5 段
             # 将每段转换为问答对
@@ -572,6 +673,7 @@ class FeedEngine:
             samples.append({
                 "type": "react",
                 "domain": domain,
+                "text": para,  # 保留原始文本，供 sleep_engine 直接训练使用
                 "task": task,
                 "steps": [{
                     "thought": f"让我查阅关于 {title} 的知识。",

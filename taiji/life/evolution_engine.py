@@ -790,9 +790,9 @@ class EvolutionEngine:
     ) -> dict:
         """执行代际迁移：用知识蒸馏将当前模型能力迁移到新一代模型。
 
-        P2-6: 已废弃。新架构（Cortex + ResonanceNeuron）下，进化通过
+        已废弃。新架构（Cortex + ResonanceNeuron）下，进化通过
         神经新生（neurogenesis）+ 睡眠巩固（sleep_consolidation）实现，
-        不再进行整体 ModelSelf 蒸馏替换。保留此方法仅为向后兼容。
+        不再进行整体蒸馏替换。保留此方法仅为向后兼容。
 
         新的进化路径：
         1. NeurogenesisTrigger 检测知识盲区
@@ -802,8 +802,8 @@ class EvolutionEngine:
 
         Args:
             design: design_next_generation() 返回的设计 dict
-            current_model: 当前运行的 ModelSelf 实例（教师）
-            current_tokenizer: 当前使用的 ModelSelfTokenizer
+            current_model: 当前运行的模型实例（教师）
+            current_tokenizer: 当前使用的 tokenizer
             training_texts: 蒸馏用的训练文本列表
             device: 训练设备
             backup_dir: 旧模型备份目录（默认 {data_dir}/backups/）
@@ -820,139 +820,16 @@ class EvolutionEngine:
         """
         import warnings as _warnings
         _warnings.warn(
-            "execute_generation_transition() is deprecated (P2-6). "
+            "execute_generation_transition() is deprecated. "
             "New architecture uses neurogenesis + sleep_consolidation for evolution, "
             "not whole-model distillation. This method is retained only for backward compatibility.",
             DeprecationWarning,
             stacklevel=2,
         )
-        # P2-6: ModelSelf 已从项目中移除，此方法不再可用
         raise NotImplementedError(
-            "execute_generation_transition() is no longer supported (P2-6). "
-            "ModelSelf class has been removed. "
+            "execute_generation_transition() is no longer supported. "
             "Use neurogenesis + sleep_consolidation for evolution instead."
         )
-        # 以下代码保留为历史参考，但永远不会执行
-        from taiji.config import ModelConfig
-        from taiji.architecture import ModelSelf
-        from taiji.loader import save_model
-        from taiji.core.app_state import app_state
-        from taiji.train.distiller import DistillationTrainer
-
-        arch = design.get("architecture", {})
-        next_gen_name = design.get("next_gen_name", "Taiji-NextGen")
-        direction = design.get("evolution_direction", "grow")
-
-        logger.info(
-            f"开始代际迁移: {design.get('current_gen', 'unknown')} → {next_gen_name} "
-            f"(方向: {direction})"
-        )
-
-        try:
-            # 1. 从设计方案构建 ModelConfig
-            config = _design_to_model_config(arch, current_model.config)
-
-            # 2. 创建学生模型（新一代）
-            student = ModelSelf(config)
-            logger.info(
-                f"学生模型已创建: hidden={config.hidden_size}, "
-                f"layers={config.num_hidden_layers}, heads={config.num_attention_heads}"
-            )
-
-            # 3. 知识蒸馏：教师 → 学生
-            if not training_texts:
-                training_texts = ["态极自进化系统"]
-
-            distiller = DistillationTrainer(
-                teacher_model=current_model,
-                student_model=student,
-                tokenizer=current_tokenizer,
-                alpha=0.7,
-                temperature=3.0,
-                lr=1e-4,
-            )
-
-            logger.info(f"开始蒸馏训练 ({len(training_texts)} 条文本, device={device})")
-            final_loss = 0.0
-            for epoch, step, loss, metrics in distiller.distill(
-                training_texts,
-                num_epochs=3,
-                batch_size=2,
-                device=device,
-            ):
-                final_loss = loss
-
-            logger.info(f"蒸馏完成, final_loss={final_loss:.4f}")
-
-            # 4. 验证学生模型
-            val_loss = _validate_student(student, current_tokenizer, training_texts[:5], device)
-            teacher_loss = _validate_student(current_model, current_tokenizer, training_texts[:5], device)
-            logger.info(f"验证: teacher_loss={teacher_loss:.4f}, student_loss={val_loss:.4f}")
-
-            # 5. 安全阀：学生 loss 远高于教师 → 蒸馏失败，不替换
-            if val_loss > teacher_loss * 3.0:
-                error_msg = (
-                    f"蒸馏验证失败: student_loss({val_loss:.4f}) >> "
-                    f"teacher_loss({teacher_loss:.4f})"
-                )
-                logger.warning(error_msg)
-                return {
-                    "success": False,
-                    "new_model_name": next_gen_name,
-                    "new_model_path": "",
-                    "distillation_loss": final_loss,
-                    "validation_loss": val_loss,
-                    "error": error_msg,
-                }
-
-            # 6. 保存新一代模型
-            data_dir = getattr(self, "data_dir", None)
-            if data_dir is None:
-                data_dir = "taiji_data/evolution_data"
-            gen_dir = os.path.join(data_dir, "generations", next_gen_name)
-            os.makedirs(gen_dir, exist_ok=True)
-            save_model(student, current_tokenizer, gen_dir)
-
-            # 7. 备份旧模型
-            if backup_dir is None:
-                backup_dir = os.path.join(data_dir, "backups")
-            os.makedirs(backup_dir, exist_ok=True)
-            backup_path = os.path.join(
-                backup_dir,
-                f"backup_{design.get('current_gen', 'old')}_{int(time.time())}",
-            )
-            save_model(current_model, current_tokenizer, backup_path)
-            logger.info(f"旧模型已备份到: {backup_path}")
-
-            # 8. 运行时替换模型
-            app_state.update_model(student, current_tokenizer, None, next_gen_name)
-            logger.info(f"模型已替换为: {next_gen_name}")
-
-            # 9. 记录进化周期
-            self.metrics.evolution_cycles += 1
-            self._last_evolution_time = datetime.now()
-            self._tasks_since_evolution = 0
-            self._save_metrics()
-
-            return {
-                "success": True,
-                "new_model_name": next_gen_name,
-                "new_model_path": gen_dir,
-                "distillation_loss": final_loss,
-                "validation_loss": val_loss,
-                "error": None,
-            }
-
-        except Exception as exc:
-            logger.error(f"代际迁移失败: {exc}", exc_info=True)
-            return {
-                "success": False,
-                "new_model_name": next_gen_name,
-                "new_model_path": "",
-                "distillation_loss": 0.0,
-                "validation_loss": 0.0,
-                "error": str(exc),
-            }
 
 
 def _design_to_model_config(arch: dict, old_config=None) -> "ModelConfig":

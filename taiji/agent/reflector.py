@@ -1,5 +1,5 @@
 """
-ModelSelf 反思系统 v2
+Cortex 反思系统 v2
 镜像神经元 — 让模型拥有自我评估和纠错能力
 
 检测执行错误，分析原因，生成纠正方案。
@@ -12,7 +12,7 @@ from typing import Any, Optional, Dict, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-logger = logging.getLogger("ModelSelf.Reflector")
+logger = logging.getLogger("Cortex.Reflector")
 
 
 class ReflectionType(Enum):

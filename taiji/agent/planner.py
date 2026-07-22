@@ -1,5 +1,5 @@
 """
-ModelSelf 规划系统
+Cortex 规划系统
 前额叶 — 让模型拥有自主任务规划能力
 
 将复杂任务分解为可执行步骤，跟踪进度，处理失败和重新规划。
@@ -9,7 +9,7 @@ from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, field
 from enum import IntEnum
 
-logger = logging.getLogger("ModelSelf.Planner")
+logger = logging.getLogger("Cortex.Planner")
 
 
 class StepStatus(IntEnum):

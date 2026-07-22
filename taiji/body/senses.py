@@ -28,7 +28,6 @@ class InputSensor:
         self._last_request_time = 0
         self._engine = None
         self._cortex = None  # 大脑（Cortex）
-        self._domain_detector = None  # 域检测器
 
     def set_engine(self, engine):
         """设置推理引擎"""
@@ -47,11 +46,6 @@ class InputSensor:
         """设置大脑（Cortex）"""
         self._cortex = cortex
         logger.info(f"Cortex 已设置: {type(cortex).__name__}")
-
-    def set_domain_detector(self, detector):
-        """设置域检测器"""
-        self._domain_detector = detector
-        logger.info(f"域检测器已设置: {type(detector).__name__}")
 
     async def process_input(
         self,
@@ -75,17 +69,12 @@ class InputSensor:
         self._request_count += 1
         self._last_request_time = time.time()
 
-        # 域检测：确定输入属于哪个认知域
+        # 域检测：从 Cortex 的 neuron 配置推断
         domain = None
         domain_confidence = 0.0
-        if self._domain_detector is not None:
-            try:
-                domain, domain_confidence = self._domain_detector.detect(text)
-            except Exception as e:
-                logger.debug(f"域检测失败（非关键）: {e}")
 
-        # 如果有 Cortex 且有域信息，尝试域感知推理
-        if self._cortex is not None and domain is not None:
+        # 如果有 Cortex，尝试域感知推理
+        if self._cortex is not None:
             try:
                 if stream:
                     return {
@@ -150,7 +139,6 @@ class InputSensor:
             "has_engine": self.has_engine(),
             "engine_type": type(self._engine).__name__ if self._engine else None,
             "has_cortex": self._cortex is not None,
-            "domain_detector": type(self._domain_detector).__name__ if self._domain_detector else None,
         }
 
 

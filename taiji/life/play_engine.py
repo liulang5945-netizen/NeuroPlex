@@ -177,33 +177,46 @@ class PlayEngine:
             # 获取 tokenizer 和 shared_embedding
             tokenizer = getattr(self._cortex, '_tokenizer', None)
             shared_embedding = getattr(self._cortex, '_shared_embedding', None)
-            embed_pipeline = getattr(self._cortex, '_embed_pipeline', None)
+            tokenizer_hub = getattr(self._cortex, '_tokenizer_hub', None)
 
-            if tokenizer is None:
+            # P7 模式：用 tokenizer_hub 编码 topic
+            if tokenizer_hub is not None:
+                # 用 general 域 tokenizer 编码（play 话题通常是英文）
+                try:
+                    ids = tokenizer_hub.encode(topic, domain="general")
+                except Exception:
+                    try:
+                        ids = tokenizer_hub.encode(topic, domain="en")
+                    except Exception:
+                        return None
+                if not ids or len(ids) < 2:
+                    return None
+                ids = ids[:128]
+                is_p7_mode = True
+            elif tokenizer is not None:
+                # 旧路径：共享 tokenizer
+                try:
+                    ids = tokenizer.encode(topic)
+                except Exception:
+                    return None
+                if len(ids) < 3:
+                    return None
+                ids = ids[:128]
+                is_p7_mode = False
+            else:
                 return None
-
-            # 编码话题
-            try:
-                ids = tokenizer.encode(topic)
-            except Exception:
-                return None
-            if len(ids) < 3:
-                return None
-            ids = ids[:128]
 
             device = next(self._cortex.neurons.values()).parameters().__next__().device \
                 if self._cortex.neurons else 'cpu'
 
             input_ids = torch.tensor([ids], dtype=torch.long, device=device)
 
-            # 获取共享 embedding
-            with torch.no_grad():
-                if shared_embedding is not None:
+            # 统一用共享 embedding 编码 input_ids
+            if shared_embedding is not None:
+                with torch.no_grad():
                     shared_emb = shared_embedding(input_ids)
-                elif embed_pipeline is not None:
-                    shared_emb = embed_pipeline(input_ids)
-                else:
-                    return None
+            else:
+                return None
 
             # 对每个神经元运行 forward，收集激活模式
             activated_neurons = []

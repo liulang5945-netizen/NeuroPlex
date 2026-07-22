@@ -20,13 +20,15 @@
 
 | 模块 | 当前行为 | 与大脑的断点 |
 |------|---------|------------|
-| life_scheduler | 5 维需求驱动行为 | 需求不映射到神经元行为（hunger→? fatigue→?） |
-| feed_engine | 4 源进食→samples | samples 不按域分类，消费端未适配 |
-| sleep_engine Phase 2 | 训练 ModelSelf | **ModelSelf 已被 Cortex 取代** |
+| life_scheduler | 5 维需求驱动行为 | ✅ 已实现：4/5 需求映射调质（stress→DA↓, curiosity→DA↑, boredom→5HT↓, fatigue→NE↓）；hunger→neurogenesis 待实现 |
+| feed_engine | 4 源进食→samples | ✅ 已修复：samples 按域分类，含 "text" 字段 |
+| sleep_engine Phase 2 | 训练 Cortex neurons | ✅ 已修复：P7 经验驱动学习（shared_embedding + lm_head 协同）|
 | sleep_engine Phase 3.5 | 知识蒸馏 | 依赖 `taiji/agent_ext/` 不存在 |
 | evolution_engine | 4 阶段成长 | 不触发 neurogenesis |
 | explore_engine | 联网学习 | 结果不按域分类 |
 | play_engine | 自由探索 | 不强化 CoactivationTracker |
+| sleep_engine 调质 | ✅ 已实现：双信号驱动 NeuromodulatorState | 自主调控学习率，跨会话持久化 |
+| metabolism → 调质 | ✅ 已实现：CPU 负载→NE，内存→DA 覆盖，资源健康→5HT 覆盖 | 三调质全接线完成 |
 
 ### 1.3 两套睡眠机制
 

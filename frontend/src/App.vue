@@ -5,7 +5,6 @@
         <n-notification-provider>
           <n-message-provider>
             <div class="app-wrapper" @dragenter="onDragEnter" @dragleave="onDragLeave" @dragover="onDragOver" @drop="onDrop">
-              <SplashScreen />
               <ToastManager ref="toastRef" />
               <ConfirmDialog ref="confirmRef" />
               <RuntimeExceptionCenter />
@@ -57,7 +56,6 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import RuntimeExceptionCenter from './components/RuntimeExceptionCenter.vue'
 import AppSidebar from './components/AppSidebar.vue'
 import RouteErrorView from './components/RouteErrorView.vue'
-import SplashScreen from './components/SplashScreen.vue'
 import { UploadCloud } from 'lucide-vue-next'
 import { useAppStore } from './stores/appStore.js'
 import { useChatStore } from './stores/chatStore.js'

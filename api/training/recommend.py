@@ -5,8 +5,6 @@
 """
 import logging
 import os
-import psutil
-import torch
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -24,15 +22,26 @@ class DatasetCheckRequest(BaseModel):
 
 
 def _detect_hardware() -> dict:
-    """检测本地硬件，为原生训练提供配置参考"""
-    cpu_count = psutil.cpu_count(logical=False) or os.cpu_count() or 4
-    ram_gb = psutil.virtual_memory().total / (1024 ** 3)
-    cuda_available = torch.cuda.is_available()
-    gpu_name = ""
-    vram_gb = 0
-    if cuda_available:
-        gpu_name = torch.cuda.get_device_name(0)
-        vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+    """检测本地硬件，为训练提供配置参考"""
+    try:
+        import psutil
+        cpu_count = psutil.cpu_count(logical=False) or os.cpu_count() or 4
+        ram_gb = psutil.virtual_memory().total / (1024 ** 3)
+    except ImportError:
+        cpu_count = os.cpu_count() or 4
+        ram_gb = 0
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        gpu_name = ""
+        vram_gb = 0
+        if cuda_available:
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+    except ImportError:
+        cuda_available = False
+        gpu_name = ""
+        vram_gb = 0
     return {
         "cpu_cores": cpu_count,
         "ram_gb": round(ram_gb, 1),

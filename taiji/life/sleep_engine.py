@@ -24,6 +24,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+from collections import deque
 
 logger = logging.getLogger("SleepEngine")
 
@@ -49,16 +50,6 @@ try:
 except ImportError:
     STDPTracker = None  # type: ignore
 
-try:
-    from taiji.resonance.tribal import CoactivationTracker
-except ImportError:
-    CoactivationTracker = None  # type: ignore
-
-try:
-    from taiji.resonance.quality import QualityFilter
-except ImportError:
-    QualityFilter = None  # type: ignore
-
 
 @dataclass
 class SleepReport:
@@ -73,9 +64,6 @@ class SleepReport:
     user_patterns_updated: int = 0
     health_status: str = "unknown"
     recommendations: List[str] = field(default_factory=list)
-    # P6-7: 自主进化 encoder 训练统计
-    self_evolve_loss: Optional[float] = None
-    self_evolve_steps: int = 0
 
 
 @dataclass
@@ -89,11 +77,6 @@ class SleepConfig:
     training_enabled: bool = True            # 睡眠时是否训练
     max_training_steps: int = 50             # 睡眠时最大训练步数
     save_checkpoints: bool = True            # 睡眠时保存 checkpoint
-    # P6-7: 自主进化 encoder 配置
-    self_evolve_enabled: bool = True         # 是否启用自主进化（P6-6）
-    self_evolve_steps: int = 30              # 每次 sleep 自主进化训练步数
-    self_evolve_lr: float = 1e-4             # 自主进化学习率
-    self_evolve_encoder_path: str = "data/distill/shared_context_encoder.pt"
     auto_generation_transition: bool = False  # 代际迁移（需手动开启，默认关闭）
 
 
@@ -143,17 +126,26 @@ class SleepEngine:
         self._lifecycle: Optional[Any] = None  # LifecycleManager
         self._sleep_consolidator: Optional[Any] = None  # SleepConsolidator
         self._stdp_tracker: Optional[Any] = None  # STDPTracker
-        self._coaction: Optional[Any] = None  # CoactivationTracker
         self._feed_engine: Optional[Any] = None  # FeedEngine
         self._recursive_improver: Optional[Any] = None  # RecursiveImprover
-        self._quality_filter: Optional[Any] = None  # QualityFilter
-        self._neurogenesis_creator: Optional[Any] = None  # NeurogenesisCreator（P2-7）
-        # P6-7: 自主进化 encoder + evolver
-        self._self_evolver: Optional[Any] = None  # SelfEvolver
-        self._context_encoder: Optional[Any] = None  # SharedContextEncoder
         self._current_step: int = 0  # 全局步数计数器（供 SleepConsolidator）
         # P1-2: 神经调质状态（多巴胺/血清素/去甲肾上腺素）
-        self._neuromodulator: Optional[Any] = None
+        # 自主进化核心：双信号驱动调质，自动调节学习率
+        if NeuromodulatorState is not None:
+            try:
+                self._neuromodulator = NeuromodulatorState()
+            except Exception:
+                self._neuromodulator = None
+        else:
+            self._neuromodulator = None
+
+        # 自适应学习率：双信号驱动（loss 趋势 + 准确率）
+        # 快速信号：loss 变化率每轮更新多巴胺目标值
+        self._loss_history: deque = deque(maxlen=10)
+        # 慢速信号：每 N 轮评估 next-token 准确率，校准血清素
+        self._eval_interval: int = 5
+        self._eval_counter: int = 0
+        self._accuracy_history: deque = deque(maxlen=5)
 
         self._data_dir_ready = False
         self._load_history()
@@ -168,27 +160,20 @@ class SleepEngine:
         lifecycle: Optional[Any] = None,
         sleep_consolidator: Optional[Any] = None,
         stdp_tracker: Optional[Any] = None,
-        coactivation: Optional[Any] = None,
         feed_engine: Optional[Any] = None,
         recursive_improver: Optional[Any] = None,
-        quality_filter: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
     ):
         """
         注入神经元架构组件（Cortex + ResonanceEnsemble 体系）。
-
-        替代旧的 model_provider/tokenizer_provider 模式。
-        注入后，睡眠各 Phase 将训练 Cortex 神经元而非单体 ModelSelf。
 
         Args:
             cortex: Cortex 实例（含 neurons + ensemble）
             lifecycle: LifecycleManager（apoptosis/neurogenesis/maturity）
             sleep_consolidator: SleepConsolidator（睡眠巩固）
             stdp_tracker: STDPTracker（局部学习）
-            coactivation: CoactivationTracker（共激活追踪）
             feed_engine: FeedEngine（数据喂养）
             recursive_improver: RecursiveImprover（策略改进）
-            quality_filter: QualityFilter（质量过滤）
             neuromodulator: NeuromodulatorState（P1-2，多巴胺/血清素/去甲肾上腺素）
         """
         if cortex is not None:
@@ -199,14 +184,10 @@ class SleepEngine:
             self._sleep_consolidator = sleep_consolidator
         if stdp_tracker is not None:
             self._stdp_tracker = stdp_tracker
-        if coactivation is not None:
-            self._coaction = coactivation
         if feed_engine is not None:
             self._feed_engine = feed_engine
         if recursive_improver is not None:
             self._recursive_improver = recursive_improver
-        if quality_filter is not None:
-            self._quality_filter = quality_filter
 
         # P1-2: 神经调质状态（若未提供则自动创建默认实例）
         if neuromodulator is not None:
@@ -228,110 +209,17 @@ class SleepEngine:
             except Exception as e:
                 logger.debug(f"cortex.set_neuromodulator 失败（非关键）: {e}")
 
-        # P2-7: 自动创建 NeurogenesisCreator（若 cortex + lifecycle 可用）
-        if self.cortex is not None and self._lifecycle is not None:
-            try:
-                from taiji.resonance import NeurogenesisCreator
-                # 推断 1.5B 教师目录
-                teacher_dir = self._infer_teacher_1_5b_dir()
-                self._neurogenesis_creator = NeurogenesisCreator(
-                    cortex=self.cortex,
-                    lifecycle=self._lifecycle,
-                    feed_engine=self._feed_engine,
-                    teacher_1_5b_dir=teacher_dir,
-                    device=getattr(self.cortex, 'device', 'cpu'),
-                )
-            except Exception as e:
-                logger.debug(f"NeurogenesisCreator 创建失败（非关键）: {e}")
-                self._neurogenesis_creator = None
-
-        # P0-4 fix (C3): 自动初始化 SelfEvolver（若 cortex 已有 _context_encoder）
-        # 原 bug：set_self_evolver 从未被调用，Phase 2.5 永远是死代码
-        if self.cortex is not None and self._self_evolver is None:
-            ctx_encoder = getattr(self.cortex, '_context_encoder', None)
-            if ctx_encoder is not None:
-                try:
-                    self.set_self_evolver(encoder=ctx_encoder)
-                except Exception as e:
-                    logger.debug(f"SelfEvolver 自动初始化失败（非关键）: {e}")
-
         logger.info(
             f"Brain interfaces set: cortex={'✓' if self.cortex else '✗'}, "
             f"lifecycle={'✓' if self._lifecycle else '✗'}, "
             f"sleep_consolidator={'✓' if self._sleep_consolidator else '✗'}, "
             f"stdp={'✓' if self._stdp_tracker else '✗'}, "
-            f"coaction={'✓' if self._coaction else '✗'}, "
             f"feed_engine={'✓' if self._feed_engine else '✗'}, "
-            f"neurogenesis_creator={'✓' if self._neurogenesis_creator else '✗'}, "
-            f"self_evolver={'✓' if self._self_evolver else '✗'}, "
             f"neuromodulator={'✓' if self._neuromodulator else '✗'}"
         )
 
-    def set_self_evolver(
-        self,
-        evolver: Optional[Any] = None,
-        encoder: Optional[Any] = None,
-    ) -> None:
-        """P6-7: 注入自主进化 encoder + evolver.
-
-        若不传 evolver 但传 encoder，则自动构建 SelfEvolver。
-        若都不传，则尝试自动初始化（需要 cortex._shared_embedding 已注册）。
-
-        Args:
-            evolver: SelfEvolver 实例（可选）
-            encoder: SharedContextEncoder 实例（可选，若 evolver 未提供则用此构建）
-        """
-        if evolver is not None:
-            self._self_evolver = evolver
-            self._context_encoder = encoder or getattr(evolver, 'encoder', None)
-        elif encoder is not None:
-            try:
-                from taiji.resonance import (
-                    SharedContextEncoder, HebbianUpdater,
-                    ContrastiveLoss, MLMLoss, SelfEvolver,
-                )
-                hebbian = HebbianUpdater(vocab_size=encoder.vocab_size)
-                contrastive = ContrastiveLoss()
-                mlm = MLMLoss(mask_token_id=4)
-                self._self_evolver = SelfEvolver(encoder, hebbian, contrastive, mlm)
-                self._context_encoder = encoder
-            except Exception as e:
-                logger.warning(f"SelfEvolver 自动构建失败: {e}")
-                self._self_evolver = None
-                self._context_encoder = None
-        else:
-            logger.warning("set_self_evolver 需要至少提供 evolver 或 encoder")
-
-        logger.info(
-            f"Self-evolver set: evolver={'✓' if self._self_evolver else '✗'}, "
-            f"encoder={'✓' if self._context_encoder else '✗'}"
-        )
-
-    def _infer_teacher_1_5b_dir(self) -> Optional[str]:
-        """推断 1.5B gen1 教师模型目录。
-
-        按优先级查找：
-        1. 环境变量 TAIJI_TEACHER_1_5B_DIR
-        2. 默认路径 e:/taiji/checkpoint-400000
-        3. data/teacher_1_5b
-        """
-        import os
-        # 1. 环境变量
-        env_dir = os.environ.get('TAIJI_TEACHER_1_5B_DIR')
-        if env_dir and os.path.exists(env_dir):
-            return env_dir
-        # 2. 默认 gen1 路径
-        default_path = 'e:/taiji/checkpoint-400000'
-        if os.path.exists(default_path):
-            return default_path
-        # 3. 本地 data 目录
-        local_path = 'data/teacher_1_5b'
-        if os.path.exists(local_path):
-            return local_path
-        return None
-    
     # ─── 公开接口 ───────────────────────────────────
-    
+
     def sleep(self, reason: str = "manual") -> SleepReport:
         """
         让态极进入睡眠。
@@ -372,15 +260,6 @@ class SleepEngine:
                 logger.info("  Phase 2: Model training ✅")
             except Exception as e:
                 logger.warning(f"  Phase 2 failed: {e}")
-
-        # Phase 2.5 (P6-7): 自主进化 — encoder/embedding 自组织更新
-        if self.config.self_evolve_enabled and self._self_evolver is not None:
-            try:
-                self._sleep_phase_self_evolve(report)
-                report.phases_completed.append("self_evolve")
-                logger.info("  Phase 2.5: Self-evolve (P6-7) ✅")
-            except Exception as e:
-                logger.warning(f"  Phase 2.5 failed: {e}")
 
         # Phase 3: REM — 知识整合
         try:
@@ -451,10 +330,14 @@ class SleepEngine:
         由 FeedEngine 喂食完成后通过 EventBus 触发。
         只跑 Phase 2（微调），不跑完整的 6 阶段。
         """
+        from datetime import datetime
         if self._is_sleeping:
             return
         self._is_sleeping = True
-        report = SleepReport()
+        report = SleepReport(
+            timestamp=datetime.now().isoformat(),
+            duration_seconds=0,
+        )
         try:
             logger.info(f"Nap: {duration_minutes}min 短睡消化...")
             self._sleep_phase_model_training(report)
@@ -552,107 +435,34 @@ class SleepEngine:
             logger.info("  WorkingMemory not available, skipping")
     
     def _sleep_phase_model_training(self, report: SleepReport):
-        """Phase 2: 神经元训练 - 用收集的数据训练 Cortex 神经元（低秩残差，W_base 冻结）"""
-        # 神经元架构路径：训练 Cortex 神经元
+        """Phase 2: 神经元训练 - 用收集的数据训练 Cortex 神经元（P7 独立 lm_head）。"""
         if self.cortex is not None and hasattr(self.cortex, 'neurons') and self.cortex.neurons:
             self._train_cortex_neurons(report)
             return
 
-        # 回退路径：旧单体模型训练（向后兼容，cortex 未注入时使用）
-        logger.warning("Cortex 未注入，回退到旧单体模型训练路径")
-        try:
-            from taiji.agent_ext.data_collector import get_collector
-            from taiji.data.data_generator import generate_bulk_react_data, generate_bulk_conversation_data
-            logger.warning("taiji.agent_ext/taiji.data 模块用于旧模型回退路径")
-            
-            collector = get_collector()
-            react_data, conv_data = collector.load_as_training_data()
-
-            # B5 修复：加载弱项针对性训练数据
-            try:
-                weakness_dir = os.path.join(self.data_dir, "weakness_training_data")
-                if os.path.isdir(weakness_dir):
-                    for fname in os.listdir(weakness_dir):
-                        if fname.endswith(".json"):
-                            with open(os.path.join(weakness_dir, fname), "r", encoding="utf-8") as f:
-                                weakness_samples = json.load(f)
-                            if isinstance(weakness_samples, list):
-                                for ws in weakness_samples:
-                                    if ws.get("type") == "react":
-                                        react_data.append(ws)
-                                    elif ws.get("type") == "conversation":
-                                        conv_data.append(ws)
-                            logger.info(f"  Loaded {len(weakness_samples) if isinstance(weakness_samples, list) else 0} weakness-training samples from {fname}")
-            except Exception as e:
-                logger.debug(f"  Weakness data load skipped: {e}")
-            
-            report.training_samples_used = len(react_data) + len(conv_data)
-            
-            if not react_data and not conv_data:
-                logger.info("  No new training data, using generated data")
-                react_data = generate_bulk_react_data(50)
-                conv_data = generate_bulk_conversation_data(20)
-                report.training_samples_used = len(react_data) + len(conv_data)
-            
-            logger.info(f"  Training with {report.training_samples_used} samples")
-            
-            # 保存训练数据供后续使用
-            train_data_path = os.path.join(self.data_dir, "sleep_training_data.jsonl")
-            with open(train_data_path, "w", encoding="utf-8") as f:
-                for item in react_data:
-                    f.write(json.dumps({"type": "react", **item}, ensure_ascii=False) + "\n")
-                for item in conv_data:
-                    f.write(json.dumps({"type": "conversation", **item}, ensure_ascii=False) + "\n")
-            
-            # 从喂养引擎获取待消化的训练样本
-            try:
-                from taiji.life.feed_engine import get_feed_engine
-                feed_engine = get_feed_engine()
-                pending_samples = feed_engine.get_pending_samples()
-                if pending_samples:
-                    logger.info(f"  Got {len(pending_samples)} pending samples from feed engine")
-                    # 将喂养引擎的样本也加入训练
-                    for sample in pending_samples:
-                        if sample.get("type") == "react":
-                            react_data.append(sample)
-                        elif sample.get("type") == "conversation":
-                            conv_data.append(sample)
-                    report.training_samples_used += len(pending_samples)
-            except Exception as e:
-                logger.debug(f"  Feed engine integration skipped: {e}")
-
-            # 实际调用态极训练器进行在线微调
-            training_loss = self._run_sleep_training(react_data, conv_data)
-            if training_loss is not None:
-                report.training_loss = training_loss
-                logger.info(f"  Sleep training completed, loss={training_loss:.4f}")
-            
-            # 标记数据已使用
-            collector.flush()
-
-            # 清除喂养引擎已消化的样本
-            try:
-                from taiji.life.feed_engine import get_feed_engine
-                feed_engine = get_feed_engine()
-                feed_engine.clear_pending_samples()
-                logger.info("  Feed engine pending samples cleared")
-            except Exception as e:
-                logger.debug("sleep_engine: non-critical %s", e, exc_info=True)
-            
-        except ImportError:
-            logger.warning("  DataCollector not available, skipping legacy training")
+        logger.warning("Cortex 未注入，跳过睡眠训练")
 
     def _train_cortex_neurons(self, report: SleepReport):
         """
-        神经元架构：训练 Cortex 中每个域的神经元。
+        神经元架构：训练 Cortex 中每个域的神经元（P7 模式）。
 
         核心流程：
+        0. 调用 metabolism.update_neuromodulator() 评估硬件状态 → 更新 NE（field_write 强度）
         1. 从 feed_engine.get_pending_samples_by_domain() 获取按域分类的样本
-        2. 对每个 domain 的 neuron 训练 lm_head_delta_u/v（低秩残差），W_base 冻结
+        2. 用域 tokenizer + per-neuron embedding 训练独立 lm_head
         3. 记录 PPL 到 lifecycle.apoptosis.record_ppl
         4. 调用 stdp_tracker.apply_all_updates(cortex.neurons) 应用 STDP
         5. 检查 lifecycle.neurogenesis 触发条件
         """
+        # Step 0: 硬件状态评估 → 更新去甲肾上腺素（field_write 强度）
+        # 自主进化：训练前感知硬件负载，高负载时降低 NE → 减少 field_write → 节能
+        try:
+            from taiji.body import metabolism
+            metabolism.set_neuromodulator(self._neuromodulator)
+            metabolism.update_neuromodulator()
+        except Exception as e:
+            logger.debug(f"metabolism 调质更新失败（非关键）: {e}")
+
         # 获取按域分类的训练样本
         domain_samples: Dict[str, list] = {}
         if self._feed_engine is not None:
@@ -673,55 +483,81 @@ class SleepEngine:
             logger.info("  无训练样本，跳过 Cortex 训练")
             return
 
-        # 获取共享 embedding 和 tokenizer（从 Cortex 提取）
-        shared_embedding = getattr(self.cortex, '_shared_embedding', None)
-        tokenizer = getattr(self.cortex, '_tokenizer', None)
-        embed_pipeline = getattr(self.cortex, '_embed_pipeline', None)
-
-        if shared_embedding is None and embed_pipeline is None:
-            logger.warning("  Cortex 未设置 shared_embedding/embed_pipeline，跳过训练")
+        tokenizer_hub = getattr(self.cortex, '_tokenizer_hub', None)
+        if tokenizer_hub is None:
+            logger.warning("  Cortex 未设置 tokenizer_hub，跳过训练")
             return
 
-        ppl_results: Dict[str, float] = {}
-        total_loss = 0.0
-        trained_count = 0
+        logger.info("  P7 模式：使用 per-neuron embedding + 域 tokenizer 训练")
 
-        for domain, samples in domain_samples.items():
-            # 找到对应域的神经元
-            neuron = self.cortex.neurons.get(domain)
-            if neuron is None:
-                logger.debug(f"  域 '{domain}' 无对应神经元，跳过")
-                continue
+        # 获取训练锁，防止与 generate/其他训练并发修改 neuron 权重
+        # 非阻塞：锁被占用时跳过本次训练，不阻塞睡眠流程
+        from taiji.core.app_state import app_state
+        if not app_state.try_start_training():
+            logger.warning("  训练锁被占用，跳过本次 Cortex 训练")
+            return
 
-            if not samples:
-                continue
+        try:
+            ppl_results: Dict[str, float] = {}
+            total_loss = 0.0
+            trained_count = 0
 
-            # 训练该神经元的低秩残差（W_base 冻结）
-            avg_loss, ppl = self._train_single_neuron(
-                neuron, domain, samples, shared_embedding, embed_pipeline, tokenizer
-            )
+            for domain, samples in domain_samples.items():
+                # 找到对应域的神经元
+                neuron = self.cortex.neurons.get(domain)
+                if neuron is None:
+                    logger.debug(f"  域 '{domain}' 无对应神经元，跳过")
+                    continue
 
-            if avg_loss is not None:
-                total_loss += avg_loss
-                trained_count += 1
-                ppl_results[domain] = ppl
-                logger.info(f"  域 '{domain}' 训练完成: loss={avg_loss:.4f}, PPL={ppl:.1f}")
+                if not samples:
+                    continue
+
+                # 分离文本样本和多模态样本
+                text_samples = [s for s in samples if s.get("type") != "multimodal"]
+                mm_samples = [s for s in samples if s.get("type") == "multimodal"]
+
+                # 文本样本训练（经验驱动：shared_embedding + lm_head 协同学习）
+                if text_samples:
+                    avg_loss, ppl = self._train_single_neuron(
+                        neuron, domain, text_samples, cortex=self.cortex
+                    )
+
+                    if avg_loss is not None:
+                        total_loss = total_loss + avg_loss
+                        trained_count = trained_count + 1
+                        ppl_results[domain] = ppl
+                        logger.info(f"  域 '{domain}' 文本训练完成: loss={avg_loss:.4f}, PPL={ppl:.1f}")
+
+                # 多模态样本训练（新逻辑）— 所有 neuron 参与共振
+                for mm_sample in mm_samples:
+                    modality = mm_sample.get("modality")
+                    if modality:
+                        mm_loss, mm_ppl = self._train_multimodal_ensemble(
+                            modality, mm_sample, tokenizer_hub=tokenizer_hub
+                        )
+                        if mm_loss is not None:
+                            total_loss = total_loss + mm_loss
+                            trained_count = trained_count + 1
+                            logger.info(f"  模态 '{modality}' ensemble 训练完成: loss={mm_loss:.4f}, PPL={mm_ppl:.1f}")
 
                 # 记录 PPL 到凋亡追踪器
                 if self._lifecycle is not None:
                     try:
-                        self._lifecycle.apoptosis.record_ppl(domain, ppl)
+                        if domain in ppl_results:
+                            self._lifecycle.apoptosis.record_ppl(domain, ppl_results[domain])
                     except Exception as e:
                         logger.debug(f"  apoptosis.record_ppl 失败: {e}")
 
-        # 应用 STDP 更新（局部学习规则）
-        if self._stdp_tracker is not None:
-            try:
-                updates = self._stdp_tracker.apply_all_updates(self.cortex.neurons)
-                if updates:
-                    logger.info(f"  STDP 更新: {len(updates)} 个神经元")
-            except Exception as e:
-                logger.warning(f"  STDP 更新失败: {e}")
+            # 应用 STDP 更新（局部学习规则，也修改权重，需在锁内）
+            if self._stdp_tracker is not None:
+                try:
+                    updates = self._stdp_tracker.apply_all_updates(self.cortex.neurons)
+                    if updates:
+                        logger.info(f"  STDP 更新: {len(updates)} 个神经元")
+                except Exception as e:
+                    logger.warning(f"  STDP 更新失败: {e}")
+        finally:
+            app_state.finish_training()
 
         # 检查 neurogenesis 触发条件
         if self._lifecycle is not None and self._feed_engine is not None:
@@ -734,27 +570,7 @@ class SleepEngine:
                         report.recommendations.append(
                             f"[神经新生] 域 '{domain}' 错误率过高，建议创建新神经元"
                         )
-                        # P2-7: 实际创建新神经元（分场景教师选择）
-                        if self._neurogenesis_creator is not None:
-                            try:
-                                result = self._neurogenesis_creator.create_neuron_for_domain(domain)
-                                if result.get("success"):
-                                    logger.info(
-                                        f"  [神经新生] 域 '{domain}' 新神经元已创建: "
-                                        f"id='{result.get('neuron_id')}', "
-                                        f"教师类型='{result.get('teacher_type')}'"
-                                    )
-                                    report.recommendations.append(
-                                        f"[神经新生完成] 新神经元 id='{result.get('neuron_id')}'，"
-                                        f"教师={result.get('teacher_type')}"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"  [神经新生] 域 '{domain}' 创建失败: "
-                                        f"{result.get('error')}"
-                                    )
-                            except Exception as e:
-                                logger.error(f"  [神经新生] 创建异常: {e}", exc_info=True)
+                        # P7: 神经新生创建需由外部流程触发（train_neuron.py 从头训练）
             except Exception as e:
                 logger.debug(f"  neurogenesis 检查失败: {e}")
 
@@ -769,678 +585,462 @@ class SleepEngine:
         if trained_count > 0:
             report.training_loss = total_loss / trained_count
 
-        # P0-4 fix (C1): 不在此清空样本 — Phase 2.5 (self-evolve) 也要用这批样本
-        # 清空操作移到 sleep() 主流程末尾统一执行
-        # （原 bug：Phase 2 清空后 Phase 2.5 拿不到数据）
+        # ── 自适应学习率：双信号驱动神经调质 ──
+        if trained_count > 0 and self._neuromodulator is not None:
+            self._update_neuromodulators(report.training_loss)
+
+        # 训练后自动保存经验积累状态（shared_embedding + lm_head 权重）
+        # 使下次启动 Cortex 时从当前状态继续，而非从随机初始化重新开始
+        # 测试模式下（TAJIJI_TEST_MODE=1）跳过保存，确保测试可复现
+        if trained_count > 0 and not os.environ.get('TAJIJI_TEST_MODE'):
+            try:
+                neurons_dir = getattr(self.cortex, 'neurons_dir', 'data/neurons')
+                self.cortex.save_state(neurons_dir)
+                logger.info(f"  经验积累状态已保存到 {neurons_dir}/cortex_state.pt")
+            except Exception as e:
+                logger.warning(f"  保存经验积累状态失败（非致命）: {e}")
 
         # 步数递增
         self._current_step += 1
 
-    def _sleep_phase_self_evolve(self, report: SleepReport):
-        """P6-7: 自主进化阶段 — 在 sleep cycle 中训练 SharedContextEncoder.
+    def _update_neuromodulators(self, current_loss: float) -> None:
+        """双信号驱动神经调质更新（自主进化核心）。
 
-        流程：
-        1. 从 feed_engine 收集训练样本（按 domain 分组，用于 contrastive 弱监督）
-        2. 每个 step: sample batch → evolver.training_step → backward → optimizer.step
-        3. 定期 apply_hebbian_to_embedding（离线 Hebbian 更新）
-        4. 训练完成后保存 encoder 到磁盘
+        快速信号（每轮）：loss 变化率 → 多巴胺 → 学习率倍数
+        慢速信号（每 N 轮）：next-token 准确率 → 血清素 → 满足度
 
-        三机制训练：
-        - MLM: 自监督主信号（mask 15% token 预测）
-        - Contrastive: 用 domain 作弱监督（同 domain 拉近）
-        - Hebbian: 离线更新 embedding（共激活 token 拉近）
+        人脑启发：
+        - 多巴胺 = 奖励预测误差。loss 快速下降 = 学习有效 = 正奖励 → dopamine↑ → lr↑
+        - 血清素 = 满足感。准确率长期改善 = 能力提升 = 满足 → serotonin↑
         """
-        if self._self_evolver is None:
-            logger.info("  Self-evolver 未注入，跳过")
-            return
+        # ── 快速信号：loss 趋势 → 多巴胺 ──
+        self._loss_history.append(current_loss)
 
-        # 1. 收集训练样本
-        domain_samples: Dict[str, list] = {}
-        if self._feed_engine is not None:
-            try:
-                domain_samples = self._feed_engine.get_pending_samples_by_domain()
-            except Exception as e:
-                logger.warning(f"  FeedEngine 获取样本失败: {e}")
+        if len(self._loss_history) >= 2:
+            prev_loss = self._loss_history[-2]
+            if prev_loss > 0:
+                # loss 变化率：负值表示下降（学习有效）
+                delta = (current_loss - prev_loss) / prev_loss
 
-        if not domain_samples and self.cortex is not None:
-            # 回退：尝试从 domain_datasets.pt 加载（蒸馏数据）
-            try:
-                import torch
-                domain_data = torch.load(
-                    "data/distill/domain_datasets.pt",
-                    map_location="cpu", weights_only=False,
-                )
-                tokenizer = getattr(self.cortex, '_tokenizer', None)
-                if tokenizer is not None:
-                    for nid, ids_tensor in domain_data.items():
-                        # 取前 50 个 sample 的 token ids 转 text
-                        ids_list = ids_tensor[:50].tolist()
-                        domain_samples[nid] = [
-                            tokenizer.encode(tokenizer.decode(ids)) if False else ids
-                            for ids in ids_list
-                        ]
-            except Exception as e:
-                logger.debug(f"  domain_datasets.pt 加载失败: {e}")
-
-        total_samples = sum(len(s) for s in domain_samples.values())
-        if total_samples == 0:
-            logger.info("  无训练样本，跳过 self-evolve")
-            return
-
-        logger.info(f"  Self-evolve: {len(domain_samples)} 个域, {total_samples} 条样本")
-
-        # 2. 准备训练数据：flatten 成 (input_ids, domain_id) 对
-        import torch
-        tokenizer = getattr(self.cortex, '_tokenizer', None)
-        domain_to_id: Dict[str, int] = {
-            domain: i for i, domain in enumerate(domain_samples.keys())
-        }
-
-        # 把样本转成 token ids（若 samples 已是 ids 则直接用）
-        # P0-4 fix (C2): 支持 feed_engine 的 dict 样本格式
-        all_samples: List[tuple] = []  # [(input_ids, domain_id), ...]
-        for domain, samples in domain_samples.items():
-            did = domain_to_id[domain]
-            for s in samples:
-                ids = None
-                if isinstance(s, str) and tokenizer is not None:
-                    ids = tokenizer.encode(s)
-                elif isinstance(s, list):
-                    ids = s
-                elif hasattr(s, 'tolist'):
-                    ids = s.tolist()
-                elif isinstance(s, dict) and tokenizer is not None:
-                    # P0-4 fix (C2): feed_engine 的 dict 样本
-                    # 提取文本：优先 task/content/messages
-                    text = (
-                        s.get('task') or s.get('content')
-                        or s.get('text') or s.get('prompt')
-                    )
-                    if text is None and 'messages' in s:
-                        # 从 messages 列表提取 user/assistant 文本
-                        msgs = s['messages']
-                        if isinstance(msgs, list):
-                            text = ' '.join(
-                                m.get('content', '') for m in msgs
-                                if isinstance(m, dict)
-                            )
-                    if text:
-                        ids = tokenizer.encode(text)
+                if delta < -0.2:
+                    # 快速下降 → 强奖励
+                    dopamine_target = 0.85
+                elif delta < -0.05:
+                    # 正常下降 → 适度奖励
+                    dopamine_target = 0.6
+                elif delta < 0.05:
+                    # 停滞 → 降低
+                    dopamine_target = 0.3
                 else:
-                    continue
-                if isinstance(ids, list) and len(ids) > 0:
-                    all_samples.append((ids, did))
+                    # loss 上升 → 惩罚
+                    dopamine_target = 0.15
 
-        if not all_samples:
-            logger.warning("  无有效训练样本（tokenize 失败）")
-            return
+                self._neuromodulator.set_targets(dopamine=dopamine_target)
 
-        # 3. 训练循环
-        encoder = self._context_encoder
-        device = next(encoder.parameters()).device
-        encoder.train()
-        optimizer = torch.optim.AdamW(
-            encoder.parameters(), lr=self.config.self_evolve_lr,
-        )
+                logger.info(
+                    f"  调质更新: loss={current_loss:.4f} (Δ={delta:+.1%}) → "
+                    f"dopamine_target={dopamine_target} → lr_mult={self._neuromodulator.get_lr_multiplier():.2f}"
+                )
 
-        max_steps = min(self.config.self_evolve_steps, len(all_samples))
-        batch_size = 4
-        seq_len = 64  # 截断到 64 token 避免 OOM
-        total_loss = 0.0
-        hebbian_apply_interval = 10  # 每 10 步应用一次 Hebbian
+        # ── 慢速信号：每 N 轮评估准确率 → 血清素 ──
+        self._eval_counter += 1
+        if self._eval_counter >= self._eval_interval:
+            self._eval_counter = 0
+            try:
+                accuracy = self._evaluate_next_token_accuracy()
+                if accuracy is not None:
+                    self._accuracy_history.append(accuracy)
 
-        import random
-        random.shuffle(all_samples)
+                    if len(self._accuracy_history) >= 2:
+                        prev_acc = self._accuracy_history[-2]
+                        acc_delta = accuracy - prev_acc
 
-        for step in range(max_steps):
-            # 采样 batch
-            batch_samples = all_samples[step * batch_size:(step + 1) * batch_size]
-            if len(batch_samples) < 2:
-                continue  # contrastive 至少需要 2 个样本
+                        if acc_delta > 0.02:
+                            # 准确率提升 → 满足
+                            serotonin_target = 0.7
+                        elif acc_delta > -0.02:
+                            # 持平 → 中性
+                            serotonin_target = 0.5
+                        else:
+                            # 下降 → 不满足
+                            serotonin_target = 0.3
 
-            # 构造 batch tensor
-            batch_ids = []
-            domain_labels = []
-            for ids, did in batch_samples:
-                # 截断或 padding 到 seq_len
-                truncated = ids[:seq_len]
-                if len(truncated) < seq_len:
-                    truncated = truncated + [0] * (seq_len - len(truncated))
-                batch_ids.append(truncated)
-                domain_labels.append(did)
+                        self._neuromodulator.set_targets(serotonin=serotonin_target)
+                        logger.info(
+                            f"  慢速校准: acc={accuracy:.1%} (Δ={acc_delta:+.1%}) → "
+                            f"serotonin_target={serotonin_target}"
+                        )
+            except Exception as e:
+                logger.debug(f"  准确率评估失败: {e}")
 
-            input_ids = torch.tensor(batch_ids, dtype=torch.long, device=device)
-            domain_tensor = torch.tensor(domain_labels, dtype=torch.long, device=device)
+        # EMA 趋近目标值（调质不会突变，而是缓慢调整）
+        self._neuromodulator.step()
 
-            # training_step
-            optimizer.zero_grad()
-            loss = self._self_evolver.training_step(
-                batch={"input_ids": input_ids},
-                domain_labels=domain_tensor,
-            )
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(encoder.parameters(), 1.0)
-            optimizer.step()
+    def _evaluate_next_token_accuracy(self) -> Optional[float]:
+        """评估 next-token 预测准确率（慢速信号）。
 
-            total_loss += float(loss.item())
-
-            # 定期 Hebbian 更新
-            if (step + 1) % hebbian_apply_interval == 0:
-                with torch.no_grad():
-                    self._self_evolver.apply_hebbian_to_embedding()
-
-            if (step + 1) % 5 == 0:
-                avg = total_loss / (step + 1)
-                logger.info(f"  self-evolve step {step+1}/{max_steps}, loss={avg:.4f}")
-
-        encoder.eval()
-
-        # 4. 保存 encoder
-        try:
-            encoder.save(self.config.self_evolve_encoder_path)
-        except Exception as e:
-            logger.warning(f"  encoder 保存失败: {e}")
-
-        # 5. 记录到 report
-        avg_loss = total_loss / max(max_steps, 1)
-        report.self_evolve_loss = avg_loss
-        report.self_evolve_steps = max_steps
-
-        # 6. 记录 evolver 的 loss 分解（诊断）
-        summary = self._self_evolver.get_loss_summary()
-        logger.info(
-            f"  Self-evolve 完成: avg_loss={avg_loss:.4f}, "
-            f"final_mlm={summary.get('mlm', 0):.4f}, "
-            f"final_contrastive={summary.get('contrastive', 0):.4f}, "
-            f"hebbian_update={summary.get('hebbian', 0):.6f}"
-        )
-
-    def _train_single_neuron(self, neuron, domain: str, samples: list,
-                             shared_embedding, embed_pipeline, tokenizer) -> tuple:
+        用 feed_engine 中最近的样本做评估：
+        - 对每个样本，用前缀预测下一个 token
+        - 统计 top-1 准确率
         """
-        训练单个 Cortex 神经元的低秩残差（lm_head_delta_u/v），W_base 冻结。
+        if self.cortex is None or self._feed_engine is None:
+            return None
+
+        tokenizer_hub = getattr(self.cortex, '_tokenizer_hub', None)
+        shared_embedding = getattr(self.cortex, '_shared_embedding', None)
+        general_sp = getattr(self.cortex, '_general_sp', None)
+
+        if tokenizer_hub is None or shared_embedding is None or general_sp is None:
+            return None
+
+        # 获取最近样本
+        domain_samples = self._feed_engine.get_pending_samples_by_domain()
+        if not domain_samples:
+            return None
+
+        correct = 0
+        total = 0
+
+        import torch
+        with torch.no_grad():
+            for domain, samples in domain_samples.items():
+                neuron = self.cortex.neurons.get(domain)
+                if neuron is None:
+                    continue
+
+                domain_sp = tokenizer_hub.get_tokenizer(domain)
+                if domain_sp is None:
+                    continue
+
+                for sample in samples[:5]:  # 每域最多评估 5 条
+                    text = sample.get("text", "") if isinstance(sample, dict) else str(sample)
+                    if not text or len(text) < 5:
+                        continue
+
+                    domain_ids = tokenizer_hub.encode(text, domain=domain)
+                    if len(domain_ids) < 4:
+                        continue
+
+                    # 逐 token 映射构造输入（与训练路径一致）
+                    general_ids = []
+                    for did in domain_ids:
+                        piece = domain_sp.id_to_piece(did)
+                        gen_ids = general_sp.EncodeAsIds(piece)
+                        if gen_ids:
+                            general_ids.append(gen_ids[0])
+                        else:
+                            general_ids.append(0)
+
+                    # 对每个位置预测下一个 token
+                    for i in range(1, min(len(general_ids) - 1, 8)):
+                        prefix = general_ids[:i + 1]
+                        if len(prefix) < 2:
+                            continue
+
+                        ids_tensor = torch.tensor([prefix], dtype=torch.long,
+                                                   device=shared_embedding.weight.device)
+                        emb = shared_embedding(ids_tensor)
+                        result = neuron.forward(emb, field_state=None, round_num=1,
+                                                return_logits=True)
+                        logits = result.get("logits")
+                        if logits is None:
+                            continue
+
+                        pred = torch.argmax(logits[0, -1, :]).item()
+                        true = domain_ids[i + 1] if i + 1 < len(domain_ids) else domain_ids[-1]
+
+                        total += 1
+                        if pred == true:
+                            correct += 1
+
+        if total == 0:
+            return None
+        return correct / total
+
+    def _train_single_neuron(
+        self, neuron, domain: str, samples: list, cortex
+    ) -> tuple:
+        """P7: 训练单个神经元的独立 lm_head + shared_embedding 协同学习。
+
+        经验驱动学习（非蒸馏）：
+        - 输入：general tokenizer encode → general_ids → cortex._shared_embedding 查表 → embeddings
+        - 目标：domain tokenizer encode → domain_ids（lm_head 输出在 domain vocab）
+        - 可训练参数：neuron.lm_head + neuron.embed_adapter + cortex._shared_embedding
+        - 训练后 shared_embedding 的更新保留在 cortex 中（经验积累）
+
+        Args:
+            neuron: ResonanceNeuron 实例
+            domain: 域标签
+            samples: 训练样本列表（dict with text content）
+            cortex: Cortex 实例（提供 shared_embedding + general_sp + tokenizer_hub）
 
         Returns:
-            (avg_loss, ppl) 元组，失败时为 (None, None)
+            (avg_loss, ppl) or (None, None) on failure
         """
         import torch
         import torch.nn.functional as F
 
-        # 收集可训练参数：仅低秩残差 u/v
-        trainable_params = []
-        if hasattr(neuron, 'lm_head_delta_u'):
-            trainable_params.extend(
-                p for p in neuron.lm_head_delta_u.parameters() if p.requires_grad
-            )
-        if hasattr(neuron, 'lm_head_delta_v'):
-            trainable_params.extend(
-                p for p in neuron.lm_head_delta_v.parameters() if p.requires_grad
-            )
+        # 从 cortex 获取 P7 组件
+        shared_embedding = getattr(cortex, '_shared_embedding', None)
+        general_sp = getattr(cortex, '_general_sp', None)
+        tokenizer_hub = getattr(cortex, '_tokenizer_hub', None)
 
-        # 传统模式（lm_head_rank=0）：回退到训练完整 lm_head
-        if not trainable_params and hasattr(neuron, 'lm_head'):
-            trainable_params = [p for p in neuron.lm_head.parameters() if p.requires_grad]
-
-        if not trainable_params:
-            logger.debug(f"  神经元 '{domain}' 无可训练参数")
+        if shared_embedding is None:
+            logger.warning(f"  [{domain}] cortex._shared_embedding 未设置，跳过")
             return None, None
-
-        # 准备训练文本
-        texts = []
-        for sample in samples:
-            if isinstance(sample, dict):
-                text = sample.get("task") or sample.get("content") or ""
-                if sample.get("messages"):
-                    text = " ".join(
-                        m.get("content", "") for m in sample["messages"]
-                        if m.get("role") != "system"
-                    )
-                if text and len(text.strip()) > 5:
-                    texts.append(text.strip())
-
-        if not texts:
+        if general_sp is None:
+            logger.warning(f"  [{domain}] cortex._general_sp 未设置，跳过")
+            return None, None
+        if tokenizer_hub is None:
+            logger.warning(f"  [{domain}] cortex._tokenizer_hub 未设置，跳过")
             return None, None
 
         device = next(neuron.parameters()).device
-        # P1-2: 神经调质调整学习率（多巴胺驱动）
-        # 高多巴胺 → lr 倍数↑（奖励信号，强化学习）
-        # 低多巴胺 → lr 倍数↓（错误信号，保守更新）
-        base_lr = 5e-5
-        lr_mult = 1.0
-        if getattr(self, '_neuromodulator', None) is not None:
-            try:
-                lr_mult = self._neuromodulator.get_lr_multiplier()
-            except Exception:
-                pass
-        optimizer = torch.optim.AdamW(
-            trainable_params, lr=base_lr * lr_mult, weight_decay=0.01
-        )
 
-        max_steps = min(self.config.max_training_steps, len(texts))
+        # 收集可训练参数：lm_head + embed_adapter + shared_embedding
+        # shared_embedding 是感官层，与神经元协同学习（经验驱动，非蒸馏）
+        trainable_params = list(neuron.lm_head.parameters())
+        if hasattr(neuron, 'embed_adapter'):
+            trainable_params.extend(neuron.embed_adapter.parameters())
+        trainable_params.extend(shared_embedding.parameters())
+
+        if not trainable_params:
+            logger.warning(f"  [{domain}] 无可训练参数，跳过")
+            return None, None
+
+        # 自适应学习率：神经调质（多巴胺）驱动 lr 倍数
+        # 自主进化时，多巴胺由 loss 趋势 + 准确率双信号自动调节
+        base_lr = 1e-3
+        lr_mult = 1.0
+        if self._neuromodulator is not None:
+            lr_mult = self._neuromodulator.get_lr_multiplier()
+        adaptive_lr = base_lr * lr_mult
+        optimizer = torch.optim.AdamW(trainable_params, lr=adaptive_lr)
+
+        # 提取训练文本
+        texts = []
+        for sample in samples:
+            if isinstance(sample, dict):
+                text = sample.get("text", "") or sample.get("content", "") or \
+                       sample.get("task", "") or sample.get("answer", "") or \
+                       " ".join(str(v) for v in sample.values() if isinstance(v, str))
+            else:
+                text = str(sample)
+            if len(text.strip()) > 10:
+                texts.append(text)
+
+        if not texts:
+            logger.debug(f"  [{domain}] 无有效训练文本，跳过")
+            return None, None
+
+        # 限制样本数（CPU 模式下不宜太多）
+        max_samples = min(len(texts), 32)
+        texts = texts[:max_samples]
+
         neuron.train()
         total_loss = 0.0
-        step_count = 0
-        loss_history = []
+        trained_steps = 0
 
-        for i in range(max_steps):
-            text = texts[i % len(texts)]
-            if tokenizer is None:
-                break
+        # 多 epoch 训练：少量样本需要重复学习才能有效更新权重
+        # 从随机初始化学习需要更多训练次数（非微调）
+        NUM_EPOCHS = 3
+        domain_sp = tokenizer_hub.get_tokenizer(domain)
+        for epoch in range(NUM_EPOCHS):
+            for text in texts:
+                try:
+                    # 目标：domain tokenizer encode → domain_ids（lm_head 输出空间）
+                    domain_ids = tokenizer_hub.encode(text, domain=domain)
+                    if not domain_ids or len(domain_ids) < 3:
+                        continue
+                    domain_ids = domain_ids[:256]
+                    target_ids = torch.tensor([domain_ids], dtype=torch.long, device=device)
 
-            # 编码
-            try:
-                ids = tokenizer.encode(text)
-            except Exception:
-                continue
-            if len(ids) < 5:
-                continue
-            ids = ids[:512]
+                    # 输入：逐 token 映射 domain_ids → general_ids
+                    # 每个 domain token 的 piece 用 general tokenizer 重新编码，
+                    # 取第一个 general token id 查找 shared_embedding。
+                    # 这样 input 和 target 长度一致（都是 len(domain_ids)），
+                    # 自回归 CE loss 的 shift 对齐正确。
+                    general_ids = []
+                    for did in domain_ids:
+                        piece = domain_sp.id_to_piece(did)
+                        gen_ids = general_sp.EncodeAsIds(piece)
+                        if gen_ids:
+                            general_ids.append(gen_ids[0])
+                        else:
+                            general_ids.append(0)
 
-            input_ids = torch.tensor([ids], dtype=torch.long, device=device)
+                    if len(general_ids) < 3:
+                        continue
+                    input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
+                    embeddings = shared_embedding(input_ids)
 
-            # 获取共享 embedding
-            with torch.no_grad():
-                if shared_embedding is not None:
-                    shared_emb = shared_embedding(input_ids)
-                elif embed_pipeline is not None:
-                    shared_emb = embed_pipeline(input_ids)
-                else:
+                    # Forward + backward
+                    optimizer.zero_grad()
+                    result = neuron.forward(
+                        embeddings, field_state=None, round_num=1,
+                        return_logits=True,
+                    )
+                    logits = result["logits"]  # [1, L, domain_vocab]
+
+                    # 自回归 CE loss: predict next domain token
+                    # input 和 target 长度一致（都是 len(domain_ids)），shift 对齐正确
+                    min_len = logits.size(1) - 1
+                    if min_len < 1:
+                        continue
+                    shift_logits = logits[:, :min_len, :].contiguous()
+                    shift_targets = target_ids[:, 1:1 + min_len].contiguous()
+
+                    # clamp targets to neuron's vocab
+                    vocab_size = logits.size(-1)
+                    shift_targets = shift_targets.clamp(0, vocab_size - 1)
+
+                    loss = F.cross_entropy(
+                        shift_logits.view(-1, shift_logits.size(-1)),
+                        shift_targets.view(-1),
+                        ignore_index=-100,
+                    )
+                    loss.backward()
+                    optimizer.step()
+
+                    total_loss += loss.item()
+                    trained_steps += 1
+
+                except Exception as e:
+                    logger.debug(f"  [{domain}] 训练步失败: {e}")
                     continue
-
-            # 前向传播（带 logits）
-            output = neuron.forward(shared_emb, return_logits=True)
-            logits = output.get("logits")
-            if logits is None:
-                continue
-
-            # 计算损失（next token prediction）
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_targets = input_ids[:, 1:].contiguous()
-            loss = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_targets.view(-1),
-                ignore_index=-100,
-            )
-
-            if loss.item() == 0:
-                continue
-
-            # 反向传播
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-            optimizer.step()
-
-            final_loss = loss.item()
-            total_loss += final_loss
-            loss_history.append(final_loss)
-            step_count += 1
-
-            if step_count % 10 == 0:
-                logger.info(f"  [{domain}] 训练 step {step_count}/{max_steps}, loss={final_loss:.4f}")
-
-            # 早停：loss 连续 5 步上升
-            if len(loss_history) >= 7:
-                recent = loss_history[-5:]
-                if all(recent[j] > recent[j-1] for j in range(1, len(recent))):
-                    logger.info(f"  [{domain}] 早停：loss 连续上升，step={step_count}")
-                    break
 
         neuron.eval()
 
-        if step_count == 0:
+        if trained_steps == 0:
             return None, None
 
-        avg_loss = total_loss / step_count
-        ppl = math.exp(avg_loss) if avg_loss < 20 else 999.0
+        avg_loss = total_loss / trained_steps
+        ppl = math.exp(min(avg_loss, 20))
         return avg_loss, ppl
 
-    def _run_sleep_training(self, react_data: list, conv_data: list):
-        """
-        执行睡眠训练：在线微调态极 ModelSelf 模型
+    def _train_multimodal_ensemble(
+        self, modality: str, sample: dict, tokenizer_hub
+    ) -> tuple:
+        """P8: 多模态 ensemble 共振训练。
 
-        直接使用 PyTorch 进行轻量级微调，限制步数以控制睡眠时长。
-        通过注入的 model_provider/tokenizer_provider 获取模型。
+        与推理路径一致：所有注册了该模态的 neuron 参与共振，
+        weighted_logits 作为最终输出计算 loss，反传到所有参与 neuron。
+
+        Args:
+            modality: 模态类型（image/audio/video）
+            sample: 多模态训练样本（含 input_ids, target_ids）
+            tokenizer_hub: P7 TokenizerHub
+
+        Returns:
+            (loss, ppl) or (None, None) on failure
         """
         import torch
         import torch.nn.functional as F
-        _app_state = None
-        try:
-            # 获取训练锁，避免与其他训练进程并发操作同一模型
-            try:
-                from taiji.core.app_state import app_state
-                _app_state = app_state
-                if hasattr(app_state, 'try_start_training'):
-                    if not app_state.try_start_training():
-                        logger.info("  其他训练正在进行，跳过睡眠训练以避免权重冲突")
-                        return None
-            except ImportError:
-                logger.debug("  taiji.core.app_state 不可用")
-            except Exception as e:
-                logger.debug(f"  训练锁获取失败: {e}")
 
-            # 优先使用注入的 provider（解耦 core.app_state）
-            model = None
-            tokenizer = None
-            if self._model_provider:
-                try:
-                    model = self._model_provider()
-                except Exception as e:
-                    logger.debug(f"  model_provider 调用失败: {e}")
-            if self._tokenizer_provider:
-                try:
-                    tokenizer = self._tokenizer_provider()
-                except Exception as e:
-                    logger.debug(f"  tokenizer_provider 调用失败: {e}")
+        cortex = self.cortex
+        if cortex is None:
+            logger.debug(f"  [{modality}] cortex 未初始化")
+            return None, None
 
-            # 回退：尝试从 taiji.core.app_state 获取
-            if model is None or tokenizer is None:
-                try:
-                    from taiji.core.app_state import app_state
-                    if model is None and hasattr(app_state, 'model'):
-                        model = app_state.model
-                    if tokenizer is None and hasattr(app_state, 'tokenizer'):
-                        tokenizer = app_state.tokenizer
-                except ImportError:
-                    pass
+        # 找出所有支持该模态的 neuron
+        mm_nids = [
+            nid for nid, neuron in cortex.neurons.items()
+            if modality in neuron.mm_projections and modality in neuron.mm_lm_heads
+        ]
+        if not mm_nids:
+            logger.debug(f"  [{modality}] 无 neuron 支持该模态")
+            return None, None
 
-            if model is None or tokenizer is None:
-                logger.info("  No model available, skipping training")
-                return None
+        # 收集所有可训练参数
+        trainable_params = []
+        for nid in mm_nids:
+            neuron = cortex.neurons[nid]
+            if modality in neuron.mm_projections:
+                trainable_params.extend(neuron.mm_projections[modality].parameters())
+            if modality in neuron.mm_lm_heads:
+                trainable_params.extend(neuron.mm_lm_heads[modality].parameters())
 
-            # P2-6: 判断是否为态极模型
-            # Cortex 模式下不执行传统 ModelSelf 睡眠训练（由 _train_cortex_neurons 负责）
-            try:
-                from taiji.architecture import ModelSelf
-            except ImportError:
-                ModelSelf = None  # ModelSelf 已完全移除
+        if not trainable_params:
+            logger.debug(f"  [{modality}] 无可训练参数")
+            return None, None
 
-            if ModelSelf is None or not isinstance(model, ModelSelf):
-                if type(model).__name__ == 'Cortex':
-                    logger.info("  Cortex 模式：传统睡眠训练已跳过（由 _train_cortex_neurons 负责）")
-                else:
-                    logger.info("  Current model is not ModelSelf, skipping sleep training")
-                return None
+        optimizer = torch.optim.AdamW(trainable_params, lr=5e-5)
 
-            # 合并训练数据
-            all_texts = []
-            for item in react_data:
-                task = item.get("task", "")
-                if task:
-                    all_texts.append(task)
-            for item in conv_data:
-                if isinstance(item, dict) and "messages" in item:
-                    text = " ".join(m.get("content", "") for m in item["messages"] if m.get("role") != "system")
-                    if text.strip():
-                        all_texts.append(text)
+        input_ids = sample.get("input_ids", [])
+        target_ids = sample.get("target_ids", [])
+        if not input_ids or not target_ids:
+            logger.debug(f"  [{modality}] 无有效训练数据")
+            return None, None
 
-            if not all_texts:
-                logger.info("  No valid training texts, skipping")
-                return None
+        encoder = tokenizer_hub.modal_encoders.get(modality)
+        if encoder is None or not hasattr(encoder, "model") or not hasattr(encoder.model, "quantizer"):
+            logger.debug(f"  [{modality}] codec 不可用")
+            return None, None
 
-            # 限制训练步数（睡眠时轻量训练）
-            max_steps = min(self.config.max_training_steps, len(all_texts))
-            device = next(model.parameters()).device
+        codebook = encoder.model.quantizer.codebook.to(next(cortex.neurons[mm_nids[0]].parameters()).device)
+        device = next(cortex.neurons[mm_nids[0]].parameters()).device
 
-            # 创建优化器（睡眠时用较小学习率，避免灾难性遗忘）
-            optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.01)
-            optimizer.zero_grad(set_to_none=True)
-            model.zero_grad(set_to_none=True)
-            if hasattr(model, '_kv_cache'):
-                model._kv_cache = None
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
-            model.train()
+        # 构建输入 embedding（每个 neuron 独立投影）
+        input_tensor = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)
+        input_feat = codebook(input_tensor)
 
-            logger.info(f"  Starting sleep training: {max_steps} steps on {device}")
+        target_tensor = torch.tensor(target_ids, dtype=torch.long, device=device).unsqueeze(0)
+        target_feat = codebook(target_tensor)
 
-            final_loss = None
-            step_count = 0
-            loss_history = []
+        neuron_embeddings: Dict[str, torch.Tensor] = {}
+        for nid in mm_nids:
+            neuron = cortex.neurons[nid]
+            input_emb = neuron.encode_multimodal_input(input_feat, modality)
+            target_emb = neuron.encode_multimodal_input(target_feat, modality)
+            full_emb = torch.cat([input_emb, target_emb[:, :-1, :]], dim=1)
+            neuron_embeddings[nid] = full_emb
 
-            for i in range(max_steps):
-                text = all_texts[i % len(all_texts)]
+        # 训练模式
+        for nid in mm_nids:
+            cortex.neurons[nid].train()
+        optimizer.zero_grad()
 
-                # 编码
-                ids = tokenizer.encode(text)
-                if len(ids) < 5:
-                    continue
-                ids = ids[:512]
+        # ensemble forward（共振）—— 与推理路径完全一致
+        result = cortex.ensemble.forward(
+            neuron_embeddings=neuron_embeddings,
+            return_logits=True,
+            active_filter=True,
+            active_nids=mm_nids,
+            mm_logits_modality=modality,
+        )
 
-                # 构建 input_ids 和 labels（自回归）
-                input_ids = torch.tensor([ids], dtype=torch.long, device=device)
-                labels = input_ids.clone()
+        # 取加权 logits 计算 loss
+        if "weighted_logits" not in result:
+            logger.debug(f"  [{modality}] ensemble 未返回 weighted_logits")
+            return None, None
 
-                # 前向
-                output = model(input_ids, targets=labels)
-                loss = output.loss
+        logits = result["weighted_logits"]
+        shift_logits = logits[:, -len(target_ids):, :].contiguous()
+        shift_targets = target_tensor.contiguous()
 
-                if loss is None or loss.item() == 0:
-                    continue
+        vocab_size = logits.size(-1)
+        shift_targets = shift_targets.clamp(0, vocab_size - 1)
 
-                # 反向
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
+        loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_targets.view(-1),
+            ignore_index=-100,
+        )
+        loss.backward()
+        optimizer.step()
 
-                final_loss = loss.item()
-                loss_history.append(final_loss)
-                step_count += 1
+        # 恢复 eval 模式
+        for nid in mm_nids:
+            cortex.neurons[nid].eval()
 
-                if step_count % 10 == 0:
-                    logger.info(f"  Sleep training step {step_count}/{max_steps}, loss={final_loss:.4f}")
-
-                # 早停：如果 loss 连续 5 步上升，停止训练（防止灾难性遗忘）
-                if len(loss_history) >= 7:
-                    recent = loss_history[-5:]
-                    if all(recent[j] > recent[j-1] for j in range(1, len(recent))):
-                        logger.info(f"  早停：loss 连续上升，step={step_count}")
-                        break
-
-            model.eval()
-
-            # 训练后验证：简单对话测试
-            if final_loss is not None:
-                self._validate_training_effect(model, tokenizer, device, final_loss, loss_history)
-
-            # 训练后保存 checkpoint
-            if self.config.save_checkpoints and final_loss is not None:
-                try:
-                    from taiji.loader import save_model
-                    checkpoint_dir = None
-                    try:
-                        from taiji.core.app_state import app_state
-                        model_path = getattr(app_state, "_loaded_model_name", "") or ""
-                        if model_path and os.path.isdir(model_path):
-                            checkpoint_dir = model_path
-                    except Exception as e:
-                        logger.debug("sleep_engine: non-critical %s", e, exc_info=True)
-                    if not checkpoint_dir:
-                        checkpoint_dir = os.path.join(self.data_dir, "checkpoints")
-                    os.makedirs(checkpoint_dir, exist_ok=True)
-                    save_model(model, tokenizer, checkpoint_dir)
-                    logger.info(f"  Checkpoint saved to {checkpoint_dir}")
-                except Exception as e:
-                    logger.warning(f"  Checkpoint save failed: {e}")
-
-            return final_loss
-
-        except Exception as e:
-            logger.warning(f"  Sleep training failed: {e}")
-            return None
-        finally:
-            if _app_state is not None:
-                try:
-                    if hasattr(_app_state, 'finish_training'):
-                        _app_state.finish_training()
-                    # B6 修复：训练后将新模型热加载到推理服务
-                    if final_loss is not None and model is not None:
-                        _app_state.update_model(model, tokenizer, trainer=None, model_name="sleep-trained")
-                        logger.info("  训练后模型已热加载到推理服务")
-                except Exception as e:
-                    logger.debug("sleep_engine: non-critical %s", e, exc_info=True)
-
-    def _validate_training_effect(self, model, tokenizer, device,
-                                   final_loss: float, loss_history: list):
-        """
-        训练后验证：检查是否发生灾难性遗忘。
-
-        1. 检查 loss 是否从初始值下降
-        2. 尝试简单生成测试（如果 tokenizer 支持）
-        """
-        # 检查 loss 趋势
-        if len(loss_history) >= 2:
-            initial_loss = loss_history[0]
-            if final_loss > initial_loss * 2:
-                logger.warning(
-                    f"  ⚠️ 训练后 loss ({final_loss:.4f}) 比初始 ({initial_loss:.4f}) 高 2x 以上，"
-                    f"可能发生灾难性遗忘"
-                )
-            elif final_loss < initial_loss * 0.5:
-                logger.info(f"  ✅ 训练效果良好: loss {initial_loss:.4f} → {final_loss:.4f}")
-
-        # 简单生成测试
-        try:
-            test_prompt = "[用户] 你好\n[助手]"
-            ids = tokenizer.encode(test_prompt)
-            input_ids = torch.tensor([ids], dtype=torch.long, device=device)
-            with torch.no_grad():
-                output = model(input_ids)
-                logits = output.logits[:, -1, :]
-                top_tokens = torch.topk(logits, 5, dim=-1).indices[0].tolist()
-            logger.info(f"  训练后生成测试: top-5 token IDs = {top_tokens}")
-        except Exception as e:
-            logger.debug(f"  生成测试跳过: {e}")
-    
-    def _sleep_phase_knowledge_integration(self, report: SleepReport):
-        """Phase 3: 知识整合 - 睡眠巩固（SleepConsolidator）+ 进化引擎 + 用户画像"""
-        # 神经元架构：调用 SleepConsolidator 执行睡眠巩固
-        if self._sleep_consolidator is not None and self.cortex is not None:
-            try:
-                stats = self._sleep_consolidator.consolidate(
-                    self.cortex.neurons,
-                    coactivation_tracker=self._coaction,
-                    current_step=self._current_step,
-                )
-                logger.info(f"  睡眠巩固完成: {stats}")
-                report.user_patterns_updated = stats.get("channels_reinforced", 0)
-            except Exception as e:
-                logger.warning(f"  睡眠巩固失败: {e}")
-        else:
-            logger.debug("  SleepConsolidator 或 Cortex 未注入，跳过睡眠巩固")
-
-        # 进化引擎（向后兼容）
-        try:
-            from taiji.life.evolution_engine import get_evolution_engine
-            engine = get_evolution_engine()
-
-            # 将睡眠训练结果同步到进化引擎
-            if report.training_loss is not None:
-                engine.record_sleep_training(
-                    loss=report.training_loss,
-                    samples=report.training_samples_used,
-                )
-
-            if engine.metrics.tasks_completed > 0:
-                report.evolution_events = engine.metrics.evolution_cycles
-
-                # 检查是否需要触发进化
-                total = engine.metrics.tasks_completed + engine.metrics.tasks_failed
-                if total > 0 and total % 50 == 0:
-                    engine._trigger_evolution("sleep_cycle")
-                    report.evolution_events += 1
-
-        except ImportError:
-            logger.info("  EvolutionEngine not available, skipping")
-        
-        # 用户画像（向后兼容）
-        try:
-            from taiji.infra.user_profile import get_user_profile
-            logger.warning("taiji.infra.user_profile 模块用于旧路径")
-            profile = get_user_profile()
-            
-            suggestions = profile.get_task_pattern_suggestions()
-            report.user_patterns_updated = len(suggestions)
-            
-            if suggestions:
-                report.recommendations.extend(suggestions)
-                
-        except ImportError:
-            logger.info("  UserProfile not available, skipping")
-
-    def _sleep_phase_knowledge_distillation(self, report: SleepReport):
-        """Phase 3.5: 知识蒸馏 - 累积知识 -> 训练数据"""
-        try:
-            from taiji.agent_ext.knowledge_learner import get_knowledge_learner
-            logger.warning("taiji.agent_ext.knowledge_learner 模块用于旧路径（神经元架构使用 feed_engine 替代）")
-            learner = get_knowledge_learner()
-            model = self._get_model()
-            tokenizer = self._get_tokenizer()
-            result = learner.maybe_distill_to_training_data(model=model, tokenizer=tokenizer)
-            if result.get("distilled"):
-                count = result.get("samples", 0)
-                report.recommendations.append(f"[蒸馏] 知识→训练数据: 生成 {count} 条样本")
-                logger.info(f"  Knowledge distilled: {count} training samples generated")
-            else:
-                logger.debug(f"  Knowledge distillation skipped: {result.get('reason', '')}")
-        except ImportError:
-            logger.info("  KnowledgeLearner not available, skipping distillation")
-        except Exception as e:
-            logger.warning(f"  Knowledge distillation failed: {e}")
-    
-    def _sleep_phase_evaluation(self, report: SleepReport) -> dict:
-        """Phase 4: 自我评估 - 用 QualityFilter 评估神经元质量 + 调用 apoptosis.check_activation"""
-        # 神经元架构：用 QualityFilter 评估 + apoptosis 检查
-        if self.cortex is not None and hasattr(self.cortex, 'neurons') and self.cortex.neurons:
-            health = self._evaluate_cortex_quality(report)
-            # 保存健康报告
-            health_path = os.path.join(self.data_dir, "health_report.json")
-            try:
-                with open(health_path, "w", encoding="utf-8") as f:
-                    json.dump(health, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                logger.warning(f"  保存健康报告失败: {e}")
-            return health
-
-        # 回退路径：旧自我评估器（向后兼容）
-        try:
-            from taiji.infra.self_evaluator import get_self_evaluator
-            from taiji.life.evolution_engine import get_evolution_engine
-            logger.warning("taiji.infra.self_evaluator 模块用于旧路径")
-
-            evaluator = get_self_evaluator()
-            engine = get_evolution_engine()
-
-            stats = evaluator.get_stats()
-            trends = evaluator.get_improvement_trends()
-
-            health = {
-                "phase": engine.metrics.current_phase,
-                "tasks_completed": engine.metrics.tasks_completed,
-                "evaluation_count": stats.get("total_evaluations", 0),
-                "avg_score": stats.get("avg_score", 0),
-                "trends": trends,
-                "status": "healthy",
-            }
-
-            # 保存健康报告
-            health_path = os.path.join(self.data_dir, "health_report.json")
-            with open(health_path, "w", encoding="utf-8") as f:
-                json.dump(health, f, indent=2, ensure_ascii=False)
-
-            return health
-
-        except ImportError:
-            logger.info("  SelfEvaluator not available, skipping")
-            return {"status": "unknown"}
+        ppl = math.exp(min(loss.item(), 20))
+        return loss.item(), ppl
 
     def _evaluate_cortex_quality(self, report: SleepReport) -> dict:
         """
-        神经元架构：评估 Cortex 神经元质量。
+        P7: 评估 Cortex 神经元质量。
 
-        使用 QualityFilter 评估各神经元的 PPL，
-        调用 lifecycle.apoptosis.check_activation 检查激活率。
+        使用 lifecycle.apoptosis.check_activation 检查激活率。
         """
         health = {
             "n_neurons": len(self.cortex.neurons),
@@ -1448,26 +1048,23 @@ class SleepEngine:
             "status": "healthy",
         }
 
-        # 从凋亡追踪器获取 PPL 记录（Phase 2 已记录）
-        ppl_records = {}
+        # 从凋亡追踪器获取记录
         if self._lifecycle is not None:
             try:
-                ppl_records = self._lifecycle.apoptosis._failure_counts  # 有失败计数的神经元
+                _ = self._lifecycle.apoptosis._failure_counts
             except Exception:
                 pass
 
         # 检查每个神经元的激活率
         apoptosed = []
-        if self._lifecycle is not None and self._coaction is not None:
+        if self._lifecycle is not None:
             try:
                 total_rounds = self._current_step
                 for nid in self.cortex.neurons.keys():
-                    activation_count = self._coaction._activation_count.get(nid, 0)
                     triggered = self._lifecycle.apoptosis.check_activation(
-                        nid, activation_count, total_rounds
+                        nid, 0, total_rounds
                     )
                     health["neurons"][nid] = {
-                        "activation_count": activation_count,
                         "apoptosis_triggered": triggered,
                     }
                     if triggered:
@@ -1481,19 +1078,6 @@ class SleepEngine:
                     logger.warning(f"  凋亡触发: {apoptosed}")
             except Exception as e:
                 logger.warning(f"  凋亡检查失败: {e}")
-
-        # 更新 QualityFilter 的 PPL 记录
-        if self._quality_filter is not None and self._lifecycle is not None:
-            try:
-                # 从凋亡追踪器的失败计数推断 PPL 状态
-                neuron_ppls = {}
-                for nid in self.cortex.neurons.keys():
-                    fail_count = self._lifecycle.apoptosis._failure_counts.get(nid, 0)
-                    # 粗略映射：失败计数越高，PPL 越高
-                    neuron_ppls[nid] = 50.0 + fail_count * 50.0
-                self._quality_filter.set_ppls(neuron_ppls)
-            except Exception as e:
-                logger.debug(f"  QualityFilter 更新失败: {e}")
 
         return health
 

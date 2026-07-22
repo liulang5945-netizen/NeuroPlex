@@ -299,63 +299,25 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
 async def _stream_fallback(prompt, system_prompt, app_state, stop_event):
     """
     回退生成模式 — 当 ReAct 引擎不可用时使用。
-    使用直接文本生成，产出兼容前端的结构化事件。
+    使用 Cortex.generate() 直接文本生成，产出兼容前端的结构化事件。
     """
     full_text = ""
 
-    # 根据模型类型选择 prompt 格式
-    taiji = app_state.get_taiji_engine()
-    tokenizer = app_state.get_tokenizer()
-    is_native = app_state.is_taiji()
+    model = app_state.model
+    if model is None or not app_state.is_taiji():
+        yield f"data: {json.dumps('[模型未加载]', ensure_ascii=False)}\n\n"
+        return
 
-    if is_native:
-        # ModelSelf 原生模型：使用 [系统]/[用户]/[助手] 格式
-        formatted = f"[系统] {system_prompt}\n[用户] {prompt}\n[助手]"
-    elif tokenizer and hasattr(tokenizer, 'apply_chat_template'):
-        # HF 模型：优先使用 tokenizer 的 chat_template
-        try:
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            formatted = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        except Exception:
-            formatted = f"{system_prompt}\n\n{prompt}"
-    else:
-        formatted = f"{system_prompt}\n\n{prompt}"
-
-    if taiji and tokenizer:
-        try:
-            for chunk in taiji.generate_stream(formatted, tokenizer, max_new_tokens=512, stop_event=stop_event):
-                if stop_event.is_set():
-                    break
-                full_text += chunk
-                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                await asyncio.sleep(0.01)
-        except Exception as e:
-            logger.warning(f"态极推理失败: {e}")
-            yield f"data: {json.dumps(f'[推理失败: {e}]', ensure_ascii=False)}\n\n"
-    else:
-        try:
-            trainer = app_state.get_trainer()
-            if trainer and hasattr(trainer, 'generate_stream'):
-                for chunk in trainer.generate_stream(formatted, tokenizer, max_new_tokens=512, stop_event=stop_event):
-                    if stop_event.is_set():
-                        break
-                    full_text += chunk
-                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                    await asyncio.sleep(0.01)
-            elif trainer and hasattr(trainer, 'generate'):
-                full_text = trainer.generate(formatted, tokenizer, max_new_tokens=512)
-                if "### Response:\n" in full_text:
-                    full_text = full_text.split("### Response:\n", 1)[-1].strip()
-                yield f"data: {json.dumps(full_text, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps('[模型未加载]', ensure_ascii=False)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps(f'[推理失败: {e}]', ensure_ascii=False)}\n\n"
+    # Cortex 神经元架构：使用 [系统]/[用户]/[助手] 格式
+    formatted = f"[系统] {system_prompt}\n[用户] {prompt}\n[助手]"
+    try:
+        result = model.generate(formatted, max_tokens=512)
+        full_text = result if isinstance(result, str) else str(result)
+        yield f"data: {json.dumps(full_text, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.01)
+    except Exception as e:
+        logger.warning(f"Cortex 推理失败: {e}")
+        yield f"data: {json.dumps(f'[推理失败: {e}]', ensure_ascii=False)}\n\n"
 
 
 def create_event_generator(request, app_state, collector_factory):

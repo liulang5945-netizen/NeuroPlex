@@ -1,5 +1,5 @@
 """
-ModelSelf 感知系统
+Cortex 感知系统
 眼睛 — 让模型原生感知环境状态
 
 将 Taiji 的工作台状态、文件树、系统信息编码为模型可理解的 token 序列。
@@ -8,7 +8,7 @@ import os
 import logging
 from typing import Optional, Dict, List
 
-logger = logging.getLogger("ModelSelf.Perception")
+logger = logging.getLogger("Cortex.Perception")
 
 
 class PerceptionSystem:

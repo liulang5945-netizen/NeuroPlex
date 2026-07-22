@@ -210,10 +210,10 @@ def main():
         print(f"  {d:8s}: {v.shape}, {n_tokens:,} tokens")
     print(f"  {'total':8s}: {total_tokens:,} tokens ({total_tokens / 1e6:.1f}M tokens)")
 
-    print(f"\n下一步: 重新蒸馏 general 神经元")
-    print(f"  python scripts/training/distill_neurons.py --checkpoint {TEACHER_PATH} "
-          f"--data_dir data/distill --output_dir data/neurons "
-          f"--steps 1000 --skip_field_cond --device cpu "
+    print(f"\n下一步: 训练 general 神经元")
+    print(f"  python scripts/training/train_neuron.py --domain general "
+          f"--data_dir data/sft --output_dir data/neurons "
+          f"--steps 2000 --device cpu")
           f"--domains general")
 
 

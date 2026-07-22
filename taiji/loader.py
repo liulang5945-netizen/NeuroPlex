@@ -385,6 +385,23 @@ def assemble_cortex(
     except Exception as e:
         logger.warning("[assemble_cortex] SleepEngine 接线失败（非致命）: %s", e)
 
+    # Step 9.1: 接线生命调度器（LifeScheduler 拿到 cortex + modules 引用）
+    # 修复接线 bug：life_scheduler.set_brain_interfaces 未被调用，
+    # 导致 _update_neuron_signals 中 hunger→neurogenesis 分支永远不执行。
+    try:
+        from taiji.life.life_scheduler import get_life_scheduler
+        from taiji.life.feed_engine import get_feed_engine
+        life_scheduler = get_life_scheduler()
+        life_scheduler.set_brain_interfaces(
+            cortex=cortex,
+            lifecycle=modules.get("lifecycle"),
+            neuromodulator=modules.get("neuromodulator"),
+            feed_engine=get_feed_engine(),
+        )
+        logger.info("[assemble_cortex] LifeScheduler wired to Cortex (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] LifeScheduler 接线失败（非致命）: %s", e)
+
     # Step 10: P8 多模态默认启用 — 加载图像/音频/视频编解码器
     # checkpoint 不存在时跳过（非致命，保持向后兼容）
     # 注册到 TokenizerHub + 为所有 neuron 注册模态投影层

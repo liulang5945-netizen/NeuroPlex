@@ -1,4 +1,4 @@
-﻿"""Core Taiji configuration and token contracts."""
+"""Core Taiji configuration and token contracts."""
 
 from __future__ import annotations
 
@@ -105,6 +105,9 @@ MULTIMODAL_TOKENS = {
     "image_codebook_size": int(_MULTIMODAL["image"]["codebook_size"]),
     "audio_token_base": int(_MULTIMODAL["audio"]["base"]),
     "audio_codebook_size": int(_MULTIMODAL["audio"]["codebook_size"]),
+    # video: 暂未在 contract 中预留段，先用独立 codebook（不占总 vocab）
+    # mm_lm_heads 是独立输出头，vocab 不与文本共享
+    "video_codebook_size": 256,
     "mm_control_base": int(_MULTIMODAL_CONTROL_RANGE[0]),
     "mm_control_size": int(_MULTIMODAL_CONTROL_RANGE[1]) - int(_MULTIMODAL_CONTROL_RANGE[0]) + 1,
 }
@@ -425,7 +428,7 @@ class ModelConfig:
         else:
             size_str = f"{params / 1e3:.0f}K"
         return (
-            f"ModelSelf-{size_str} | "
+            f"Cortex-{size_str} | "
             f"hidden={self.hidden_size} layers={self.num_hidden_layers} "
             f"heads={self.num_attention_heads} kv={self.num_key_value_heads} "
             f"ffn={self.intermediate_size} vocab={self.vocab_size}"

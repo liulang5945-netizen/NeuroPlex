@@ -1,56 +1,103 @@
 <template>
-  <div class="ide">
-    <!-- 工具栏 -->
-    <div class="ide-toolbar">
-      <div class="toolbar-left">
-        <span class="toolbar-title">工作台</span>
-        <span class="toolbar-path" v-if="workspacePath">{{ workspacePath }}</span>
-        <button class="tb-btn" @click="openFolderPicker" title="切换路径"><FolderOpen :size="13" /></button>
+  <div class="workspace-view">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div>
+        <div class="topbar-title">IDE 工作区</div>
+        <div class="topbar-sub">态极脚本与配置编辑</div>
       </div>
-      <div class="toolbar-right">
-        <button class="tb-btn" @click="refreshTree" title="刷新"><RefreshCw :size="13" /></button>
-        <button class="tb-btn" @click="createNewFile" title="新建文件"><FilePlus :size="13" /></button>
-        <button class="tb-btn" @click="createNewFolder" title="新建文件夹"><FolderPlus :size="13" /></button>
-        <button class="tb-btn" :class="{ on: showTerminal }" @click="showTerminal = !showTerminal" title="终端"><Terminal :size="13" /></button>
-      </div>
-    </div>
+      <div class="topbar-spacer"></div>
+      <button class="btn btn-primary">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        运行
+      </button>
+      <button class="btn btn-outline">保存</button>
+    </header>
 
-    <!-- 主体 -->
-    <div class="ide-body">
-      <!-- 文件树 -->
-      <div class="ide-sidebar" :style="{ width: sidebarWidth + 'px' }">
-        <div class="sidebar-head">
-          <FolderOpen :size="13" />
-          <span>文件</span>
+    <!-- 主体工作区 -->
+    <div class="workspace-body">
+      <div class="ide-layout" :style="{ gridTemplateColumns: sidebarWidth + 'px minmax(0, 1fr) 260px' }">
+        <!-- 左栏：文件树 -->
+        <div class="panel panel-left">
+          <div class="panel-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            项目文件
+          </div>
+          <div class="panel-body">
+            <div v-if="!fileTree.length" class="tree-empty">空工作台</div>
+            <template v-for="node in fileTree" :key="node.path">
+              <div
+                class="tree-item"
+                :class="{ 'tree-folder': node.type === 'directory' }"
+                :style="{ paddingLeft: (node.depth * 18 + 8) + 'px' }"
+                @click="handleTreeClick(node)"
+                @contextmenu.prevent="showContextMenu($event, node)"
+              >
+                <component :is="node.type === 'directory' ? (expandedDirs.has(node.path) ? FolderOpen : Folder) : getFileIcon(node.name)" :size="14" class="tree-icon" />
+                <span class="tree-label">{{ node.name }}</span>
+              </div>
+            </template>
+          </div>
+          <div class="resize-col" @mousedown="startResize"></div>
         </div>
-        <div class="sidebar-tree">
-          <div v-if="!fileTree.length" class="tree-empty">空工作台</div>
-          <div v-for="node in fileTree" :key="node.path"
-            class="tree-item" :class="{ dir: node.type === 'directory' }"
-            :style="{ paddingLeft: (node.depth * 14 + 8) + 'px' }"
-            @click="handleTreeClick(node)"
-            @contextmenu.prevent="showContextMenu($event, node)">
-            <component :is="node.type === 'directory' ? (expandedDirs.has(node.path) ? FolderOpen : Folder) : getFileIcon(node.name)" :size="13" class="tree-ico" />
-            <span class="tree-name">{{ node.name }}</span>
+
+        <!-- 中栏：编辑器 + 终端 -->
+        <div class="panel panel-center">
+          <div class="editor-area">
+            <MonacoEditor ref="monacoEditor" class="monaco-container" />
+            <!-- 终端 -->
+            <Transition name="term-slide">
+              <div v-if="showTerminal" class="ide-terminal" :style="{ height: terminalHeight + 'px' }">
+                <div class="resize-row" @mousedown="startTerminalResize"></div>
+                <WebTerminal ref="webTerminal" />
+              </div>
+            </Transition>
           </div>
         </div>
-        <div class="resize-col" @mousedown="startResize"></div>
+
+        <!-- 右栏：属性与检查器 -->
+        <div class="panel panel-right">
+          <div class="panel-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+            属性
+          </div>
+          <div class="panel-body">
+            <div v-if="currentFile" class="prop-group">
+              <div class="prop-group-title">文件信息</div>
+              <div class="prop-row"><span class="prop-label">文件名</span><span class="prop-value">{{ currentFile.name }}</span></div>
+              <div class="prop-row"><span class="prop-label">路径</span><span class="prop-value prop-truncate" :title="currentFile.path">{{ currentFile.path }}</span></div>
+              <div class="prop-row"><span class="prop-label">大小</span><span class="prop-value">{{ formatFileSize(currentFile.content?.length || 0) }}</span></div>
+              <div class="prop-row"><span class="prop-label">编码</span><span class="prop-value">UTF-8</span></div>
+              <div class="prop-row"><span class="prop-label">行数</span><span class="prop-value">{{ countLines(currentFile.content) }}</span></div>
+              <div class="prop-row"><span class="prop-label">类型</span><span class="prop-value">{{ currentFile.language?.toUpperCase() || '—' }}</span></div>
+            </div>
+            <div v-else class="prop-empty">未打开文件</div>
+            <div class="prop-group">
+              <div class="prop-group-title">态极检查器</div>
+              <div class="inspector-item"><span class="inspector-dot ok"></span><span class="inspector-text">YAML 语法校验</span><span class="inspector-meta">通过</span></div>
+              <div class="inspector-item"><span class="inspector-dot info"></span><span class="inspector-text">配置完整性</span><span class="inspector-meta">6/6 节</span></div>
+              <div class="inspector-item"><span class="inspector-dot ok"></span><span class="inspector-text">分布式策略对齐</span><span class="inspector-meta">128 GPU</span></div>
+            </div>
+            <div class="prop-group">
+              <div class="prop-group-title">快捷操作</div>
+              <button class="quick-btn"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>运行全部测试</button>
+              <button class="quick-btn"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出配置</button>
+              <button class="quick-btn"><svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>在终端中打开</button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- 编辑器 + 终端 右侧区域 -->
-      <div class="ide-main">
-        <!-- 编辑器 -->
-        <div class="ide-editor">
-          <MonacoEditor ref="monacoEditor" />
-        </div>
-
-        <!-- 终端 -->
-        <Transition name="term-slide">
-          <div v-if="showTerminal" class="ide-terminal" :style="{ height: terminalHeight + 'px' }">
-            <div class="resize-row" @mousedown="startTerminalResize"></div>
-            <WebTerminal ref="webTerminal" />
-          </div>
-        </Transition>
+      <!-- 底部状态栏 -->
+      <div class="status-bar">
+        <span v-if="monacoEditor?.activeTab">Ln {{ monacoEditor.cursorLine }}, Col {{ monacoEditor.cursorCol }}</span>
+        <span v-else>—</span>
+        <span>UTF-8</span>
+        <span>{{ monacoEditor?.language?.toUpperCase() || '—' }}</span>
+        <span v-if="monacoEditor?.isDirty" class="status-dirty">● 未保存</span>
+        <span class="status-spacer"></span>
+        <span class="status-dot"></span>
+        <span>神经元同步中</span>
       </div>
     </div>
 
@@ -95,7 +142,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, inject } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, inject } from 'vue';
 import { useApi } from '../composables/useApi.js';
 import { API_BASE, authFetch } from '../composables/apiClient.js';
 import { RefreshCw, FilePlus, FolderPlus, Terminal, FolderOpen, Folder, FileCode, FileText, Image as ImageIcon, Database, Edit3, Edit2, Trash2 } from 'lucide-vue-next';
@@ -120,6 +167,23 @@ const showPathDialog = ref(false);
 const newPathInput = ref('');
 const pathDialogError = ref('');
 const quickPaths = ref([]);
+
+// 当前激活文件（从 MonacoEditor 读取）
+const currentFile = computed(() => {
+  if (!monacoEditor.value?.openTabs || !monacoEditor.value?.activeTab) return null;
+  return monacoEditor.value.openTabs.find(t => t.path === monacoEditor.value.activeTab) || null;
+});
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function countLines(content) {
+  if (!content) return 0;
+  return content.split('\n').length;
+}
 
 function showInputDialog(title, placeholder = '') {
   return new Promise((resolve) => {
@@ -260,111 +324,159 @@ onUnmounted(() => { document.removeEventListener('click', closeCtx); });
 </script>
 
 <style scoped>
-.ide {
+.workspace-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--background);
+  color: var(--foreground);
 }
 
-/* ── 工具栏 ── */
-.ide-toolbar {
+/* ── 顶栏 ── */
+.topbar {
+  height: 52px;
+  flex: none;
+  padding: 0 18px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  height: 40px;
-  padding: 0 14px;
-  background: var(--toolbar-bg);
+  gap: 12px;
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
 }
-.toolbar-left, .toolbar-right { display: flex; align-items: center; gap: 6px; }
-.toolbar-left { color: var(--text-muted); min-width: 0; }
-.toolbar-title { font-size: 13px; font-weight: 600; color: var(--text); }
-.toolbar-path {
-  font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
-  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 2px 8px; background: var(--bg-muted); border-radius: var(--radius-sm);
-}
-.tb-btn {
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted);
-  cursor: pointer; transition: var(--transition-fast);
-}
-.tb-btn:hover { background: var(--bg-hover); color: var(--text); }
-.tb-btn.on { background: var(--primary-subtle); color: var(--primary); }
+.topbar-title { font-size: 0.92rem; font-weight: 600; }
+.topbar-sub { font-size: 0.72rem; color: var(--muted-foreground); margin-top: 1px; }
+.topbar-spacer { flex: 1; }
 
-/* ── 主体 flex 布局 ── */
-.ide-body {
+/* ── 按钮 ── */
+.btn {
+  height: 36px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  transition: background 150ms ease, border-color 150ms ease, transform 120ms ease, color 150ms ease;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn-primary:hover { background: color-mix(in srgb, var(--primary) 90%, var(--foreground)); }
+.btn-outline { background: var(--background); color: var(--foreground); border-color: var(--border); }
+.btn-outline:hover { background: var(--muted); }
+.icon-sm { width: 15px; height: 15px; flex: none; }
+
+/* ── 主体工作区 ── */
+.workspace-body {
   flex: 1;
-  display: flex;
   min-height: 0;
-  overflow: hidden;
-}
-
-/* ── 文件树侧边栏 ── */
-.ide-sidebar {
   display: flex;
   flex-direction: column;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--border);
+}
+
+/* ── 三栏 IDE 布局 ── */
+.ide-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   position: relative;
-  min-width: 120px;
-  flex-shrink: 0;
 }
-.sidebar-head {
-  display: flex; align-items: center; gap: 5px; padding: 8px 10px;
-  font-size: 11px; font-weight: 600; color: var(--text-muted);
-  border-bottom: 1px solid var(--border-subtle);
-  text-transform: uppercase; letter-spacing: 0.04em;
+.panel-left { border-right: 1px solid var(--border); }
+.panel-center { border-right: 1px solid var(--border); }
+.panel-right { border-left: 1px solid var(--border); }
+
+.panel-header {
+  padding: 12px 14px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.sidebar-tree {
+.panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 8px;
 }
-.tree-empty { text-align: center; padding: 24px 12px; color: var(--text-muted); font-size: 12px; }
+
+/* ── 文件树 ── */
+.tree-empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
 .tree-item {
-  display: flex; align-items: center; gap: 5px; padding: 4px 10px; cursor: pointer;
-  font-size: 12.5px; color: var(--text-secondary); white-space: nowrap;
-  transition: background 0.1s; border-left: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+  color: var(--foreground);
 }
-.tree-item:hover { background: var(--bg-hover); color: var(--text); }
-.tree-item.dir { font-weight: 500; color: var(--text); }
-.tree-ico { flex-shrink: 0; width: 14px; text-align: center; color: var(--text-muted); }
-.tree-name { overflow: hidden; text-overflow: ellipsis; }
+.tree-item:hover { background: var(--muted); }
+.tree-folder { font-weight: 600; }
+.tree-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted-foreground);
+}
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .resize-col {
-  position: absolute; top: 0; right: -2px; width: 4px; height: 100%;
-  cursor: col-resize; z-index: 10; transition: background 0.15s;
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background 0.15s;
 }
 .resize-col:hover { background: var(--primary); }
 
-/* ── 右侧主区域（编辑器 + 终端） ── */
-.ide-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--editor-bg);
-  position: relative;
-  overflow: hidden;
-}
-
-/* ── 编辑器 ── */
-.ide-editor {
+/* ── 编辑器区域 ── */
+.editor-area {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
-.ide-editor :deep(.monaco-wrapper) {
+.monaco-container {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.editor-area :deep(.monaco-wrapper) {
   height: 100% !important;
   min-height: 0 !important;
 }
-.ide-editor :deep(.monaco-editor-container) {
+.editor-area :deep(.monaco-editor-container) {
   flex: 1 !important;
   min-height: 0 !important;
   height: auto !important;
@@ -374,74 +486,267 @@ onUnmounted(() => { document.removeEventListener('click', closeCtx); });
 .ide-terminal {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
-  background: var(--terminal-bg);
+  background: var(--card);
   position: relative;
 }
 .resize-row {
-  position: absolute; top: -3px; left: 0; right: 0; height: 6px;
-  cursor: row-resize; z-index: 10; transition: background 0.15s;
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 10;
+  transition: background 0.15s;
 }
 .resize-row:hover { background: var(--primary); }
 
 /* 终端过渡动画 */
 .term-slide-enter-active,
 .term-slide-leave-active {
-  transition: transform 0.2s var(--ease);
+  transition: transform 0.2s ease;
 }
 .term-slide-enter-from,
 .term-slide-leave-to {
   transform: translateY(100%);
 }
 
+/* ── 底部状态栏 ── */
+.status-bar {
+  height: 28px;
+  flex: none;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 16px;
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+  background: var(--card);
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chart-2);
+  animation: pulse 2s infinite;
+}
+.status-spacer { flex: 1; }
+.status-dirty { color: var(--chart-4); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── 右栏属性面板 ── */
+.prop-group { margin-bottom: 14px; }
+.prop-group-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+.prop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+.prop-row:hover { background: var(--muted); }
+.prop-label { color: var(--muted-foreground); }
+.prop-value { font-weight: 500; font-variant-numeric: tabular-nums; }
+.prop-truncate {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.prop-empty {
+  text-align: center;
+  padding: 20px 12px;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+/* ── 检查器 ── */
+.inspector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.81rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.inspector-item:hover { background: var(--muted); }
+.inspector-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.inspector-dot.ok { background: var(--chart-2); }
+.inspector-dot.warn { background: var(--chart-4); }
+.inspector-dot.info { background: var(--chart-1); }
+.inspector-text { flex: 1; min-width: 0; }
+.inspector-meta { font-size: 0.72rem; color: var(--muted-foreground); }
+
+/* ── 快捷按钮 ── */
+.quick-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease;
+  font-family: inherit;
+}
+.quick-btn:hover { background: var(--muted); }
+.quick-btn .icon-sm {
+  width: 15px;
+  height: 15px;
+  color: var(--muted-foreground);
+}
+
 /* ── 对话框 ── */
 .dlg-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 10000; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 .dlg-box {
-  background: var(--glass-bg-thick); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 24px;
-  min-width: 380px; max-width: 90vw; box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  min-width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
-.dlg-box h3 { margin: 0 0 12px; font-size: 15px; color: var(--text); }
+.dlg-box h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--foreground);
+}
 .dlg-input {
-  width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--bg-input); color: var(--text); font-family: var(--font); font-size: 13px;
-  outline: none; margin-bottom: 12px; transition: border-color 0.2s;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.6);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 .dlg-input:focus { border-color: var(--primary); }
 .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .dlg-btn {
-  padding: 7px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer;
-  font-family: var(--font); transition: var(--transition-fast);
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.6);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms ease, color 150ms ease;
 }
-.dlg-btn:hover { background: var(--bg-hover); color: var(--text); }
-.dlg-btn.primary { border: 0; background: var(--primary-gradient); color: white; }
-.dlg-btn.primary:hover { box-shadow: 0 2px 12px var(--border-strong); }
-.dlg-error { color: var(--danger); font-size: 12px; margin: 8px 0 0; }
+.dlg-btn:hover { background: var(--muted); color: var(--foreground); }
+.dlg-btn.primary {
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.dlg-btn.primary:hover {
+  background: color-mix(in srgb, var(--primary) 90%, var(--foreground));
+}
+.dlg-error {
+  color: var(--destructive, #ef4444);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
 
-.quick-paths { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
-.qp-btn {
-  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
-  font-size: 12px; color: var(--text-secondary); background: var(--bg-muted);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
-  transition: var(--transition-fast);
+.quick-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 12px;
 }
-.qp-btn:hover { background: var(--primary-subtle); color: var(--primary); border-color: var(--primary-light); }
+.qp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.5);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  font-family: inherit;
+}
+.qp-btn:hover {
+  background: color-mix(in srgb, var(--primary) 12%, var(--background));
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
 
 /* ── 右键菜单 ── */
 .ctx-menu {
-  position: fixed; background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: 4px;
-  z-index: 9999; min-width: 140px; box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  position: fixed;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  z-index: 9999;
+  min-width: 140px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 .ctx-item {
-  display: flex; align-items: center; gap: 7px; padding: 6px 12px; font-size: 12px;
-  color: var(--text); cursor: pointer; border-radius: 8px; transition: background 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--foreground);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.1s;
 }
-.ctx-item:hover { background: var(--bg-hover); }
-.ctx-item.danger:hover { background: rgba(239,68,68,0.1); color: var(--danger); }
-.ctx-sep { height: 1px; background: var(--border); margin: 3px 8px; }
+.ctx-item:hover { background: var(--muted); }
+.ctx-item.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--destructive, #ef4444);
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 8px;
+}
+
+/* 响应式 */
+@media (max-width: 880px) {
+  .ide-layout { grid-template-columns: 1fr !important; }
+  .panel-left, .panel-right { display: none; }
+}
 </style>

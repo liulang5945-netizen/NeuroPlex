@@ -55,7 +55,7 @@ def get_system_hardware():
             "ram": f"{ram_gb:.0f} GB",
             "gpu": gpu_info,
             "vram": vram_info,
-            "recommend": "原生 Taiji 模型（基于 ModelSelf）",
+            "recommend": "Cortex 神经元架构",
             "gpu_backends": gpu_backends,
             "available_memory_gb": round(avail_ram_gb, 1),
         }
@@ -65,7 +65,7 @@ def get_system_hardware():
             "status": "error",
             "message": f"硬件检测失败: {str(e)}",
             "cpu": "", "ram": "", "gpu": "", "vram": "",
-            "recommend": "原生 Taiji 模型",
+            "recommend": "Cortex 神经元架构",
         }
 
 

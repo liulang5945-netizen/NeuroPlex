@@ -30,19 +30,26 @@ class ApoptosisTracker:
     标记为"凋亡"后从 ensemble 移除并清理资源。
 
     触发条件：
-    1. 连续 failure_threshold 次 PPL > ppl_threshold
+    1. 连续 failure_threshold 次 PPL > ppl_threshold（宽限期 grace_evals 之后）
     2. 或长期（>min_rounds_observed）激活率 < activation_ratio
+
+    宽限期保护：前 grace_evals 次评估不触发凋亡。
+    随机初始化或 lm_head 未训练的神经元 PPL 天然很高（幼稚态），
+    宽限期给它们时间通过 feed+sleep 积累经验后再评估凋亡。
     """
 
     ppl_threshold: float = 200.0
     failure_threshold: int = 3
     activation_ratio: float = 0.05
     min_rounds_observed: int = 20
+    grace_evals: int = 10  # 宽限期：前 N 次评估不触发凋亡
 
     # nid -> 连续失败计数
     _failure_counts: dict = field(default_factory=dict)
     # nid -> True 表示已凋亡
     _apoptosed: dict = field(default_factory=dict)
+    # nid -> 累计评估次数
+    _eval_counts: dict = field(default_factory=dict)
 
     def record_ppl(self, neuron_id: str, ppl: float) -> bool:
         """记录一次 PPL 评估，返回是否触发凋亡。
@@ -56,6 +63,11 @@ class ApoptosisTracker:
         """
         if self._apoptosed.get(neuron_id, False):
             return True  # 已凋亡
+
+        # 累计评估次数，宽限期内不触发凋亡
+        self._eval_counts[neuron_id] = self._eval_counts.get(neuron_id, 0) + 1
+        if self._eval_counts[neuron_id] <= self.grace_evals:
+            return False
 
         if ppl > self.ppl_threshold:
             self._failure_counts[neuron_id] = self._failure_counts.get(neuron_id, 0) + 1
@@ -158,8 +170,9 @@ class ApoptosisTracker:
         return True
 
     def reset(self, neuron_id: str) -> None:
-        """重置某神经元的失败计数（不复活已凋亡的）。"""
+        """重置某神经元的失败计数和评估计数（不复活已凋亡的）。"""
         self._failure_counts.pop(neuron_id, None)
+        self._eval_counts.pop(neuron_id, None)
 
 
 @dataclass

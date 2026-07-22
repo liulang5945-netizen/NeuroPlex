@@ -29,15 +29,20 @@ def set_neuromodulator(nm_state):
 
 
 def update_neuromodulator():
-    """根据当前硬件状态更新神经调质水平。
+    """根据当前硬件状态更新神经调质水平（去甲肾上腺素专用通道）。
 
     硬件状态→神经调质映射（人脑启发）：
-    - CPU/GPU 负载高 → norepinephrine↑（警觉性提升，field_write 增强）
+    - CPU 负载高 → norepinephrine↓（节能模式，降低 field_write 强度，减少计算量）
+    - CPU 负载低 → norepinephrine↑（专注模式，可以全力投入计算）
     - 内存紧张 → dopamine↓（资源不足=负面信号，触发保守模式）
-    - 资源充裕 → serotonin↑（满足感，稳定运行）
-    - GPU 可用 → dopamine↑（奖励信号，算力充足）
+    - 内存充裕 → dopamine↑（资源充足=正面信号）
+    - GPU 可用 → dopamine 额外奖励（算力充足）
+    - 资源健康 → serotonin↑（满足感，稳定运行）
 
-    此方法由 LifeScheduler 心跳或 BodyCore 定期调用。
+    注意：本方法只设置 NE 目标值（硬件通道），DA 和 5HT 由 sleep_engine
+    的训练反馈驱动（loss→DA, 准确率→5HT）。三个调质各司其职，不会互相覆盖。
+
+    此方法由 SleepEngine 训练前调用（评估硬件状态后决定 field_write 强度）。
     """
     if _neuromodulator is None:
         return
@@ -46,37 +51,42 @@ def update_neuromodulator():
         info = analyze_hardware()
         resources = check_resources()
 
-        # 1. CPU 负载 → norepinephrine（警觉度）
+        # 1. CPU 负载 → norepinephrine（警觉度/节能控制）
+        #    设计原则：高负载 → NE↓（节能，降低 field_write）→ 减少计算量
+        #    避免正反馈循环（高负载→NE↑→field_write↑→更多计算→更高负载）
         try:
             import psutil
             cpu_percent = psutil.cpu_percent(interval=0.1)
-            # CPU 负载高 → 警觉度提升
-            norepinephrine_target = min(1.0, 0.3 + cpu_percent / 100.0 * 0.7)
+            # CPU 负载 0% → NE=0.9（专注），100% → NE=0.2（节能）
+            norepinephrine_target = max(0.2, 0.9 - cpu_percent / 100.0 * 0.7)
         except ImportError:
             norepinephrine_target = 0.5
 
-        # 2. 内存状态 → dopamine（奖励/惩罚）
+        # 2. 内存状态 → dopamine（仅当内存紧张时覆盖，否则不动 sleep_engine 的 DA）
+        #    sleep_engine 的 DA 由 loss 趋势驱动，metabolism 只在内存危急时介入
         mem_percent = resources.get("memory_percent", 50)
         if mem_percent > 90:
-            # 内存紧张 → 多巴胺下降（负面信号）
+            # 内存紧张 → 多巴胺下降（负面信号，保守模式）
             dopamine_target = 0.2
         elif mem_percent > 75:
-            dopamine_target = 0.4
+            dopamine_target = 0.35
         else:
-            # 内存充裕 → 多巴胺正常偏上
-            dopamine_target = 0.6
+            # 内存充裕时不覆盖 sleep_engine 的 DA（传 None 表示不更新）
+            dopamine_target = None
 
-        # 3. GPU 可用 → dopamine 额外奖励
-        if info.is_gpu_available():
+        # 3. GPU 可用 → dopamine 额外奖励（仅在 dopamine_target 非 None 时叠加）
+        if dopamine_target is not None and info.is_gpu_available():
             dopamine_target = min(1.0, dopamine_target + 0.15)
 
-        # 4. 资源健康度 → serotonin（满足感）
-        if resources.get("memory_healthy", True) and resources.get("gpu_healthy", True):
-            serotonin_target = 0.7
-        else:
+        # 4. 资源健康度 → serotonin（仅当资源不健康时覆盖，否则不动 sleep_engine 的 5HT）
+        if not resources.get("memory_healthy", True) or not resources.get("gpu_healthy", True):
             serotonin_target = 0.3
+        else:
+            # 资源健康时不覆盖 sleep_engine 的 5HT
+            serotonin_target = None
 
         # 设置目标值（实际值会通过 EMA 缓慢趋近）
+        # NE 总是设置（硬件通道），DA/5HT 仅在资源异常时覆盖
         _neuromodulator.set_targets(
             dopamine=dopamine_target,
             serotonin=serotonin_target,
@@ -84,8 +94,9 @@ def update_neuromodulator():
         )
 
         logger.debug(
-            f"神经调质目标已更新: DA={dopamine_target:.2f}, "
-            f"5HT={serotonin_target:.2f}, NE={norepinephrine_target:.2f}"
+            f"硬件调质更新: NE={norepinephrine_target:.2f} (cpu={cpu_percent:.0f}%), "
+            f"DA={'%.2f' % dopamine_target if dopamine_target is not None else 'skip'}, "
+            f"5HT={'%.2f' % serotonin_target if serotonin_target is not None else 'skip'}"
         )
     except Exception as e:
         logger.debug(f"神经调质更新失败（非关键）: {e}")

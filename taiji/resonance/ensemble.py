@@ -68,6 +68,40 @@ class ResonanceEnsemble:
         self.round_scores: List[Dict[str, float]] = []
         self.n_active_history: List[int] = []
 
+    def add_neuron(self, nid: str, neuron: ResonanceNeuron) -> None:
+        """运行时添加新神经元到 ensemble（neurogenesis 入口）。
+
+        新神经元必须与现有神经元共享 field_dim 和 hidden_size
+        （由 Cortex.add_neuron 保证，这里做防御性校验）。
+
+        Args:
+            nid: 神经元 ID（如 "zh_1"）
+            neuron: ResonanceNeuron 实例
+        """
+        if nid in self.neurons:
+            raise ValueError(f"神经元 {nid} 已存在于 ensemble")
+
+        # 校验 field_dim 一致性
+        if self.neurons:
+            existing_field_dim = next(iter(self.neurons.values())).config.field_dim
+            if neuron.config.field_dim != existing_field_dim:
+                raise ValueError(
+                    f"新神经元 field_dim={neuron.config.field_dim} 与 ensemble "
+                    f"field_dim={existing_field_dim} 不一致"
+                )
+            existing_hidden = next(iter(self.neurons.values())).config.hidden_size
+            if neuron.config.hidden_size != existing_hidden:
+                raise ValueError(
+                    f"新神经元 hidden_size={neuron.config.hidden_size} 与 ensemble "
+                    f"hidden_size={existing_hidden} 不一致"
+                )
+
+        self.neurons[nid] = neuron
+        # 确保 refractory_counter 在正确 device 上
+        neuron.refractory_counter = neuron.refractory_counter.to(
+            next(iter(self.neurons.values())).refractory_counter.device
+        )
+
     def _parallel_forward(
         self,
         active_ids,

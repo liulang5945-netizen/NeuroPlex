@@ -1,20 +1,15 @@
 """
-多模态高级 API 路由（内部代号：态极）
-仅在加载 ModelSelf 原生模型时可用。
-其他模型类型下，所有端点返回通用 404，不暴露任何内部信息。
+Cortex 神经元架构 API 路由（内部代号：态极）。
+所有端点基于 Cortex 神经元架构认知主体。
 """
-import asyncio
 import json
 import logging
 import os
 import time
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
-import threading
-import queue
 
 from taiji.core.app_state import app_state
 from taiji.core.utils import get_external_path
@@ -24,8 +19,8 @@ router = APIRouter()
 
 
 def _is_available() -> bool:
-    """检查多模态高级功能是否可用（静默检查，不暴露内部代号）"""
-    return app_state.is_taiji() and app_state.get_taiji_engine() is not None
+    """检查 Cortex 神经元架构是否可用。"""
+    return app_state.is_taiji()
 
 
 def _is_cortex(model) -> bool:
@@ -64,6 +59,26 @@ def _cortex_model_info(cortex) -> dict:
         s.get('spec') == 'general-fallback' for s in neuron_specs
     )
 
+    # 多模态 codec 状态
+    modalities = []
+    hub = getattr(cortex, '_tokenizer_hub', None)
+    if hub is not None:
+        for mod in hub.list_modalities():
+            codec = hub.modal_encoders.get(mod)
+            if codec is not None:
+                vocab = codec.vocab_size() if hasattr(codec, 'vocab_size') else 0
+                # 检查 checkpoint 是否存在
+                ckpt_map = {"image": "data/vqvae/vqvae_latest.pt",
+                           "audio": "data/encodec/encodec_latest.pt",
+                           "video": "data/video/video_latest.pt"}
+                ckpt_path = ckpt_map.get(mod, "")
+                modalities.append({
+                    "modality": mod,
+                    "vocab_size": vocab,
+                    "trained": os.path.isfile(ckpt_path),
+                    "checkpoint": ckpt_path if os.path.isfile(ckpt_path) else None,
+                })
+
     return {
         "status": "active",
         "architecture": "cortex",
@@ -73,6 +88,7 @@ def _cortex_model_info(cortex) -> dict:
         "is_fallback_mode": is_fallback,
         "neurons": neuron_specs,
         "max_rounds": getattr(cortex, 'max_rounds', None),
+        "modalities": modalities,
         "message": (
             "单神经元 fallback 模式（未蒸馏）" if is_fallback
             else f"Cortex 已加载 {len(neurons)} 个神经元"
@@ -80,43 +96,21 @@ def _cortex_model_info(cortex) -> dict:
     }
 
 
-def _get_engine():
-    """获取引擎实例，不可用时返回通用 404"""
-    if not _is_available():
-        raise HTTPException(status_code=404, detail="接口不存在")
-    return app_state.get_taiji_engine()
-
-
-def _not_found():
-    """统一的不可用响应"""
-    raise HTTPException(status_code=404, detail="接口不存在")
-
-
 # ======================== 状态查询 ========================
 
 @router.get("/api/taiji/status")
 def taiji_status():
-    """获取多模态引擎状态（仅激活时返回有效数据）"""
+    """获取 Cortex 神经元架构状态。"""
     if not _is_available():
         raise HTTPException(status_code=404, detail="接口不存在")
-    engine = app_state.get_taiji_engine()
-    try:
-        status = engine.get_status()
-        status["available"] = True
-        # 对外隐藏内部代号
-        status.pop("name", None)
-        return status
-    except Exception as e:
-        return {"available": False}
+    model = app_state.model
+    return _cortex_model_info(model)
 
 
 @router.get("/api/taiji/tools")
 def taiji_tools():
-    """获取可用的多模态工具列表"""
-    if not _is_available():
-        raise HTTPException(status_code=404, detail="接口不存在")
-    engine = app_state.get_taiji_engine()
-    return {"tools": engine.MULTIMODAL_TOOLS}
+    """获取可用的多模态工具列表（旧 TaijiMultimodalEngine 已移除）。"""
+    raise HTTPException(status_code=404, detail="接口不存在（请使用 /api/taiji/cortex/generate）")
 
 
 # ======================== 文件上传 ========================
@@ -160,197 +154,6 @@ async def taiji_upload(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"文件上传失败: {e}")
         raise HTTPException(status_code=500, detail="文件上传失败，请查看服务端日志")
-
-
-# ======================== 请求模型 ========================
-
-class ImageRequest(BaseModel):
-    image_path: str
-    prompt: Optional[str] = ""
-
-class ImageGenRequest(BaseModel):
-    prompt: str
-    size: Optional[str] = "512x512"
-
-class AudioRequest(BaseModel):
-    audio_path: str
-
-class TTSRequest(BaseModel):
-    text: str
-    voice: Optional[str] = "zh-CN-XiaoxiaoNeural"
-
-class VideoRequest(BaseModel):
-    video_path: str
-
-class VideoGenRequest(BaseModel):
-    prompt: str
-    duration: Optional[int] = 4
-
-class VideoGifRequest(BaseModel):
-    video_path: str
-    fps: Optional[float] = 4.0
-
-class MultimodalRunRequest(BaseModel):
-    task: str
-    tools: Optional[list] = None
-
-
-# ======================== 图像模态 ========================
-
-@router.post("/api/taiji/describe_image")
-def describe_image(req: ImageRequest):
-    """描述图像内容"""
-    engine = _get_engine()
-    try:
-        result = engine._execute_multimodal_tool("describe_image", {"input": req.image_path})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"图像描述失败: {e}")
-        raise HTTPException(status_code=500, detail="图像描述失败，请查看服务端日志")
-
-
-@router.post("/api/taiji/generate_image")
-def generate_image(req: ImageGenRequest):
-    """根据文字描述生成图像"""
-    engine = _get_engine()
-    try:
-        input_str = f"{req.prompt} | {req.size}" if req.size else req.prompt
-        result = engine._execute_multimodal_tool("generate_image", {"input": input_str})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"图像生成失败: {e}")
-        raise HTTPException(status_code=500, detail="图像生成失败，请查看服务端日志")
-
-
-# ======================== 音频模态 ========================
-
-@router.post("/api/taiji/transcribe_audio")
-def transcribe_audio(req: AudioRequest):
-    """语音识别（音频转文字）"""
-    engine = _get_engine()
-    try:
-        result = engine._execute_multimodal_tool("transcribe_audio", {"input": req.audio_path})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"语音识别失败: {e}")
-        raise HTTPException(status_code=500, detail="语音识别失败，请查看服务端日志")
-
-
-@router.post("/api/taiji/text_to_speech")
-def text_to_speech(req: TTSRequest):
-    """语音合成（文字转语音）"""
-    engine = _get_engine()
-    try:
-        input_str = f"{req.text} | {req.voice}" if req.voice else req.text
-        result = engine._execute_multimodal_tool("text_to_speech", {"input": input_str})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"语音合成失败: {e}")
-        raise HTTPException(status_code=500, detail="语音合成失败，请查看服务端日志")
-
-
-# ======================== 视频模态 ========================
-
-@router.post("/api/taiji/understand_video")
-def understand_video(req: VideoRequest):
-    """理解视频内容"""
-    engine = _get_engine()
-    try:
-        result = engine._execute_multimodal_tool("understand_video", {"input": req.video_path})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"视频理解失败: {e}")
-        raise HTTPException(status_code=500, detail="视频理解失败，请查看服务端日志")
-
-
-@router.post("/api/taiji/generate_video")
-def generate_video(req: VideoGenRequest):
-    """根据文字描述生成视频"""
-    engine = _get_engine()
-    try:
-        input_str = f"{req.prompt} | {req.duration}" if req.duration else req.prompt
-        result = engine._execute_multimodal_tool("generate_video", {"input": input_str})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"视频生成失败: {e}")
-        raise HTTPException(status_code=500, detail="视频生成失败，请查看服务端日志")
-
-
-@router.post("/api/taiji/video_to_gif")
-def video_to_gif(req: VideoGifRequest):
-    """视频转 GIF"""
-    engine = _get_engine()
-    try:
-        input_str = f"{req.video_path} | {req.fps}" if req.fps else req.video_path
-        result = engine._execute_multimodal_tool("video_to_gif", {"input": input_str})
-        return {"status": "ok", "result": result}
-    except Exception as e:
-        logger.error(f"视频转GIF失败: {e}")
-        raise HTTPException(status_code=500, detail="视频转GIF失败，请查看服务端日志")
-
-
-# ======================== 多模态 Agent 任务 ========================
-
-@router.post("/api/taiji/run")
-async def multimodal_run(req: MultimodalRunRequest):
-    """运行多模态 Agent 任务（流式返回）"""
-    engine = _get_engine()
-
-    async def event_generator():
-        try:
-            from taiji.agent_ext.tool_registry import registry
-            # 用户提供了工具列表时用用户的，否则用全局 registry
-            tool_reg = req.tools if req.tools else registry
-
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(engine.run, req.task, tool_reg)
-
-                # 分步 yield 步骤信息
-                last_step_count = 0
-                while not future.done():
-                    await asyncio.sleep(0.1)
-                    # 如果引擎支持中间结果，可以在这里 yield 进度
-                    if hasattr(engine, 'last_result') and engine.last_result:
-                        current_steps = len(engine.last_result.steps)
-                        if current_steps > last_step_count:
-                            for i in range(last_step_count, current_steps):
-                                step = engine.last_result.steps[i]
-                                step_output = {
-                                    "type": "step",
-                                    "step_index": i,
-                                    "action": getattr(step, 'action', ''),
-                                    "thought": getattr(step, 'thought', ''),
-                                }
-                                yield f"data: {json.dumps(step_output, ensure_ascii=False)}\n\n"
-                            last_step_count = current_steps
-
-                result = future.result()
-
-                output = {
-                    "type": "result",
-                    "status": result.status,
-                    "final_answer": result.final_answer,
-                    "steps": len(result.steps),
-                    "duration_ms": result.total_duration_ms,
-                }
-                yield f"data: {json.dumps(output, ensure_ascii=False)}\n\n"
-
-        except Exception as e:
-            logger.error(f"多模态任务失败: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'status': 'error', 'message': '任务执行失败，请查看服务端日志'}, ensure_ascii=False)}\n\n"
-
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@router.post("/api/taiji/cancel")
-def multimodal_cancel():
-    """取消当前多模态任务"""
-    engine = _get_engine()
-    engine.cancel()
-    return {"status": "ok", "message": "已发送取消信号"}
 
 
 # ======================== 喂养引擎（吃饭）========================
@@ -456,6 +259,264 @@ def feed_file(request: dict):
     except Exception as e:
         logger.error(f"文件喂养失败: {e}")
         raise HTTPException(status_code=500, detail="文件喂养失败")
+
+
+@router.post("/api/taiji/feed/multimodal")
+def feed_multimodal(request: dict):
+    """喂态极多模态资料并触发小睡消化。
+
+    请求体：{file_path, modality, nap?}
+    - file_path: 已上传的文件路径（通过 /api/taiji/upload 上传）
+    - modality: "image" / "audio" / "video"
+    - nap: 是否触发小睡消化（默认 true）
+
+    流程：文件 → codec encode → 训练样本入队 → (可选)nap 睡眠训练
+    """
+    try:
+        file_path = request.get("file_path", "")
+        modality = request.get("modality", "")
+        trigger_nap = request.get("nap", True)
+
+        if not file_path:
+            raise HTTPException(status_code=400, detail="file_path 不能为空")
+        if modality not in ("image", "audio", "video"):
+            raise HTTPException(status_code=400, detail="modality 必须是 image/audio/video")
+
+        safe_path = _validate_workspace_path(file_path)
+        if not os.path.isfile(safe_path):
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 从 cortex 获取 tokenizer_hub
+        model = app_state.model
+        if model is None or not _is_cortex(model):
+            raise HTTPException(status_code=503, detail="Cortex 未加载，无法处理多模态资料")
+        hub = getattr(model, "_tokenizer_hub", None)
+        if hub is None:
+            raise HTTPException(status_code=503, detail="TokenizerHub 未初始化")
+        if modality not in hub.list_modalities():
+            raise HTTPException(
+                status_code=503,
+                detail=f"模态 '{modality}' 的 codec 未注册（已注册: {hub.list_modalities()})",
+            )
+
+        # 喂养
+        from taiji.life.feed_engine import get_feed_engine
+        engine = get_feed_engine()
+        item = engine.feed_multimodal(modality, file_path=safe_path, tokenizer_hub=hub)
+        if not item:
+            return {"status": "ok", "message": "内容已跳过（重复或 codec 不可用）"}
+
+        result = {
+            "status": "ok",
+            "modality": modality,
+            "quality_score": item.quality_score,
+            "sample_count": item.sample_count,
+        }
+
+        # 触发小睡消化
+        if trigger_nap:
+            from taiji.life.sleep_engine import get_sleep_engine
+            sleep_engine = get_sleep_engine()
+            sleep_engine.set_brain_interfaces(cortex=model)
+            report = sleep_engine.nap(duration_minutes=1)
+            if report:
+                result["nap"] = {
+                    "phases": report.phases_completed,
+                    "samples": report.training_samples_used,
+                }
+            else:
+                result["nap"] = "skipped"
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"多模态喂养失败: {e}")
+        raise HTTPException(status_code=500, detail="多模态喂养失败")
+
+
+class CortexGenRequest(BaseModel):
+    """Cortex 原生多模态生成请求。"""
+    modality: str  # "image" / "audio" / "video"
+    input_path: Optional[str] = None  # 参考文件路径（模仿生成）
+    max_tokens: Optional[int] = 0  # 0=自动用 codec 网格大小
+    temperature: Optional[float] = 1.0
+    top_k: Optional[int] = 0
+    seed: Optional[int] = None
+    output_path: Optional[str] = None  # 保存目录
+
+
+@router.post("/api/taiji/cortex/generate")
+def cortex_generate(req: CortexGenRequest):
+    """使用 Cortex 原生 codec pipeline 生成多模态内容。
+
+    两种模式：
+    1. 模仿生成：提供 input_path（参考文件）→ codec encode → ensemble 共振 → 生成
+    2. 随机生成：不提供 input_path → 用随机 latent 作为种子 → 生成
+    """
+    try:
+        model = app_state.model
+        if model is None or not _is_cortex(model):
+            raise HTTPException(status_code=503, detail="Cortex 未加载")
+        hub = getattr(model, "_tokenizer_hub", None)
+        if hub is None:
+            raise HTTPException(status_code=503, detail="TokenizerHub 未初始化")
+
+        modality = req.modality
+        if modality not in ("image", "audio", "video"):
+            raise HTTPException(status_code=400, detail="modality 必须是 image/audio/video")
+        if modality not in hub.list_modalities():
+            raise HTTPException(status_code=503, detail=f"模态 '{modality}' 的 codec 未注册")
+
+        import torch
+        if req.seed is not None:
+            torch.manual_seed(req.seed)
+
+        device = next(model.neurons[next(iter(model.neurons))].parameters()).device
+        codec = hub.modal_encoders.get(modality)
+
+        # 构造输入 latent features
+        if req.input_path:
+            # 模仿模式：从文件加载 → codec encode → latent features
+            safe_path = _validate_workspace_path(req.input_path)
+            if not os.path.isfile(safe_path):
+                raise HTTPException(status_code=404, detail="参考文件不存在")
+            from taiji.multimodal.io import load_image, load_audio, load_video
+            if modality == "image":
+                data = load_image(safe_path).to(device)
+            elif modality == "audio":
+                data = load_audio(safe_path).to(device)
+            else:
+                data = load_video(safe_path).to(device)
+            x = data.unsqueeze(0).to(device)
+        else:
+            # 随机模式：合成随机数据 → codec encode
+            if modality == "image":
+                x = torch.rand(1, 3, 32, 32, device=device)
+            elif modality == "audio":
+                x = torch.rand(1, 1, 16000, device=device) * 0.5
+            else:
+                x = torch.rand(1, 3, 16, 32, 32, device=device)
+
+        with torch.no_grad():
+            z = codec.model.encoder(x)
+            # 展平为 [B, L, D]
+            if modality == "image":
+                B, D, Hz, Wz = z.shape
+                z_seq = z.permute(0, 2, 3, 1).contiguous().view(B, Hz * Wz, D)
+            elif modality == "audio":
+                B, D, Tz = z.shape
+                z_seq = z.permute(0, 2, 1).contiguous().view(B, Tz, D)
+            else:
+                B, D, Tz, Hz, Wz = z.shape
+                z_seq = z.permute(0, 2, 3, 4, 1).contiguous().view(B, Tz * Hz * Wz, D)
+
+        # max_tokens 默认用 codec 实际网格大小（避免 decode 时 reshape 失败）
+        # image: Hz*Wz（正方形网格）；audio/video: 同样用 z_seq 长度
+        actual_max_tokens = req.max_tokens if req.max_tokens and req.max_tokens > 0 else z_seq.shape[1]
+
+        # 生成
+        generated_ids = model.generate_multimodal(
+            {"modality": modality, "data": z_seq, "domain": "general"},
+            max_tokens=actual_max_tokens,
+            temperature=req.temperature,
+            top_k=req.top_k,
+            modality=modality,
+        )
+
+        # 解码
+        recon = hub.decode(generated_ids, modality=modality)
+
+        # 保存
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = req.output_path or f"data/{modality}/generated"
+        os.makedirs(out_dir, exist_ok=True)
+
+        result = {
+            "status": "ok",
+            "modality": modality,
+            "token_count": len(generated_ids),
+            "token_range": [min(generated_ids), max(generated_ids)],
+        }
+
+        if modality == "image":
+            from taiji.multimodal.io import save_image
+            path = os.path.join(out_dir, f"cortex_{ts}.png")
+            img = recon if recon.dim() == 3 else recon[0]
+            save_image(img, path)
+            result["file"] = path
+        elif modality == "audio":
+            from taiji.multimodal.io import save_audio
+            path = os.path.join(out_dir, f"cortex_{ts}.wav")
+            # audio decode 返回 1D [samples]，不要索引
+            aud = recon if recon.dim() <= 1 else recon[0]
+            save_audio(aud, path, sample_rate=16000)
+            result["file"] = path
+        elif modality == "video":
+            from taiji.multimodal.io import save_video
+            path = os.path.join(out_dir, f"cortex_{ts}.mp4")
+            vid = recon if recon.dim() == 4 else recon[0]
+            # video decode 返回 [C, T, H, W]，save_video 需要 [T, C, H, W]
+            if vid.dim() == 4 and vid.shape[0] == 3:
+                vid = vid.permute(1, 0, 2, 3)
+            save_video(vid, path, fps=8, fallback_png=True)
+            result["file"] = path
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cortex 多模态生成失败: {e}")
+        raise HTTPException(status_code=500, detail="Cortex 多模态生成失败")
+
+
+class CortexChatRequest(BaseModel):
+    """Cortex 文本对话请求。"""
+    prompt: str
+    max_tokens: Optional[int] = 256
+    temperature: Optional[float] = 0.8
+    top_k: Optional[int] = 50
+    domain: Optional[str] = None  # "zh"/"en"/"code"/"math"/"general"，None=自动推断
+
+
+@router.post("/api/taiji/cortex/chat")
+def cortex_chat(req: CortexChatRequest):
+    """使用 Cortex 神经元架构进行文本对话。
+
+    走 P7 路径：域专用 tokenizer encode → shared_embedding → ensemble 共振 → 域 lm_head decode。
+    domain=None 时自动推断域（code/math/zh/en/general）。
+    """
+    try:
+        model = app_state.model
+        if model is None or not _is_cortex(model):
+            raise HTTPException(status_code=503, detail="Cortex 未加载")
+        if not req.prompt.strip():
+            raise HTTPException(status_code=400, detail="prompt 不能为空")
+
+        # 调用 Cortex.generate（内部会获取 train_lock，与 sleep 训练互斥）
+        text = model.generate(
+            prompt=req.prompt,
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+            top_k=req.top_k,
+            domain=req.domain,
+        )
+
+        # 返回推断的域（用于前端展示路由信息）
+        inferred_domain = req.domain or model._infer_domain(req.prompt)
+
+        return {
+            "status": "ok",
+            "response": text,
+            "domain": inferred_domain,
+            "neurons": list(model.neurons.keys()),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cortex 文本对话失败: {e}")
+        raise HTTPException(status_code=500, detail="Cortex 文本对话失败")
 
 
 @router.post("/api/taiji/feed/directory")
@@ -707,569 +768,18 @@ def life_timeline(hours: int = 24):
         raise HTTPException(status_code=500, detail="获取时间线失败")
 
 
-def _load_dataset_files(file_names: list, _safe_put=None) -> tuple:
-    """
-    加载用户上传的数据集文件，自动区分 ReAct 和对话格式。
-    支持 file_parser 的全部格式：JSONL/JSON/CSV/TXT/MD/PDF/DOCX/HTML/EPUB/
-    Excel/PPTX/RTF/XML/PY/JS/图片OCR 等 30+ 种格式。
-
-    Returns:
-        (conv_data, react_data, file_stats) — 对话数据 + ReAct数据 + 每文件统计
-    """
-    # 查找文件：检查所有可能的数据目录
-    data_dirs = [get_external_path("data")]
-    import sys as _sys
-    if getattr(_sys, 'frozen', False):
-        _project_root = os.path.dirname(_sys.executable)
-    else:
-        _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _fallback = os.path.join(_project_root, "data")
-    if _fallback not in data_dirs:
-        data_dirs.append(_fallback)
-    conv_data = []
-    react_data = []
-    file_stats = []
-
-    for idx, fname in enumerate(file_names):
-        # 在所有数据目录中查找文件
-        fpath = None
-        for data_dir in data_dirs:
-            candidate = os.path.abspath(os.path.join(data_dir, fname))
-            if not candidate.startswith(os.path.abspath(data_dir) + os.sep):
-                continue
-            if os.path.exists(candidate):
-                fpath = candidate
-                break
-        if not fpath:
-            logger.warning(f"数据集文件不存在: {fname}")
-            file_stats.append({"name": fname, "samples": 0, "error": "文件不存在"})
-            continue
-
-        file_conv_before = len(conv_data)
-        file_react_before = len(react_data)
-        ext = os.path.splitext(fname)[1].lower()
-
-        try:
-            if ext in (".jsonl", ".json"):
-                # JSONL/JSON：自动区分 ReAct 和对话格式
-                _load_json_file(fpath, conv_data, react_data)
-            else:
-                # 所有其他格式统一走 file_parser（含 PDF OCR、DOCX、Excel、图片 OCR 等）
-                _load_with_file_parser(fpath, ext, conv_data, _safe_put)
-
-            file_count = (len(conv_data) - file_conv_before) + (len(react_data) - file_react_before)
-            file_stats.append({"name": fname, "samples": file_count, "error": None})
-            logger.info(f"从 {fname} 加载了 {file_count} 条数据")
-
-            if _safe_put:
-                _safe_put(json.dumps({
-                    "type": "progress",
-                    "fraction": round(0.02 + (idx + 1) / len(file_names) * 0.03, 4),
-                    "desc": f"📂 加载数据集 {idx+1}/{len(file_names)}: {fname} ({file_count} 条)",
-                    "loss": None, "step": 0,
-                }, ensure_ascii=False))
-
-        except Exception as e:
-            logger.warning(f"无法解析数据集文件 {fname}: {e}")
-            file_stats.append({"name": fname, "samples": 0, "error": str(e)})
-
-    logger.info(f"共加载 {len(conv_data)} 条对话 + {len(react_data)} 条 ReAct 数据用于微调")
-    return conv_data, react_data, file_stats
-
-
-def _load_json_file(fpath: str, conv_data: list, react_data: list = None):
-    """加载 JSONL/JSON 文件，自动识别 ReAct 和对话格式"""
-    with open(fpath, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-    if not content:
-        return
-
-    def _process_item(item):
-        """处理单条数据，自动分类"""
-        # ReAct 格式：task + steps
-        if "task" in item and "steps" in item:
-            if react_data is not None:
-                react_data.append(item)
-            return
-        # 对话格式：messages
-        if "messages" in item:
-            conv_data.append(item)
-            return
-        # instruction/output 格式 → 转为对话
-        conv = _convert_to_conversation(item)
-        if conv:
-            conv_data.append(conv)
-
-    if content.startswith("{") and "\n" in content:
-        for line in content.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                _process_item(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-    else:
-        try:
-            data = json.loads(content)
-            if isinstance(data, list):
-                for item in data:
-                    _process_item(item)
-        except json.JSONDecodeError:
-            pass
-
-
-def _load_with_file_parser(fpath: str, ext: str, conv_data: list, _safe_put=None):
-    """使用 file_parser 统一解析非 JSON 文件，按段落拆分为对话样本"""
-    from taiji.tools.file_parser import parse_file_to_text, IMAGE_EXTENSIONS
-
-    def progress_cb(_current, _total, message):
-        if _safe_put and message:
-            _safe_put(json.dumps({
-                "type": "progress",
-                "fraction": 0.02,
-                "desc": f"📄 解析中: {message}",
-                "loss": None, "step": 0,
-            }, ensure_ascii=False))
-
-    text = parse_file_to_text(fpath, progress_callback=progress_cb)
-    if not text or len(text.strip()) < 10:
-        return
-
-    # 图片 OCR：整张图作为一个样本
-    if ext in IMAGE_EXTENSIONS:
-        conv_data.append({
-            "messages": [
-                {"role": "user", "content": "请识别并描述这张图片中的文字内容"},
-                {"role": "assistant", "content": text.strip()[:2000]},
-            ]
-        })
-        return
-
-    # 其他格式：按段落拆分
-    paragraphs = _split_paragraphs(text)
-    for para in paragraphs:
-        if len(para) > 10:
-            conv_data.append({
-                "messages": [
-                    {"role": "user", "content": f"请学习以下内容并总结要点：\n{para[:500]}"},
-                    {"role": "assistant", "content": para[:1000]},
-                ]
-            })
-
-
-def _split_paragraphs(text: str) -> list:
-    """智能分段：双换行优先，单换行次之，长文本兜底按字数切"""
-    # 先按双换行分
-    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
-    if len(paras) > 1:
-        return paras
-    # 单换行
-    paras = [p.strip() for p in text.split("\n") if p.strip() and len(p.strip()) > 20]
-    if len(paras) > 1:
-        return paras
-    # 长文本按 500 字切
-    if len(text) > 500:
-        return [text[i:i+500] for i in range(0, len(text), 500)]
-    return [text]
-
-
-def _convert_to_conversation(item: dict) -> dict:
-    """将多种数据格式统一转换为对话格式"""
-    # 已经是 messages 格式
-    if "messages" in item:
-        return item
-    # instruction/output 格式
-    instruction = item.get("instruction") or item.get("question") or item.get("input") or ""
-    output = item.get("output") or item.get("answer") or item.get("response") or ""
-    if instruction and output:
-        return {
-            "messages": [
-                {"role": "user", "content": str(instruction)},
-                {"role": "assistant", "content": str(output)},
-            ]
-        }
-    return None
-
-
-# ======================== 态极原生微调 ========================
-
-@router.post("/api/taiji/train")
-async def taiji_train(request: dict):
-    """
-    态极原生模型微调（SSE 流式返回进度）
-
-    使用 ModelSelfTrainer.finetune() 进行 ReAct 工具调用微调。
-    仅在加载态极 ModelSelf 模型时可用。
-
-    请求体参数:
-        num_epochs: int = 5
-        batch_size: int = 4
-        learning_rate: float = 1e-4
-        max_length: int = 512
-        save_steps: int = 50
-        log_steps: int = 5
-        keep_checkpoints: int = 3  # 保留最近 N 个中间 checkpoint + best
-    """
-    if not _is_available():
-        raise HTTPException(status_code=404, detail="接口不存在")
-
-    # 检查是否已有训练在运行
-    if app_state.is_training:
-        raise HTTPException(status_code=400, detail="当前已有训练任务在运行")
-
-    # P2-6: ModelSelf 已移除，导入安全处理
-    try:
-        from taiji.architecture import ModelSelf
-    except ImportError:
-        ModelSelf = None
-    model = app_state.model
-    # P2-6: Cortex 模式下不支持传统微调接口（应使用 sleep/neurogenesis 训练神经元）
-    if _is_cortex(model):
-        raise HTTPException(
-            status_code=400,
-            detail="当前为 Cortex 认知主体模式，不支持传统微调接口。"
-                   "请使用睡眠训练（sleep_engine）或神经新生（neurogenesis）训练神经元。",
-        )
-    if ModelSelf is None or not isinstance(model, ModelSelf):
-        raise HTTPException(status_code=400, detail="当前模型不是态极原生模型，无法使用此接口")
-
-    tokenizer = app_state.tokenizer
-    if tokenizer is None:
-        raise HTTPException(status_code=500, detail="分词器未加载")
-
-    # 解析参数
-    num_epochs = request.get("num_epochs", 5)
-    batch_size = request.get("batch_size", 4)
-    learning_rate = request.get("learning_rate", 1e-4)
-    max_length = request.get("max_length", 512)
-    save_steps = request.get("save_steps", 50)
-    log_steps = request.get("log_steps", 5)
-    keep_checkpoints = request.get("keep_checkpoints", 3)
-    dataset_files = request.get("dataset_files", [])  # 用户上传的数据集文件名列表
-
-    async def event_generator():
-        log_queue = queue.Queue(maxsize=256)
-
-        def _safe_put(msg, timeout=5.0):
-            try:
-                log_queue.put(msg, timeout=timeout)
-            except queue.Full:
-                pass
-
-        def train_worker():
-            training_completed = False
-            nonlocal batch_size, max_length
-            try:
-                app_state.try_start_training()
-                # 清除停止标志
-                from api.training.taiji_train import clear_stop_request, is_stop_requested
-                clear_stop_request()
-
-                from taiji.train.trainer import ModelSelfTrainer, build_dataset
-
-                # 确定设备
-                device = "cpu"
-                try:
-                    device = str(next(model.parameters()).device)
-                    if device.startswith("cuda"):
-                        device = "cuda"
-                    elif device.startswith("mps"):
-                        device = "mps"
-                except Exception:
-                    pass
-
-                # 硬件自适应：根据 VRAM/RAM 自动调整参数
-                hw_info = {}
-                try:
-                    from taiji.core.hardware import analyze_hardware
-                    hw_info = analyze_hardware() or {}
-                except Exception:
-                    pass
-                ram_gb = getattr(hw_info, "available_memory_gb", 8) or 8
-                vram_gb = getattr(hw_info, "vram_gb", 0) or 0
-                if vram_gb >= 8:
-                    batch_size = max(batch_size, 8)
-                    max_length = min(max_length, 1024)
-                elif vram_gb >= 4:
-                    batch_size = max(batch_size, 4)
-                elif ram_gb >= 16:
-                    batch_size = max(batch_size, 4)
-                else:
-                    batch_size = min(batch_size, 2)
-
-                _safe_put(json.dumps({
-                    "type": "hardware_diag",
-                    "device": device,
-                    "ram_gb": ram_gb,
-                    "vram_gb": vram_gb,
-                    "batch_size": batch_size,
-                    "max_length": max_length,
-                }, ensure_ascii=False))
-
-                # 线程优先级（非关键，失败不影响训练）
-                try:
-                    from api.training.stream import _apply_thread_priority
-                    _apply_thread_priority(hw_info)
-                except Exception:
-                    pass
-
-                # 构建数据集
-                _safe_put(json.dumps({
-                    "type": "progress",
-                    "fraction": 0.0,
-                    "desc": "📦 正在构建训练数据集...",
-                    "loss": None, "step": 0,
-                }, ensure_ascii=False))
-
-                # 自动清洗训练数据（去重、过滤模板、工具名对齐）
-                try:
-                    from taiji.train.data_cleaner import clean_training_data
-                    _base_dir = os.path.dirname(os.path.abspath(__file__))
-                    training_data_dir = os.path.join(_base_dir, "..", "taiji", "training_data")
-                    if os.path.exists(training_data_dir):
-                        _safe_put(json.dumps({
-                            "type": "progress",
-                            "fraction": 0.01,
-                            "desc": "🧹 清洗训练数据（去重、过滤模板）...",
-                            "loss": None, "step": 0,
-                        }, ensure_ascii=False))
-                        clean_stats = clean_training_data(training_data_dir)
-                        _safe_put(json.dumps({
-                            "type": "progress",
-                            "fraction": 0.03,
-                            "desc": f"✅ 数据清洗完成: {clean_stats['total_input']} → {clean_stats['total_output']} 条",
-                            "loss": None, "step": 0,
-                            "clean_stats": clean_stats,
-                        }, ensure_ascii=False))
-                except Exception as e:
-                    logger.warning(f"数据清洗跳过（非关键）: {e}")
-
-                # 加载用户上传的数据集（支持 JSONL/JSON/TXT/PDF，自动区分 ReAct 和对话）
-                extra_conv_data = None
-                extra_react_data = None
-                file_stats = []
-                if dataset_files:
-                    extra_conv_data, extra_react_data, file_stats = _load_dataset_files(dataset_files, _safe_put=_safe_put)
-
-                dataset = build_dataset(
-                    tokenizer,
-                    extra_react_data=extra_react_data,
-                    extra_conv_data=extra_conv_data,
-                    max_length=max_length,
-                )
-
-                if len(dataset) == 0:
-                    _safe_put(json.dumps({
-                        "type": "error",
-                        "message": "训练数据为空，请先使用态极对话积累数据",
-                    }, ensure_ascii=False))
-                    _safe_put("[DONE]")
-                    return
-
-                _safe_put(json.dumps({
-                    "type": "progress",
-                    "fraction": 0.05,
-                    "desc": f"✅ 数据集构建完成: {len(dataset)} 条样本",
-                    "loss": None, "step": 0,
-                    "dataset_info": {
-                        "total_samples": len(dataset),
-                        "files": file_stats,
-                        "user_data": len(extra_conv_data) if extra_conv_data else 0,
-                        "seed_data": len(dataset) - (len(extra_conv_data) if extra_conv_data else 0),
-                    },
-                }, ensure_ascii=False))
-
-                # 创建训练器
-                trainer = ModelSelfTrainer(
-                    model=model,
-                    tokenizer=tokenizer,
-                    learning_rate=learning_rate,
-                )
-                # 注册到 app_state，供暂停/停止 API 使用
-                app_state._trainer_ref = trainer
-
-                # 微调 checkpoint 保存到模型目录下（和模型绑定，打包不影响）
-                model_path = getattr(app_state, "_loaded_model_name", "") or ""
-                if model_path and os.path.isdir(model_path):
-                    model_dir = model_path if os.path.exists(os.path.join(model_path, "config.json")) else os.path.dirname(model_path)
-                    save_dir = os.path.join(model_dir, "checkpoints")
-                else:
-                    save_dir = get_external_path(os.path.join("taiji_checkpoints", "finetune"))
-                os.makedirs(save_dir, exist_ok=True)
-
-                # 执行微调（generator 模式）
-                for fraction, desc, loss_history, metrics in trainer.finetune(
-                    dataset=dataset,
-                    num_epochs=num_epochs,
-                    batch_size=batch_size,
-                    save_dir=save_dir,
-                    save_steps=save_steps,
-                    log_steps=log_steps,
-                    device=device,
-                ):
-                    # 检查停止请求
-                    if is_stop_requested():
-                        trainer.stop()
-                        _safe_put(json.dumps({
-                            "type": "completed",
-                            "message": "⏹ 训练已停止",
-                            "total_steps": trainer.global_step,
-                            "best_loss": trainer.best_loss,
-                        }, ensure_ascii=False))
-                        _safe_put("[DONE]")
-                        return
-
-                    # SSE 事件：透传 trainer 返回的所有 metrics
-                    evt = {
-                        "type": "progress",
-                        "fraction": round(fraction, 4),
-                        "desc": desc,
-                    }
-                    evt.update(metrics)
-                    _safe_put(json.dumps(evt, ensure_ascii=False))
-
-                # 训练完成后清理旧 checkpoint
-                _cleanup_checkpoints(save_dir, keep=keep_checkpoints)
-                training_completed = True
-
-                _safe_put(json.dumps({
-                    "type": "completed",
-                    "message": f"✅ 态极微调完成！最终 Loss: {loss_history[-1]:.4f}" if loss_history else "✅ 态极微调完成！",
-                    "total_steps": trainer.global_step,
-                    "best_loss": trainer.best_loss,
-                }, ensure_ascii=False))
-                _safe_put("[DONE]")
-
-            except Exception as e:
-                logger.error(f"态极微调异常: {e}")
-                _safe_put(json.dumps({
-                    "type": "error",
-                    "message": f"态极微调出错: {e}",
-                }, ensure_ascii=False))
-                _safe_put("[DONE]")
-            finally:
-                app_state.finish_training()
-                model.eval()
-                # 训练完成 → 热切换到微调后的模型；中止/失败 → 保持原模型
-                if training_completed:
-                    try:
-                        best_path = os.path.join(save_dir, "best")
-                        if os.path.exists(os.path.join(best_path, "config.json")):
-                            from taiji.loader import load_model as load_taiji_model
-                            new_model, new_tokenizer = load_taiji_model(best_path, device=device)
-                            app_state.update_model(new_model, new_tokenizer, None, best_path)
-                            logger.info("训练完成，已热切换到微调后的模型")
-                    except Exception as e:
-                        logger.warning(f"热切换模型失败（原模型仍可用）: {e}")
-
-        t = threading.Thread(target=train_worker, daemon=True)
-        t.start()
-        app_state.register_background_task(t)
-
-        # SSE 心跳循环
-        heartbeat_counter = 0
-        while True:
-            try:
-                has_message = False
-                while not log_queue.empty():
-                    msg = log_queue.get_nowait()
-                    if msg == "[DONE]":
-                        yield "data: [DONE]\n\n"
-                        return
-                    yield f"data: {msg}\n\n"
-                    has_message = True
-                    heartbeat_counter = 0
-
-                if not has_message:
-                    heartbeat_counter += 1
-                    if heartbeat_counter >= 50:
-                        yield ": heartbeat\n\n"
-                        heartbeat_counter = 0
-
-                await asyncio.sleep(0.1)
-            except (GeneratorExit, RuntimeError, Exception):
-                break
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
 # ======================== 模型信息查询 ========================
 
 @router.get("/api/taiji/model/info")
 def taiji_model_info():
-    """获取当前态极模型的详细信息"""
+    """获取当前 Cortex 神经元架构信息。"""
     if not _is_available():
         raise HTTPException(status_code=404, detail="接口不存在")
-
-    # P2-6: ModelSelf 已移除，导入安全处理
-    try:
-        from taiji.architecture import ModelSelf
-    except ImportError:
-        ModelSelf = None
     model = app_state.model
-    # P2-6: Cortex 模式下返回神经元架构信息
-    if _is_cortex(model):
-        return _cortex_model_info(model)
-    if ModelSelf is None or not isinstance(model, ModelSelf):
-        return {"status": "not_taiji", "message": "当前模型不是态极原生模型（ModelSelf 已移除，请使用 Cortex）"}
-
-    params = model.get_num_parameters()
-    config = model.config
-
-    # 检测当前模型规模
-    total_params = params["total"]
-    if total_params >= 3e9:
-        current_size = "7B"
-    elif total_params >= 1e9:
-        current_size = "3B"
-    elif total_params >= 500e6:
-        current_size = "1B"
-    elif total_params >= 200e6:
-        current_size = "350M"
-    else:
-        current_size = "125M"
-
-    # 扫描已有 checkpoint（与微调保存路径保持一致）
-    model_path = getattr(app_state, "_loaded_model_name", "") or ""
-    if model_path and os.path.isdir(model_path):
-        checkpoints_dir = os.path.dirname(model_path)
-    else:
-        checkpoints_dir = get_external_path(os.path.join("taiji_checkpoints", "finetune"))
-    best_path = os.path.join(checkpoints_dir, "best")
-    has_best = os.path.exists(os.path.join(best_path, "config.json"))
-    step_dirs = []
-    if os.path.exists(checkpoints_dir):
-        for d in os.listdir(checkpoints_dir):
-            if d.startswith("step_") and os.path.isdir(os.path.join(checkpoints_dir, d)):
-                try:
-                    step_num = int(d.split("_")[1])
-                    step_dirs.append(step_num)
-                except ValueError:
-                    pass
-    step_dirs.sort()
-
-    return {
-        "status": "active",
-        "size": current_size,
-        "parameters": params,
-        "config": {
-            "hidden_size": config.hidden_size,
-            "num_hidden_layers": config.num_hidden_layers,
-            "num_attention_heads": config.num_attention_heads,
-            "num_key_value_heads": config.num_key_value_heads,
-            "intermediate_size": config.intermediate_size,
-            "vocab_size": config.vocab_size,
-            "max_position_embeddings": config.max_position_embeddings,
-        },
-        "available_sizes": ["125m", "350m", "1b", "3b", "7b"],
-        "checkpoints": {
-            "has_best": has_best,
-            "latest_step": step_dirs[-1] if step_dirs else None,
-            "total_checkpoints": len(step_dirs),
-            "steps": step_dirs[-10:] if len(step_dirs) > 10 else step_dirs,
-        },
-    }
+    # Cortex 是唯一认知主体；非 Cortex 视为未加载
+    if not _is_cortex(model):
+        raise HTTPException(status_code=503, detail="Cortex 未加载")
+    return _cortex_model_info(model)
 
 
 @router.post("/api/taiji/checkpoints/cleanup")

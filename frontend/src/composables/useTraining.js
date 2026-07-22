@@ -1,14 +1,14 @@
 
 /**
- * 微调训练相关状态和逻辑
+ * 训练相关状态和逻辑
  * 从 App.vue 拆出，减轻主文件臃肿
  *
  * 支持两种训练模式：
  * 1. 普通模式（HuggingFace/GGUF）— LoRA 微调，走 /api/train/stream
- * 2. 态极模式（ModelSelf）— 原生微调，走 /api/taiji/train
+ * 2. Cortex 模式 — 睡眠训练，走 /api/taiji/sleep
  *
- * 当加载态极模型时，自动进入态极模式，显示生命活动面板。
- * 普通模型下不触发任何态极相关内容。
+ * 当加载 Cortex 神经元架构时，自动进入 Cortex 模式，显示生命活动面板。
+ * 普通模型下不触发任何 Cortex 相关内容。
  */
 import { ref, reactive, nextTick } from 'vue';
 import { API_BASE, authFetch } from './apiClient.js';
@@ -648,7 +648,7 @@ export async function exportModelToGGUF(toast, $confirm) {
 // ===== 态极模式：检测 + 生命活动 + 态极微调 =====
 
 /**
- * 检测当前加载的模型是否为态极 ModelSelf。
+ * 检测当前加载的模型是否为 Cortex 神经元架构。
  * 如果是，自动设置 isTaijiModel=true 并加载态极信息。
  * 应在训练页面 onMounted 时调用。
  */
@@ -765,19 +765,19 @@ export async function playTaiji(toast) {
 }
 
 /**
- * 启动态极原生微调（SSE 流式）。
- * 态极模式下替代 startTraining()。
+ * 启动态极睡眠训练（Cortex 模式）。
+ * Cortex 神经元架构通过 sleep_engine 训练。
  */
 export async function startTaijiTraining(toast) {
   trainState.value = 'running';
   trainLog.value = '';
   trainLoss.value = [];
   trainProgress.value = 0;
-  trainProgressDesc.value = '⏳ 正在初始化态极微调环境...';
+  trainProgressDesc.value = '⏳ 正在启动睡眠训练...';
   trainAbortController = new AbortController();
   Object.assign(trainMetrics, {
     elapsed: 0, eta: null, lr: null, epoch: 1,
-    total_epochs: taijiTrainParams.num_epochs,
+    total_epochs: 1,
     grad_norm: null, samples_per_sec: 0, total_steps: 0, current_loss: null,
   });
   Object.assign(trainDevice, {
@@ -785,13 +785,14 @@ export async function startTaijiTraining(toast) {
     gpu_memory_gb: null, ram_gb: null, message: '',
   });
 
-  const body = { ...taijiTrainParams, dataset_files: [...selectedDatasets.value] };
-
   try {
-    const res = await authFetch(`${API_BASE}/api/taiji/train`, {
+    trainProgressDesc.value = '💤 睡眠训练进行中（共振整合 + STDP）...';
+    trainProgress.value = 30;
+    trainLog.value += '💤 启动睡眠训练（sleep_engine）...\n';
+    autoScrollTrainLog();
+
+    const res = await authFetch(`${API_BASE}/api/taiji/sleep`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
       signal: trainAbortController.signal,
     });
 
@@ -800,60 +801,19 @@ export async function startTaijiTraining(toast) {
       throw new Error(err.detail || `HTTP ${res.status}`);
     }
 
-    trainReader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await trainReader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const payload = line.slice(6);
-          if (payload === '[DONE]') {
-            if (trainState.value === 'running') trainState.value = 'completed';
-            break;
-          }
-          try {
-            const evt = JSON.parse(payload);
-            if (evt.type === 'progress') {
-              trainProgress.value = Math.round((evt.fraction || 0) * 100);
-              trainProgressDesc.value = evt.desc || '';
-              trainLog.value += `${evt.desc}\n`;
-              if (evt.loss != null) trainLoss.value.push({ step: evt.step || 0, loss: evt.loss });
-              if (evt.lr != null) trainMetrics.lr = evt.lr;
-              if (evt.step != null) trainMetrics.total_steps = evt.step;
-              if (evt.loss != null) trainMetrics.current_loss = evt.loss;
-
-              // 瓶颈检测事件
-              if (evt.bottleneck) {
-                toast(`⚠️ 检测到训练瓶颈！${evt.desc || '建议升级模型以获得更好的效果'}`, 'warning');
-              }
-              autoScrollTrainLog();
-            } else if (evt.type === 'error') {
-              trainLog.value += `❌ ${evt.message}\n`;
-              trainState.value = 'idle';
-              autoScrollTrainLog();
-              toast(`❌ 态极微调失败: ${evt.message}`, 'error');
-            } else if (evt.type === 'completed') {
-              trainLog.value += `✅ ${evt.message}\n`;
-              trainState.value = 'completed';
-              trainProgress.value = 100;
-              autoScrollTrainLog();
-              // 刷新态极信息（checkpoint 可能更新了）
-              await detectTaijiModel();
-            } else if (evt.type === 'stopped') {
-              trainLog.value += `⏹ ${evt.message}\n`;
-              trainState.value = 'idle';
-              autoScrollTrainLog();
-            }
-          } catch (e) { console.debug('[useTraining] parse error:', e.message) } /* skip */ }
-        }
-      }
+    const data = await res.json();
+    trainProgress.value = 100;
+    trainProgressDesc.value = `✅ 睡眠训练完成`;
+    trainLog.value += `✅ 睡眠训练完成：${data.phases_completed || 0} 阶段，${data.training_samples_used || 0} 样本\n`;
+    if (data.loss != null) {
+      trainLoss.value.push({ step: 1, loss: data.loss });
+      trainMetrics.current_loss = data.loss;
+    }
+    trainState.value = 'completed';
+    autoScrollTrainLog();
+    toast(`✅ 睡眠训练完成（${data.phases_completed || 0} 阶段）`, 'success');
+    // 刷新态极信息
+    await detectTaijiModel();
   } catch (err) {
     if (err.name !== 'AbortError') {
       trainLog.value += `❌ ${err.message}\n`;

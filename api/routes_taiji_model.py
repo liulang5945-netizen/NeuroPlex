@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from taiji.core.app_state import app_state
 from taiji.core.utils import get_external_path
 
-logger = logging.getLogger("ApiServer.ModelSelf")
+logger = logging.getLogger("ApiServer.Cortex")
 router = APIRouter()
 
 # 全局自动升级器实例（延迟初始化）
@@ -41,23 +41,18 @@ def _ensure_upgrader():
 
 @router.get("/api/taiji_model/status")
 def get_taiji_model_status():
-    """获取态极模型状态（混合引擎统计、能力分数等）"""
+    """获取 Cortex 神经元架构状态。"""
     if not app_state.is_taiji():
-        return {"status": "inactive", "message": "态极引擎未激活"}
+        return {"status": "inactive", "message": "Cortex 未激活"}
 
-    taiji = app_state.get_taiji_engine()
-    result = {
+    model = app_state.model
+    n_neurons = len(getattr(model, 'neurons', {}))
+    return {
         "status": "active",
-        "taiji_engine": True,
+        "architecture": "cortex",
+        "neuron_count": n_neurons,
+        "model_name": app_state._loaded_model_name,
     }
-
-    # 如果有混合引擎，返回其状态
-    if hasattr(app_state, '_hybrid_engine') and app_state._hybrid_engine:
-        result["hybrid_engine"] = app_state._hybrid_engine.get_status()
-    else:
-        result["hybrid_engine"] = None
-
-    return result
 
 
 @router.get("/api/taiji_model/upgrade_check")
@@ -270,20 +265,9 @@ def start_upgrade():
             detail=f"训练数据不足（当前 {len(training_data)} 条，至少需要 10 条）。请先多使用态极对话积累数据。"
         )
 
-    # 获取教师模型（兼容 NativeInferenceEngine 和 TaijiMultimodalEngine）
-    taiji = app_state.get_taiji_engine()
-    if hasattr(taiji, 'text_engine'):
-        # TaijiMultimodalEngine
-        teacher_model = taiji.text_engine.inference.model
-        teacher_tokenizer = taiji.text_engine.inference.tokenizer
-    elif hasattr(taiji, 'model'):
-        # NativeInferenceEngine
-        teacher_model = taiji.model
-        teacher_tokenizer = taiji.tokenizer
-    else:
-        # 回退：直接从 app_state 获取
-        teacher_model = app_state.model
-        teacher_tokenizer = app_state.tokenizer
+    # 获取教师模型（P8: 直接从 app_state 获取 Cortex）
+    teacher_model = app_state.model
+    teacher_tokenizer = app_state.tokenizer
 
     # 确定设备
     try:

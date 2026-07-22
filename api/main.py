@@ -75,9 +75,8 @@ def main():
         return
 
     if args.train:
-        print("🚀 训练模式（P2-6: ModelSelf 已移除）...")
-        print("⚠️  传统 ModelSelf 训练已不再支持。")
-        print("   新架构使用 Cortex + ResonanceNeuron，训练方式：")
+        print("🚀 训练模式...")
+        print("   Cortex 神经元架构训练方式：")
         print("   1. 初始神经元蒸馏: scripts/training/distill_neurons.py")
         print("   2. 运行时学习: feed_engine + sleep_engine")
         print("   3. 神经新生: neurogenesis_creator（自动在睡眠时触发）")

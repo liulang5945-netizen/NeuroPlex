@@ -39,8 +39,8 @@ def _get_tokenizer():
         if _cached_tokenizer is not None:
             return _cached_tokenizer if _cached_tokenizer else None
         try:
-            from taiji.tokenizer import ModelSelfTokenizer
-            _cached_tokenizer = ModelSelfTokenizer()
+            from taiji.loader import TaijiNativeTokenizerV2
+            _cached_tokenizer = TaijiNativeTokenizerV2()
             return _cached_tokenizer
         except Exception:
             _cached_tokenizer = False

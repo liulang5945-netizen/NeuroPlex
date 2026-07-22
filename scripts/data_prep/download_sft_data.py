@@ -334,56 +334,31 @@ def main():
 
     os.makedirs(args.output, exist_ok=True)
 
-    # 加载 tokenizer
-    if not os.path.exists(SPM_PATH):
-        print(f"ERROR: tokenizer not found at {SPM_PATH}")
-        sys.exit(1)
-
-    sp = spm.SentencePieceProcessor()
-    sp.Load(SPM_PATH)
-    print(f"Loaded tokenizer: vocab_size={sp.GetPieceSize()}, SPM_PATH={SPM_PATH}")
-
+    # P7: 不需要旧 256K tokenizer，下载原始数据后由 tokenize_sft_p7.py 用域 tokenizer 处理
     all_datasets = {}
-    all_tokenized = {}
 
     for domain in DOMAIN_SOURCES.keys():
         print(f"\n{'=' * 60}\n[Download] domain={domain}, target={args.samples}\n{'=' * 60}")
         samples = download_domain_sft(domain, args.samples)
         print(f"  Total samples: {len(samples)}")
 
-        # 保存原始 SFT 数据
+        # 保存原始 SFT 数据（prompt/response 文本，供 P7 域 tokenizer 使用）
         domain_path = os.path.join(args.output, f"{domain}_sft.pt")
         torch.save(samples, domain_path)
         print(f"  Saved raw SFT: {domain_path} ({len(samples)} samples)")
 
-        # tokenize
-        print(f"  Tokenizing...")
-        tokenized = tokenize_sft(sp, samples, SEQ_LEN)
-        print(f"  Tokenized: input_ids={tokenized['input_ids'].shape}, "
-              f"labels={tokenized['labels'].shape}")
-        # 统计 response token 数
-        if len(tokenized["response_mask"]) > 0:
-            avg_resp_len = tokenized["response_mask"].sum(dim=1).float().mean().item()
-            print(f"  Avg response length: {avg_resp_len:.1f} tokens")
-
         all_datasets[domain] = samples
-        all_tokenized[domain] = tokenized
 
     # 保存合并文件
     all_path = os.path.join(args.output, "sft_datasets.pt")
     torch.save(all_datasets, all_path)
     print(f"\nSaved combined raw: {all_path}")
 
-    tok_path = os.path.join(args.output, "sft_tokenized.pt")
-    torch.save(all_tokenized, tok_path)
-    print(f"Saved combined tokenized: {tok_path}")
-
     # 摘要
     print(f"\n{'=' * 60}\n[Summary]\n{'=' * 60}")
     for domain, samples in all_datasets.items():
-        tok = all_tokenized[domain]
-        print(f"  {domain}: {len(samples)} samples, "
-              f"input_ids={tok['input_ids'].shape}")
+        print(f"  {domain}: {len(samples)} samples")
+    print(f"\n下一步: python scripts/training/tokenize_sft_p7.py")
 
 
 if __name__ == "__main__":

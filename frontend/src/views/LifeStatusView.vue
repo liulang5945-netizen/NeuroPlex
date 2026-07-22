@@ -475,16 +475,15 @@ function playTaiji() {
 
 async function trainTaiji() {
   actionLoading.value = true
-  currentActivity.value = '🧠 正在训练...'
+  currentActivity.value = '🧠 正在睡眠训练...'
   try {
-    const resp = await authFetch(`${API_BASE}/api/training/start`, {
+    // Cortex 模式下训练走睡眠引擎（sleep_engine）
+    const resp = await authFetch(`${API_BASE}/api/taiji/sleep`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ epochs: 3, learning_rate: 5e-5 }),
     })
     const data = await resp.json()
-    actionResult.value = data.message || '训练已启动'
-    addLog('train', '🧠', data.message || '训练已启动')
+    actionResult.value = data.message || `睡眠训练完成（${data.phases_completed || 0} 阶段）`
+    addLog('train', '🧠', `睡眠训练：${data.phases_completed || 0} 阶段，${data.training_samples_used || 0} 样本`)
   } catch (e) {
     actionResult.value = `训练请求失败: ${e.message}`
   } finally {

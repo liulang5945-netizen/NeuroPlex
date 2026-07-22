@@ -730,12 +730,11 @@ class ContextManager:
         if not messages:
             return ""
 
-        # 尝试用模型生成摘要
+        # 尝试用 Cortex 生成摘要
         try:
             from taiji.core.app_state import app_state
-            taiji = app_state.get_taiji_engine()
-            tokenizer = app_state.get_tokenizer()
-            if taiji and tokenizer:
+            model = app_state.model
+            if model is not None and hasattr(model, 'generate'):
                 # 构建摘要 prompt
                 conversation = ""
                 for m in messages:
@@ -743,7 +742,7 @@ class ContextManager:
                     conversation += f"{role}: {m['content'][:100]}\n"
 
                 prompt = f"请用一句话总结以下对话的要点：\n{conversation}\n摘要："
-                summary = taiji.generate(prompt, tokenizer, max_new_tokens=100, temperature=0.3)
+                summary = model.generate(prompt, max_tokens=100, temperature=0.3)
                 if summary and len(summary) > 10:
                     return summary.strip()[:200]
         except Exception:

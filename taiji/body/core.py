@@ -37,7 +37,7 @@ class BodyCore:
 
     def __init__(self):
         self._model = None
-        self._cortex = None  # 大脑（Cortex）- 取代旧 ModelSelf 的认知主体
+        self._cortex = None  # 大脑（Cortex）- 认知主体
         self._tokenizer = None
         self._device = "cpu"
         self._action_provider = None

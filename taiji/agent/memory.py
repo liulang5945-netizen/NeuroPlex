@@ -1,5 +1,5 @@
 """
-ModelSelf 记忆系统
+Cortex 记忆系统
 海马体 — 让模型拥有原生记忆能力
 
 提供短期记忆（工作记忆）和长期记忆（持久化存储），
@@ -12,7 +12,7 @@ import time
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-logger = logging.getLogger("ModelSelf.Memory")
+logger = logging.getLogger("Cortex.Memory")
 
 
 class MemorySlot:

@@ -192,27 +192,62 @@ class LifeScheduler:
     def _update_neuron_signals(self):
         """将 5 维需求映射为神经元级行为信号（每次心跳调用）。
 
+        设计原则（2026-07-22 修正）：
+        三调质各司其职，life_scheduler 仅在需求极端时介入覆盖：
+        - DA 由 sleep_engine 的 loss 趋势驱动（每轮），life_scheduler 仅在 stress>70 或 curiosity>70 时覆盖
+          - stress>70 → DA↓（压力模式，保守学习）— stress 优先于 curiosity
+          - curiosity>70 → DA↑（好奇模式，加速探索学习）
+        - 5HT 由 sleep_engine 的准确率驱动（每5轮），life_scheduler 仅在 boredom>80 时覆盖
+        - NE 由 metabolism 的 CPU 负载驱动（每次训练前），life_scheduler 仅在 fatigue>80 时覆盖
+
+        优先级：stress（保守）> curiosity（探索），两者同时高时 stress 优先。
+
+        这样 life_scheduler 表达的是"情绪状态"（压力/好奇/无聊/疲劳的极端情况），
+        而不干扰 sleep_engine 和 metabolism 的实时训练/硬件反馈信号。
+
         此方法在持有锁时调用，操作快速且不阻塞。
         """
         needs = self.needs
 
-        # 1. 神经调质：需求→调质目标
+        # 1. 神经调质：需求极端时覆盖（平时不干扰 sleep_engine/metabolism）
         if self._neuromodulator is not None:
             try:
-                # stress → dopamine↓（高压力降低多巴胺，减少学习率）
-                dopamine_target = max(0.2, 0.7 - needs.stress / 100.0 * 0.5)
+                # 仅在极端需求时设置目标值，否则传 None 不更新
+                dopamine_target = None
+                serotonin_target = None
+                norepinephrine_target = None
 
-                # curiosity → norepinephrine↑（高好奇提升警觉度）
-                norepinephrine_target = min(0.9, 0.3 + needs.curiosity / 100.0 * 0.6)
+                # stress 极高 → DA 覆盖（压力状态，降低学习率避免过拟合错误）
+                if needs.stress > 70:
+                    dopamine_target = max(0.15, 0.4 - (needs.stress - 70) / 30.0 * 0.25)
+                # curiosity 极高 → DA 覆盖（好奇状态，提升学习率加速探索）
+                # 仅当 stress 未设置 DA 时生效（stress 优先，保守模式）
+                elif needs.curiosity > 70:
+                    dopamine_target = min(0.85, 0.6 + (needs.curiosity - 70) / 30.0 * 0.25)
 
-                # boredom 低 → serotonin↑（满足感）；boredom 高 → serotonin↓
-                serotonin_target = max(0.3, 0.8 - needs.boredom / 100.0 * 0.5)
+                # boredom 极高 → 5HT 覆盖（不满足，渴望刺激）
+                if needs.boredom > 80:
+                    serotonin_target = max(0.2, 0.5 - (needs.boredom - 80) / 20.0 * 0.3)
 
-                self._neuromodulator.set_targets(
-                    dopamine=dopamine_target,
-                    serotonin=serotonin_target,
-                    norepinephrine=norepinephrine_target,
-                )
+                # fatigue 极高 → NE 覆盖（疲劳状态，强制降低警觉度节能）
+                if needs.fatigue > 80:
+                    norepinephrine_target = max(0.15, 0.4 - (needs.fatigue - 80) / 20.0 * 0.25)
+
+                # 只要有任一需要覆盖，就调用 set_targets
+                if dopamine_target is not None or serotonin_target is not None or norepinephrine_target is not None:
+                    self._neuromodulator.set_targets(
+                        dopamine=dopamine_target,
+                        serotonin=serotonin_target,
+                        norepinephrine=norepinephrine_target,
+                    )
+                    logger.debug(
+                        f"生命调质覆盖: stress={needs.stress:.0f} curiosity={needs.curiosity:.0f} "
+                        f"boredom={needs.boredom:.0f} fatigue={needs.fatigue:.0f} → "
+                        f"DA={'%.2f' % dopamine_target if dopamine_target is not None else 'skip'}, "
+                        f"5HT={'%.2f' % serotonin_target if serotonin_target is not None else 'skip'}, "
+                        f"NE={'%.2f' % norepinephrine_target if norepinephrine_target is not None else 'skip'}"
+                    )
+
                 # EMA 趋近（让调质缓慢变化）
                 self._neuromodulator.step()
             except Exception as e:

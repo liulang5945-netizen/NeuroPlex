@@ -441,7 +441,7 @@ class RecursiveImprover:
         【已废弃】态极设计自己的下一代。
 
         .. deprecated::
-            神经元架构（Cortex + ResonanceEnsemble）已取代单体 ModelSelf 的代际迁移。
+            神经元架构（Cortex + ResonanceEnsemble）已取代单体模型的代际迁移。
             新架构通过 neurogenesis 动态新增神经元，而非整体替换模型。
             此方法保留向后兼容，调用时会打印警告。
             新代码应使用 analyze_weakness() + neurogenesis 替代。

@@ -350,7 +350,7 @@ onBeforeUnmount(() => {
   if (editor) editor.dispose();
 });
 
-defineExpose({ openFile, saveFile, setTheme });
+defineExpose({ openFile, saveFile, setTheme, openTabs, activeTab, cursorLine, cursorCol, language, isDirty });
 </script>
 
 <style scoped>

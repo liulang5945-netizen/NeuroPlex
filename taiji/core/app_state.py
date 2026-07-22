@@ -14,8 +14,11 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
-from taiji.core.config import get_external_path
-from taiji.tools.rag import RAGKnowledgeBase
+from taiji.core.utils import get_external_path
+try:
+    from taiji.tools.rag import RAGKnowledgeBase
+except ImportError:
+    RAGKnowledgeBase = None  # type: ignore
 
 logger = logging.getLogger("AppState")
 
@@ -32,11 +35,6 @@ class AppState:
     model: Optional[object] = None
     tokenizer: Optional[object] = None
     _loaded_model_name: Optional[str] = field(default=None, repr=False)
-
-    # 态极多模态引擎（当加载 ModelSelf 模型时自动启用）
-    taiji_engine: Optional[object] = None
-    _is_taiji: bool = field(default=False, repr=False)
-    _taiji_bridge: Optional[object] = field(default=None, repr=False)
 
     # 训练/微调状态
     is_training: bool = False
@@ -113,31 +111,14 @@ class AppState:
         with self._model_lock:
             import gc
 
-            # 0. 卸载态极引擎（如果存在）
-            if self.taiji_engine is not None:
-                try:
-                    if hasattr(self.taiji_engine, 'cancel'):
-                        self.taiji_engine.cancel()
-                except Exception as e:
-                    logger.warning(f"卸载态极引擎时出错（可忽略）: {e}")
-                self.taiji_engine = None
-                self._is_taiji = False
-
-            if self._taiji_bridge is not None:
-                try:
-                    self._taiji_bridge.cleanup()
-                except Exception as e:
-                    logger.warning(f"Cleanup taiji bridge failed: {e}")
-                self._taiji_bridge = None
-
-            # 1. 卸载 GGUF 引擎（如果存在）
+            # 1. 卸载 trainer（如果存在）
             old_trainer = self.trainer
             if old_trainer is not None:
                 try:
                     if hasattr(old_trainer, 'unload'):
                         old_trainer.unload()
                 except Exception as e:
-                    logger.warning(f"卸载 GGUF 引擎时出错（可忽略）: {e}")
+                    logger.warning(f"卸载 trainer 时出错（可忽略）: {e}")
 
             # 2. 释放 PyTorch 模型
             if self.model is not None:
@@ -191,32 +172,9 @@ class AppState:
             self.trainer = trainer
             self._loaded_model_name = model_name
 
-    def set_taiji_engine(self, taiji_engine):
-        """设置态极多模态引擎（当加载 ModelSelf 模型时调用）"""
-        self.taiji_engine = taiji_engine
-        self._is_taiji = taiji_engine is not None
-        if taiji_engine:
-            logger.info("态极多模态引擎已启用")
-
-    def set_taiji_bridge(self, bridge):
-        """设置态极桥接层（新架构）"""
-        self._taiji_bridge = bridge
-        self._is_taiji = bridge is not None and bridge.is_initialized
-
     def is_taiji(self) -> bool:
-        """当前是否使用态极引擎"""
-        # 优先检查桥接层
-        if self._taiji_bridge is not None and self._taiji_bridge.is_initialized:
-            return True
-        return self._is_taiji and self.taiji_engine is not None
-
-    def get_taiji_engine(self):
-        """获取态极多模态引擎实例"""
-        return self.taiji_engine
-
-    def get_taiji_bridge(self):
-        """获取态极桥接层实例"""
-        return self._taiji_bridge
+        """当前是否使用 Cortex 神经元架构（唯一认知主体）。"""
+        return self.model is not None and type(self.model).__name__ == 'Cortex'
 
     def get_trainer(self):
         return self.trainer
@@ -342,4 +300,8 @@ class _TrainingContext:
 
 # 全局状态实例
 app_state = AppState()
-app_state.rag_kb = RAGKnowledgeBase(persist_dir=get_external_path("rag_data"))
+if RAGKnowledgeBase is not None:
+    try:
+        app_state.rag_kb = RAGKnowledgeBase(persist_dir=get_external_path("rag_data"))
+    except Exception as e:
+        logger.warning(f"RAGKnowledgeBase 初始化失败（非致命）: {e}")

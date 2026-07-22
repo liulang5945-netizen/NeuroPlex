@@ -421,6 +421,82 @@ class Cortex:
               f"serotonin={neuromodulator.serotonin:.2f}, "
               f"norepinephrine={neuromodulator.norepinephrine:.2f})")
 
+    def add_neuron(self, domain: str, lifecycle=None) -> str:
+        """运行时创建新神经元并加入 ensemble（neurogenesis 入口）。
+
+        流程：
+        1. 生成新 neuron ID（{domain}_{n} 格式，如 zh_1）
+        2. 用 get_domain_neuron_config 创建 NeuronConfig（COMPACT 规格）
+        3. 实例化 ResonanceNeuron → to(device) → eval → freeze_fingerprint
+        4. 多模态注册（auto_register_modalities）
+        5. 持久化 ckpt 到 neurons_dir/neuron_{nid}.pt
+        6. 注入 cortex.neurons + ensemble.add_neuron
+        7. lifecycle.maturity.register_new（幼稚态追踪）
+
+        Args:
+            domain: 域名（zh/en/code/math/general）
+            lifecycle: LifecycleManager 实例（可选，用于 maturity.register_new）
+
+        Returns:
+            新神经元的 ID（如 "zh_1"）
+        """
+        from taiji.resonance.config import get_domain_neuron_config, DOMAIN_VOCAB_SIZES
+
+        if domain not in DOMAIN_VOCAB_SIZES:
+            raise ValueError(
+                f"未知 domain: {domain}. 可选: {list(DOMAIN_VOCAB_SIZES.keys())}"
+            )
+
+        # 1. 生成唯一 neuron ID
+        n = 1
+        while f"{domain}_{n}" in self.neurons:
+            n += 1
+        nid = f"{domain}_{n}"
+
+        # 2. 创建 NeuronConfig（COMPACT 规格，与现有神经元一致）
+        cfg = get_domain_neuron_config(domain)
+        cfg.neuron_id = nid
+
+        # 3. 实例化神经元
+        neuron = ResonanceNeuron(cfg).to(self.device)
+        neuron.eval()
+        neuron.freeze_fingerprint()
+
+        # 4. 多模态注册
+        if self._tokenizer_hub is not None:
+            try:
+                neuron.auto_register_modalities(self._tokenizer_hub)
+            except Exception as e:
+                logger.warning(f"[Cortex] 新神经元 {nid} 多模态注册失败（非致命）: {e}")
+
+        # 5. 持久化 ckpt
+        ckpt_path = os.path.join(self.neurons_dir, f"neuron_{nid}.pt")
+        os.makedirs(self.neurons_dir, exist_ok=True)
+        torch.save(
+            {"neuron_config": cfg, "state_dict": neuron.state_dict()},
+            ckpt_path,
+        )
+
+        # 6. 注入 ensemble
+        self.neurons[nid] = neuron
+        self.ensemble.add_neuron(nid, neuron)
+
+        # 7. 注册幼稚态追踪
+        if lifecycle is not None:
+            try:
+                lifecycle.maturity.register_new(nid)
+            except Exception as e:
+                logger.warning(f"[Cortex] maturity.register_new({nid}) 失败（非致命）: {e}")
+
+        n_params = sum(p.numel() for p in neuron.parameters())
+        logger.info(
+            f"[Cortex] Neurogenesis: 新神经元 {nid} 已创建 "
+            f"({cfg.spec}, {n_params/1e6:.0f}M params, ckpt→{ckpt_path})"
+        )
+        print(f"[Cortex] 🌱 Neurogenesis: {nid} ({cfg.spec}, {n_params/1e6:.0f}M params)")
+
+        return nid
+
     def think(self, shared_embeddings: torch.Tensor) -> Dict:
         """Run one round of resonance thinking.
 

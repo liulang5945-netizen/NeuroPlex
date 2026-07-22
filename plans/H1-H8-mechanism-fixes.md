@@ -18,7 +18,7 @@
 | H7 | 置信度温度过软 (2.0) | 不同神经元 per-position 权重差别太小 | ✅ 已修复 | ensemble.py |
 | H8 | W_cond 乘法门控未被调用 | 场评分缺少非线性门控能力 | ✅ 已修复 | field.py, neuron.py |
 | H9 | field_dim 跨规格不匹配 | STANDARD(3072) vs EXPERT(4096) 无法直接共振 | ⏸ 暂缓 | — |
-| H10 | SharedEmbedProj 未持久化 | 蒸馏和验证看到不同的投影 | ✅ 已修复 | shared_embed.py, distill_neurons.py |
+| H10 | SharedEmbedProj 未持久化 | 蒸馏和验证看到不同的投影 | ✅ 已删除 | P7-9：SharedEmbedProj 模块已从项目移除 |
 
 ---
 
