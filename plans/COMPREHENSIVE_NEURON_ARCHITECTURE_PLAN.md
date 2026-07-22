@@ -1104,6 +1104,9 @@ Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head +
 | 2026-07-22 | curiosity→DA 映射 | 好奇心驱动多巴胺升高（学习率↑），stress 优先于 curiosity（保守模式） |
 | 2026-07-22 | neurogenesis 运行时闭环 | Cortex.add_neuron + ensemble.add_neuron + maturity.register_new，hunger→neurogenesis 最后一公里打通 |
 | 2026-07-22 | CoactivationTracker 实现 | 双矩阵（fast/slow EMA）+ 部落分组 + 孤立模式检测接线 sleep_engine |
+| 2026-07-22 | CoactivationTracker 持久化 | cortex_state.pt version 3 纳入 coaction，跨会话部落分组连续 |
+| 2026-07-22 | ApoptosisTracker 完整闭环 | Cortex.remove_neuron + _sleep_phase_evaluation + activation_count 修复（从 coaction 获取）+ 凋亡后自动清理 |
+| 2026-07-22 | MaturityTracker 应用闭环 | ensemble 共振权重 ×get_resonance_weight（幼稚态0.1）+ sleep_engine lr ×get_lr_multiplier（幼稚态×3.0）。生命周期闭环完成：neurogenesis→maturity→apoptosis→cleanup |
 
 ---
 
