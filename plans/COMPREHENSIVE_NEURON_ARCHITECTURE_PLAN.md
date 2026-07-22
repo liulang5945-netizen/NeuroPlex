@@ -1240,6 +1240,7 @@ leave-one-out（inhibitory neuron 评分时撤销自身衰减）：
 
 - `scripts/training/verify_moco_integration.py` — MoCo 机制整合验证
 - `scripts/training/verify_biooss.py` — BioOSS 双神经元模型验证（30/30 PASSED）
+- `taiji/life/sleep_engine.py` — 新增 `_train_contrastive_phase()` contrastive loss 接入训练管线
 - `taiji/resonance/ensemble.py` — 新增 `_dynamic_logit_fusion()` 方法 + Kuramoto 相位耦合调用
 - `taiji/resonance/gamma_oscillator.py` — 新增 `kuramoto_step()` KoPE 相位耦合
 - `taiji/brain/cortex.py` — SMCS RPS 实例级路由 + EPE 混合后验评分 + BioOSS neurogenesis 比例控制

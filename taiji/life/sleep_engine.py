@@ -569,6 +569,18 @@ class SleepEngine:
                         logger.info(f"  STDP 更新: {len(updates)} 个神经元")
                 except Exception as e:
                     logger.warning(f"  STDP 更新失败: {e}")
+
+            # Contrastive phase: 增强 neuron 间场向量差异化
+            # 机制借鉴 MoCo Top-k/Bottom-k Contrastive Loss
+            # 在所有 neuron 单独训练 + STDP 后执行，推开跨域场向量
+            try:
+                contrastive_loss = self._train_contrastive_phase(self.cortex)
+                if contrastive_loss is not None:
+                    report.recommendations.append(
+                        f"[对比学习] 场向量差异化 loss={contrastive_loss:.4f}"
+                    )
+            except Exception as e:
+                logger.warning(f"  contrastive phase 失败（非关键）: {e}")
         finally:
             app_state.finish_training()
 
@@ -975,6 +987,163 @@ class SleepEngine:
         avg_loss = total_loss / trained_steps
         ppl = math.exp(min(avg_loss, 20))
         return avg_loss, ppl
+
+    def _train_contrastive_phase(self, cortex) -> Optional[float]:
+        """Contrastive phase: 增强 neuron 间场向量差异化。
+
+        在所有 neuron 单独训练后执行：
+        1. 取每个 domain 一个样本，用 general tokenizer encode → shared_embedding
+        2. 所有 neuron forward 获取 field_vectors（保持计算图）
+        3. 计算 inter loss（跨 neuron push apart）+ intra loss（同 neuron 内 push apart）
+        4. 反传到 shared_embedding + embed_adapter（不动 lm_head，保护 LM 能力）
+
+        机制借鉴：MoCo Top-k/Bottom-k Contrastive Loss。
+        与 BioOSS 协同：差异化场向量使 inhibitory neuron 能精准定向抑制。
+
+        Args:
+            cortex: Cortex 实例
+
+        Returns:
+            contrastive loss 或 None（跳过时）
+        """
+        import torch
+        import torch.nn.functional as F
+
+        if len(cortex.neurons) < 2:
+            return None  # 单 neuron 无 inter loss 意义
+
+        shared_embedding = getattr(cortex, '_shared_embedding', None)
+        general_sp = getattr(cortex, '_general_sp', None)
+        tokenizer_hub = getattr(cortex, '_tokenizer_hub', None)
+        if shared_embedding is None or general_sp is None or tokenizer_hub is None:
+            return None
+
+        device = next(shared_embedding.parameters()).device
+
+        # 收集可训练参数：shared_embedding + 所有 neuron 的 embed_adapter
+        # 不含 lm_head（保护刚学到的 LM 能力）
+        trainable_params = list(shared_embedding.parameters())
+        for neuron in cortex.neurons.values():
+            if hasattr(neuron, 'embed_adapter'):
+                trainable_params.extend(neuron.embed_adapter.parameters())
+
+        if not trainable_params:
+            return None
+
+        optimizer = torch.optim.AdamW(trainable_params, lr=2e-4)  # 较小 lr
+
+        # 每个域用域特异性文本，增强对比意义
+        domain_samples = {
+            "zh": "神经元共振场架构设计",
+            "en": "neural resonance field architecture",
+            "code": "def resonance(field): return field.sync()",
+            "math": "integral of sin(x) over domain",
+            "general": "system design pattern overview",
+        }
+        all_field_vectors: Dict[str, torch.Tensor] = {}
+        for nid, neuron in cortex.neurons.items():
+            # 从 domain 名推断（nid 可能是 "zh" 或 "zh_1"）
+            domain = nid.split("_")[0] if "_" in nid else nid
+            try:
+                domain_sp = tokenizer_hub.get_tokenizer(domain)
+            except Exception:
+                continue
+
+            try:
+                # 域特异性文本（不同 domain 用不同输入，增强对比意义）
+                sample_text = domain_samples.get(domain, "system overview")
+                domain_ids = tokenizer_hub.encode(sample_text, domain=domain)
+                if not domain_ids or len(domain_ids) < 3:
+                    continue
+                domain_ids = domain_ids[:32]
+
+                # 逐 token 映射到 general tokenizer
+                general_ids = []
+                for did in domain_ids:
+                    piece = domain_sp.id_to_piece(did)
+                    gen_ids = general_sp.EncodeAsIds(piece)
+                    if gen_ids:
+                        general_ids.append(gen_ids[0])
+                    else:
+                        general_ids.append(0)
+
+                if len(general_ids) < 3:
+                    continue
+
+                input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
+                embeddings = shared_embedding(input_ids)
+
+                neuron.train()
+                result = neuron.forward(
+                    embeddings, field_state=None, round_num=1,
+                    return_logits=False,
+                )
+                field_vec = result["field_vector"]  # [1, D]
+                all_field_vectors[nid] = field_vec
+            except Exception as e:
+                logger.debug(f"  contrastive phase: neuron {nid} forward 失败: {e}")
+                continue
+
+        if len(all_field_vectors) < 2:
+            return None
+
+        # 计算 contrastive loss
+        # 高维空间（field_dim=2048）中，随机初始化的场向量天然近正交
+        # 用 cosine² 而非 margin-based loss，任何正的 cosine 都会产生梯度
+        nids = list(all_field_vectors.keys())
+        N = len(nids)
+
+        # 归一化
+        normed = {}
+        for nid, vecs in all_field_vectors.items():
+            v = vecs if vecs.dim() == 2 else vecs.unsqueeze(0)
+            normed[nid] = v / (v.norm(dim=-1, keepdim=True) + 1e-8)
+
+        # Inter loss: 跨 neuron push apart（直接最小化 cosine²）
+        inter_loss = torch.tensor(0.0, device=device)
+        inter_count = 0
+        for i in range(N):
+            for j in range(i + 1, N):
+                v_i = normed[nids[i]]
+                v_j = normed[nids[j]]
+                sim = v_i @ v_j.T
+                # 直接最小化 cosine²（不设 margin，任何正相似度都有梯度）
+                inter_loss = inter_loss + (sim ** 2).mean()
+                inter_count += 1
+        inter_loss = inter_loss / max(inter_count, 1)
+
+        # Intra loss: 同 neuron 内（batch=1 时为 0）
+        intra_loss = torch.tensor(0.0, device=device)
+        intra_count = 0
+        for nid in nids:
+            v = normed[nid]
+            B = v.shape[0]
+            if B < 2:
+                continue
+            sim = v @ v.T
+            mask = 1.0 - torch.eye(B, device=v.device)
+            intra_loss = intra_loss + (sim * mask).abs().mean()
+            intra_count += 1
+        intra_loss = intra_loss / max(intra_count, 1)
+
+        total_contrastive = inter_loss + intra_loss
+
+        # 反传（小权重，不主导训练）
+        optimizer.zero_grad()
+        total_contrastive.backward()
+        optimizer.step()
+
+        # 恢复 neuron eval 模式
+        for neuron in cortex.neurons.values():
+            neuron.eval()
+
+        logger.info(
+            f"  contrastive phase: inter={inter_loss.item():.4f}, "
+            f"intra={intra_loss.item():.4f}, neurons={N}"
+        )
+        print(f"  [contrastive] inter={inter_loss.item():.4f}, "
+              f"intra={intra_loss.item():.4f}, neurons={N}")
+        return total_contrastive.item()
 
     def _train_multimodal_ensemble(
         self, modality: str, sample: dict, tokenizer_hub
