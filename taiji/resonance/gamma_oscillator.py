@@ -32,7 +32,7 @@ Usage:
 from __future__ import annotations
 
 import math
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 import torch
 
 
@@ -94,6 +94,54 @@ class GammaOscillator:
         """
         self.global_phase = (self.global_phase + self.omega * dt) % (2 * math.pi)
         return self.global_phase
+
+    def kuramoto_step(
+        self,
+        coupling_strength: float = 0.05,
+        active_ids: Optional[list] = None,
+        coactivation: Optional[Any] = None,
+    ) -> None:
+        """KoPE-inspired Kuramoto 相位耦合。
+
+        神经元通过共振耦合相互牵引相位：
+        - 共激活强的 neuron 对相互牵引相位同步（绑定成知觉单元）
+        - 无共激活的 neuron 对相位独立（解绑）
+
+        dθ_i/dt = ω + K/N * Σ_j sin(θ_j - θ_i) * coactivation(i,j)
+
+        Args:
+            coupling_strength: K, 耦合强度（默认 0.05，温和牵引）
+            active_ids: 本轮激活的 neuron ID 列表（None=全部）
+            coactivation: CoactivationTracker（提供 pair 强度）
+        """
+        if not self.phases:
+            return
+        ids = active_ids if active_ids is not None else list(self.phases.keys())
+        if len(ids) < 2:
+            return
+
+        # 计算每个 neuron 的相位增量
+        delta = {nid: 0.0 for nid in ids}
+        for i, nid_i in enumerate(ids):
+            if nid_i not in self.phases:
+                continue
+            for nid_j in ids[i + 1:]:
+                if nid_j not in self.phases:
+                    continue
+                # 耦合强度由共激活强度调制
+                k = coupling_strength
+                if coactivation is not None and hasattr(coactivation, "get_coactivation"):
+                    ca = coactivation.get_coactivation(nid_i, nid_j)
+                    k *= max(ca, 0.01)  # 无共激活时保留最小耦合
+                phase_diff = self.phases[nid_j] - self.phases[nid_i]
+                # sin(θ_j - θ_i) 对称：i 受 j 牵引为正，j 受 i 牵引为负
+                delta[nid_i] += k * math.sin(phase_diff)
+                delta[nid_j] -= k * math.sin(phase_diff)
+
+        # 应用增量
+        for nid in ids:
+            if nid in self.phases:
+                self.phases[nid] = (self.phases[nid] + delta[nid]) % (2 * math.pi)
 
     def coherence(self, neuron_id: str) -> float:
         """计算 neuron 与全局 phase 的对齐度 ∈ [-1, 1]。

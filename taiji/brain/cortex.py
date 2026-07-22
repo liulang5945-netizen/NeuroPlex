@@ -411,6 +411,9 @@ class Cortex:
         oscillator.assign_phase_by_domain(domain_to_nids)
         apply_gamma_gate(self.field, oscillator)
         self.gamma_oscillator = oscillator
+        # KoPE/Kuramoto: 注入 ensemble，每轮共振后执行相位耦合
+        if hasattr(self, 'ensemble') and self.ensemble is not None:
+            self.ensemble.gamma_oscillator = oscillator
         print(f"[Cortex] GammaOscillator enabled "
               f"({len(oscillator.phases)} neurons phased, "
               f"{len(domain_to_nids)} domains)")

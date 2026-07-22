@@ -50,6 +50,7 @@ class ResonanceEnsemble:
         coaction: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
         maturity: Optional[Any] = None,
+        gamma_oscillator: Optional[Any] = None,
     ):
         self.neurons = neurons
         self.field = field
@@ -63,6 +64,8 @@ class ResonanceEnsemble:
         # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
         # 新生神经元先听后说，不污染集体意识场
         self.maturity = maturity
+        # KoPE/Kuramoto: 相位耦合（共激活强的 neuron 相位同步）
+        self.gamma_oscillator = gamma_oscillator
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
@@ -463,6 +466,17 @@ class ResonanceEnsemble:
             for nid in self.neurons:
                 self.neurons[nid].tick_refractory()
 
+            # KoPE/Kuramoto: 相位耦合 — 共激活强的 neuron 相位相互牵引
+            if self.gamma_oscillator is not None and hasattr(self.gamma_oscillator, "kuramoto_step"):
+                try:
+                    self.gamma_oscillator.kuramoto_step(
+                        coupling_strength=0.05,
+                        active_ids=active_ids,
+                        coactivation=self.coaction,
+                    )
+                except Exception:
+                    pass  # 相位耦合失败不影响共振主流程
+
             self.n_active_history.append(len(active_ids))
             vectors = round_vecs
             all_logits = round_logits
@@ -524,6 +538,76 @@ class ResonanceEnsemble:
             padded.append(logits)
         stacked = torch.stack(padded)
         return stacked.mean(dim=0)
+
+    def _dynamic_logit_fusion(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        scores: Dict[str, float],
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """MoCo-inspired dynamic logit fusion.
+
+        Each step re-computes field scores and dynamically weights all neurons' logits.
+        This replaces static weighting with adaptive, context-aware fusion.
+
+        Args:
+            all_logits: {nid: [B, L, vocab]} per-neuron logits
+            scores: {nid: float} current resonance scores
+            temperature: softmax temperature for weighting (lower = sharper selection)
+
+        Returns:
+            fused_logits: [B, L, vocab] dynamically weighted logits
+        """
+        if not all_logits:
+            raise ValueError("[_dynamic_logit_fusion] all_logits is empty")
+
+        neuron_ids = list(all_logits.keys())
+        n_neurons = len(neuron_ids)
+
+        # Get reference tensor for device/dtype
+        ref_logits = next(iter(all_logits.values()))
+        device = ref_logits.device
+
+        # 1. Compute dynamic weights from field scores
+        score_vals = torch.tensor(
+            [float(scores.get(nid, 0.0)) for nid in neuron_ids],
+            device=device,
+        )
+        # Apply temperature sharpening (MoCo-style)
+        weights = F.softmax(score_vals / temperature, dim=0)  # [N]
+
+        # 2. Check if all logits have the same vocab size
+        vocab_sizes = [logits.shape[-1] for logits in all_logits.values()]
+        if len(set(vocab_sizes)) == 1:
+            # Same vocab: direct weighted sum
+            fused_logits = None
+            for i, (nid, logits) in enumerate(all_logits.items()):
+                w = weights[i].item()
+                if fused_logits is None:
+                    fused_logits = w * logits
+                else:
+                    fused_logits = fused_logits + w * logits
+            return fused_logits
+
+        # 3. Different vocab sizes: pad to max (P7 compatibility)
+        max_vocab = max(vocab_sizes)
+        fused_logits = torch.zeros(
+            ref_logits.shape[0], ref_logits.shape[1], max_vocab,
+            device=device, dtype=ref_logits.dtype,
+        )
+
+        for i, (nid, logits) in enumerate(all_logits.items()):
+            w = weights[i].item()
+            vocab_size = logits.shape[-1]
+            if vocab_size < max_vocab:
+                pad = torch.zeros(
+                    logits.shape[0], logits.shape[1], max_vocab - vocab_size,
+                    device=device, dtype=logits.dtype,
+                )
+                logits = torch.cat([logits, pad], dim=-1)
+            fused_logits = fused_logits + w * logits
+
+        return fused_logits
 
     def _compute_per_position_weights(
         self,
