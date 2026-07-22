@@ -477,6 +477,15 @@ class FeedEngine:
                 error_rates[domain] = 0.0
         return error_rates
 
+    def reset_domain_counts(self) -> None:
+        """重置各域成功/总计数（每个 sleep 周期结束后调用）。
+
+        确保错误率反映的是最近一个周期的表现，而非全生命周期累积值，
+        避免终身错误率 > 50% 导致每 5 轮必然触发 neurogenesis。
+        """
+        self._domain_total_counts.clear()
+        self._domain_success_counts.clear()
+
     # ─── 内部实现 ───────────────────────────────────
 
     def _process_content(self, content: str, source: str,

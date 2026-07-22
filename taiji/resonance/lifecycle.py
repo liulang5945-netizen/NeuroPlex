@@ -260,7 +260,7 @@ class NeurogenesisTrigger:
     # domain -> 连续高错误率计数
     _domain_error_counts: dict = field(default_factory=dict)
     error_rate_threshold: float = 0.5
-    error_count_for_trigger: int = 5
+    error_count_for_trigger: int = 8  # 需要连续 8 次高错误率才触发（避免过快扩张）
 
     def record_domain_error(self, domain: str, error_rate: float) -> bool:
         """记录某 domain 的错误率，返回是否触发新生。
@@ -294,11 +294,23 @@ class NeurogenesisTrigger:
         self,
         coactivation_tracker: Any,
         min_isolation_ratio: float = 0.8,
+        maturity_tracker: Any = None,
+        min_maturity_ratio: float = 0.1,
+        min_total_pairs: int = 5,
     ) -> list:
         """检测孤立激活模式（可能需要新生神经元填补）。
 
         如果某神经元的共激活 pair 中 >80% 都低于阈值，
         说明它"孤立"，可能需要新生一个相关神经元来协同。
+
+        Args:
+            coactivation_tracker: CoactivationTracker 实例
+            min_isolation_ratio: 低频 pair 占比阈值（默认 0.8）
+            maturity_tracker: MaturityTracker 实例（可选，跳过幼稚态 neuron）
+            min_maturity_ratio: 最小成熟度比例（默认 0.1，即至少经过 10 轮 tick）
+            min_total_pairs: 最小共激活 pair 数（默认 5）。
+                低于此数的 neuron 跳过——共激活矩阵还未充分填充时，
+                所有 pair 频率都低，会导致假阳性"孤立"判断。
 
         Returns:
             孤立神经元 ID 列表
@@ -311,6 +323,12 @@ class NeurogenesisTrigger:
         pair_stats: dict = {}  # nid -> [total, low_freq]
         for (i, j), freq in coactivation_tracker._slow_matrix.items():
             for nid in [i, j]:
+                # 跳过幼稚态神经元（maturity < min_maturity_ratio）：
+                # 新 neuron 天然没有共激活历史，100% 的 pair 都是低频，
+                # 会形成"检测孤立 → 创建新 neuron → 新 neuron 又孤立"的正反馈
+                if maturity_tracker is not None:
+                    if maturity_tracker.get_maturity_ratio(nid) < min_maturity_ratio:
+                        continue
                 if nid not in pair_stats:
                     pair_stats[nid] = [0, 0]
                 pair_stats[nid][0] += 1
@@ -318,7 +336,9 @@ class NeurogenesisTrigger:
                     pair_stats[nid][1] += 1
 
         for nid, (total, low_freq) in pair_stats.items():
-            if total > 0 and low_freq / total > min_isolation_ratio:
+            # min_total_pairs: 共激活数据不足时跳过低频判断，
+            # 避免假阳性 "孤立" 导致神经元爆炸
+            if total >= min_total_pairs and low_freq / total > min_isolation_ratio:
                 isolated.append(nid)
 
         return isolated

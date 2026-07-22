@@ -659,12 +659,16 @@ class SleepEngine:
                 logger.debug(f"  neurogenesis 检查失败: {e}")
 
         # 检查孤立激活模式（CoactivationTracker 第二触发源）
+        # 传入 maturity_tracker 过滤幼稚态 neuron：新 neuron 天然无共激活历史，
+        # 100% pair 是低频，会形成"检测孤立→创建新 neuron→新 neuron 又孤立"的正反馈
         if self._lifecycle is not None and self.cortex is not None:
             try:
                 coaction = getattr(self.cortex, "coaction", None)
                 if coaction is not None:
+                    maturity = getattr(self._lifecycle, "maturity", None)
                     isolated_nids = self._lifecycle.neurogenesis.detect_isolated_patterns(
-                        coaction, min_isolation_ratio=0.8
+                        coaction, min_isolation_ratio=0.8,
+                        maturity_tracker=maturity, min_maturity_ratio=0.1,
                     )
                     if isolated_nids and self.cortex is not None:
                         logger.info(f"  孤立神经元检测: {isolated_nids}")
@@ -695,6 +699,14 @@ class SleepEngine:
                 self._lifecycle.maturity.tick_all()
             except Exception as e:
                 logger.debug(f"  maturity.tick_all 失败: {e}")
+
+        # 重置域错误率计数器（每个 sleep 周期独立统计）
+        # 避免终身累积错误率导致每轮触发 neurogenesis
+        if self._feed_engine is not None:
+            try:
+                self._feed_engine.reset_domain_counts()
+            except Exception as e:
+                logger.debug(f"  reset_domain_counts 失败: {e}")
 
         # 记录训练损失
         if trained_count > 0:
