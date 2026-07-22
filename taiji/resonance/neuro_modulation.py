@@ -259,3 +259,30 @@ class SleepConsolidator:
                 )
             ),
         }
+
+    def get_state_dict(self) -> dict:
+        """序列化为可持久化的 dict。
+
+        replay_buffer 中的 field_state tensor 会被 torch.save 序列化，
+        保留高共振经验供跨会话睡眠重放。
+        """
+        return {
+            "replay_buffer": list(self._replay_buffer),
+            "last_consolidation_step": self._last_consolidation_step,
+            "replay_buffer_size": self.replay_buffer_size,
+            "consolidation_interval": self.consolidation_interval,
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """从 dict 恢复状态。"""
+        self.replay_buffer_size = state.get("replay_buffer_size", self.replay_buffer_size)
+        self.consolidation_interval = state.get("consolidation_interval", self.consolidation_interval)
+        self._replay_buffer = deque(
+            state.get("replay_buffer", []),
+            maxlen=self.replay_buffer_size,
+        )
+        self._last_consolidation_step = state.get("last_consolidation_step", 0)
+        logger.info(
+            f"SleepConsolidator restored: {len(self._replay_buffer)} replay states, "
+            f"last_step={self._last_consolidation_step}"
+        )

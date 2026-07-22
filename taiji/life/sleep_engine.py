@@ -215,6 +215,13 @@ class SleepEngine:
             except Exception as e:
                 logger.debug(f"cortex.set_maturity 失败（非关键）: {e}")
 
+        # SleepConsolidator: 注入 cortex（供 save_state/load_state 持久化 replay buffer）
+        if self.cortex is not None and self._sleep_consolidator is not None:
+            try:
+                self.cortex.set_sleep_consolidator(self._sleep_consolidator)
+            except Exception as e:
+                logger.debug(f"cortex.set_sleep_consolidator 失败（非关键）: {e}")
+
         logger.info(
             f"Brain interfaces set: cortex={'✓' if self.cortex else '✗'}, "
             f"lifecycle={'✓' if self._lifecycle else '✗'}, "

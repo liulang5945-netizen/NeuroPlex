@@ -112,6 +112,9 @@ class Cortex:
         # ── P1-2: NeuromodulatorState（自主进化调质）──
         self._neuromodulator = None
 
+        # ── SleepConsolidator（睡眠巩固，跨会话 replay buffer 连续性）──
+        self._sleep_consolidator = None
+
         # ── P6-3: GammaOscillator ──
         self.gamma_oscillator = None
 
@@ -296,12 +299,18 @@ class Cortex:
             state["coaction"] = self.coaction.get_state_dict()
             logger.debug("[Cortex]   coaction 已保存")
 
+        # sleep_consolidator state（睡眠巩固：跨会话 replay buffer 连续性）
+        if self._sleep_consolidator is not None:
+            state["sleep_consolidator"] = self._sleep_consolidator.get_state_dict()
+            logger.debug("[Cortex]   sleep_consolidator 已保存")
+
         torch.save(state, path)
         logger.info(f"[Cortex] 状态已保存: {path} "
                     f"(shared_emb={'yes' if 'shared_embedding' in state else 'no'}, "
                     f"neurons={len(neuron_states)}, "
                     f"neuromodulator={'yes' if 'neuromodulator' in state else 'no'}, "
-                    f"coaction={'yes' if 'coaction' in state else 'no'})")
+                    f"coaction={'yes' if 'coaction' in state else 'no'}, "
+                    f"sleep_consolidator={'yes' if 'sleep_consolidator' in state else 'no'})")
 
     def load_state(self, path: str, strict: bool = False) -> bool:
         """从磁盘加载可学习状态（恢复经验积累）。
@@ -364,6 +373,15 @@ class Cortex:
                         "(pairs=%d, neurons=%d)" % (
                             len(self.coaction._slow_matrix),
                             len(self.coaction._activation_counts),
+                        ))
+
+        # sleep_consolidator state 恢复（跨会话 replay buffer 连续性）
+        if "sleep_consolidator" in state and self._sleep_consolidator is not None:
+            self._sleep_consolidator.load_state_dict(state["sleep_consolidator"])
+            logger.info("[Cortex]   sleep_consolidator 已恢复 "
+                        "(replay=%d, last_step=%d)" % (
+                            len(self._sleep_consolidator._replay_buffer),
+                            self._sleep_consolidator._last_consolidation_step,
                         ))
         return True
 
@@ -451,6 +469,15 @@ class Cortex:
         """
         self.ensemble.maturity = maturity
         print(f"[Cortex] MaturityTracker enabled (幼稚态 weight=0.1, lr×3.0)")
+
+    def set_sleep_consolidator(self, sleep_consolidator) -> None:
+        """注册睡眠巩固器，用于跨会话 replay buffer 持久化。
+
+        注册后，save_state/load_state 会自动持久化 sleep_consolidator 的
+        replay_buffer 和 last_consolidation_step，使高共振经验不因重启丢失。
+        """
+        self._sleep_consolidator = sleep_consolidator
+        print(f"[Cortex] SleepConsolidator registered (replay buffer 持久化)")
 
     def add_neuron(self, domain: str, lifecycle=None) -> str:
         """运行时创建新神经元并加入 ensemble（neurogenesis 入口）。
