@@ -799,6 +799,37 @@ class Cortex:
             prompt_general_ids = [0]
         general_ids = list(prompt_general_ids)
 
+        # 2.5 SMCS-inspired instance-level routing: resonance-based domain verification
+        # 关键词路由可能误判（如中文夹杂代码、数学符号）。用共振分数校验：
+        # 如果选定域的共振分数显著低于最强域，切换到最强域。
+        if len(self.neurons) > 1:
+            try:
+                probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+                probe_emb = self._shared_embedding(probe_ids)
+                with torch.no_grad():
+                    probe_result = self.ensemble.forward(
+                        shared_embeddings=probe_emb, return_logits=False,
+                    )
+                probe_scores = probe_result.get("final_scores", {})
+                if probe_scores:
+                    # neurons 的 key 即为 domain（见 _infer_domain L709）
+                    best_nid = max(probe_scores, key=probe_scores.get)
+                    best_domain = best_nid
+                    chosen_score = max(
+                        (probe_scores.get(nid, 0.0)
+                         for nid in self.neurons
+                         if nid == domain),
+                        default=0.0,
+                    )
+                    # 切换条件：最强域分数比选定域高 50% 以上，且最强域已加载
+                    if (best_domain != domain
+                            and best_domain in hub.list_domains()
+                            and chosen_score > 0
+                            and probe_scores[best_nid] > chosen_score * 1.5):
+                        domain = best_domain
+            except Exception:
+                pass  # 共振探测失败，保留关键词路由结果
+
         # 3. Domain EOS
         eos_id = hub.eos_token_id(domain)
 
@@ -821,9 +852,24 @@ class Cortex:
 
             result = self.think(shared_emb)
 
-            # Get domain neuron's logits (domain vocab)
+            # Get logits: MoCo-inspired dynamic fusion
             neuron_logits = result.get("neuron_logits", {})
-            if domain in neuron_logits:
+            final_scores = result.get("final_scores", {})
+
+            if neuron_logits and final_scores:
+                # MoCo-style dynamic logit fusion: all neurons participate,
+                # dynamically weighted by current resonance scores
+                fused_logits = self.ensemble._dynamic_logit_fusion(
+                    neuron_logits, final_scores, temperature=0.5,
+                )
+                logits = fused_logits[:, -1, :] / temperature
+                # 融合后 logits vocab = max(all neuron vocabs)，但解码只用 domain_sp
+                # 截断到 domain vocab，避免 id_to_piece 越界
+                domain_vocab = hub.vocab_size(domain)
+                if logits.shape[-1] > domain_vocab:
+                    logits = logits[..., :domain_vocab]
+            elif domain in neuron_logits:
+                # Fallback: domain-specific logits only
                 logits = neuron_logits[domain][:, -1, :] / temperature
             elif neuron_logits:
                 first_logits = next(iter(neuron_logits.values()))
