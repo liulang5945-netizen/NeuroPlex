@@ -1099,20 +1099,46 @@ class SleepEngine:
             v = vecs if vecs.dim() == 2 else vecs.unsqueeze(0)
             normed[nid] = v / (v.norm(dim=-1, keepdim=True) + 1e-8)
 
-        # Inter loss: 跨 neuron push apart（直接最小化 cosine²）
+        # Inter loss: 跨域 neuron push apart（cosine²，强推开）
+        # Intra-group diversity (Hi-MoE 融合): 同域 neuron margin-based loss
+        # 同域 neuron 处理相似输入，允许一定相似（margin=0.3）但不完全相同，
+        # 防止 neurogenesis 生成的新 neuron 学成老 neuron 的副本
         inter_loss = torch.tensor(0.0, device=device)
         inter_count = 0
+        intra_group_loss = torch.tensor(0.0, device=device)
+        intra_group_count = 0
+        intra_margin = 0.3  # 同域允许的相似度上限
+
+        # 按域分组（nid 格式 "domain" 或 "domain_n"）
+        from collections import defaultdict
+        domain_groups: Dict[str, List[str]] = defaultdict(list)
+        for nid in nids:
+            domain = nid.split("_")[0] if "_" in nid else nid
+            domain_groups[domain].append(nid)
+
         for i in range(N):
             for j in range(i + 1, N):
                 v_i = normed[nids[i]]
                 v_j = normed[nids[j]]
                 sim = v_i @ v_j.T
-                # 直接最小化 cosine²（不设 margin，任何正相似度都有梯度）
-                inter_loss = inter_loss + (sim ** 2).mean()
-                inter_count += 1
-        inter_loss = inter_loss / max(inter_count, 1)
+                domain_i = nids[i].split("_")[0] if "_" in nids[i] else nids[i]
+                domain_j = nids[j].split("_")[0] if "_" in nids[j] else nids[j]
 
-        # Intra loss: 同 neuron 内（batch=1 时为 0）
+                if domain_i == domain_j and len(domain_groups[domain_i]) > 1:
+                    # 同域 neuron：margin-based loss（允许相似度 < margin，超过则惩罚）
+                    # 防止完全相同，但允许共享域特征
+                    sim_mean = sim.mean()
+                    intra_group_loss = intra_group_loss + F.relu(sim_mean - intra_margin) ** 2
+                    intra_group_count += 1
+                else:
+                    # 跨域 neuron：cosine² 强推开
+                    inter_loss = inter_loss + (sim ** 2).mean()
+                    inter_count += 1
+
+        inter_loss = inter_loss / max(inter_count, 1)
+        intra_group_loss = intra_group_loss / max(intra_group_count, 1)
+
+        # Intra loss (legacy): 同 neuron 内 batch 维度（batch=1 时为 0）
         intra_loss = torch.tensor(0.0, device=device)
         intra_count = 0
         for nid in nids:
@@ -1126,7 +1152,7 @@ class SleepEngine:
             intra_count += 1
         intra_loss = intra_loss / max(intra_count, 1)
 
-        total_contrastive = inter_loss + intra_loss
+        total_contrastive = inter_loss + intra_group_loss + intra_loss
 
         # 反传（小权重，不主导训练）
         optimizer.zero_grad()
@@ -1139,9 +1165,11 @@ class SleepEngine:
 
         logger.info(
             f"  contrastive phase: inter={inter_loss.item():.4f}, "
+            f"intra_group={intra_group_loss.item():.4f}, "
             f"intra={intra_loss.item():.4f}, neurons={N}"
         )
         print(f"  [contrastive] inter={inter_loss.item():.4f}, "
+              f"intra_group={intra_group_loss.item():.4f}, "
               f"intra={intra_loss.item():.4f}, neurons={N}")
         return total_contrastive.item()
 
