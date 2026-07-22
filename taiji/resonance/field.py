@@ -277,6 +277,25 @@ class ResonanceField(nn.Module):
 
         return len(winners)
 
+    def lateral_inhibition_norm(self, eps: float = 1e-8) -> None:
+        """NeuronSpark 融合：场状态 channel-wise L2 归一化。
+
+        人脑启发：lateral inhibition 防止单个神经元主导皮层表征。
+        多个 excitatory neuron 写入后，field state 沿他们共同方向累积，
+        但 magnitude 无上限。L2 归一化后：
+        - 方向保持共识（多个 neuron 共同方向）
+        - 幅度 cap 为 1（防止单一 neuron 主导）
+        - 与 WTA 互补：lateral norm 约束 excitatory 幅度，WTA 选 inhibitory 方向
+
+        在 WTA 之前调用：先归一化 excitatory 贡献，再让 inhibitory 竞争。
+        """
+        if self.state.dim() == 1:
+            norm = self.state.norm() + eps
+            self.state = self.state / norm
+        else:
+            norm = self.state.norm(dim=-1, keepdim=True) + eps
+            self.state = self.state / norm
+
     def get_effective_state(self) -> torch.Tensor:
         """P0#3: 返回有效场状态 = excitatory_state ⊙ inhibitory_mask。
 

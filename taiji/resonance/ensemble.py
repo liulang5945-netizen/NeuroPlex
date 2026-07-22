@@ -365,6 +365,14 @@ class ResonanceEnsemble:
             if self.coaction is not None:
                 self.coaction.update(active_ids, round_num=1)
 
+        # NeuronSpark 融合：lateral-inhibition normalization
+        # 场状态 L2 归一化，防止单一 neuron 方向主导 magnitude。
+        # 与 WTA 互补：lateral norm 约束 excitatory 幅度，WTA 选 inhibitory 方向。
+        try:
+            self.field.lateral_inhibition_norm()
+        except Exception:
+            pass  # 非关键，失败不影响推理
+
         # Deviance detection 融合：inhibitory neuron 竞争性抑制（WTA）
         # 多个 inhibitory neuron 写入后，只保留 top-1 最强抑制方向，
         # 避免全场过度衰减。只有 ≥2 个 inhibitory neuron 时才触发竞争。
@@ -474,6 +482,12 @@ class ResonanceEnsemble:
             # P1-Coactivation: 更新共激活
             if self.coaction is not None and writable_ids:
                 self.coaction.update(writable_ids, round_num=round_num)
+
+            # NeuronSpark lateral-inhibition norm (round 2+)
+            try:
+                self.field.lateral_inhibition_norm()
+            except Exception:
+                pass
 
             # P0-2 fix: leave-one-out 双重减法 bug 修复
             # 原 bug：这里减去 old_contrib，但 field.score() 内部 _leave_one_out_state 又减一次
