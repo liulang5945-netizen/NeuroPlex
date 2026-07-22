@@ -25,6 +25,11 @@ class CoactivationTracker:
     - _fast_matrix: 即时计数（每次 update +1），短期统计
     - _slow_matrix: EMA 衰减（alpha=0.05），长期统计，供孤立检测
 
+    RSGN 几何融合（非替换）：
+    当 register_geometry 注册 NeuronGeometry 后，update 的共激活计数
+    自动按几何距离衰减加权：同域近邻 neuron 共激活权重 ≈ 1.0，
+    跨域远邻 neuron 共激活权重 ≈ 0.0（但不为零）。
+
     Attributes:
         forget_threshold: 低频判定阈值（pair 频次低于此值视为低频）
             detect_isolated_patterns 用 forget_threshold * 10 作为低频 cutoff
@@ -40,16 +45,35 @@ class CoactivationTracker:
         # 每个神经元参与过的总激活次数（用于归一化）
         self._activation_counts: dict = defaultdict(int)
 
+        # RSGN 融合: 几何距离先验（可选，注册后自动生效）
+        self._geometry = None
+
         logger.info(
             f"CoactivationTracker initialized (ema_alpha={ema_alpha}, "
             f"forget_threshold={forget_threshold})"
         )
 
+    def register_geometry(self, geometry) -> None:
+        """RSGN 融合: 注册 NeuronGeometry 实例。
+
+        注册后，每次 update() 自动用几何距离衰减加权共激活计数。
+        传入 None 可移除几何先验。
+        """
+        self._geometry = geometry
+        if geometry is not None:
+            logger.info(f"CoactivationTracker: RSGN geometry registered "
+                        f"({len(geometry.positions)} neurons)")
+        else:
+            logger.info("CoactivationTracker: RSGN geometry removed")
+
     def update(self, ids: Iterable[str], round_num: int = 1) -> None:
         """记录一次共激活事件。
 
         当多个神经元在同一 round 中共同激活时，所有 pair 的计数增加。
-        slow 矩阵用 EMA 更新：slow = (1-alpha)*slow + alpha*fast_increment。
+        slow 矩阵用 EMA 更新：slow = (1-alpha)*slow + alpha*weight。
+
+        RSGN 融合：若 register_geometry 已注册，weight = distance_gate(nid_i, nid_j)。
+        同域近邻 weight ≈ 1.0，跨域远邻 weight ≈ 0.0（但不为零）。
 
         Args:
             ids: 本 round 中激活的神经元 ID 列表
@@ -63,14 +87,19 @@ class CoactivationTracker:
             return
 
         # 记录所有 pair 的共激活
+        geo = self._geometry
         for i in range(len(active_list)):
             for j in range(i + 1, len(active_list)):
                 pair = tuple(sorted([active_list[i], active_list[j]]))
-                self._fast_matrix[pair] += 1.0
+                # RSGN 融合: 几何距离作为共激活先验权重
+                weight = 1.0
+                if geo is not None:
+                    weight = geo.distance_gate(active_list[i], active_list[j])
+                self._fast_matrix[pair] += weight
                 # EMA 更新 slow 矩阵
                 self._slow_matrix[pair] = (
                     (1 - self.ema_alpha) * self._slow_matrix[pair]
-                    + self.ema_alpha * 1.0
+                    + self.ema_alpha * weight
                 )
 
         for nid in active_list:

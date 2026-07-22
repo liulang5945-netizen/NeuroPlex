@@ -34,6 +34,7 @@ from .cognitive_enhancements import (
     CorticalColumn, ColumnRegistry, AttentionBeam, ThresholdPlasticity,
 )
 from .gamma_oscillator import GammaOscillator, apply_gamma_gate
+from .geometry import NeuronGeometry
 
 __all__ = [
     # Core
@@ -67,4 +68,6 @@ __all__ = [
     "CorticalColumn", "ColumnRegistry", "AttentionBeam", "ThresholdPlasticity",
     # Gamma 同步
     "GammaOscillator", "apply_gamma_gate",
+    # RSGN 几何
+    "NeuronGeometry",
 ]

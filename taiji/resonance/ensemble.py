@@ -67,6 +67,11 @@ class ResonanceEnsemble:
         # KoPE/Kuramoto: 相位耦合（共激活强的 neuron 相位同步）
         self.gamma_oscillator = gamma_oscillator
 
+        # ── RSGN 融合: 几何坐标空间（神经元距离衰减先验）──
+        from .geometry import NeuronGeometry
+        self.geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+        self._init_geometry()
+
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
         self._logits_keep_ids: Optional[set] = None
@@ -75,7 +80,26 @@ class ResonanceEnsemble:
         self.round_scores: List[Dict[str, float]] = []
         self.n_active_history: List[int] = []
 
-    def add_neuron(self, nid: str, neuron: ResonanceNeuron) -> None:
+    def _init_geometry(self) -> None:
+        """初始化 NeuronGeometry：按域分组分配坐标，注册到 coaction。"""
+        from collections import defaultdict
+        domain_to_nids = defaultdict(list)
+        for nid in self.neurons:
+            # 从 nid 提取 domain（格式: "domain" 或 "domain_N"）
+            domain = nid.split("_")[0] if "_" in nid else nid
+            domain_to_nids[domain].append(nid)
+
+        self.geometry.assign_domain_positions(
+            dict(domain_to_nids),
+            intra_domain_radius=0.2,
+            inter_domain_radius=1.0,
+        )
+
+        # 注册到 coaction tracker（RSGN 距离先验自动生效）
+        if self.coaction is not None and hasattr(self.coaction, "register_geometry"):
+            self.coaction.register_geometry(self.geometry)
+
+    def add_neuron(self, nid: str, neuron: ResonanceNeuron, from_split: Optional[str] = None) -> None:
         """运行时添加新神经元到 ensemble（neurogenesis 入口）。
 
         新神经元必须与现有神经元共享 field_dim 和 hidden_size
@@ -84,6 +108,8 @@ class ResonanceEnsemble:
         Args:
             nid: 神经元 ID（如 "zh_1"）
             neuron: ResonanceNeuron 实例
+            from_split: 分裂父 neuron ID（LuminaNet splitting），
+                        用于在几何空间中放置子 neuron 在父 neuron 附近
         """
         if nid in self.neurons:
             raise ValueError(f"神经元 {nid} 已存在于 ensemble")
@@ -108,6 +134,33 @@ class ResonanceEnsemble:
         neuron.refractory_counter = neuron.refractory_counter.to(
             next(iter(self.neurons.values())).refractory_counter.device
         )
+
+        # RSGN 融合: 新 neuron 加入几何空间
+        # splitting 模式下靠近父 neuron，新建模式下靠近同域中心
+        if hasattr(self, 'geometry') and self.geometry is not None:
+            if from_split is not None and from_split in self.geometry.positions:
+                # 分裂模式：子 neuron 在父 neuron 附近（小偏移）
+                parent_pos = self.geometry.positions[from_split]
+                offset = torch.randn_like(parent_pos) * 0.05
+                self.geometry.assign_position(nid, parent_pos + offset)
+            else:
+                # 新建模式：在同域中心附近随机放置
+                domain = nid.split("_")[0] if "_" in nid else nid
+                domain_nids = [
+                    dn for dn in self.geometry.positions
+                    if (dn.split("_")[0] if "_" in dn else dn) == domain
+                ]
+                if domain_nids:
+                    # 取同域 neuron 中心
+                    center = torch.stack([
+                        self.geometry.positions[dn] for dn in domain_nids
+                    ]).mean(dim=0)
+                    offset = torch.randn_like(center) * 0.05
+                    self.geometry.assign_position(nid, center + offset)
+                else:
+                    # 新域：随机放置
+                    pos = torch.randn(self.geometry.embedding_dim) * 0.3
+                    self.geometry.assign_position(nid, pos)
 
     def _parallel_forward(
         self,
