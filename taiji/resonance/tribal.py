@@ -108,6 +108,39 @@ class CoactivationTracker:
         for pair in list(self._slow_matrix.keys()):
             self._slow_matrix[pair] *= (1 - self.ema_alpha)
 
+    def get_strong_pairs(self, threshold: float = 0.2) -> list:
+        """获取共激活强度超过阈值的 pair 列表（供 SleepConsolidator 强化 side_channels）。
+
+        Args:
+            threshold: slow_matrix 强度阈值
+
+        Returns:
+            List of (pre_id, post_id) tuples
+        """
+        strong = []
+        for (i, j), strength in self._slow_matrix.items():
+            if strength > threshold:
+                strong.append((i, j))
+        return strong
+
+    def forget_weak(self) -> int:
+        """遗忘弱共激活 pair（slow_matrix < forget_threshold）。
+
+        供 SleepConsolidator 在睡眠巩固时调用，清理噪声 pair。
+
+        Returns:
+            被遗忘的 pair 数量
+        """
+        weak_pairs = [
+            pair for pair, strength in self._slow_matrix.items()
+            if strength < self.forget_threshold
+        ]
+        for pair in weak_pairs:
+            del self._slow_matrix[pair]
+            if pair in self._fast_matrix:
+                del self._fast_matrix[pair]
+        return len(weak_pairs)
+
     def get_stats(self) -> dict:
         """获取统计信息。"""
         return {
