@@ -20,7 +20,7 @@
 
 | 模块 | 当前行为 | 与大脑的断点 |
 |------|---------|------------|
-| life_scheduler | 5 维需求驱动行为 | ✅ 已实现：4/5 需求映射调质（stress→DA↓, curiosity→DA↑, boredom→5HT↓, fatigue→NE↓）；hunger→neurogenesis 待实现 |
+| life_scheduler | 5 维需求驱动行为 | ✅ 已实现：4/5 需求映射调质（stress→DA↓, curiosity→DA↑, boredom→5HT↓, fatigue→NE↓）；hunger→neurogenesis 已实现（Cortex.add_neuron 运行时闭环） |
 | feed_engine | 4 源进食→samples | ✅ 已修复：samples 按域分类，含 "text" 字段 |
 | sleep_engine Phase 2 | 训练 Cortex neurons | ✅ 已修复：P7 经验驱动学习（shared_embedding + lm_head 协同）|
 | sleep_engine Phase 3.5 | 知识蒸馏 | 依赖 `taiji/agent_ext/` 不存在 |

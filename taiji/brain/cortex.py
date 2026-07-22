@@ -477,8 +477,7 @@ class Cortex:
             ckpt_path,
         )
 
-        # 6. 注入 ensemble
-        self.neurons[nid] = neuron
+        # 6. 注入 ensemble（cortex.neurons 和 ensemble.neurons 是同一引用）
         self.ensemble.add_neuron(nid, neuron)
 
         # 7. 注册幼稚态追踪

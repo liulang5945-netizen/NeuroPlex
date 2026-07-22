@@ -570,7 +570,18 @@ class SleepEngine:
                         report.recommendations.append(
                             f"[神经新生] 域 '{domain}' 错误率过高，建议创建新神经元"
                         )
-                        # P7: 神经新生创建需由外部流程触发（train_neuron.py 从头训练）
+                        # 运行时创建新神经元并加入 ensemble
+                        if self.cortex is not None:
+                            try:
+                                new_nid = self.cortex.add_neuron(
+                                    domain, lifecycle=self._lifecycle
+                                )
+                                logger.info(f"  🌱 neurogenesis 完成: {new_nid} 已加入 ensemble")
+                                report.recommendations.append(
+                                    f"[神经新生] 新神经元 {new_nid} 已创建并加入 ensemble"
+                                )
+                            except Exception as ne:
+                                logger.warning(f"  neurogenesis 创建失败: {ne}")
             except Exception as e:
                 logger.debug(f"  neurogenesis 检查失败: {e}")
 
