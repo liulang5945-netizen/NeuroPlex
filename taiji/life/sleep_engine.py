@@ -720,6 +720,10 @@ class SleepEngine:
         # 使下次启动 Cortex 时从当前状态继续，而非从随机初始化重新开始
         # 测试模式下（TAJIJI_TEST_MODE=1）跳过保存，确保测试可复现
         if trained_count > 0 and not os.environ.get('TAJIJI_TEST_MODE'):
+            # 更新 fingerprint：embed_adapter 在训练中已更新，重新计算 fingerprint
+            for nid, neuron in self.cortex.neurons.items():
+                if hasattr(neuron, "freeze_fingerprint"):
+                    neuron.freeze_fingerprint()
             try:
                 neurons_dir = getattr(self.cortex, 'neurons_dir', 'data/neurons')
                 self.cortex.save_state(neurons_dir)
