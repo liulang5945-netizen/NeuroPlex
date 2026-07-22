@@ -671,7 +671,11 @@ class Cortex:
         print(f"[Cortex] 🧹 Apoptosis: {nid} 已移除 (剩余 {len(self.neurons)} 个)")
         return True
 
-    def think(self, shared_embeddings: torch.Tensor) -> Dict:
+    def think(
+        self,
+        shared_embeddings: torch.Tensor,
+        active_nids: Optional[List[str]] = None,
+    ) -> Dict:
         """Run one round of resonance thinking.
 
         All neurons receive the same shared_embeddings (from shared embedding table).
@@ -679,6 +683,8 @@ class Cortex:
 
         Args:
             shared_embeddings: [B, L, base_embed_dim] from shared_embedding(general_ids).
+            active_nids: 如果指定，只激活这些 neuron（硬件受限路由）。
+                        None 表示全部参与（默认行为，向后兼容）。
 
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
@@ -687,6 +693,7 @@ class Cortex:
         result = self.ensemble.forward(
             shared_embeddings=shared_embeddings,
             return_logits=True,
+            active_nids=active_nids,
         )
         return result
 
@@ -985,6 +992,12 @@ class Cortex:
         # 中文短句字符数少，n=3 会误杀正常重复用字；n=4 给中文更多重复容忍度
         no_repeat_ngram_size = 4 if domain == "zh" else 3
 
+        # Level 1 域路由：硬件受限时仅激活 domain neuron + general neuron
+        # 将 per-token forward 成本从 N× 降到 2×（-60% when N=5）
+        active_nids = [domain]
+        if "general" in self.neurons and domain != "general":
+            active_nids.append("general")
+
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
             if len(general_ids) > 512:
@@ -994,7 +1007,7 @@ class Cortex:
             ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
             shared_emb = self._shared_embedding(ids_tensor)
 
-            result = self.think(shared_emb)
+            result = self.think(shared_emb, active_nids=active_nids)
 
             # Get logits: MoCo-inspired dynamic fusion
             neuron_logits = result.get("neuron_logits", {})

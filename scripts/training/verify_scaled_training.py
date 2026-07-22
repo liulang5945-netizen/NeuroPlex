@@ -1209,7 +1209,7 @@ def main():
     if sleep_engine._feed_engine is None:
         sleep_engine._feed_engine = feed_engine
 
-    NUM_CYCLES = 8
+    NUM_CYCLES = 24  # 覆盖 ~75% 训练数据（24×32=768/987）
     losses_by_cycle = []
     domain_losses_history = {d: [] for d in TRAINING_DATA.keys()}
 
