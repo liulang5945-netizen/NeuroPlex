@@ -440,6 +440,18 @@ class Cortex:
               f"serotonin={neuromodulator.serotonin:.2f}, "
               f"norepinephrine={neuromodulator.norepinephrine:.2f})")
 
+    def set_maturity(self, maturity) -> None:
+        """注册成熟度追踪器，注入到 ensemble。
+
+        注册后，ensemble.forward 写入场时：
+        - 幼稚态神经元共振权重 = 0.1（先听后说，不污染集体意识场）
+        - 成熟态神经元共振权重 = 1.0（完全贡献）
+
+        未注册时 ensemble 退化为默认值 1.0（向后兼容）。
+        """
+        self.ensemble.maturity = maturity
+        print(f"[Cortex] MaturityTracker enabled (幼稚态 weight=0.1, lr×3.0)")
+
     def add_neuron(self, domain: str, lifecycle=None) -> str:
         """运行时创建新神经元并加入 ensemble（neurogenesis 入口）。
 

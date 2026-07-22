@@ -49,6 +49,7 @@ class ResonanceEnsemble:
         stdp_tracker: Optional[Any] = None,
         coaction: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
+        maturity: Optional[Any] = None,
     ):
         self.neurons = neurons
         self.field = field
@@ -59,6 +60,9 @@ class ResonanceEnsemble:
         self.stdp_tracker = stdp_tracker
         self.coaction = coaction
         self.neuromodulator = neuromodulator
+        # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
+        # 新生神经元先听后说，不污染集体意识场
+        self.maturity = maturity
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
@@ -291,10 +295,13 @@ class ResonanceEnsemble:
         for nid in active_ids:
             # P0#3: 抑制性神经元走 write_inhibit（乘法衰减），兴奋性走 write（累加）
             neuron = self.neurons[nid]
+            # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
+            maturity_w = (self.maturity.get_resonance_weight(nid)
+                          if self.maturity is not None else 1.0)
             if neuron.is_inhibitory:
-                self.field.write_inhibit(nid, round_vecs[nid], weight=1.0)
+                self.field.write_inhibit(nid, round_vecs[nid], weight=maturity_w)
             else:
-                self.field.write(nid, round_vecs[nid], scale=write_scale)
+                self.field.write(nid, round_vecs[nid], scale=write_scale * maturity_w)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
             if self.stdp_tracker is not None:
                 self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
@@ -386,11 +393,14 @@ class ResonanceEnsemble:
             for nid in writable_ids:
                 # P0#3: 抑制性神经元走 write_inhibit，兴奋性走 update
                 neuron = self.neurons[nid]
+                # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
+                maturity_w = (self.maturity.get_resonance_weight(nid)
+                              if self.maturity is not None else 1.0)
                 if neuron.is_inhibitory:
-                    self.field.write_inhibit(nid, round_vecs[nid], weight=1.0)
+                    self.field.write_inhibit(nid, round_vecs[nid], weight=maturity_w)
                 else:
                     # P1-2: round 2+ 也应用 neuromodulator 调质
-                    self.field.update(nid, round_vecs[nid], scale=write_scale)
+                    self.field.update(nid, round_vecs[nid], scale=write_scale * maturity_w)
                 self.neurons[nid].enter_refractory(multiplier=refractory_mult)
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:

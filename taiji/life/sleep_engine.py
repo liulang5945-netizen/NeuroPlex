@@ -209,6 +209,13 @@ class SleepEngine:
             except Exception as e:
                 logger.debug(f"cortex.set_neuromodulator 失败（非关键）: {e}")
 
+        # MaturityTracker: 注入 cortex.ensemble（驱动共振权重，幼稚态 0.1 → 成熟态 1.0）
+        if self.cortex is not None and self._lifecycle is not None:
+            try:
+                self.cortex.set_maturity(self._lifecycle.maturity)
+            except Exception as e:
+                logger.debug(f"cortex.set_maturity 失败（非关键）: {e}")
+
         logger.info(
             f"Brain interfaces set: cortex={'✓' if self.cortex else '✗'}, "
             f"lifecycle={'✓' if self._lifecycle else '✗'}, "
@@ -851,6 +858,14 @@ class SleepEngine:
         lr_mult = 1.0
         if self._neuromodulator is not None:
             lr_mult = self._neuromodulator.get_lr_multiplier()
+        # MaturityTracker: 幼稚态神经元 lr 倍数（×3.0），成熟态衰减到 ×1.0
+        # 新生神经元学习加速，追赶成熟神经元的能力
+        if self._lifecycle is not None:
+            try:
+                maturity_lr_mult = self._lifecycle.maturity.get_lr_multiplier(domain)
+                lr_mult *= maturity_lr_mult
+            except Exception:
+                pass
         adaptive_lr = base_lr * lr_mult
         optimizer = torch.optim.AdamW(trainable_params, lr=adaptive_lr)
 
