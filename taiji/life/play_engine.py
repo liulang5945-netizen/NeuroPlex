@@ -118,6 +118,7 @@ class PlayEngine:
         self._cortex = None
         self._coaction = None
         self._sleep_consolidator = None
+        self._play_step = 0  # 玩耍步数计数器（供 SleepConsolidator 追踪）
 
         logger.info(f"PlayEngine initialized: auto={self.config.auto_play_enabled}")
 
@@ -168,6 +169,7 @@ class PlayEngine:
         if not self._cortex.neurons:
             return None
 
+        self._play_step += 1
         # 随机选一个好奇心话题
         topic = random.choice(CURIOSITY_TOPICS)
 
@@ -251,7 +253,7 @@ class PlayEngine:
                             self._sleep_consolidator.record_high_resonance_state(
                                 field_state=neuron._last_field_state,
                                 resonance_score=max_score,
-                                step=0,
+                                step=self._play_step,
                                 threshold=0.5,
                             )
                             break
