@@ -570,9 +570,10 @@ class Cortex:
             child_sd = neuron.state_dict()
             for key in child_sd:
                 if key in parent_sd and child_sd[key].shape == parent_sd[key].shape:
-                    # 继承父权重 + 小噪声分化（std=0.01）
-                    noise = torch.randn_like(child_sd[key]) * 0.01
-                    child_sd[key] = parent_sd[key].clone() + noise
+                    # 只对 float 类型参数继承 + 噪声分化（跳过 int/refractory_counter 等）
+                    if child_sd[key].dtype in (torch.float32, torch.float16, torch.float64):
+                        noise = torch.randn_like(child_sd[key]) * 0.01
+                        child_sd[key] = parent_sd[key].clone().to(dtype=child_sd[key].dtype) + noise
             neuron.load_state_dict(child_sd, strict=False)
             logger.info(f"[Cortex] split: {nid} 已继承 {from_split} 的权重 + 1% 噪声分化")
 
