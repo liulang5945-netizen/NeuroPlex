@@ -944,7 +944,9 @@ class Cortex:
         generated_pieces = []
         generated_token_ids = set()
         generated_token_list = []  # 保持顺序，用于 no-repeat-ngram
-        no_repeat_ngram_size = 3
+        # 域自适应 no-repeat-ngram：中文 n=4（更宽松，避免短句过度抑制），其他 n=3
+        # 中文短句字符数少，n=3 会误杀正常重复用字；n=4 给中文更多重复容忍度
+        no_repeat_ngram_size = 4 if domain == "zh" else 3
 
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
