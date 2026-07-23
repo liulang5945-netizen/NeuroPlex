@@ -973,9 +973,9 @@ class SleepEngine:
             return None, None
 
         # 限制样本数（CPU 模式下不宜太多）
-        max_samples = min(len(texts), 32)
-        # 随机采样：每轮训练不同的 32 条样本，释放大训练集的全部价值
-        # 避免固定前 32 条导致数据利用率只有 32/N
+        max_samples = min(len(texts), 64)
+        # 随机采样：每轮训练不同的 64 条样本，释放大训练集的全部价值
+        # 避免固定前 64 条导致数据利用率只有 64/N
         import random
         if len(texts) > max_samples:
             random.shuffle(texts)
