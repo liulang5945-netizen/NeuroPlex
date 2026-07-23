@@ -710,6 +710,7 @@ class Cortex:
         repetition_penalty: float = 1.2,
         n_candidates: int = 1,
         routing_level: int = 1,
+        active_nids: Optional[List[str]] = None,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -722,10 +723,11 @@ class Cortex:
                     None 时自动推断。
             repetition_penalty: 重复惩罚系数（1.0=无惩罚，1.2=默认）。
             n_candidates: SMCS EPE 候选数。>1 时生成多条候选，用混合后验评分
-                         （inter-response 一致性 + intra-response 置信度）选最优。
+                         （inter-response 一致性 + intra-response 置验度）选最优。
             routing_level: 硬件受限路由等级。
                            1=域路由（domain+general, 默认），
                            2=指纹 top-k 路由（fingerprint cosine 选最相关 neuron）。
+            active_nids: 显式指定激活的神经元列表（实验用，覆盖路由逻辑）。
 
         Returns:
             generated text string.
@@ -744,6 +746,7 @@ class Cortex:
                 return self._generate_p7(
                     prompt, max_tokens, temperature, top_k, domain,
                     repetition_penalty, routing_level=routing_level,
+                    active_nids=active_nids,
                 )
             # SMCS EPE: 生成多条候选，混合后验评分选最优
             candidates = []
@@ -752,6 +755,7 @@ class Cortex:
                     text = self._generate_p7(
                         prompt, max_tokens, temperature, top_k, domain,
                         repetition_penalty, routing_level=routing_level,
+                        active_nids=active_nids,
                     )
                     if text:
                         candidates.append(text)
@@ -1023,6 +1027,7 @@ class Cortex:
         domain: Optional[str] = None,
         repetition_penalty: float = 1.2,
         routing_level: int = 1,
+        active_nids: Optional[List[str]] = None,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1040,6 +1045,8 @@ class Cortex:
             temperature: sampling temperature.
             top_k: top-k sampling.
             domain: target domain.
+            active_nids: 显式指定激活的神经元列表（实验用）。
+                       None 时由 routing_level 自动决定。
 
         Returns:
             generated text string.
@@ -1110,14 +1117,16 @@ class Cortex:
         no_repeat_ngram_size = 4 if domain == "zh" else 3
 
         # 硬件受限路由：根据 routing_level 选择激活策略
-        if routing_level >= 2:
-            # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
-            active_nids = self._fingerprint_route(general_ids, top_k=2)
-        else:
-            # Level 1 域路由：仅激活 domain neuron + general neuron
-            active_nids = [domain]
-            if "general" in self.neurons and domain != "general":
-                active_nids.append("general")
+        # active_nids 显式指定时优先使用（实验：多同域神经元协作）
+        if active_nids is None:
+            if routing_level >= 2:
+                # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
+                active_nids = self._fingerprint_route(general_ids, top_k=2)
+            else:
+                # Level 1 域路由：仅激活 domain neuron + general neuron
+                active_nids = [domain]
+                if "general" in self.neurons and domain != "general":
+                    active_nids.append("general")
 
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence

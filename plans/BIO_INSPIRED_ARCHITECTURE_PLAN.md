@@ -635,6 +635,55 @@ prototype 过拟合单一模式。正确路径：**手工策划多条高域标�
 **遗留**：L2（36%）仍低于 L1（86%）。route_loss 未收敛（0.130 仍降），下一步验证 16 轮
 能否继续提升。math 域仍为误判热点（符号密集型与 code/zh 重叠）。
 
+### 9.10 16轮 benchmark + tokenization 不一致根因修复（2026-07-23）
+
+**16 轮 benchmark 结果**：
+
+| 指标 | 8 轮 | 16 轮 |
+|------|------|-------|
+| route_loss | 0.139→0.130 | 0.139→0.085（↓更多） |
+| L2 路由准确率 | 21%→36% | 21%→**29%**（反降！） |
+
+**关键发现**：route_loss 持续下降但 L2 准确率反降。更多训练不仅没帮助，反而过拟合
+导致退化。这证明 route_loss 与 L2 准确率之间存在**结构性错配**，非超参问题。
+
+**根因定位：训练/推理 tokenization 路径不一致**
+
+对比两条路径的 prompt 编码：
+
+| 路径 | 编码方式 | 代码位置 |
+|------|---------|---------|
+| **训练**（route_loss） | 域分词器→逐token映射到general ids | sleep_engine.py:1168-1186（原版） |
+| **推理**（_fingerprint_route） | 直接 general 分词器编码 | cortex.py:978-980 |
+
+SentencePiece 对**子串**和**全文**的切分粒度不同：
+- 训练：`domain_sp.encode("神经元共振场")` → ["神经","元","共振","场"] → 逐个 piece 用
+  `general_sp.EncodeAsIds(piece)` 映射 → 4 个 general ids
+- 推理：`general_sp.EncodeAsIds("神经元共振场")` → 可能切为 ["神经元","共振","场"] → 3 个
+  general ids（不同切分！）
+
+`embed_adapter` 在训练分布（域分词粒度）上优化，推理时面对不同分布（通用分词粒度），
+cosine 相似度计算失真。更多训练→更过拟合训练分布→推理退化。
+
+**修复**：contrastive phase 改用直接 general 分词，与推理路径完全一致：
+
+```python
+# 修复前（不一致）：
+domain_ids = tokenizer_hub.encode(sample_text, domain=sample_domain)
+for did in domain_ids:
+    piece = domain_sp.id_to_piece(did)
+    general_ids.append(general_sp.EncodeAsIds(piece)[0])
+
+# 修复后（一致）：
+general_ids = general_sp.EncodeAsIds(sample_text)  # 与 _fingerprint_route 相同
+```
+
+**验证**：8 轮 benchmark 修复前后对比（运行中，结果待填）。
+
+**同时启动的并行方向**：用真实 HF 数据（alpaca-zh + wikipedia-zh，3MB 已缓存）重训 zh
+神经元，验证生成质量从胡言乱语→连贯句子的跃升。L2 路由质量依赖于神经元本身的质量
+（domain_prototype 的区分度），两条路径不独立。
+
 ---
 
 ## 十、Phase 8: 从零独立训练（下一步）

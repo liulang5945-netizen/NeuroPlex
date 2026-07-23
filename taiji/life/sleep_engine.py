@@ -1160,31 +1160,18 @@ class SleepEngine:
         sample_prompts: List[tuple] = []  # [(domain, prompt_vec [512]), ...]
 
         for sample_domain, texts in domain_texts.items():
-            try:
-                domain_sp = tokenizer_hub.get_tokenizer(sample_domain)
-            except Exception:
-                continue
             first_encoded = False
             for sample_text in texts:
+                # 直接用 general tokenizer 编码——与推理路径 _fingerprint_route 完全一致
+                # 原版用域分词器→逐token映射，但 SentencePiece 对子串和全文的切分不同，
+                # 导致训练/推理输入分布不一致：route_loss↓ 但 L2 准确率反降（16轮: 36%→29%）
                 try:
-                    domain_ids = tokenizer_hub.encode(sample_text, domain=sample_domain)
+                    general_ids = general_sp.EncodeAsIds(sample_text)
                 except Exception:
                     continue
-                if not domain_ids or len(domain_ids) < 3:
+                if not general_ids or len(general_ids) < 3:
                     continue
-                domain_ids = domain_ids[:32]
-
-                # 逐 token 映射到 general tokenizer（保持与训练/推理一致）
-                general_ids = []
-                for did in domain_ids:
-                    piece = domain_sp.id_to_piece(did)
-                    gen_ids = general_sp.EncodeAsIds(piece)
-                    if gen_ids:
-                        general_ids.append(gen_ids[0])
-                    else:
-                        general_ids.append(0)
-                if len(general_ids) < 3:
-                    continue
+                general_ids = general_ids[:32]
 
                 input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
                 embeddings = shared_embedding(input_ids)            # [1, L, 512]
