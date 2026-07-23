@@ -236,7 +236,7 @@ def main():
         print(f"  [{domain}] '{prompt}' → '{text[:40]}' (div={div:.2f}, rep={rep:.2f})")
 
     # Step 3: 训练
-    CYCLES = 12
+    CYCLES = 24
     print(f"\n[Step 3] 训练 {CYCLES} 轮...")
     feed_engine = get_feed_engine()
     sleep_engine = get_sleep_engine()
