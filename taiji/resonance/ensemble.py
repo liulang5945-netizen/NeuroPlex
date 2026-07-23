@@ -583,6 +583,75 @@ class ResonanceEnsemble:
 
         return result
 
+    def forward_train(
+        self,
+        shared_embeddings: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> Dict[str, torch.Tensor]:
+        """单轮全可微前向，用于联合训练。
+
+        与 forward()（推理）的区别：
+        - 单轮（无多轮共振）
+        - 全可微（无 .item()、无 argmax、无 hard top-K）
+        - 内联计算共振分（绕过 field.score() 的 detach）
+        - 返回 fused_logits + 负载均衡 loss
+
+        前向传播时所有神经元参与，共振场聚合，反向传播流经聚合权重
+        → 神经元学习如何写入场、如何协同输出。
+
+        Args:
+            shared_embeddings: [B, L, base_embed_dim] 共享嵌入
+            temperature: softmax 温度（低=更尖锐选择）
+
+        Returns:
+            dict with:
+            - fused_logits: [B, L, V] 软加权聚合 logits
+            - weights: [N] 软路由权重
+            - scores: [N] 共振分
+            - balance_loss: scalar 负载均衡 loss（负熵，越小越均匀）
+            - individual_logits: {nid: [B, L, V]} 个体 logits（分析用）
+        """
+        active_ids = list(self.neurons.keys())
+        N = len(active_ids)
+
+        # 1. 所有神经元前向（return_logits=True，梯度贯穿全程）
+        all_vecs = []
+        all_logits = []
+        for nid in active_ids:
+            result = self.neurons[nid].forward(shared_embeddings, return_logits=True)
+            all_vecs.append(result["field_vector"])   # [B, D]
+            all_logits.append(result["logits"])        # [B, L, V]
+
+        all_vecs = torch.stack(all_vecs)      # [N, B, D]
+        all_logits = torch.stack(all_logits)  # [N, B, L, V]
+
+        # 2. 场状态 = 所有 field_vector 归一化后求和（可微加法）
+        all_vecs_norm = F.normalize(all_vecs, dim=-1)  # [N, B, D]
+        field_state = all_vecs_norm.sum(dim=0)         # [B, D]
+
+        # 3. Leave-one-out 共振分（可微 cosine similarity）
+        # loo_state[i] = field_state - all_vecs_norm[i]（去掉自己的贡献）
+        loo_state = field_state.unsqueeze(0) - all_vecs_norm  # [N, B, D]
+        loo_norm = F.normalize(loo_state, dim=-1)             # [N, B, D]
+        scores = (all_vecs_norm * loo_norm).sum(dim=-1)       # [N, B] cosine sim
+        scores = scores.mean(dim=1)                           # [N] batch 平均
+
+        # 4. 软加权聚合（可微，无 .item()——关键修复点）
+        weights = F.softmax(scores / temperature, dim=0)      # [N]
+        fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)  # [B, L, V]
+
+        # 5. 负载均衡 loss（负熵：uniform时=-log(N)，collapse时→0）
+        balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+
+        return {
+            "fused_logits": fused_logits,
+            "weights": weights,
+            "scores": scores,
+            "balance_loss": balance_loss,
+            "individual_logits": {nid: all_logits[i]
+                                   for i, nid in enumerate(active_ids)},
+        }
+
     def _average_logits(
         self, logits_dict: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
