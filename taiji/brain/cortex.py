@@ -1139,13 +1139,18 @@ class Cortex:
 
             result = self.think(shared_emb, active_nids=active_nids)
 
-            # Get logits: MoCo-inspired dynamic fusion
+            # Get logits: 优先 ensemble 的 per-position routing（基于 entropy/confidence）
             neuron_logits = result.get("neuron_logits", {})
             final_scores = result.get("final_scores", {})
 
-            if neuron_logits and final_scores:
-                # MoCo-style dynamic logit fusion: all neurons participate,
-                # dynamically weighted by current resonance scores
+            if result.get("weighted_logits") is not None:
+                # 优先用 ensemble 的 per-position routing（同 vocab 时由
+                # _compute_per_position_weights 算出，基于每位置 entropy/confidence
+                # 选最 confident 的 neuron，比共振分简单加权更精细，避免弱模型
+                # logits 被均分平均化导致 argmax 落到符号噪声）
+                logits = result["weighted_logits"][:, -1, :] / temperature
+            elif neuron_logits and final_scores:
+                # Fallback: MoCo 动态融合（跨 vocab 无法 per-position 路由时）
                 fused_logits = self.ensemble._dynamic_logit_fusion(
                     neuron_logits, final_scores, temperature=0.5,
                 )
@@ -1161,8 +1166,6 @@ class Cortex:
             elif neuron_logits:
                 first_logits = next(iter(neuron_logits.values()))
                 logits = first_logits[:, -1, :] / temperature
-            elif "weighted_logits" in result:
-                logits = result["weighted_logits"][:, -1, :] / temperature
             else:
                 break
 

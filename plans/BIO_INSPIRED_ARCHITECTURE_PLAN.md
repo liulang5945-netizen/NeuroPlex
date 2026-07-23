@@ -13,9 +13,13 @@
 
 ```
 核心实验：多同域神经元协作能否涌现集体智能？
-  3×弱神经元(PPL≈110, 各1MB) vs 1×较强神经元(PPL=62.4, 3MB)
-  → 如果协作 > 单干 → 验证"小神经元协作"核心论点
-  → 结果决定后续所有方向
+  首轮(末步模型)协作崩溃成符号噪声 → 排查发现3个问题：
+    1. _generate_p7 logits优先级bug（weighted_logits被拦截）✅已修
+    2. train_one_neuron保存末步而非best（PPL313 vs best≈2.7差100x）✅已修
+    3. 弱模型confidence陷阱（per-position routing偏向代码符号）⏳待best验证
+  → 重训best模型(进行中) → 重测协作
+    → best模型协作有效 → 验证核心论点 → 推进Plan C
+    → best模型协作仍崩 → 协作机制本身有问题 → 重设计融合/路由
 ```
 
 ### 0.2 三大问题依赖关系
@@ -40,11 +44,11 @@ Plan C 竞争路由 ← 已决定方向，排在协作测试之后
 | | MoCo logit 融合 | ✅ 就绪 | 多神经元 logits 加权融合 |
 | | active_nids 参数 | ✅ 刚加 | 支持显式指定激活神经元 |
 | **神经元** | zh 单干 (3MB) | ✅ PPL=62.4 | 基准（词组拼贴） |
-| | zh_1 (1MB) | ✅ PPL≈112.7 | 末步模型（非best） |
-| | zh_2 (1MB) | ✅ PPL=313.5 | 末步模型偏弱；best_loss=1.7764@step1476 未保存 |
-| | zh_3 (1MB) | 🔄 训练中 step1300/2000 | 末步模型 |
+| | zh_1/2/3 (各1MB) | 🔄 重训中(best保存) | 末步模型协作崩溃→修保存逻辑重训best模型 |
 | | en/code/math/general | ❌ 旧玩具数据 | 待 zh 验证后扩展 |
-| **⚠️ 发现** | train_one_neuron 保存逻辑 | 🐛 末步而非 best | train_neuron.py:439 保存 state_dict() 是最后模型，best_loss 仅记录元数据未保存；若协作测试效果差需修此 |
+| **🐛 bug** | _generate_p7 logits 优先级 | ✅ 已修 | weighted_logits(per-position路由)被_dynamic_logit_fusion拦截→已提优先级(cortex.py:1146) |
+| **🐛 bug** | train_one_neuron 保存末步 | ✅ 已修 | 改为滑动avg loss追踪best保存；末步PPL313 vs best≈2.7差100x |
+| **⚠️ 机制** | 弱模型confidence陷阱 | 待best模型验证 | per-position routing在弱模型上偏向高频代码符号token(最confident)；best模型PPL≈2.7可能缓解 |
 | **路由** | L1 域路由 | ⚠️ 临时过渡 (86%) | 够用但非终态，将被 Plan C 取代 |
 | | L2 原型路由 | ⚠️ 支线 (43%) | 已验证上限低，将被 Plan C 取代 |
 | | **Plan C 竞争路由** | 🔜 **已决定**，排在协作测试之后 | 激活能量取代分类，路由终态方向 |

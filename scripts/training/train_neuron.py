@@ -366,6 +366,8 @@ def train_one_neuron(
     step, t_start = 0, time.time()
     best_loss = float("inf")
     best_step = 0
+    best_state = None  # 保存 best 模型（按滑动 avg loss），避免末步震荡/过拟合
+    recent_losses = []  # 最近 100 步 loss 滑动窗口（比单步 loss 稳健）
 
     for _ in range(num_steps):
         batch_texts = _sample_batch()
@@ -408,9 +410,16 @@ def train_one_neuron(
         total_loss += loss.item()
         step += 1
 
-        if loss.item() < best_loss:
-            best_loss = loss.item()
-            best_step = step
+        # 滑动窗口 avg loss 追踪 best（比单步 loss 稳健，避免噪声低值选中坏模型）
+        recent_losses.append(loss.item())
+        if len(recent_losses) > 100:
+            recent_losses.pop(0)
+        if len(recent_losses) >= 50:
+            recent_avg = sum(recent_losses) / len(recent_losses)
+            if recent_avg < best_loss:
+                best_loss = recent_avg
+                best_step = step
+                best_state = {k: v.detach().clone() for k, v in neuron.state_dict().items()}
 
         if step % log_every == 0:
             avg_loss = total_loss / step
@@ -433,12 +442,14 @@ def train_one_neuron(
         f"time={elapsed:.0f}s ({elapsed/60:.1f}min)"
     )
 
-    # Save checkpoint (neuron only; shared_embedding saved separately)
+    # Save checkpoint: 优先 best 模型（按滑动 avg loss），避免末步震荡/过拟合
+    # 实测末步 PPL 可达 313，而 best 滑动 avg 对应 PPL 远低，末步不能代表真实能力
+    save_state = best_state if best_state is not None else neuron.state_dict()
     save_path = save_path or os.path.join(OUTPUT_DIR, f"neuron_{domain}.pt")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save({
         "neuron_config": neuron.config,
-        "state_dict": neuron.state_dict(),
+        "state_dict": save_state,
         "domain": domain,
         "result": {
             "final_loss": avg_loss,
@@ -446,9 +457,11 @@ def train_one_neuron(
             "steps": step,
             "best_loss": best_loss,
             "best_step": best_step,
+            "saved": "best" if best_state is not None else "final",
         },
     }, save_path)
-    print(f"  Saved: {save_path}")
+    print(f"  Saved: {save_path} (best滑动avg_loss={best_loss:.4f}@step{best_step}, "
+          f"saved={'best' if best_state is not None else 'final'})")
 
     return {"final_loss": avg_loss, "final_ppl": ppl, "steps": step, "domain": domain}
 
