@@ -141,6 +141,43 @@ ROUTING_TESTS = [
     ("The future of artificial intelligence", "en"),
 ]
 
+# ── 生成质量测试 ──
+GEN_TEST_PROMPTS = [
+    ("今天天气", "zh"),
+    ("人工智能", "zh"),
+    ("def hello", "code"),
+    ("1+1=", "math"),
+    ("The weather", "en"),
+]
+
+from collections import Counter
+
+def compute_diversity(text):
+    """Unique chars ratio"""
+    if not text:
+        return 0.0
+    return len(set(text)) / len(text)
+
+def compute_repetition(text):
+    """Most frequent char ratio"""
+    if not text:
+        return 0.0
+    c = Counter(text)
+    return c.most_common(1)[0][1] / len(text)
+
+def measure_gen_quality(cortex):
+    """返回 {prompt: (text, diversity, repetition)}"""
+    results = {}
+    for prompt, domain in GEN_TEST_PROMPTS:
+        try:
+            gen = cortex.generate(prompt, max_tokens=30, domain=domain, temperature=0.8, routing_level=1)
+            div = compute_diversity(gen)
+            rep = compute_repetition(gen)
+            results[prompt] = (gen, div, rep)
+        except Exception as e:
+            results[prompt] = ("", 0.0, 1.0)
+    return results
+
 
 def measure_routing_accuracy(cortex):
     """返回 (L1正确数, L2正确数, 总数, L1详情, L2详情)"""
@@ -188,7 +225,15 @@ def main():
     print(f"  L2 共振路由: {c2}/{total} ({c2/total:.0%})")
     for prompt, expected, pred, ok in l1d:
         s = "✓" if ok else "✗"
-        print(f"    [{expected}] '{prompt[:30]}' L1:{pred} {s}")
+        if not ok:
+            print(f"    [{expected}] '{prompt[:30]}' L1:{pred} {s}")
+
+    # Step 2.5: 训练前生成质量
+    print(f"\n[Step 2.5] 训练前生成质量...")
+    pre_gen = measure_gen_quality(cortex)
+    for prompt, domain in GEN_TEST_PROMPTS:
+        text, div, rep = pre_gen[prompt]
+        print(f"  [{domain}] '{prompt}' → '{text[:40]}' (div={div:.2f}, rep={rep:.2f})")
 
     # Step 3: 训练
     CYCLES = 12
@@ -219,6 +264,22 @@ def main():
     print(f"  L1 域路由: {c1}→{c1_post}/{total} ({c1_post/total:.0%}, {delta_l1:+d})")
     print(f"  L2 共振路由: {c2}→{c2_post}/{total} ({c2_post/total:.0%}, {delta_l2:+d})")
 
+    # Step 4.5: 训练后生成质量
+    print(f"\n[Step 4.5] 训练后生成质量...")
+    post_gen = measure_gen_quality(cortex)
+    div_improved = 0
+    rep_improved = 0
+    for prompt, domain in GEN_TEST_PROMPTS:
+        text, div, rep = post_gen[prompt]
+        pre_text, pre_div, pre_rep = pre_gen[prompt]
+        div_arrow = "↑" if div > pre_div else "↓"
+        rep_arrow = "↓" if rep < pre_rep else "↑"
+        if div > pre_div:
+            div_improved += 1
+        if rep < pre_rep:
+            rep_improved += 1
+        print(f"  [{domain}] '{prompt}': div {pre_div:.2f}→{div:.2f}{div_arrow} | rep {pre_rep:.2f}→{rep:.2f}{rep_arrow} | '{text[:30]}'")
+
     # Step 5: Loss 趋势
     print("\n[Step 5] Loss 趋势...")
     valid = [l for l in losses if l is not None]
@@ -230,15 +291,16 @@ def main():
             print(f"    C{i+1}: {valid[i]:.4f}")
 
     # Step 6: 结论
+    n_gen = len(GEN_TEST_PROMPTS)
     print("\n" + "=" * 60)
     print("结论")
     print("=" * 60)
     print(f"  训练 {CYCLES} 轮后：")
     print(f"  - Loss: {valid[0]:.4f} → {valid[-1]:.4f}")
-    if delta_l2 > 0:
-        print(f"  - L2 路由提升: +{delta_l2}（共振信号随训练分化）")
-    else:
-        print(f"  - L2 路由未提升（{delta_l2}），神经元仍需更多训练分化")
+    print(f"  - L1 路由: {c1}→{c1_post}/{total} ({c1_post/total:.0%})")
+    print(f"  - L2 路由: {c2}→{c2_post}/{total} ({c2_post/total:.0%})")
+    print(f"  - 多样性提升: {div_improved}/{n_gen}")
+    print(f"  - 重复度降低: {rep_improved}/{n_gen}")
     if c1_post > c2_post:
         print(f"  - 建议：当前训练阶段使用 L1 域路由（{c1_post/total:.0%} vs L2 {c2_post/total:.0%}）")
     else:
