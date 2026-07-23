@@ -720,10 +720,8 @@ class SleepEngine:
         # 使下次启动 Cortex 时从当前状态继续，而非从随机初始化重新开始
         # 测试模式下（TAJIJI_TEST_MODE=1）跳过保存，确保测试可复现
         if trained_count > 0 and not os.environ.get('TAJIJI_TEST_MODE'):
-            # 更新 fingerprint：embed_adapter 在训练中已更新，重新计算 fingerprint
-            for nid, neuron in self.cortex.neurons.items():
-                if hasattr(neuron, "freeze_fingerprint"):
-                    neuron.freeze_fingerprint()
+            # domain_prototype 已在 _train_contrastive_phase 中 EMA 更新，
+            # 此处无需再次更新（prototype 跟随 hidden_before_write 平滑跟踪）
             try:
                 neurons_dir = getattr(self.cortex, 'neurons_dir', 'data/neurons')
                 self.cortex.save_state(neurons_dir)
@@ -1063,16 +1061,22 @@ class SleepEngine:
         return avg_loss, ppl
 
     def _train_contrastive_phase(self, cortex) -> Optional[float]:
-        """Contrastive phase: 增强 neuron 间场向量差异化。
+        """Contrastive phase: 三信号协同闭环（route + proto + align）——修复版。
 
-        在所有 neuron 单独训练后执行：
-        1. 取每个 domain 一个样本，用 general tokenizer encode → shared_embedding
-        2. 所有 neuron forward 获取 field_vectors（保持计算图）
-        3. 计算 inter loss（跨 neuron push apart）+ intra loss（同 neuron 内 push apart）
-        4. 反传到 shared_embedding + embed_adapter（不动 lm_head，保护 LM 能力）
+        暴露并修复原版"机械塞入"死代码的三处结构性缺陷：
+        1. route_loss 自相矛盾：原版遍历全序对 (i,j)+(j,i) 要求 sim_i>sim_j 且
+           sim_j>sim_i，梯度互相抵消，净效果推向均匀化（与分化目标相反），
+           且无域标签判定"正确"。修复：注入域标签，每个域样本喂给所有 neuron，
+           正确域的 adapter(prompt) 与 domain_prototype 的 cosine 应最高
+           （与推理路径 _fingerprint_route 一致）。
+        2. proto_loss 地板问题：原版 relu(sim-margin)² 在高维正交空间 sim≈0 时
+           loss=0 无梯度。修复：用 (sim+margin)²，sim=0 时 loss=margin²>0，
+           持续推向负相关。
+        3. align_loss 均匀问题：前两信号失效时 softmax 均匀导致 KL≈0。
+           修复：前两信号有效后自然生效，保持 KL 蒸馏。
 
-        机制借鉴：MoCo Top-k/Bottom-k Contrastive Loss。
-        与 BioOSS 协同：差异化场向量使 inhibitory neuron 能精准定向抑制。
+        反传到 shared_embedding + embed_adapter + field_write（保护 lm_head）。
+        backward 后用 hidden_before_write EMA 更新 domain_prototype。
 
         Args:
             cortex: Cortex 实例
@@ -1084,7 +1088,7 @@ class SleepEngine:
         import torch.nn.functional as F
 
         if len(cortex.neurons) < 2:
-            return None  # 单 neuron 无 inter loss 意义
+            return None  # 单 neuron 无对比意义
 
         shared_embedding = getattr(cortex, '_shared_embedding', None)
         general_sp = getattr(cortex, '_general_sp', None)
@@ -1094,12 +1098,14 @@ class SleepEngine:
 
         device = next(shared_embedding.parameters()).device
 
-        # 收集可训练参数：shared_embedding + 所有 neuron 的 embed_adapter
+        # 收集可训练参数：shared_embedding + embed_adapter + field_write
         # 不含 lm_head（保护刚学到的 LM 能力）
         trainable_params = list(shared_embedding.parameters())
         for neuron in cortex.neurons.values():
             if hasattr(neuron, 'embed_adapter'):
                 trainable_params.extend(neuron.embed_adapter.parameters())
+            if hasattr(neuron, 'field_write'):
+                trainable_params.extend(neuron.field_write.parameters())
 
         if not trainable_params:
             return None
@@ -1114,137 +1120,215 @@ class SleepEngine:
             "math": "integral of sin(x) over domain",
             "general": "system design pattern overview",
         }
-        all_field_vectors: Dict[str, torch.Tensor] = {}
-        for nid, neuron in cortex.neurons.items():
-            # 从 domain 名推断（nid 可能是 "zh" 或 "zh_1"）
-            domain = nid.split("_")[0] if "_" in nid else nid
+
+        def _domain_of(nid: str) -> str:
+            return nid.split("_")[0] if "_" in nid else nid
+
+        # ── 收集阶段（修复核心）：每个域样本喂给所有 neuron ──
+        # 原版每个 neuron 只喂自己域文本，无法建立跨 neuron 路由比较。
+        # 修复后每个样本喂给所有 neuron，收集 [sample_domain][nid] 的响应。
+        # resp_hidden[D][nid]  = neuron nid 对样本 D 的 hidden_before_write [1, 768]
+        # resp_field[D][nid]   = neuron nid 对样本 D 的 field_vector [1, field_dim]
+        # sample_prompt[D]     = 样本 D 的 prompt embedding 均值池化 [512]
+        resp_hidden: Dict[str, Dict[str, torch.Tensor]] = {}
+        resp_field: Dict[str, Dict[str, torch.Tensor]] = {}
+        sample_prompt: Dict[str, torch.Tensor] = {}
+
+        for sample_domain, sample_text in domain_samples.items():
             try:
-                domain_sp = tokenizer_hub.get_tokenizer(domain)
+                domain_sp = tokenizer_hub.get_tokenizer(sample_domain)
             except Exception:
                 continue
-
             try:
-                # 域特异性文本（不同 domain 用不同输入，增强对比意义）
-                sample_text = domain_samples.get(domain, "system overview")
-                domain_ids = tokenizer_hub.encode(sample_text, domain=domain)
-                if not domain_ids or len(domain_ids) < 3:
-                    continue
-                domain_ids = domain_ids[:32]
+                domain_ids = tokenizer_hub.encode(sample_text, domain=sample_domain)
+            except Exception:
+                continue
+            if not domain_ids or len(domain_ids) < 3:
+                continue
+            domain_ids = domain_ids[:32]
 
-                # 逐 token 映射到 general tokenizer
-                general_ids = []
-                for did in domain_ids:
-                    piece = domain_sp.id_to_piece(did)
-                    gen_ids = general_sp.EncodeAsIds(piece)
-                    if gen_ids:
-                        general_ids.append(gen_ids[0])
-                    else:
-                        general_ids.append(0)
-
-                if len(general_ids) < 3:
-                    continue
-
-                input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
-                embeddings = shared_embedding(input_ids)
-
-                neuron.train()
-                result = neuron.forward(
-                    embeddings, field_state=None, round_num=1,
-                    return_logits=False,
-                )
-                field_vec = result["field_vector"]  # [1, D]
-                all_field_vectors[nid] = field_vec
-            except Exception as e:
-                logger.debug(f"  contrastive phase: neuron {nid} forward 失败: {e}")
+            # 逐 token 映射到 general tokenizer（保持与训练/推理一致）
+            general_ids = []
+            for did in domain_ids:
+                piece = domain_sp.id_to_piece(did)
+                gen_ids = general_sp.EncodeAsIds(piece)
+                if gen_ids:
+                    general_ids.append(gen_ids[0])
+                else:
+                    general_ids.append(0)
+            if len(general_ids) < 3:
                 continue
 
-        if len(all_field_vectors) < 2:
+            input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
+            embeddings = shared_embedding(input_ids)            # [1, L, 512]
+            prompt_pooled = embeddings.mean(dim=1).squeeze(0)   # [512]
+            sample_prompt[sample_domain] = prompt_pooled
+
+            resp_hidden[sample_domain] = {}
+            resp_field[sample_domain] = {}
+            for nid, neuron in cortex.neurons.items():
+                try:
+                    neuron.train()
+                    result = neuron.forward(
+                        embeddings, field_state=None, round_num=1,
+                        return_logits=False,
+                    )
+                    resp_hidden[sample_domain][nid] = result["hidden_before_write"]
+                    resp_field[sample_domain][nid] = result["field_vector"]
+                except Exception as e:
+                    logger.debug(f"  contrastive: neuron {nid} on {sample_domain} 失败: {e}")
+                    continue
+
+        if len(sample_prompt) < 2:
             return None
 
-        # 计算 contrastive loss
-        # 高维空间（field_dim=2048）中，随机初始化的场向量天然近正交
-        # 用 cosine² 而非 margin-based loss，任何正的 cosine 都会产生梯度
-        nids = list(all_field_vectors.keys())
-        N = len(nids)
+        all_nids = sorted({nid for d in resp_hidden.values() for nid in d})
+        N = len(all_nids)
+        if N < 2:
+            return None
 
-        # 归一化
-        normed = {}
-        for nid, vecs in all_field_vectors.items():
-            v = vecs if vecs.dim() == 2 else vecs.unsqueeze(0)
-            normed[nid] = v / (v.norm(dim=-1, keepdim=True) + 1e-8)
+        # 每个 neuron 对自己域样本的响应（prototype 可训练代理）
+        self_hidden: Dict[str, torch.Tensor] = {}   # nid -> normed hidden [1, 768]
+        self_field: Dict[str, torch.Tensor] = {}    # nid -> normed field [1, D]
+        for nid in all_nids:
+            d = _domain_of(nid)
+            if d in resp_hidden and nid in resp_hidden[d]:
+                h = resp_hidden[d][nid]
+                h2 = h if h.dim() == 2 else h.unsqueeze(0)
+                self_hidden[nid] = h2 / (h2.norm(dim=-1, keepdim=True) + 1e-8)
+            if d in resp_field and nid in resp_field[d]:
+                fv = resp_field[d][nid]
+                fv2 = fv if fv.dim() == 2 else fv.unsqueeze(0)
+                self_field[nid] = fv2 / (fv2.norm(dim=-1, keepdim=True) + 1e-8)
 
-        # Inter loss: 跨域 neuron push apart（cosine²，强推开）
-        # Intra-group diversity (Hi-MoE 融合): 同域 neuron margin-based loss
-        # 同域 neuron 处理相似输入，允许一定相似（margin=0.3）但不完全相同，
-        # 防止 neurogenesis 生成的新 neuron 学成老 neuron 的副本
-        inter_loss = torch.tensor(0.0, device=device)
-        inter_count = 0
-        intra_group_loss = torch.tensor(0.0, device=device)
-        intra_group_count = 0
-        intra_margin = 0.3  # 同域允许的相似度上限
+        if len(self_hidden) < 2:
+            return None
 
-        # 按域分组（nid 格式 "domain" 或 "domain_n"）
-        from collections import defaultdict
-        domain_groups: Dict[str, List[str]] = defaultdict(list)
-        for nid in nids:
-            domain = nid.split("_")[0] if "_" in nid else nid
-            domain_groups[domain].append(nid)
+        # ── 信号 1: route_loss — 域标签 margin ranking（修复自相矛盾）──
+        # 与推理路径 _fingerprint_route 一致：sim = cosine(adapter_i(prompt), prototype_i)
+        # 正确域 neuron 的 sim 应最高。原版无标签全序对自相矛盾，此处用标签定向。
+        # 冷启动：prototype 未初始化（全零）时用 self_hidden 作代理，保证首步有梯度。
+        route_loss = torch.tensor(0.0, device=device)
+        route_count = 0
+        ROUTE_MARGIN = 0.2
+        for sample_domain, prompt_vec in sample_prompt.items():
+            sims = {}
+            for nid in all_nids:
+                neuron = cortex.neurons[nid]
+                if not hasattr(neuron, 'embed_adapter') or neuron.embed_adapter is None:
+                    continue
+                try:
+                    projected = neuron.embed_adapter(prompt_vec.unsqueeze(0))  # [1, 768]
+                    proj_vec = projected.squeeze(0)                            # [768]
+                    proj_norm = proj_vec / (proj_vec.norm() + 1e-8)
+                    proto = neuron.domain_prototype.detach()                   # [768]
+                    if proto.norm() < 1e-6:
+                        # 冷启动：prototype 全零，用 self_hidden 代理（有梯度方向）
+                        proto = self_hidden.get(nid, torch.zeros_like(proto)).squeeze(0).detach()
+                    proto_norm = proto / (proto.norm() + 1e-8)
+                    sims[nid] = (proj_norm * proto_norm).sum()
+                except Exception:
+                    continue
+            if not sims:
+                continue
+            pos_nids = [n for n in sims if _domain_of(n) == sample_domain]
+            neg_nids = [n for n in sims if n not in pos_nids]
+            if not pos_nids or not neg_nids:
+                continue
+            pos_sim = max(sims[n] for n in pos_nids)  # 正确域最高 sim
+            for neg_nid in neg_nids:
+                # margin ranking: pos_sim > neg_sim + MARGIN
+                route_loss = route_loss + F.relu(sims[neg_nid] - pos_sim + ROUTE_MARGIN)
+                route_count += 1
+        route_loss = route_loss / max(route_count, 1)
 
+        # ── 信号 2: proto_loss — 跨域 hidden margin（修复地板问题）──
+        # 修复：relu(sim - margin)² → (sim + margin)²
+        #   原版 sim≈0（高维正交）时 relu(-margin)=0 无梯度；
+        #   修复后 sim=0 时 loss=margin²>0，梯度=2*margin，持续推向 sim<0（负相关）。
+        proto_loss = torch.tensor(0.0, device=device)
+        proto_count = 0
+        PROTO_MARGIN = 0.1
         for i in range(N):
             for j in range(i + 1, N):
-                v_i = normed[nids[i]]
-                v_j = normed[nids[j]]
-                sim = v_i @ v_j.T
-                domain_i = nids[i].split("_")[0] if "_" in nids[i] else nids[i]
-                domain_j = nids[j].split("_")[0] if "_" in nids[j] else nids[j]
+                nid_i, nid_j = all_nids[i], all_nids[j]
+                if (_domain_of(nid_i) != _domain_of(nid_j)
+                        and nid_i in self_hidden and nid_j in self_hidden):
+                    sim = (self_hidden[nid_i].squeeze(0) *
+                           self_hidden[nid_j].squeeze(0)).sum()
+                    # 修复：推向负相关，sim=0 时 loss=margin²>0 有梯度
+                    proto_loss = proto_loss + (sim + PROTO_MARGIN).pow(2)
+                    proto_count += 1
+        proto_loss = proto_loss / max(proto_count, 1)
 
-                if domain_i == domain_j and len(domain_groups[domain_i]) > 1:
-                    # 同域 neuron：margin-based loss（允许相似度 < margin，超过则惩罚）
-                    # 防止完全相同，但允许共享域特征
-                    sim_mean = sim.mean()
-                    intra_group_loss = intra_group_loss + F.relu(sim_mean - intra_margin) ** 2
-                    intra_group_count += 1
+        # ── 信号 3: align_loss — prototype 排序与共振分数排序对齐（KL 蒸馏）──
+        # 把"动态共振信号"蒸馏进"易训练的 prototype 方向"。
+        # 前两信号有效后，排序分布不再均匀，KL 才有意义。
+        hidden_vecs = [self_hidden[nid].squeeze(0) for nid in all_nids
+                       if nid in self_hidden]
+        if len(hidden_vecs) >= 2:
+            all_hidden_vecs = torch.stack(hidden_vecs)             # [N, 768]
+            mean_hidden = all_hidden_vecs.mean(dim=0)              # [768]
+            mean_hidden_norm = mean_hidden / (mean_hidden.norm() + 1e-8)
+
+            field_vecs = [self_field[nid].squeeze(0) for nid in all_nids
+                          if nid in self_field]
+            if len(field_vecs) >= 2:
+                all_field_vecs = torch.stack(field_vecs)           # [N, D]
+                mean_field = all_field_vecs.mean(dim=0)            # [D]
+                mean_field_norm = mean_field / (mean_field.norm() + 1e-8)
+            else:
+                mean_field_norm = None
+
+            proto_sims_list = []
+            field_sims_list = []
+            for nid in all_nids:
+                if nid not in self_hidden:
+                    continue
+                proto_sim = (self_hidden[nid].squeeze(0) * mean_hidden_norm).sum()
+                proto_sims_list.append(proto_sim)
+                if mean_field_norm is not None and nid in self_field:
+                    field_sim = (self_field[nid].squeeze(0) *
+                                 mean_field_norm).sum().detach()
                 else:
-                    # 跨域 neuron：cosine² 强推开
-                    inter_loss = inter_loss + (sim ** 2).mean()
-                    inter_count += 1
+                    field_sim = torch.tensor(0.0, device=device)
+                field_sims_list.append(field_sim)
 
-        inter_loss = inter_loss / max(inter_count, 1)
-        intra_group_loss = intra_group_loss / max(intra_group_count, 1)
+            if len(proto_sims_list) >= 2:
+                proto_sims_tensor = torch.stack(proto_sims_list)   # [N]
+                field_sims_tensor = torch.stack(field_sims_list)   # [N]
+                proto_dist = F.log_softmax(proto_sims_tensor * 10.0, dim=0)
+                field_dist = F.softmax(field_sims_tensor * 10.0, dim=0)
+                align_loss = F.kl_div(proto_dist, field_dist, reduction='batchmean')
+            else:
+                align_loss = torch.tensor(0.0, device=device)
+        else:
+            align_loss = torch.tensor(0.0, device=device)
 
-        # Intra loss (legacy): 同 neuron 内 batch 维度（batch=1 时为 0）
-        intra_loss = torch.tensor(0.0, device=device)
-        intra_count = 0
-        for nid in nids:
-            v = normed[nid]
-            B = v.shape[0]
-            if B < 2:
-                continue
-            sim = v @ v.T
-            mask = 1.0 - torch.eye(B, device=v.device)
-            intra_loss = intra_loss + (sim * mask).abs().mean()
-            intra_count += 1
-        intra_loss = intra_loss / max(intra_count, 1)
-
-        total_contrastive = inter_loss + intra_group_loss + intra_loss
+        total_contrastive = route_loss + 0.5 * proto_loss + 0.3 * align_loss
 
         # 反传（小权重，不主导训练）
         optimizer.zero_grad()
         total_contrastive.backward()
         optimizer.step()
 
+        # 更新 domain_prototype（EMA）— 用 self hidden（对自己域样本的典型响应）
+        for nid in all_nids:
+            if nid in self_hidden:
+                cortex.neurons[nid].update_domain_prototype(
+                    self_hidden[nid].detach()
+                )
+
         # 恢复 neuron eval 模式
         for neuron in cortex.neurons.values():
             neuron.eval()
 
         logger.info(
-            f"  contrastive phase: inter={inter_loss.item():.4f}, "
-            f"intra_group={intra_group_loss.item():.4f}, "
-            f"intra={intra_loss.item():.4f}, neurons={N}"
+            f"  contrastive phase: route={route_loss.item():.4f}, "
+            f"proto={proto_loss.item():.4f}, align={align_loss.item():.4f}, neurons={N}"
         )
-        print(f"  [contrastive] inter={inter_loss.item():.4f}, "
-              f"intra_group={intra_group_loss.item():.4f}, "
-              f"intra={intra_loss.item():.4f}, neurons={N}")
+        print(f"  [contrastive] route={route_loss.item():.4f}, "
+              f"proto={proto_loss.item():.4f}, align={align_loss.item():.4f}, neurons={N}")
         return total_contrastive.item()
 
     def _train_multimodal_ensemble(

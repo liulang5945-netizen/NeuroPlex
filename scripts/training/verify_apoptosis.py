@@ -85,7 +85,8 @@ def main():
     single_cfg = get_domain_neuron_config("zh")
     single_neuron = ResonanceNeuron(single_cfg).to("cpu")
     single_neuron.eval()
-    single_neuron.freeze_fingerprint()
+    # domain_prototype 在 sleep_engine contrastive phase 中 EMA 更新，
+    # 此处测试无需更新（保持 zeros 初始化）
     single_field = ResonanceField(dim=single_cfg.field_dim)
     single_coaction = type(cortex.coaction)()
     single_ensemble = ResonanceEnsemble(

@@ -169,7 +169,8 @@ class Cortex:
             neuron.load_state_dict(sd, strict=False)
             neuron.v1_compat = not has_v2
             neuron.eval()
-            neuron.freeze_fingerprint()
+            # domain_prototype 由 sleep_engine contrastive phase EMA 更新，
+            # 加载时保持初始化值（zeros），训练后自动填充
             self.neurons[domain] = neuron
             n_params = sum(p.numel() for p in neuron.parameters())
             print(f"  [{domain}] {cfg.spec} neuron: {n_params/1e6:.0f}M params")
@@ -488,7 +489,8 @@ class Cortex:
         流程：
         1. 生成新 neuron ID（{domain}_{n} 格式，如 zh_1）
         2. 用 get_domain_neuron_config 创建 NeuronConfig（COMPACT 规格）
-        3. 实例化 ResonanceNeuron → to(device) → eval → freeze_fingerprint
+        3. 实例化 ResonanceNeuron → to(device) → eval
+           - domain_prototype 由 sleep_engine contrastive phase EMA 更新
            - LuminaNet splitting 融合：from_split 指定父 neuron ID 时，
              继承父权重 + 微调噪声分化，新 neuron 起点更高
         4. 多模态注册（auto_register_modalities）
@@ -578,7 +580,7 @@ class Cortex:
             logger.info(f"[Cortex] split: {nid} 已继承 {from_split} 的权重 + 1% 噪声分化")
 
         neuron.eval()
-        neuron.freeze_fingerprint()
+        # domain_prototype 由 sleep_engine contrastive phase EMA 更新
 
         # 4. 多模态注册
         if self._tokenizer_hub is not None:
@@ -957,11 +959,10 @@ class Cortex:
         general_ids: List[int],
         top_k: int = 2,
     ) -> List[str]:
-        """Level 2 共振路由：用 SMCS 共振探测分数选 top-k neuron。
+        """Level 2 prototype 路由：用 domain_prototype cosine 相似度选 top-k neuron。
 
-        对 prompt 做一次完整 resonance forward pass（所有 neuron），
-        用 final_scores 排序选共振最强的 top-k 个 neuron。
-        这是一次性开销（生成开始时），per-token 成本大幅降低。
+        每个 neuron 用自己的 embed_adapter 投影 prompt，再与自己的 domain_prototype
+        做 cosine。每个 neuron 用自己的视角"看"prompt，符合神经元独立性。
 
         Args:
             general_ids: prompt 的 general tokenizer id 列表。
@@ -973,23 +974,37 @@ class Cortex:
         if not self.neurons or self._shared_embedding is None:
             return list(self.neurons.keys())
 
-        # 所有 neuron 做一次共振 forward probe
         try:
-            probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
-            probe_emb = self._shared_embedding(probe_ids)
-            with torch.no_grad():
-                probe_result = self.ensemble.forward(
-                    shared_embeddings=probe_emb, return_logits=False,
-                )
-            probe_scores = probe_result.get("final_scores", {})
+            ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+            prompt_emb = self._shared_embedding(ids_tensor)  # [1, L, 512]
+            prompt_pooled = prompt_emb.mean(dim=1)  # [1, 512]
         except Exception:
-            probe_scores = {}
-
-        if not probe_scores:
             return list(self.neurons.keys())
 
-        # 按共振分数排序，选 top-k（排除 general，单独保证）
-        sorted_nids = sorted(probe_scores, key=probe_scores.get, reverse=True)
+        # 每个 neuron 用自己的 embed_adapter 投影 prompt，再与 prototype 比较
+        sims = {}
+        for nid, neuron in self.neurons.items():
+            try:
+                if hasattr(neuron, 'embed_adapter') and neuron.embed_adapter is not None:
+                    # 用 neuron 自己的 embed_adapter 投影到 768 维
+                    projected = neuron.embed_adapter(prompt_pooled)  # [1, 768]
+                    proj_vec = projected.squeeze(0)  # [768]
+                    proj_norm = proj_vec / (proj_vec.norm() + 1e-8)
+                    proto = neuron.domain_prototype  # [768]
+                    proto_norm = proto / (proto.norm() + 1e-8)
+                    sim = float((proj_norm * proto_norm).sum().item())
+                else:
+                    # fallback: 无 embed_adapter 则跳过
+                    continue
+                sims[nid] = sim
+            except Exception:
+                continue
+
+        if not sims:
+            return list(self.neurons.keys())
+
+        # 按相似度排序，选 top-k（排除 general，单独保证）
+        sorted_nids = sorted(sims, key=sims.get, reverse=True)
         non_general = [nid for nid in sorted_nids if nid != "general"]
         selected = non_general[:top_k]
 
@@ -1096,7 +1111,7 @@ class Cortex:
 
         # 硬件受限路由：根据 routing_level 选择激活策略
         if routing_level >= 2:
-            # Level 2 指纹 top-k 路由：用 prompt embedding vs fingerprint cosine
+            # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
             active_nids = self._fingerprint_route(general_ids, top_k=2)
         else:
             # Level 1 域路由：仅激活 domain neuron + general neuron

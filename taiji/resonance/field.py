@@ -384,25 +384,6 @@ class ResonanceField(nn.Module):
         sims = (v_norm * cond).sum(dim=-1) / (cond.norm(dim=-1, keepdim=True) + 1e-8)
         return float(sims.mean().item())
 
-    def complementarity_score(self, vector: torch.Tensor, neuron_id: Optional[str] = None) -> float:
-        """Geometric orthogonality (legacy): kept for diagnostics.
-
-        Not used directly by routing; the ensemble uses prediction_complementarity.
-        """
-        # BioOSS: fallback 用 get_effective_state()，与 _leave_one_out_state 语义一致
-        score_state = self._leave_one_out_state(neuron_id) if neuron_id else self.get_effective_state()
-        if vector.dim() == 2:
-            vector = vector.mean(dim=0)
-        v_norm = vector / (vector.norm() + 1e-8)
-        if score_state.dim() == 2:
-            score_state = score_state.mean(dim=0)
-        if score_state.norm() < 1e-8:
-            return 1.0
-        f_norm = score_state / (score_state.norm() + 1e-8)
-        alignment = float(torch.dot(v_norm, f_norm).item())
-        orthogonal = v_norm - alignment * f_norm
-        return float(orthogonal.norm().item())
-
     def prediction_complementarity(
         self,
         neuron_a_logits: torch.Tensor,
@@ -440,12 +421,6 @@ class ResonanceField(nn.Module):
         raise_prob_b = (pb.max(dim=-1).values > pa.max(dim=-1).values)
         boost = raise_prob_b.float().mean()
         return float(boost.item())
-
-    def combined_score(self, vector: torch.Tensor, alpha: float = 0.5, neuron_id: Optional[str] = None) -> float:
-        align = self.score(vector, neuron_id=neuron_id)
-        comp = self.complementarity_score(vector, neuron_id=neuron_id)
-        align_01 = (align + 1.0) / 2.0
-        return (1.0 - alpha) * align_01 + alpha * comp
 
     def directional_congestion(self, vector: torch.Tensor, active_vectors: List[torch.Tensor]) -> float:
         """计算 vector 与 active_vectors 的平均正向 cosine similarity。

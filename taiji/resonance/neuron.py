@@ -36,7 +36,7 @@ class ResonanceNeuron(nn.Module):
     - field_write: final hidden → field vector (L2-normalised)
     - field_read_layers: field state → per-layer conditioning residual
     - lm_head: vocab projection (for PPL evaluation / pretraining)
-    - fingerprint: frozen direction vector for prescreening (future)
+    - domain_prototype: EMA-updated data-driven典型响应向量 (for L2 prototype routing)
     """
 
     def __init__(self, neuron_config: NeuronConfig):
@@ -120,8 +120,11 @@ class ResonanceNeuron(nn.Module):
             self.lm_head = nn.Linear(c.hidden_size, c.vocab_size, bias=False)
             nn.init.normal_(self.lm_head.weight, std=c.hidden_size ** -0.5)
 
-        # ── Direction fingerprint (frozen, for future prescreening) ──
-        self.register_buffer("fingerprint", torch.zeros(c.hidden_size))
+        # ── Domain prototype (EMA updated, for L2 prototype routing) ──
+        # 数据驱动典型响应向量，768 维 hidden_size 空间
+        # 训练时每轮 EMA 更新，推理时用 cosine 相似度做轻量路由
+        self.register_buffer("domain_prototype", torch.zeros(c.hidden_size))
+        self.register_buffer("proto_ema_decay", torch.tensor(0.99))
 
         # ── Side channel interface（人脑启发：兴奋/抑制双通道）──
         # excite_channels: 正向调制（兴奋性突触，类比谷氨酸能）
@@ -350,18 +353,6 @@ class ResonanceNeuron(nn.Module):
                     gate = torch.sigmoid(self.field_read_gate(h))  # [B, L, 1]
                     h = h + gate * conditioning
 
-            # Side channel injection（人脑启发：兴奋/抑制双通道调制）
-            # excite: 正向残差，h += 0.1 * excite_proj(signal)
-            # inhibit: 负向残差，h -= 0.1 * inhibit_proj(signal)
-            # 双通道并存使神经元能学习"何时被 peer 激活、何时被 peer 抑制"
-            if side_signals is not None:
-                for src_id, signal in side_signals.items():
-                    key = str(src_id)
-                    if key in self.excite_channels:
-                        h = h + 0.1 * self.excite_channels[key](signal)
-                    if key in self.inhibit_channels:
-                        h = h - 0.1 * self.inhibit_channels[key](signal)
-
         # ── Step 3: Final norm ──
         h = self.norm(h)
 
@@ -399,139 +390,19 @@ class ResonanceNeuron(nn.Module):
 
         return result
 
-    def freeze_fingerprint(self) -> None:
-        """Compute and freeze the direction fingerprint.
+    def update_domain_prototype(self, pooled: torch.Tensor) -> None:
+        """用真实处理样本后的 hidden state 更新 domain prototype（EMA）。
 
-        Fingerprint = L2-normalised mean of (field_write + 2×embed_adapter) weight rows.
-        field_write: 蒸馏 backbone 的固化方向（静态，weight=1x）
-        embed_adapter: 训练后的自适应方向（动态，weight=2x 对比度增强）
-        embed_adapter 加权 ×2 确保训练信号主导 fingerprint 方向，提升域区分度。
-        Used for lightweight prescreening (P1).
+        Prototype 是数据驱动的典型响应向量，非权重统计量。
+        训练时每轮调用，EMA 平滑跟踪 neuron 的典型响应模式。
         """
         with torch.no_grad():
-            fp = self.field_write.weight.mean(dim=0)  # [hidden_size]
-            # 融合 embed_adapter：weight 形状 [hidden_size, base_embed_dim]
-            # mean(dim=1) → [hidden_size]，×2 增强训练信号对比度
-            if hasattr(self, 'embed_adapter') and self.embed_adapter is not None:
-                ea = self.embed_adapter.weight.mean(dim=1)  # [hidden_size]
-                fp = fp + 2.0 * ea
-            self.fingerprint.copy_(fp / (fp.norm() + 1e-8))
-
-    def establish_side_channel(
-        self,
-        peer_id: int,
-        channel_type: str = "excite",
-    ) -> None:
-        """Create a side channel to a frequently co-active peer neuron.
-
-        人脑启发：每个 peer 关系可同时拥有兴奋性和抑制性通道，
-        由 STDP 学习决定哪种占主导。
-
-        Args:
-            peer_id: peer 神经元 ID
-            channel_type: "excite"（兴奋性，正向调制）或 "inhibit"（抑制性，负向调制）
-        """
-        key = str(peer_id)
-        target_dict = self.excite_channels if channel_type == "excite" else self.inhibit_channels
-        if key not in target_dict:
-            target_dict[key] = nn.Linear(
-                self.config.field_dim, self.config.hidden_size, bias=False
+            target = pooled.detach().mean(dim=0) if pooled.dim() == 2 else pooled.detach()
+            self.domain_prototype.mul_(self.proto_ema_decay.item()).add_(
+                target, alpha=(1.0 - self.proto_ema_decay.item())
             )
-
-    @torch.no_grad()
-    def select_top_k_peers(
-        self,
-        peer_fingerprints: Dict[int, torch.Tensor] = None,
-        k: int = 8,
-        sim_range: tuple = (0.3, 0.7),
-        broker = None,
-    ) -> list:
-        """选择 top-K 互补 peer 建立侧信道（人脑启发：稀疏连接）。
-
-        人脑每个神经元约 10^4 突触而非全连接，态极类比限制为 top-K。
-        选择标准：fingerprint cosine 相似度在 [sim_range] 区间的 peer
-        （太相似=冗余，太正交=无关，中间=互补）。
-
-        P8: 支持 ChannelBroker LSH 路径，将 peer 发现从 O(N²) 降为
-        O(N log N)，使万级神经元扩展成为可能。
-
-        Args:
-            peer_fingerprints: {peer_id: fingerprint_tensor}（旧 O(N) 路径，向后兼容）
-            k: 最多选择 K 个 peer
-            sim_range: 互补相似度区间
-            broker: ChannelBroker 实例（P8 LSH 路径，优先使用）
-
-        Returns:
-            选中的 peer_id 列表
-        """
-        # P8: LSH 路径优先
-        if broker is not None and broker.num_registered > 0:
-            return broker.query_peers(self.fingerprint, k, sim_range)
-
-        # 旧 O(N) 路径：批量化矩阵乘法（避免 Python 循环）
-        # P8: 用矩阵乘法一次性算所有 peer cosine
-        if peer_fingerprints is None:
-            return []
-
-        if self.fingerprint.norm() < 1e-8:
-            return []  # fingerprint 未冻结
-
-        fp_norm = self.fingerprint / (self.fingerprint.norm() + 1e-8)
-
-        # 批量 cosine：stack 所有指纹 → [N, d] × [d] → [N]
-        peer_ids = list(peer_fingerprints.keys())
-        peer_stack = torch.stack([peer_fingerprints[pid] for pid in peer_ids])  # [N, d]
-        peer_norms = peer_stack.norm(dim=-1, keepdim=True).clamp(min=1e-8)
-        peer_normed = peer_stack / peer_norms  # [N, d] normalized
-        sims = (peer_normed @ fp_norm).squeeze(-1)  # [N]
-
-        # 在 sim_range 内选 top-K
-        sim_min, sim_max = sim_range
-        mask = (sims >= sim_min) & (sims <= sim_max)
-        valid_indices = mask.nonzero(as_tuple=True)[0]
-        valid_sims = sims[valid_indices]
-
-        if valid_sims.numel() == 0:
-            return []
-
-        # 按相似度降序取 top-K
-        _, sorted_idx = torch.sort(valid_sims, descending=True)
-        top_k_idx = valid_indices[sorted_idx[:k]]
-        return [peer_ids[int(i)] for i in top_k_idx]
-
-    def establish_top_k_channels(
-        self,
-        peer_fingerprints: Dict[int, torch.Tensor] = None,
-        k: int = 8,
-        sim_range: tuple = (0.3, 0.7),
-        broker = None,
-    ) -> list:
-        """自动选择 top-K peer 并建立兴奋/抑制双通道。
-
-        P8: 支持 ChannelBroker LSH 路径，peer_fingerprints 可省略。
-        """
-        selected = self.select_top_k_peers(peer_fingerprints, k, sim_range, broker)
-        for pid in selected:
-            self.establish_side_channel(pid, "excite")
-            self.establish_side_channel(pid, "inhibit")
-        return selected
-
-    def prune_weak_channels(self, threshold: float = 0.01) -> int:
-        """修剪弱 side_channels（人脑启发：用进废退）。
-
-        检查每个 channel 的权重范数，低于 threshold 的删除。
-        返回修剪数量。
-        """
-        pruned = 0
-        for channel_dict in [self.excite_channels, self.inhibit_channels]:
-            to_remove = []
-            for key, linear in channel_dict.items():
-                if linear.weight.norm().item() < threshold:
-                    to_remove.append(key)
-            for key in to_remove:
-                del channel_dict[key]
-                pruned += 1
-        return pruned
+            # 归一化保持单位球面
+            self.domain_prototype.div_(self.domain_prototype.norm() + 1e-8)
 
     @torch.no_grad()
     def quick_probe(self, shared_embeddings: torch.Tensor) -> torch.Tensor:
