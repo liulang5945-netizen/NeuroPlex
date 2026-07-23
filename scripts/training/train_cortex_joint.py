@@ -58,6 +58,7 @@ def train_cortex_joint(
     temperature: float = 1.0,
     device: str = "cpu",
     log_every: int = 50,
+    max_texts: int = 8000,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
@@ -67,12 +68,12 @@ def train_cortex_joint(
     print(f"整体训练态极 — {n_neurons} 个 {domain} 神经元联合训练", flush=True)
     print(f"  目标：协作在训练中学习，而非事后拼装", flush=True)
     print(f"  steps={num_steps} batch={batch_size} lr={lr} "
-          f"balance_λ={balance_lambda} temp={temperature}", flush=True)
+          f"balance_λ={balance_lambda} temp={temperature} max_texts={max_texts}", flush=True)
     print("=" * 70, flush=True)
 
     # ── 1. 加载数据 ──
     print(f"\n[1] 加载 {domain} 训练数据...", flush=True)
-    texts = load_domain_texts(domain, max_texts=8000)
+    texts = load_domain_texts(domain, max_texts=max_texts)
     print(f"  {len(texts)} 条文本", flush=True)
 
     # ── 2. 加载 tokenizers ──
@@ -266,6 +267,8 @@ def main():
                         help="软路由温度（低=更尖锐选择）")
     parser.add_argument("--device", default="cpu", help="设备")
     parser.add_argument("--log_every", type=int, default=50, help="日志间隔步数")
+    parser.add_argument("--max_texts", type=int, default=8000,
+                        help="最大训练文本数（默认8000；zh域有23K可用）")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -278,6 +281,7 @@ def main():
         temperature=args.temperature,
         device=args.device,
         log_every=args.log_every,
+        max_texts=args.max_texts,
     )
 
 
