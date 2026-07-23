@@ -1112,74 +1112,104 @@ class SleepEngine:
 
         optimizer = torch.optim.AdamW(trainable_params, lr=2e-4)  # 较小 lr
 
-        # 每个域用域特异性文本，增强对比意义
-        domain_samples = {
-            "zh": "神经元共振场架构设计",
-            "en": "neural resonance field architecture",
-            "code": "def resonance(field): return field.sync()",
-            "math": "integral of sin(x) over domain",
-            "general": "system design pattern overview",
+        # 每域手工策划多条高域特异性样本（域特异性质量 >> 数量，详见 plan 9.8）
+        # 实验证明：训练数据随机采样使 L2 回退（14%），因为短句域区分度低。
+        # 策划原则：每域 3 条，域内多样化但域间最大区分（zh 全中文、code 全语法、math 全公式）
+        CURATED_SAMPLES: Dict[str, List[str]] = {
+            "zh": [
+                "神经元共振场架构设计原理",
+                "深度学习模型训练优化方法",
+                "中文自然语言处理技术应用",
+            ],
+            "en": [
+                "neural resonance field architecture design",
+                "deep learning model training optimization",
+                "english natural language processing applications",
+            ],
+            "code": [
+                "def resonance(field): return field.sync()",
+                "class Neuron(nn.Module): def forward(self, x):",
+                "import torch; model = torch.nn.Linear(512, 10)",
+            ],
+            "math": [
+                "integral of sin(x) over domain [0, pi]",
+                "gradient descent: theta -= lr * dL/dtheta",
+                "P(A|B) = P(B|A) * P(A) / P(B) Bayes theorem",
+            ],
+            "general": [
+                "system design pattern overview methodology",
+                "project management agile development process",
+                "data driven decision making framework",
+            ],
         }
 
         def _domain_of(nid: str) -> str:
             return nid.split("_")[0] if "_" in nid else nid
 
+        domain_texts: Dict[str, List[str]] = CURATED_SAMPLES
+
         # ── 收集阶段（修复核心）：每个域样本喂给所有 neuron ──
         # 原版每个 neuron 只喂自己域文本，无法建立跨 neuron 路由比较。
         # 修复后每个样本喂给所有 neuron，收集 [sample_domain][nid] 的响应。
-        # resp_hidden[D][nid]  = neuron nid 对样本 D 的 hidden_before_write [1, 768]
-        # resp_field[D][nid]   = neuron nid 对样本 D 的 field_vector [1, field_dim]
-        # sample_prompt[D]     = 样本 D 的 prompt embedding 均值池化 [512]
+        # 多样本扩展：route_loss 遍历所有样本-神经元对（从 20 对增至 ~60 对）
+        # resp_hidden[D][nid]  = neuron nid 对样本 D 首条的 hidden_before_write [1, 768]
+        # resp_field[D][nid]   = neuron nid 对样本 D 首条的 field_vector [1, field_dim]
+        # sample_prompts       = [(domain, prompt_vec), ...] 多样本扁平列表
         resp_hidden: Dict[str, Dict[str, torch.Tensor]] = {}
         resp_field: Dict[str, Dict[str, torch.Tensor]] = {}
-        sample_prompt: Dict[str, torch.Tensor] = {}
+        sample_prompts: List[tuple] = []  # [(domain, prompt_vec [512]), ...]
 
-        for sample_domain, sample_text in domain_samples.items():
+        for sample_domain, texts in domain_texts.items():
             try:
                 domain_sp = tokenizer_hub.get_tokenizer(sample_domain)
             except Exception:
                 continue
-            try:
-                domain_ids = tokenizer_hub.encode(sample_text, domain=sample_domain)
-            except Exception:
-                continue
-            if not domain_ids or len(domain_ids) < 3:
-                continue
-            domain_ids = domain_ids[:32]
-
-            # 逐 token 映射到 general tokenizer（保持与训练/推理一致）
-            general_ids = []
-            for did in domain_ids:
-                piece = domain_sp.id_to_piece(did)
-                gen_ids = general_sp.EncodeAsIds(piece)
-                if gen_ids:
-                    general_ids.append(gen_ids[0])
-                else:
-                    general_ids.append(0)
-            if len(general_ids) < 3:
-                continue
-
-            input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
-            embeddings = shared_embedding(input_ids)            # [1, L, 512]
-            prompt_pooled = embeddings.mean(dim=1).squeeze(0)   # [512]
-            sample_prompt[sample_domain] = prompt_pooled
-
-            resp_hidden[sample_domain] = {}
-            resp_field[sample_domain] = {}
-            for nid, neuron in cortex.neurons.items():
+            first_encoded = False
+            for sample_text in texts:
                 try:
-                    neuron.train()
-                    result = neuron.forward(
-                        embeddings, field_state=None, round_num=1,
-                        return_logits=False,
-                    )
-                    resp_hidden[sample_domain][nid] = result["hidden_before_write"]
-                    resp_field[sample_domain][nid] = result["field_vector"]
-                except Exception as e:
-                    logger.debug(f"  contrastive: neuron {nid} on {sample_domain} 失败: {e}")
+                    domain_ids = tokenizer_hub.encode(sample_text, domain=sample_domain)
+                except Exception:
+                    continue
+                if not domain_ids or len(domain_ids) < 3:
+                    continue
+                domain_ids = domain_ids[:32]
+
+                # 逐 token 映射到 general tokenizer（保持与训练/推理一致）
+                general_ids = []
+                for did in domain_ids:
+                    piece = domain_sp.id_to_piece(did)
+                    gen_ids = general_sp.EncodeAsIds(piece)
+                    if gen_ids:
+                        general_ids.append(gen_ids[0])
+                    else:
+                        general_ids.append(0)
+                if len(general_ids) < 3:
                     continue
 
-        if len(sample_prompt) < 2:
+                input_ids = torch.tensor([general_ids], dtype=torch.long, device=device)
+                embeddings = shared_embedding(input_ids)            # [1, L, 512]
+                prompt_pooled = embeddings.mean(dim=1).squeeze(0)   # [512]
+                sample_prompts.append((sample_domain, prompt_pooled))
+
+                # 首条样本收集 hidden/field（供 proto_loss/align_loss 用）
+                if not first_encoded:
+                    first_encoded = True
+                    resp_hidden[sample_domain] = {}
+                    resp_field[sample_domain] = {}
+                    for nid, neuron in cortex.neurons.items():
+                        try:
+                            neuron.train()
+                            result = neuron.forward(
+                                embeddings, field_state=None, round_num=1,
+                                return_logits=False,
+                            )
+                            resp_hidden[sample_domain][nid] = result["hidden_before_write"]
+                            resp_field[sample_domain][nid] = result["field_vector"]
+                        except Exception as e:
+                            logger.debug(f"  contrastive: neuron {nid} on {sample_domain} 失败: {e}")
+                            continue
+
+        if len(sample_prompts) < 2:
             return None
 
         all_nids = sorted({nid for d in resp_hidden.values() for nid in d})
@@ -1211,7 +1241,7 @@ class SleepEngine:
         route_loss = torch.tensor(0.0, device=device)
         route_count = 0
         ROUTE_MARGIN = 0.2
-        for sample_domain, prompt_vec in sample_prompt.items():
+        for sample_domain, prompt_vec in sample_prompts:
             sims = {}
             for nid in all_nids:
                 neuron = cortex.neurons[nid]
