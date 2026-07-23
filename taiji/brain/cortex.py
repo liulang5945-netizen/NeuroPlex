@@ -854,6 +854,7 @@ class Cortex:
         """P7: 从文本内容启发式推断域。
 
         检测顺序：code > math > zh > en > general。
+        code/math 检测必须在 CJK 之前，防止英文数学/代码被误判为 en。
         仅在对应域 neuron 已加载时返回该域。
 
         Returns:
@@ -863,31 +864,79 @@ class Cortex:
         if not neuron_domains:
             return "general"
 
-        # 1. 代码检测：编程关键字 + 代码结构特征
-        code_keywords = [
-            'def ', 'class ', 'import ', 'from ', 'return ',
-            'function ', 'const ', 'let ', 'var ', 'async ',
-            'if __name__', 'print(', 'lambda ',
+        # 1. 代码检测：强信号关键字（1 个即判定）+ 结构特征
+        strong_code = [
+            'def ', 'class ', 'function ', 'async ',
+            'const ', 'let ', 'var ', 'SELECT ', 'CREATE TABLE',
+            'docker ', 'git ', 'npm ', 'kubectl ', 'pip ',
+            'package ', '#include', 'require(',
         ]
-        code_patterns = ['{', '};', '=>', 'self.', 'std::']
+        # import/from 需要排除自然语言用法（"from 0 to 1", "from the"）
+        code_keywords = [
+            'return ', 'if __name__', 'print(',
+            'lambda ', 'try:', 'except ', 'raise ',
+        ]
+        code_patterns = ['{', '};', '=>', 'self.', 'std::',
+                         'def __init__', 'class ']
         if 'code' in neuron_domains:
-            code_score = sum(1 for kw in code_keywords if kw in text)
-            code_score += sum(1 for p in code_patterns if p in text)
-            # 三引号代码块是强信号
+            strong_score = sum(1 for kw in strong_code if kw in text)
+            weak_score = sum(1 for kw in code_keywords if kw in text)
+            pattern_score = sum(1 for p in code_patterns if p in text)
+            # import/from: 排除 "from 0", "from the", "from a" 等自然语言用法
+            import_score = 0
+            for m in ['import ', 'from ']:
+                idx = text.find(m)
+                if idx >= 0:
+                    after = text[idx + len(m):].lstrip()
+                    # 如果后面是自然语言词（数字、冠词等），不是代码
+                    if not (after[:1].isdigit() or after.startswith(('the ', 'a ', 'an '))):
+                        import_score += 1
             if '```' in text:
-                code_score += 5
-            if code_score >= 2:
+                pattern_score += 5
+            # 强信号 1 个即判定，弱信号需 2 个
+            if strong_score >= 1 or import_score >= 1 or weak_score + pattern_score >= 2:
                 return 'code'
 
-        # 2. 数学检测：数学符号密度 + 公式特征
+        # 2. 数学检测：多路信号融合（符号 + 关键词 + 公式特征 + 上下标）
         if 'math' in neuron_domains:
-            math_chars = set('=+-*/^∑∫∏√∞∂∇∈⊂∪∩∀∃≤≥≠≈±')
-            math_count = sum(1 for c in text if c in math_chars)
-            # 纯数字表达式（如 "1+1=", "5*3-2"）
+            # 2a. 数学符号（Unicode 数学字符 + 基础运算符）
+            math_symbols = set('=+-*/^∑∫∏√∞∂∇∈⊂∪∩∀∃≤≥≠≈±→←↑↓⇒⇐')
+            math_sym_count = sum(1 for c in text if c in math_symbols)
+
+            # 2b. 数学关键词（英文数学术语，大小写不敏感）
+            math_keywords = [
+                'derivative', 'integral', 'theorem', 'proof', 'equation',
+                'sin', 'cos', 'tan', 'log', 'ln', 'limit',
+                'matrix', 'vector', 'tensor', 'eigen', 'calculus',
+                'algebra', 'geometry', 'probability', 'distribution',
+                'gradient', 'fourier', 'laplace', 'taylor', 'riemann',
+                'convergence', 'divergence', 'differential', 'polynomial',
+                'hypothesis', 'variable', 'coefficient', 'parameter',
+                'pythagorean', 'fibonacci', 'factorial', 'logarithm',
+                'bayes', 'gaussian', 'stochastic', 'determinant',
+                'chain rule', 'product rule', 'quotient rule',
+            ]
+            math_kw_count = sum(1 for kw in math_keywords if kw.lower() in text.lower())
+
+            # 2c. 公式特征：上下标数字、希腊字母、函数调用模式
+            superscript = sum(1 for c in text if '\u00b2' <= c <= '\u00b9')  # ²³⁴...
+            subscript = sum(1 for c in text if '\u2080' <= c <= '\u2089')    # ₀₁₂...
+            greek = sum(1 for c in text if '\u0391' <= c <= '\u03c9')       # Α-ω
+            # 函数调用模式 f(x), g(x), h(x)
+            fn_call = 1 if text.count('(') >= 1 and text.count(')') >= 1 and any(
+                p in text for p in ['f(', 'g(', 'h(', 'f(x)', 'g(x)', 'h(x)',
+                                    'sin(', 'cos(', 'tan(', 'log(', 'ln(']
+            ) else 0
+
+            # 2d. 数字表达式密度（纯数字 + 运算符占比高）
             stripped = text.replace(' ', '').replace('\n', '')
-            digit_math = sum(1 for c in stripped if c.isdigit() or c in '+-*/=()^.')
-            total_len = max(len(stripped), 1)
-            if math_count >= 3 or (digit_math / total_len > 0.5 and len(stripped) > 2):
+            digit_ops = sum(1 for c in stripped if c.isdigit() or c in '+-*/=()^.,')
+            digit_ratio = digit_ops / max(len(stripped), 1)
+
+            # 综合判定（满足任一条件）
+            math_total = (math_sym_count + math_kw_count * 2
+                          + superscript + subscript + greek + fn_call)
+            if math_total >= 1 or digit_ratio > 0.4:
                 return 'math'
 
         # 3. 中文检测（CJK 统一汉字区块）
