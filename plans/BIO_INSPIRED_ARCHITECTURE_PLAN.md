@@ -12,14 +12,14 @@
 ### 0.1 当前唯一关键路径
 
 ```
-核心实验：多同域神经元协作能否涌现集体智能？
-  首轮(末步模型)协作崩溃成符号噪声 → 排查发现3个问题：
-    1. _generate_p7 logits优先级bug（weighted_logits被拦截）✅已修
-    2. train_one_neuron保存末步而非best（PPL313 vs best≈2.7差100x）✅已修
-    3. 弱模型confidence陷阱（per-position routing偏向代码符号）⏳待best验证
-  → 重训best模型(进行中) → 重测协作
-    → best模型协作有效 → 验证核心论点 → 推进Plan C
-    → best模型协作仍崩 → 协作机制本身有问题 → 重设计融合/路由
+核心实验：多同域神经元协作能否涌现集体智能？ ✅初步验证成立
+  logit融合协作(B1)失败(符号噪声) → 转向族长主导+场上下文(L)
+  三轮(族长主导)结果：L > S(纯单干) > B1(融合)
+    - L(族长+场上下文): 汉字主导,连贯片段长,几乎无符号 — 最佳
+    - S(纯单干best): 汉字堆砌,片段短,少量符号
+    - B1(logit融合): 符号噪声崩溃 — 失败
+  → 核心论点初步成立：多个弱neuron经共振场协作(族长主导) > 单个
+  → 下一步：固化族长主导为默认协作模式 + 推进Plan C(族长竞争→激活能量)
 ```
 
 ### 0.2 三大问题依赖关系
@@ -44,11 +44,12 @@ Plan C 竞争路由 ← 已决定方向，排在协作测试之后
 | | MoCo logit 融合 | ✅ 就绪 | 多神经元 logits 加权融合 |
 | | active_nids 参数 | ✅ 刚加 | 支持显式指定激活神经元 |
 | **神经元** | zh 单干 (3MB) | ✅ PPL=62.4 | 基准（词组拼贴） |
-| | zh_1/2/3 (各1MB) | 🔄 重训中(best保存) | 末步模型协作崩溃→修保存逻辑重训best模型 |
+| | zh_1/2/3 (各1MB best) | ✅ best PPL 36-73 | best单干(B2)汉字半连贯；logit融合协作(B1)仍崩 |
 | | en/code/math/general | ❌ 旧玩具数据 | 待 zh 验证后扩展 |
 | **🐛 bug** | _generate_p7 logits 优先级 | ✅ 已修 | weighted_logits(per-position路由)被_dynamic_logit_fusion拦截→已提优先级(cortex.py:1146) |
 | **🐛 bug** | train_one_neuron 保存末步 | ✅ 已修 | 改为滑动avg loss追踪best保存；末步PPL313 vs best≈2.7差100x |
-| **⚠️ 机制** | 弱模型confidence陷阱 | 待best模型验证 | per-position routing在弱模型上偏向高频代码符号token(最confident)；best模型PPL≈2.7可能缓解 |
+| **⚠️ 机制** | logit融合协作失败 | ✅已确认 | best模型+修复后B1协作仍崩(符号噪声)，B2单干(best)更好；根因:confidence陷阱+异构logits干扰，非模型质量 |
+| **✅ 验证** | 族长主导+场上下文 | ✅ L>S>B1 | 不融合logits，共振分最高neuron主导；L(族长+场)汉字连贯>S(单干)>B1(融合)符号崩；核心论点初步成立 |
 | **路由** | L1 域路由 | ⚠️ 临时过渡 (86%) | 够用但非终态，将被 Plan C 取代 |
 | | L2 原型路由 | ⚠️ 支线 (43%) | 已验证上限低，将被 Plan C 取代 |
 | | **Plan C 竞争路由** | 🔜 **已决定**，排在协作测试之后 | 激活能量取代分类，路由终态方向 |

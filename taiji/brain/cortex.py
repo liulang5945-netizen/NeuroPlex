@@ -711,6 +711,7 @@ class Cortex:
         n_candidates: int = 1,
         routing_level: int = 1,
         active_nids: Optional[List[str]] = None,
+        collab_mode: str = "fusion",
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -746,7 +747,7 @@ class Cortex:
                 return self._generate_p7(
                     prompt, max_tokens, temperature, top_k, domain,
                     repetition_penalty, routing_level=routing_level,
-                    active_nids=active_nids,
+                    active_nids=active_nids, collab_mode=collab_mode,
                 )
             # SMCS EPE: 生成多条候选，混合后验评分选最优
             candidates = []
@@ -755,7 +756,7 @@ class Cortex:
                     text = self._generate_p7(
                         prompt, max_tokens, temperature, top_k, domain,
                         repetition_penalty, routing_level=routing_level,
-                        active_nids=active_nids,
+                        active_nids=active_nids, collab_mode=collab_mode,
                     )
                     if text:
                         candidates.append(text)
@@ -1028,6 +1029,7 @@ class Cortex:
         repetition_penalty: float = 1.2,
         routing_level: int = 1,
         active_nids: Optional[List[str]] = None,
+        collab_mode: str = "fusion",
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1139,11 +1141,21 @@ class Cortex:
 
             result = self.think(shared_emb, active_nids=active_nids)
 
-            # Get logits: 优先 ensemble 的 per-position routing（基于 entropy/confidence）
+            # Get logits: 协作模式选择
             neuron_logits = result.get("neuron_logits", {})
             final_scores = result.get("final_scores", {})
 
-            if result.get("weighted_logits") is not None:
+            if collab_mode == "leader" and final_scores and neuron_logits:
+                # 族长主导：选共振分最高的 neuron 的 logits（不融合）
+                # 族长在 round 2+ 已读共振场（受其他 neuron 影响），
+                # 用自己 logits 干净输出，避免异构 logit 融合干扰（confidence陷阱）
+                leader_nid = max(final_scores, key=final_scores.get)
+                if leader_nid in neuron_logits:
+                    logits = neuron_logits[leader_nid][:, -1, :] / temperature
+                else:
+                    # 族长 logits 未保留（large_scale top-K 过滤），取任意可用
+                    logits = next(iter(neuron_logits.values()))[:, -1, :] / temperature
+            elif result.get("weighted_logits") is not None:
                 # 优先用 ensemble 的 per-position routing（同 vocab 时由
                 # _compute_per_position_weights 算出，基于每位置 entropy/confidence
                 # 选最 confident 的 neuron，比共振分简单加权更精细，避免弱模型
