@@ -56,12 +56,12 @@
     step 3800 PPL=73.4 avg_ce=4.30，趋势优于所有前序实验
     目标：argmax 56%→85%+，验证生成连贯
 
-  → 四大架构方向已确认（2026-07-24 用户决策）：
-    ① 突触投影（Field Projector）→ 不改统一4096，直接实现可学习投影层
-       当前10×compact(field_dim=2048)训练不浪费，projector从中学习
-    ② 振荡同步接入 → GammaOscillator已完整实现，需接入forward_train+推理
-    ③ 残差预测编码 → 族长完整预测+其他神经元修正残差（替代软加权融合）
-    ④ 稀疏激活优化 → auto_topK自动选择（替代手动active_nids）
+  → 四大架构升级已全部实现（2026-07-24）：
+    ① 突触投影（Field Projector）✅ → unified_field_dim 可学习投影层，当前训练不浪费
+    ② 振荡同步接入 ✅ → forward_train 已接入 gamma_oscillator（--use_gamma 启用）
+    ③ 残差预测编码 ✅ → forward_train fusion_mode='residual' 默认启用（族长+残差修正）
+    ④ 稀疏激活优化 ✅ → auto_topK 自动选择，推理三模式就绪
+    下一步：等 10×compact 训练完成 → 评估 → 用新融合模式重训验证
 ```
 
 ### 0.2 架构演进依赖关系
@@ -69,18 +69,20 @@
 ```
 生成可用（10×compact训练进行中）→ 验证 argmax 85%+ 能否生成连贯
      ↓
-四大架构升级（可并行实施，互不阻塞）：
-  ① 突触投影 → 消除规格混合限制（compact/standard/expert 无缝共存）
-  ② 振荡同步 → 多轮共振+相位门控（已有GammaOscillator，需接入forward_train）
-  ③ 残差预测编码 → 族长+残差修正（替代软加权融合，更精确的协作）
-  ④ 稀疏激活 → auto_topK自动选择（替代手动active_nids，推理自动化）
+四大架构升级（✅ 全部完成 2026-07-24）：
+  ① 突触投影 ✅ → 消除规格混合限制（compact/standard/expert 无缝共存）
+  ② 振荡同步 ✅ → forward_train 已接入相位门控（--use_gamma 启用）
+  ③ 残差预测编码 ✅ → 族长+残差修正（fusion_mode='residual' 默认）
+  ④ 稀疏激活 ✅ → auto_topK自动选择（active_nids='auto_topK'）
      ↓
-混合规格+多域扩展（突触投影完成后）→ 大神经元带小神经元（族长模式落地）
+下一步：10×compact 训练完成 → 评估（PPL+argmax+生成）→ 用残差模式重训对比
+     ↓
+混合规格+多域扩展（突触投影已就绪）→ 大神经元带小神经元（族长模式落地）
      ↓
 闭环（睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活）
 ```
 
-**四大方向不互相阻塞，但都依赖生成可用（验证协作有效后才有意义）。**
+**四大升级已全部实现，等待训练完成后用残差预测编码模式重训验证效果。**
 
 ### 0.3 组件状态一览
 
@@ -103,11 +105,11 @@
 | **⚠️ 验证** | 族长主导+场上下文 | ⚠️ L3≈S | 族长主导避免融合崩溃(B1)；但L3(3 best协作)≈S(单干)，未稳定优于；且个体不连贯导致结论可信度低 |
 | **路由** | L1 域路由 | ⚠️ 临时过渡 (86%) | 够用但非终态，将被 auto_topK 取代 |
 | | L2 原型路由 | ❌ 已废弃 (43%) | 上限低，被 auto_topK + 竞争激活取代 |
-| | **稀疏激活 auto_topK** | 🔜 **已决定**，方向④ | 自动选共振分top-K，替代手动active_nids |
-| **四大升级** | ① 突触投影(Field Projector) | 🔜 待实现 | 可学习投影层，消除规格混合限制；当前训练不浪费 |
-| | ② 振荡同步(GammaOscillator) | ✅ 已实现/⚠️未接入 | GammaOscillator+Kuramoto耦合+相位门控完整；需接入forward_train |
-| | ③ 残差预测编码 | 🔜 待实现 | 族长完整预测+其他神经元修正残差，替代软加权融合 |
-| | ④ 稀疏激活 auto_topK | 🔜 待实现 | active_nids='auto_topK'自动选择，推理自动化 |
+| | **稀疏激活 auto_topK** | ✅ 已实现，方向④ | active_nids='auto_topK' 自动选共振分 top-K，替代手动 active_nids |
+| **四大升级** | ① 突触投影(Field Projector) | ✅ 已实现 | 可学习投影层(unified_field_dim)，消除规格混合限制；当前训练不浪费 |
+| | ② 振荡同步(GammaOscillator) | ✅ 已接入训练 | GammaOscillator+Kuramoto耦合+相位门控完整；forward_train 已接入(--use_gamma) |
+| | ③ 残差预测编码 | ✅ 已实现 | 族长完整预测+其他神经元残差修正；forward_train fusion_mode='residual' 默认启用 |
+| | ④ 稀疏激活 auto_topK | ✅ 已实现 | active_nids='auto_topK' 自动选择；推理三模式就绪 |
 | **生命周期** | 睡眠/喂养/调质/新生凋亡 | ✅ 已实现 | 当前实验不需要参与 |
 
 ### 0.4 依赖序列（非并行）
@@ -120,24 +122,28 @@
    - 10×compact(491M,不冻结embedding): 训练中，step3800 PPL=73.4 avg_ce=4.30，趋势优于所有前序实验
    - 核心洞察：CPU上1B无法训到充分；10×compact是最有希望突破的配置
    - 目标：argmax 56%→85%+，验证生成连贯
-2. **四大架构升级**（生成可用后，可并行实施，互不阻塞）：
-   2a. **突触投影（Field Projector）** → 消除规格混合限制
+2. **四大架构升级**（✅ 全部完成，2026-07-24）：
+   2a. **突触投影（Field Projector）** ✅ → 消除规格混合限制
      - 不改统一4096（避免跑冤枉路），直接实现可学习投影层
      - ResonanceNeuron 添加 field_projector: Linear(field_dim → unified_field_dim)
      - 当前10×compact(field_dim=2048)训练权重可直接用，projector从中学习
      - 完成后：compact/standard/expert 无缝混合，族长模式(大带小)落地
-   2b. **振荡同步接入** → 多轮共振 + 相位门控
-     - GammaOscillator 已完整实现（相位+Kuramoto耦合+门控），需接入 forward_train
-     - 多轮共振训练(max_rounds=2-3)：round 1 全员参与，round 2+ 相位门控
-     - 推理时也启用振荡同步，形成临时功能网络
-   2c. **残差预测编码** → 族长 + 残差修正（替代软加权融合）
+   2b. **振荡同步接入** ✅ → 训练前向已接入相位门控
+     - GammaOscillator 已完整实现（相位+Kuramoto耦合+门控）
+     - forward_train 接入 gamma_oscillator 参数，--use_gamma 启用
+     - 同域同相位（绑定成知觉单元），相位对齐的神经元 gate≈1.0 增强
+     - 推理时 forward() 已有 kuramoto_step 相位耦合（多轮共振）
+   2c. **残差预测编码** ✅ → 族长 + 残差修正（替代软加权融合）
      - 族长(共振分最高)完整预测 logits
      - 其他神经元预测族长的残差（族长预测不准的部分）
      - 总输出 = 族长 logits + Σ(残差 logits × 权重)
+     - 实现位置：ensemble.forward_train(fusion_mode='residual') 默认启用
+     - 梯度优势：族长获完整梯度（快速成强），其他神经元获加权梯度（专精修正）
      - 更精确的协作方式，符合人脑层级预测
-   2d. **稀疏激活 auto_topK** → 推理自动化
+   2d. **稀疏激活 auto_topK** ✅ → 推理自动化
      - active_nids='auto_topK' 模式：自动计算共振分，选 top-K
      - 三模式保留：全激活(高质量)/top-K(平衡)/top-1(实时)
+     - 实现位置：cortex._auto_topk_route + active_nids 字符串模式解析
      - K 可自适应（输入复杂度或 life_scheduler 需求驱动）
 3. **混合规格+多域扩展**（突触投影完成后）→ 大神经元带小神经元 + 添加 en/code/math 域
 4. **闭环**（排在 3 之后）→ 睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活

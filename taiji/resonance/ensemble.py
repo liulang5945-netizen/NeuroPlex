@@ -588,6 +588,7 @@ class ResonanceEnsemble:
         shared_embeddings: torch.Tensor,
         temperature: float = 1.0,
         gamma_oscillator=None,
+        fusion_mode: str = "residual",
     ) -> Dict[str, torch.Tensor]:
         """单轮全可微前向，用于联合训练。
 
@@ -606,17 +607,29 @@ class ResonanceEnsemble:
           同相位的神经元 gate≈1.0（增强），反相位的 gate≈0.2（衰减）
           模拟人脑 Gamma 振荡的 feature binding 机制
 
+        融合模式（方向③ 残差预测编码）：
+          - "residual"（默认，人脑层级预测）：
+              族长(共振分最高)给出完整预测 logits
+              其他神经元预测族长的残差（纠正族长预测错误的部分）
+              fused = leader_logits + Σ(w_i × other_logits_i)
+              族长获得完整梯度（快速成强），其他神经元获得加权梯度（专精修正）
+          - "soft"（旧版软加权融合，A/B 对照）：
+              fused = Σ(w_i × logits_i)
+
         Args:
             shared_embeddings: [B, L, base_embed_dim] 共享嵌入
             temperature: softmax 温度（低=更尖锐选择）
             gamma_oscillator: GammaOscillator 实例（可选，None=不门控）
+            fusion_mode: "residual"（默认，残差预测编码）| "soft"（软加权融合）
 
         Returns:
             dict with:
-            - fused_logits: [B, L, V] 软加权聚合 logits
-            - weights: [N] 软路由权重
+            - fused_logits: [B, L, V] 聚合 logits
+            - weights: [N] 或 [N-1] 软路由权重（residual 模式下不含族长）
             - scores: [N] 共振分
             - balance_loss: scalar 负载均衡 loss（负熵，越小越均匀）
+            - leader_idx: int 族长索引（仅 residual 模式）
+            - leader_logits: [B, L, V] 族长完整预测（仅 residual 模式）
             - individual_logits: {nid: [B, L, V]} 个体 logits（分析用）
         """
         active_ids = list(self.neurons.keys())
@@ -649,21 +662,55 @@ class ResonanceEnsemble:
             gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
             scores = scores * gate_factors.to(scores.device)
 
-        # 4. 软加权聚合（可微，无 .item()——关键修复点）
-        weights = F.softmax(scores / temperature, dim=0)      # [N]
-        fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)  # [B, L, V]
+        # 4. 融合聚合
+        if fusion_mode == "residual" and N >= 2:
+            # ── 方向③：残差预测编码（人脑层级预测）──
+            # 族长(共振分最高)给完整预测，其他神经元预测残差修正
+            leader_idx = int(scores.argmax().item())  # 硬选族长（选择不可微，权重可微）
+            leader_logits = all_logits[leader_idx]     # [B, L, V]
 
-        # 5. 负载均衡 loss（负熵：uniform时=-log(N)，collapse时→0）
-        balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+            # 其他神经元的索引与 logits
+            other_indices = [i for i in range(N) if i != leader_idx]
+            other_scores = scores[other_indices]                     # [N-1]
+            other_logits = all_logits[other_indices]                 # [N-1, B, L, V]
 
-        return {
-            "fused_logits": fused_logits,
-            "weights": weights,
-            "scores": scores,
-            "balance_loss": balance_loss,
-            "individual_logits": {nid: all_logits[i]
-                                   for i, nid in enumerate(active_ids)},
-        }
+            # 其他神经元的权重（softmax，族长不参与权重分配）
+            weights = F.softmax(other_scores / temperature, dim=0)   # [N-1]
+
+            # 残差聚合：fused = 族长完整预测 + Σ(w_i × 其他神经元修正)
+            # 梯度分析：∂CE/∂leader = ∂CE/∂fused（完整梯度，族长快速成强）
+            #          ∂CE/∂other_i = w_i × ∂CE/∂fused（加权梯度，专精修正）
+            residual = torch.einsum('n,nblv->blv', weights, other_logits)  # [B, L, V]
+            fused_logits = leader_logits + residual
+
+            # 负载均衡 loss（负熵：鼓励其他神经元均衡贡献，防止单一修正者垄断）
+            balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+
+            return {
+                "fused_logits": fused_logits,
+                "weights": weights,
+                "scores": scores,
+                "balance_loss": balance_loss,
+                "leader_idx": leader_idx,
+                "leader_logits": leader_logits,
+                "residual": residual,
+                "individual_logits": {nid: all_logits[i]
+                                       for i, nid in enumerate(active_ids)},
+            }
+        else:
+            # ── 旧版软加权融合（A/B 对照 & N=1 退化）──
+            weights = F.softmax(scores / temperature, dim=0)      # [N]
+            fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)  # [B, L, V]
+            balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+
+            return {
+                "fused_logits": fused_logits,
+                "weights": weights,
+                "scores": scores,
+                "balance_loss": balance_loss,
+                "individual_logits": {nid: all_logits[i]
+                                       for i, nid in enumerate(active_ids)},
+            }
 
     def _average_logits(
         self, logits_dict: Dict[str, torch.Tensor]

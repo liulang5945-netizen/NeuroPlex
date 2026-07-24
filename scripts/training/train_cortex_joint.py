@@ -62,16 +62,23 @@ def train_cortex_joint(
     spec: str = "compact",
     freeze_embedding: bool = False,
     use_gamma: bool = False,
+    fusion_mode: str = "residual",
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
-    所有神经元看所有数据，通过共振场软加权聚合，专精化自然涌现。
+    所有神经元看所有数据，通过共振场聚合，专精化自然涌现。
+
+    fusion_mode（方向③ 残差预测编码）：
+      - "residual"（默认）：族长完整预测 + 其他神经元残差修正
+      - "soft"：软加权融合（A/B 对照）
     """
     print("=" * 70, flush=True)
     print(f"整体训练态极 — {n_neurons} 个 {domain}({spec}) 神经元联合训练", flush=True)
     print(f"  目标：协作在训练中学习，而非事后拼装", flush=True)
     print(f"  steps={num_steps} batch={batch_size} lr={lr} "
           f"balance_λ={balance_lambda} temp={temperature} max_texts={max_texts} spec={spec}", flush=True)
+    print(f"  fusion_mode={fusion_mode} "
+          f"({'族长+残差修正' if fusion_mode == 'residual' else '软加权融合'})", flush=True)
     print("=" * 70, flush=True)
 
     # ── 1. 加载数据 ──
@@ -166,10 +173,14 @@ def train_cortex_joint(
         mask = mask.to(device)                # [B, L]
 
         # 前向：所有神经元参与，共振场聚合（全可微）+ 振荡门控
-        result = ensemble.forward_train(shared_emb, temperature=temperature, gamma_oscillator=gamma_oscillator)
+        result = ensemble.forward_train(
+            shared_emb, temperature=temperature,
+            gamma_oscillator=gamma_oscillator,
+            fusion_mode=fusion_mode,
+        )
         fused_logits = result["fused_logits"]       # [B, L, V]
         balance_loss = result["balance_loss"]        # scalar
-        weights = result["weights"]                  # [N]
+        weights = result["weights"]                  # [N] 或 [N-1]（residual 模式）
 
         # CE loss（next-token prediction on fused logits）
         shift_logits = fused_logits[:, :-1, :].contiguous()
@@ -228,17 +239,33 @@ def train_cortex_joint(
             avg_ce = total_ce / step
             ppl = math.exp(min(avg_ce, 20))
             elapsed = time.time() - t_start
-            w_str = ", ".join(f"{nid}:{w:.2f}" for nid, w in
-                              zip(neurons.keys(), weights.tolist()))
-            print(
-                f"  step {step}/{num_steps} "
-                f"loss={loss.item():.4f} ce={ce_loss.item():.4f} "
-                f"bal={balance_loss.item():.4f} "
-                f"avg_ce={avg_ce:.4f} PPL={ppl:.1f} "
-                f"w=[{w_str}] "
-                f"elapsed={elapsed:.0f}s",
-                flush=True,
-            )
+            # 残差模式：标注族长，权重只含其他神经元
+            if fusion_mode == "residual" and "leader_idx" in result:
+                leader_nid = list(neurons.keys())[result["leader_idx"]]
+                other_nids = [n for n in neurons.keys() if n != leader_nid]
+                w_str = ", ".join(f"{nid}:{w:.2f}" for nid, w in
+                                  zip(other_nids, weights.tolist()))
+                print(
+                    f"  step {step}/{num_steps} "
+                    f"loss={loss.item():.4f} ce={ce_loss.item():.4f} "
+                    f"bal={balance_loss.item():.4f} "
+                    f"avg_ce={avg_ce:.4f} PPL={ppl:.1f} "
+                    f"leader={leader_nid} w=[{w_str}] "
+                    f"elapsed={elapsed:.0f}s",
+                    flush=True,
+                )
+            else:
+                w_str = ", ".join(f"{nid}:{w:.2f}" for nid, w in
+                                  zip(neurons.keys(), weights.tolist()))
+                print(
+                    f"  step {step}/{num_steps} "
+                    f"loss={loss.item():.4f} ce={ce_loss.item():.4f} "
+                    f"bal={balance_loss.item():.4f} "
+                    f"avg_ce={avg_ce:.4f} PPL={ppl:.1f} "
+                    f"w=[{w_str}] "
+                    f"elapsed={elapsed:.0f}s",
+                    flush=True,
+                )
 
     # ── 8. 训练结束，保存 ──
     avg_ce = total_ce / max(step, 1)
@@ -275,6 +302,8 @@ def train_cortex_joint(
                 "n_neurons": n_neurons,
                 "spec": spec,
                 "freeze_embedding": freeze_embedding,
+                "fusion_mode": fusion_mode,
+                "use_gamma": use_gamma,
             },
         }, save_path)
         print(f"  {save_path} ({saved_label})", flush=True)
@@ -315,6 +344,9 @@ def main():
                         help="冻结 shared_embedding（省内存；复用预训练embedding）")
     parser.add_argument("--use_gamma", action="store_true",
                         help="启用振荡同步（GammaOscillator 相位门控，方向②）")
+    parser.add_argument("--fusion_mode", default="residual",
+                        choices=["residual", "soft"],
+                        help="融合模式：residual(族长+残差修正,默认) | soft(软加权融合)")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -331,6 +363,7 @@ def main():
         spec=args.spec,
         freeze_embedding=args.freeze_embedding,
         use_gamma=args.use_gamma,
+        fusion_mode=args.fusion_mode,
     )
 
 
