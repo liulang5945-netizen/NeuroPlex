@@ -75,12 +75,11 @@ Plan C 竞争路由 ← 已决定方向，排在协作测试之后
 |----|------|------|------|
 | **架构** | Cortex + Ensemble + Field | ✅ 就绪 | 协作机制全部就绪 |
 | | MoCo logit 融合 | ✅ 就绪 | 多神经元 logits 加权融合 |
-| | active_nids 参数 | ✅ 刚加 | 支持显式指定激活神经元 |
+| | active_nids 参数 | ✅ 已确认设计 | 推理三模式：高质量(全激活)/平衡(top-3族长)/实时(单族长)；训练时全员参与(forward_train) |
 | **神经元** | zh_j0~j4 (5×compact联合训练) | ✅ 涌现确认 | 协作PPL=24.4 < 最强个体47.2(-48.3%)；3个个体PPL>1000但集体超越最强 |
-| | zh_j0~j7 (8×standard联合训练≈1B) | ⚠️ 涌现但更差 | 协作PPL=92.3(涌现-85%)但生成纯乱码；比5×compact差4倍；avg_ce=nan数值不稳定；zh_j7 PPL=2017万损坏 |
-| | zh 单干 (3MB) | ❌ 过拟合 | PPL=62.4 但模式崩溃("成功的关键"死循环) |
-| | zh_1/2/3 (各1MB best) | ❌ 训练不足 | best PPL 37-73，有词汇无语法 |
-| | en/code/math/general | ❌ 旧玩具数据 | 输出乱码，待重训 |
+| | zh_j0~j9 (10×compact联合训练491M) | 🔄 训练中 | step3400 PPL=85.7 avg_ce=4.45；趋势优于所有前序；目标argmax 56%→85%+ |
+| | zh_j0~j7 (8×standard≈1B) | ❌ 已淘汰 | PPL=92.3比5×compact差4倍；avg_ce=nan数值不稳定；容量非瓶颈已确认 |
+| | zh单干/zh_1-3/code/en/general/math | 🗑️ 已删除 | 2026-07-24清理9个废弃文件释放1.2GB |
 | **🔍 审计** | 摸底诊断（2026-07-24） | ✅ 完成 | 0个连贯神经元 → 联合训练突破 |
 | **🧠 联合训练** | forward_train() + train_cortex_joint | ✅ 完成 | 全可微聚合；5×compact(PPL24.4)和8×standard(PPL92.3)均涌现 |
 | **🔍 生成诊断** | argmax/往返/自回归3项测试 | ✅ 完成 | 根因=训练不足(argmax56%)，非管线/非融合；数据23K干净仅用8K |
