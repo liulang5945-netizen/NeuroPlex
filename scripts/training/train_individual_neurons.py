@@ -321,6 +321,10 @@ def main():
                         help="checkpoint 保存目录")
     parser.add_argument("--skip_neurons", type=int, default=0,
                         help="跳过前 N 个神经元（断点续训用）")
+    parser.add_argument("--resume", action="store_true",
+                        help="从已有ckpt加载best状态继续训练（断点续训）")
+    parser.add_argument("--resume_lr", type=float, default=1e-4,
+                        help="续训学习率（默认1e-4，比初始3e-4低）")
     args = parser.parse_args()
 
     print("=" * 70, flush=True)
@@ -389,6 +393,20 @@ def main():
         emb_status = "冻结" if embedding_frozen else "可训练"
         print(f"  参数: {n_params/1e6:.1f}M, dropout={cfg.dropout}, embedding={emb_status}", flush=True)
 
+        # 断点续训：从已有 ckpt 加载 best 状态
+        resume_ckpts_path = os.path.join(args.output_dir, f"neuron_zh_j{i}.pt")
+        if args.resume and os.path.exists(resume_ckpts_path):
+            old_ckpt = torch.load(resume_ckpts_path, map_location=args.device, weights_only=False)
+            neuron.load_state_dict(old_ckpt["state_dict"], strict=False)
+            old_best = old_ckpt.get("result", {}).get("best_loss", "?")
+            old_step = old_ckpt.get("result", {}).get("best_step", "?")
+            print(f"  📂 续训: 加载已有权重 (best_loss={old_best}@step{old_step})", flush=True)
+
+        # 续训时用更低 lr
+        current_lr = args.resume_lr if (args.resume and os.path.exists(resume_ckpts_path)) else args.lr
+        if current_lr != args.lr:
+            print(f"  续训 lr={current_lr} (低于初始 {args.lr})", flush=True)
+
         # 训练
         save_path = os.path.join(args.output_dir, f"neuron_zh_j{i}.pt")
         result = train_one_neuron(
@@ -400,7 +418,7 @@ def main():
             general_sp=general_sp,
             num_steps=args.steps,
             batch_size=args.batch_size,
-            lr=args.lr,
+            lr=current_lr,
             device=args.device,
             log_every=args.log_every,
             save_path=save_path,
