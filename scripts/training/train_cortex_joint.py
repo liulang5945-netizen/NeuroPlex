@@ -176,6 +176,14 @@ def train_cortex_joint(
         # 总 loss = CE + λ * 负载均衡（负熵）
         loss = ce_loss + balance_lambda * balance_loss
 
+        # nan/inf 检查：跳过异常步（防止梯度爆炸污染统计累加器）
+        # 8×standard 实验中 avg_ce=nan 即因此 bug 导致
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"  ⚠️ step {step+1}: nan/inf loss detected, skipping "
+                  f"(consider lowering lr or adding warmup)", flush=True)
+            step += 1
+            continue
+
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
