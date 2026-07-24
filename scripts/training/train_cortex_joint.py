@@ -63,6 +63,9 @@ def train_cortex_joint(
     freeze_embedding: bool = False,
     use_gamma: bool = False,
     fusion_mode: str = "residual",
+    weight_decay: float = 0.1,
+    warmup_steps: int = 200,
+    dropout: float = 0.1,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
@@ -71,6 +74,11 @@ def train_cortex_joint(
     fusion_mode（方向③ 残差预测编码）：
       - "residual"（默认）：族长完整预测 + 其他神经元残差修正
       - "soft"：软加权融合（A/B 对照）
+
+    正则化（社区规范 SmolLM/Chinchilla）：
+      - weight_decay: AdamW 权重衰减，防止过拟合（默认 0.1）
+      - warmup_steps: WSD 调度的 warmup 阶段步数（默认 200）
+      - dropout: Transformer dropout 率，防止过拟合（默认 0.1）
     """
     print("=" * 70, flush=True)
     print(f"整体训练态极 — {n_neurons} 个 {domain}({spec}) 神经元联合训练", flush=True)
@@ -79,6 +87,7 @@ def train_cortex_joint(
           f"balance_λ={balance_lambda} temp={temperature} max_texts={max_texts} spec={spec}", flush=True)
     print(f"  fusion_mode={fusion_mode} "
           f"({'族长+残差修正' if fusion_mode == 'residual' else '软加权融合'})", flush=True)
+    print(f"  正则化: weight_decay={weight_decay} dropout={dropout} warmup={warmup_steps}", flush=True)
     print("=" * 70, flush=True)
 
     # ── 1. 加载数据 ──
@@ -108,6 +117,7 @@ def train_cortex_joint(
     # ── 4. 创建 N 个神经元（同域，随机初始化）──
     print(f"\n[4] 创建 {n_neurons} 个 {spec} 神经元...", flush=True)
     cfg = get_domain_neuron_config(domain, spec=spec)
+    cfg.dropout = dropout  # 正则化：防止过拟合
     neurons: dict[str, ResonanceNeuron] = {}
     for i in range(n_neurons):
         nid = f"{domain}_j{i}"
@@ -134,15 +144,36 @@ def train_cortex_joint(
         print(f"  振荡同步: 已启用 GammaOscillator，{len(neurons)} 个神经元同相位（同域绑定）", flush=True)
 
     # ── 6. 优化器：所有神经元参数 +（可选）shared_embedding ──
+    # 社区规范：AdamW + weight_decay 防止过拟合（SmolLM 用 0.1）
     all_params = []
     for neuron in neurons.values():
         all_params.extend(neuron.parameters())
     if not freeze_embedding:
         all_params.extend(shared_embedding.parameters())
 
-    optimizer = torch.optim.AdamW(all_params, lr=lr)
+    optimizer = torch.optim.AdamW(
+        all_params, lr=lr, weight_decay=weight_decay,
+    )
     total_params = sum(p.numel() for p in all_params)
-    print(f"\n[6] 优化器: AdamW, {total_params/1e6:.0f}M total params", flush=True)
+    print(f"\n[6] 优化器: AdamW(lr={lr}, weight_decay={weight_decay}), "
+          f"{total_params/1e6:.0f}M total params", flush=True)
+
+    # WSD 学习率调度（社区规范 SmolLM3）：
+    # Warmup（线性升温）→ Stable（稳定）→ Decay（余弦衰减到最后 10% lr）
+    # decay 在最后 20% 步数进行
+    decay_start = max(warmup_steps + 1, int(num_steps * 0.8))
+    def _wsd_lr(step):
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps  # 线性升温
+        elif step < decay_start:
+            return 1.0  # 稳定
+        else:
+            # 余弦衰减到 10%
+            progress = (step - decay_start) / max(1, num_steps - decay_start)
+            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _wsd_lr)
+    print(f"  WSD 调度: warmup={warmup_steps}步, stable到{decay_start}步, "
+          f"decay到最后{decay_start}→{num_steps}步", flush=True)
 
     # ── 7. 训练循环 ──
     print(f"\n[7] 开始联合训练 ({num_steps} steps)...", flush=True)
@@ -210,6 +241,7 @@ def train_cortex_joint(
         loss.backward()
         torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
         optimizer.step()
+        scheduler.step()  # WSD 学习率调度
 
         # 振荡同步：每步推进全局相位（模拟 Gamma 振荡周期）
         if gamma_oscillator is not None:
@@ -239,6 +271,7 @@ def train_cortex_joint(
             avg_ce = total_ce / step
             ppl = math.exp(min(avg_ce, 20))
             elapsed = time.time() - t_start
+            cur_lr = optimizer.param_groups[0]["lr"]
             # 残差模式：标注族长，权重只含其他神经元
             if fusion_mode == "residual" and "leader_idx" in result:
                 leader_nid = list(neurons.keys())[result["leader_idx"]]
@@ -250,6 +283,7 @@ def train_cortex_joint(
                     f"loss={loss.item():.4f} ce={ce_loss.item():.4f} "
                     f"bal={balance_loss.item():.4f} "
                     f"avg_ce={avg_ce:.4f} PPL={ppl:.1f} "
+                    f"lr={cur_lr:.2e} "
                     f"leader={leader_nid} w=[{w_str}] "
                     f"elapsed={elapsed:.0f}s",
                     flush=True,
@@ -262,6 +296,7 @@ def train_cortex_joint(
                     f"loss={loss.item():.4f} ce={ce_loss.item():.4f} "
                     f"bal={balance_loss.item():.4f} "
                     f"avg_ce={avg_ce:.4f} PPL={ppl:.1f} "
+                    f"lr={cur_lr:.2e} "
                     f"w=[{w_str}] "
                     f"elapsed={elapsed:.0f}s",
                     flush=True,
@@ -336,8 +371,8 @@ def main():
                         help="软路由温度（低=更尖锐选择）")
     parser.add_argument("--device", default="cpu", help="设备")
     parser.add_argument("--log_every", type=int, default=50, help="日志间隔步数")
-    parser.add_argument("--max_texts", type=int, default=8000,
-                        help="最大训练文本数（默认8000；zh域有23K可用）")
+    parser.add_argument("--max_texts", type=int, default=100000,
+                        help="最大训练文本数（默认100000；数据量越大越防过拟合）")
     parser.add_argument("--spec", default="compact",
                         help="神经元规格 compact(36M)/standard(111M)/expert(253M)；10×standard≈1B")
     parser.add_argument("--freeze_embedding", action="store_true",
@@ -347,6 +382,12 @@ def main():
     parser.add_argument("--fusion_mode", default="residual",
                         choices=["residual", "soft"],
                         help="融合模式：residual(族长+残差修正,默认) | soft(软加权融合)")
+    parser.add_argument("--weight_decay", type=float, default=0.1,
+                        help="AdamW 权重衰减（默认0.1，SmolLM 规范）")
+    parser.add_argument("--warmup_steps", type=int, default=200,
+                        help="WSD 调度 warmup 步数（默认200）")
+    parser.add_argument("--dropout", type=float, default=0.1,
+                        help="Transformer dropout 率（默认0.1，防止过拟合）")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -364,6 +405,9 @@ def main():
         freeze_embedding=args.freeze_embedding,
         use_gamma=args.use_gamma,
         fusion_mode=args.fusion_mode,
+        weight_decay=args.weight_decay,
+        warmup_steps=args.warmup_steps,
+        dropout=args.dropout,
     )
 
 

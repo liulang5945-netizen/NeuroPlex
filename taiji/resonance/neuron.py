@@ -80,6 +80,7 @@ class ResonanceNeuron(nn.Module):
                 intermediate_size=c.intermediate_size,
                 rms_norm_eps=c.rms_norm_eps,
                 bias=c.attention_bias,
+                dropout=c.dropout,
             )
             for _ in range(c.num_hidden_layers)
         ])

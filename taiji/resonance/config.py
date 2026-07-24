@@ -25,6 +25,9 @@ class NeuronConfig:
     attention_bias: bool = False
     max_position_embeddings: int = 4096
     rope_theta: float = 500000.0
+    # 正则化：dropout 防止过拟合（社区规范：0.1 为小模型常用值）
+    # 0.0 = 关闭（向后兼容旧 ckpt）
+    dropout: float = 0.0
 
     # ── Embedding (per-neuron, domain-specific tokenizer) ──
     # P7: 每 neuron 独立 embedding + 独立 lm_head，域专用 vocab
