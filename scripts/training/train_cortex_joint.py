@@ -61,6 +61,7 @@ def train_cortex_joint(
     max_texts: int = 8000,
     spec: str = "compact",
     freeze_embedding: bool = False,
+    use_gamma: bool = False,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
@@ -115,6 +116,16 @@ def train_cortex_joint(
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=1)
     print(f"  field_dim={cfg.field_dim}, neurons={list(neurons.keys())}", flush=True)
 
+    # 振荡同步（可选，方向②）
+    gamma_oscillator = None
+    if use_gamma:
+        from taiji.resonance.gamma_oscillator import GammaOscillator
+        gamma_oscillator = GammaOscillator()
+        # 同域同相位（绑定成知觉单元），跨域不同相位（解绑）
+        domain_to_nids = {domain: list(neurons.keys())}
+        gamma_oscillator.assign_phase_by_domain(domain_to_nids)
+        print(f"  振荡同步: 已启用 GammaOscillator，{len(neurons)} 个神经元同相位（同域绑定）", flush=True)
+
     # ── 6. 优化器：所有神经元参数 +（可选）shared_embedding ──
     all_params = []
     for neuron in neurons.values():
@@ -154,8 +165,8 @@ def train_cortex_joint(
         targets = targets.to(device)          # [B, L]
         mask = mask.to(device)                # [B, L]
 
-        # 前向：所有神经元参与，共振场聚合（全可微）
-        result = ensemble.forward_train(shared_emb, temperature=temperature)
+        # 前向：所有神经元参与，共振场聚合（全可微）+ 振荡门控
+        result = ensemble.forward_train(shared_emb, temperature=temperature, gamma_oscillator=gamma_oscillator)
         fused_logits = result["fused_logits"]       # [B, L, V]
         balance_loss = result["balance_loss"]        # scalar
         weights = result["weights"]                  # [N]
@@ -188,6 +199,10 @@ def train_cortex_joint(
         loss.backward()
         torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
         optimizer.step()
+
+        # 振荡同步：每步推进全局相位（模拟 Gamma 振荡周期）
+        if gamma_oscillator is not None:
+            gamma_oscillator.tick()
 
         total_loss += loss.item()
         total_ce += ce_loss.item()
@@ -298,6 +313,8 @@ def main():
                         help="神经元规格 compact(36M)/standard(111M)/expert(253M)；10×standard≈1B")
     parser.add_argument("--freeze_embedding", action="store_true",
                         help="冻结 shared_embedding（省内存；复用预训练embedding）")
+    parser.add_argument("--use_gamma", action="store_true",
+                        help="启用振荡同步（GammaOscillator 相位门控，方向②）")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -313,6 +330,7 @@ def main():
         max_texts=args.max_texts,
         spec=args.spec,
         freeze_embedding=args.freeze_embedding,
+        use_gamma=args.use_gamma,
     )
 
 

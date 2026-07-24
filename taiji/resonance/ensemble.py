@@ -587,6 +587,7 @@ class ResonanceEnsemble:
         self,
         shared_embeddings: torch.Tensor,
         temperature: float = 1.0,
+        gamma_oscillator=None,
     ) -> Dict[str, torch.Tensor]:
         """单轮全可微前向，用于联合训练。
 
@@ -595,13 +596,20 @@ class ResonanceEnsemble:
         - 全可微（无 .item()、无 argmax、无 hard top-K）
         - 内联计算共振分（绕过 field.score() 的 detach）
         - 返回 fused_logits + 负载均衡 loss
+        - 支持振荡同步门控（gamma_oscillator）
 
         前向传播时所有神经元参与，共振场聚合，反向传播流经聚合权重
         → 神经元学习如何写入场、如何协同输出。
 
+        振荡同步（可选）：
+          gamma_oscillator 提供 per-neuron gate_factor ∈ [0.2, 1.0]
+          同相位的神经元 gate≈1.0（增强），反相位的 gate≈0.2（衰减）
+          模拟人脑 Gamma 振荡的 feature binding 机制
+
         Args:
             shared_embeddings: [B, L, base_embed_dim] 共享嵌入
             temperature: softmax 温度（低=更尖锐选择）
+            gamma_oscillator: GammaOscillator 实例（可选，None=不门控）
 
         Returns:
             dict with:
@@ -635,6 +643,11 @@ class ResonanceEnsemble:
         loo_norm = F.normalize(loo_state, dim=-1)             # [N, B, D]
         scores = (all_vecs_norm * loo_norm).sum(dim=-1)       # [N, B] cosine sim
         scores = scores.mean(dim=1)                           # [N] batch 平均
+
+        # 振荡同步门控：相位对齐的神经元获得更高权重（feature binding）
+        if gamma_oscillator is not None:
+            gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
+            scores = scores * gate_factors.to(scores.device)
 
         # 4. 软加权聚合（可微，无 .item()——关键修复点）
         weights = F.softmax(scores / temperature, dim=0)      # [N]
