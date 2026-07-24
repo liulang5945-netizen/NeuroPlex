@@ -59,16 +59,18 @@ def train_cortex_joint(
     device: str = "cpu",
     log_every: int = 50,
     max_texts: int = 8000,
+    spec: str = "compact",
+    freeze_embedding: bool = False,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
     所有神经元看所有数据，通过共振场软加权聚合，专精化自然涌现。
     """
     print("=" * 70, flush=True)
-    print(f"整体训练态极 — {n_neurons} 个 {domain} 神经元联合训练", flush=True)
+    print(f"整体训练态极 — {n_neurons} 个 {domain}({spec}) 神经元联合训练", flush=True)
     print(f"  目标：协作在训练中学习，而非事后拼装", flush=True)
     print(f"  steps={num_steps} batch={batch_size} lr={lr} "
-          f"balance_λ={balance_lambda} temp={temperature} max_texts={max_texts}", flush=True)
+          f"balance_λ={balance_lambda} temp={temperature} max_texts={max_texts} spec={spec}", flush=True)
     print("=" * 70, flush=True)
 
     # ── 1. 加载数据 ──
@@ -85,10 +87,19 @@ def train_cortex_joint(
     # ── 3. 创建 shared_embedding（可训练）──
     print(f"\n[3] 创建 shared_embedding...", flush=True)
     shared_embedding = create_shared_embedding(device=device)
+    if freeze_embedding:
+        emb_path = os.path.join(OUTPUT_DIR, "shared_embedding_joint.pt")
+        if os.path.exists(emb_path):
+            shared_embedding.load_state_dict(torch.load(emb_path, map_location=device))
+            print(f"  已加载预训练 shared_embedding（冻结）", flush=True)
+        else:
+            print(f"  ⚠️ 预训练 embedding 不存在，使用随机初始化（冻结）", flush=True)
+        shared_embedding.requires_grad_(False)
+        shared_embedding.eval()
 
     # ── 4. 创建 N 个神经元（同域，随机初始化）──
-    print(f"\n[4] 创建 {n_neurons} 个神经元...", flush=True)
-    cfg = get_domain_neuron_config(domain)
+    print(f"\n[4] 创建 {n_neurons} 个 {spec} 神经元...", flush=True)
+    cfg = get_domain_neuron_config(domain, spec=spec)
     neurons: dict[str, ResonanceNeuron] = {}
     for i in range(n_neurons):
         nid = f"{domain}_j{i}"
@@ -104,11 +115,12 @@ def train_cortex_joint(
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=1)
     print(f"  field_dim={cfg.field_dim}, neurons={list(neurons.keys())}", flush=True)
 
-    # ── 6. 优化器：所有神经元参数 + shared_embedding ──
+    # ── 6. 优化器：所有神经元参数 +（可选）shared_embedding ──
     all_params = []
     for neuron in neurons.values():
         all_params.extend(neuron.parameters())
-    all_params.extend(shared_embedding.parameters())
+    if not freeze_embedding:
+        all_params.extend(shared_embedding.parameters())
 
     optimizer = torch.optim.AdamW(all_params, lr=lr)
     total_params = sum(p.numel() for p in all_params)
@@ -238,17 +250,22 @@ def train_cortex_joint(
                 "saved": saved_label,
                 "joint_trained": True,
                 "n_neurons": n_neurons,
+                "spec": spec,
+                "freeze_embedding": freeze_embedding,
             },
         }, save_path)
         print(f"  {save_path} ({saved_label})", flush=True)
 
-    # 保存 shared_embedding
-    emb_path = os.path.join(OUTPUT_DIR, "shared_embedding_joint.pt")
-    torch.save(shared_embedding.state_dict(), emb_path)
-    print(f"  {emb_path}", flush=True)
+    # 保存 shared_embedding（冻结时跳过，复用预训练的）
+    if not freeze_embedding:
+        emb_path = os.path.join(OUTPUT_DIR, "shared_embedding_joint.pt")
+        torch.save(shared_embedding.state_dict(), emb_path)
+        print(f"  {emb_path}", flush=True)
+    else:
+        print(f"  shared_embedding 已冻结，复用预训练版本", flush=True)
 
     print(f"\n✅ 联合训练完成！下一步运行评估:", flush=True)
-    print(f"  python -u scripts/training/eval_joint.py --n_neurons {n_neurons}", flush=True)
+    print(f"  python -u scripts/training/eval_joint.py --n_neurons {n_neurons} --spec {spec}", flush=True)
 
     return {"final_loss": avg_ce, "final_ppl": ppl, "steps": step, "best_loss": best_loss}
 
@@ -269,6 +286,10 @@ def main():
     parser.add_argument("--log_every", type=int, default=50, help="日志间隔步数")
     parser.add_argument("--max_texts", type=int, default=8000,
                         help="最大训练文本数（默认8000；zh域有23K可用）")
+    parser.add_argument("--spec", default="compact",
+                        help="神经元规格 compact(36M)/standard(111M)/expert(253M)；10×standard≈1B")
+    parser.add_argument("--freeze_embedding", action="store_true",
+                        help="冻结 shared_embedding（省内存；复用预训练embedding）")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -282,6 +303,8 @@ def main():
         device=args.device,
         log_every=args.log_every,
         max_texts=args.max_texts,
+        spec=args.spec,
+        freeze_embedding=args.freeze_embedding,
     )
 
 

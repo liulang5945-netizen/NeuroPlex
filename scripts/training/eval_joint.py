@@ -35,9 +35,9 @@ from scripts.training.train_neuron import (
 DOMAIN = "zh"
 
 
-def load_joint_neurons(n_neurons: int, domain: str, device: str):
+def load_joint_neurons(n_neurons: int, domain: str, device: str, spec: str = "compact"):
     """加载联合训练的神经元 + shared_embedding。"""
-    cfg = get_domain_neuron_config(domain)
+    cfg = get_domain_neuron_config(domain, spec=spec)
     neurons = {}
     for i in range(n_neurons):
         nid = f"{domain}_j{i}"
@@ -259,11 +259,13 @@ def main():
     parser.add_argument("--domain", default="zh", help="域")
     parser.add_argument("--device", default="cpu", help="设备")
     parser.add_argument("--n_eval", type=int, default=200, help="PPL评估文本数")
+    parser.add_argument("--spec", default="compact",
+                        help="神经元规格 compact/standard/expert")
     args = parser.parse_args()
 
-    print(f"加载联合训练的 {args.n_neurons} 个 {args.domain} 神经元...", flush=True)
+    print(f"加载联合训练的 {args.n_neurons} 个 {args.domain}({args.spec}) 神经元...", flush=True)
     neurons, shared_embedding, cfg = load_joint_neurons(
-        args.n_neurons, args.domain, args.device
+        args.n_neurons, args.domain, args.device, spec=args.spec
     )
     domain_sp = load_domain_tokenizer(args.domain)
     general_sp = load_general_tokenizer()
