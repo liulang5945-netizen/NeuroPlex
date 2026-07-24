@@ -80,10 +80,15 @@ def compute_ppl(logits, targets, mask):
     return math.exp(min(avg_loss, 20)), avg_loss
 
 
-def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=200):
-    """对比个体 vs 协作 PPL。"""
+def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=200,
+             fusion_mode="residual"):
+    """对比个体 vs 协作 PPL。
+
+    Args:
+        fusion_mode: 协作融合模式 'residual'(族长+残差修正) | 'soft'(软加权融合)
+    """
     print("\n" + "=" * 70, flush=True)
-    print("[PPL 评估] 个体 vs 协作", flush=True)
+    print(f"[PPL 评估] 个体 vs 协作 (fusion={fusion_mode})", flush=True)
     print("=" * 70, flush=True)
 
     texts = load_domain_texts(DOMAIN, max_texts=n_eval)
@@ -130,6 +135,7 @@ def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=20
     # 协作 PPL
     total_loss = 0.0
     total_tokens = 0
+    leader_counts = {}  # 残差模式：统计各神经元成为族长的次数
     with torch.no_grad():
         for text in texts:
             shared_emb, targets, mask = batch_align_and_embed(
@@ -138,8 +144,13 @@ def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=20
             shared_emb = shared_emb.to(device)
             targets = targets.to(device)
             mask = mask.to(device)
-            result = ensemble.forward_train(shared_emb, temperature=1.0)
+            result = ensemble.forward_train(shared_emb, temperature=1.0,
+                                            fusion_mode=fusion_mode)
             fused_logits = result["fused_logits"]
+            # 残差模式：记录族长
+            if "leader_idx" in result:
+                leader_nid = list(neurons.keys())[result["leader_idx"]]
+                leader_counts[leader_nid] = leader_counts.get(leader_nid, 0) + 1
             shift_logits = fused_logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
             shift_mask = mask[:, 1:].contiguous()
@@ -156,6 +167,10 @@ def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=20
     avg_loss = total_loss / max(total_tokens, 1)
     collab_ppl = math.exp(min(avg_loss, 20))
     print(f"  协作 [all]:    PPL={collab_ppl:.1f} (loss={avg_loss:.4f})", flush=True)
+    if leader_counts:
+        lc_str = ", ".join(f"{k}:{v}" for k, v in sorted(leader_counts.items(),
+                                                          key=lambda x: -x[1]))
+        print(f"  族长分布: {lc_str}", flush=True)
 
     # 判读
     min_individual = min(individual_ppls.values())
@@ -173,10 +188,11 @@ def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=20
     return individual_ppls, collab_ppl
 
 
-def eval_generation(neurons, shared_embedding, domain_sp, general_sp, cfg, device):
+def eval_generation(neurons, shared_embedding, domain_sp, general_sp, cfg, device,
+                    fusion_mode="residual"):
     """生成质量对比：个体 vs 协作。"""
     print("\n" + "=" * 70, flush=True)
-    print("[生成质量对比] 个体 vs 协作", flush=True)
+    print(f"[生成质量对比] 个体 vs 协作 (fusion={fusion_mode})", flush=True)
     print("=" * 70, flush=True)
 
     field = ResonanceField(dim=cfg.field_dim)
@@ -197,7 +213,8 @@ def eval_generation(neurons, shared_embedding, domain_sp, general_sp, cfg, devic
             generated_domain = []
             for _ in range(max_tokens):
                 shared_emb = shared_embedding(ids)  # [1, L, 512]
-                result = ensemble.forward_train(shared_emb, temperature=1.0)
+                result = ensemble.forward_train(shared_emb, temperature=1.0,
+                                                fusion_mode=fusion_mode)
                 logits = result["fused_logits"][:, -1, :]  # [1, V]
                 # 贪婪解码
                 next_token = logits.argmax(dim=-1).item()
@@ -246,7 +263,7 @@ def eval_generation(neurons, shared_embedding, domain_sp, general_sp, cfg, devic
         print(f"\n  prompt: {prompt}", flush=True)
         # 协作生成
         collab_out = generate_collab(prompt)
-        print(f"  协作: {collab_out[:150] if collab_out else '(empty)'}", flush=True)
+        print(f"  协作[{fusion_mode}]: {collab_out[:150] if collab_out else '(empty)'}", flush=True)
         # 最强个体生成（取第一个）
         first_nid = list(neurons.keys())[0]
         indiv_out = generate_individual(prompt, first_nid)
@@ -261,6 +278,11 @@ def main():
     parser.add_argument("--n_eval", type=int, default=200, help="PPL评估文本数")
     parser.add_argument("--spec", default="compact",
                         help="神经元规格 compact/standard/expert")
+    parser.add_argument("--fusion_mode", default="residual",
+                        choices=["residual", "soft"],
+                        help="协作融合模式: residual(族长+残差修正,默认) | soft(软加权融合)")
+    parser.add_argument("--compare_modes", action="store_true",
+                        help="对比两种融合模式 (residual vs soft)，用于 A/B 评估")
     args = parser.parse_args()
 
     print(f"加载联合训练的 {args.n_neurons} 个 {args.domain}({args.spec}) 神经元...", flush=True)
@@ -270,15 +292,46 @@ def main():
     domain_sp = load_domain_tokenizer(args.domain)
     general_sp = load_general_tokenizer()
 
-    # PPL 评估
-    individual_ppls, collab_ppl = eval_ppl(
-        neurons, shared_embedding, domain_sp, general_sp, args.device, args.n_eval
-    )
+    if args.compare_modes:
+        # A/B 对比：两种融合模式都评估
+        print("\n" + "#" * 70, flush=True)
+        print("# A/B 对比模式：residual vs soft 融合", flush=True)
+        print("#" * 70, flush=True)
 
-    # 生成质量对比
-    eval_generation(
-        neurons, shared_embedding, domain_sp, general_sp, cfg, args.device
-    )
+        modes = ["residual", "soft"]
+        results = {}
+        for mode in modes:
+            print(f"\n{'='*70}\n=== 评估 fusion_mode={mode} ===\n{'='*70}", flush=True)
+            ind_ppls, collab_ppl = eval_ppl(
+                neurons, shared_embedding, domain_sp, general_sp,
+                args.device, args.n_eval, fusion_mode=mode,
+            )
+            results[mode] = {"individual": ind_ppls, "collab": collab_ppl}
+            eval_generation(
+                neurons, shared_embedding, domain_sp, general_sp, cfg,
+                args.device, fusion_mode=mode,
+            )
+
+        # 汇总对比
+        print("\n" + "=" * 70, flush=True)
+        print("[A/B 对比汇总]", flush=True)
+        print("=" * 70, flush=True)
+        for mode in modes:
+            r = results[mode]
+            min_ind = min(r["individual"].values())
+            print(f"  {mode:10s}: 协作 PPL={r['collab']:.1f}  "
+                  f"最强个体 PPL={min_ind:.1f}  "
+                  f"涌现={'✅' if r['collab'] < min_ind else '❌'}", flush=True)
+    else:
+        # 单模式评估
+        individual_ppls, collab_ppl = eval_ppl(
+            neurons, shared_embedding, domain_sp, general_sp,
+            args.device, args.n_eval, fusion_mode=args.fusion_mode,
+        )
+        eval_generation(
+            neurons, shared_embedding, domain_sp, general_sp, cfg,
+            args.device, fusion_mode=args.fusion_mode,
+        )
 
     print("\n" + "=" * 70, flush=True)
     print("评估完成", flush=True)
