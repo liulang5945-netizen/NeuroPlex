@@ -710,7 +710,7 @@ class Cortex:
         repetition_penalty: float = 1.2,
         n_candidates: int = 1,
         routing_level: int = 1,
-        active_nids: Optional[List[str]] = None,
+        active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
@@ -1019,6 +1019,67 @@ class Cortex:
 
         return selected if selected else list(self.neurons.keys())
 
+    def _auto_topk_route(
+        self,
+        general_ids: List[int],
+        top_k: int = 3,
+    ) -> List[str]:
+        """自动选共振分 top-K 神经元（稀疏激活 auto_topK）。
+
+        复用 _fingerprint_route 的 domain_prototype cosine 相似度计算，
+        但不强制包含 general，支持灵活 top_k。
+
+        三模式：
+          auto_top1 → k=1（实时模式：单族长主导）
+          auto_top3 → k=3（平衡模式：族长协作）
+          auto_all  → 全激活（高质量模式）
+
+        Args:
+            general_ids: prompt 的 general tokenizer id 列表。
+            top_k: 选择的 neuron 数量。
+
+        Returns:
+            active neuron id 列表。
+        """
+        if top_k <= 0 or top_k >= len(self.neurons):
+            return list(self.neurons.keys())
+
+        if not self.neurons or self._shared_embedding is None:
+            return list(self.neurons.keys())
+
+        try:
+            ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+            prompt_emb = self._shared_embedding(ids_tensor)  # [1, L, 512]
+            prompt_pooled = prompt_emb.mean(dim=1)  # [1, 512]
+        except Exception:
+            return list(self.neurons.keys())
+
+        # 每个 neuron 用自己的 embed_adapter 投影 prompt，再与 prototype 比较
+        sims = {}
+        for nid, neuron in self.neurons.items():
+            try:
+                if hasattr(neuron, 'embed_adapter') and neuron.embed_adapter is not None:
+                    projected = neuron.embed_adapter(prompt_pooled)
+                    proj_vec = projected.squeeze(0)
+                    proj_norm = proj_vec / (proj_vec.norm() + 1e-8)
+                    proto = neuron.domain_prototype
+                    proto_norm = proto / (proto.norm() + 1e-8)
+                    sim = float((proj_norm * proto_norm).sum().item())
+                else:
+                    continue
+                sims[nid] = sim
+            except Exception:
+                continue
+
+        if not sims:
+            return list(self.neurons.keys())
+
+        # 按相似度排序，选 top-k（不强制包含 general）
+        sorted_nids = sorted(sims, key=sims.get, reverse=True)
+        selected = sorted_nids[:top_k]
+
+        return selected if selected else list(self.neurons.keys())
+
     def _generate_p7(
         self,
         prompt: str,
@@ -1028,7 +1089,7 @@ class Cortex:
         domain: Optional[str] = None,
         repetition_penalty: float = 1.2,
         routing_level: int = 1,
-        active_nids: Optional[List[str]] = None,
+        active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
@@ -1118,9 +1179,20 @@ class Cortex:
         # 中文短句字符数少，n=3 会误杀正常重复用字；n=4 给中文更多重复容忍度
         no_repeat_ngram_size = 4 if domain == "zh" else 3
 
-        # 硬件受限路由：根据 routing_level 选择激活策略
-        # active_nids 显式指定时优先使用（实验：多同域神经元协作）
-        if active_nids is None:
+        # 稀疏激活：支持字符串模式自动选择（auto_topK / auto_all / auto_top1）
+        if isinstance(active_nids, str):
+            if active_nids.startswith("auto_top"):
+                k_str = active_nids[len("auto_top"):]
+                k = int(k_str) if k_str else 3
+                active_nids = self._auto_topk_route(general_ids, top_k=k)
+            elif active_nids in ("auto_all", "all"):
+                active_nids = list(self.neurons.keys())
+            elif active_nids in self.neurons:
+                active_nids = [active_nids]
+            else:
+                active_nids = list(self.neurons.keys())
+        elif active_nids is None:
+            # 硬件受限路由：根据 routing_level 选择激活策略
             if routing_level >= 2:
                 # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
                 active_nids = self._fingerprint_route(general_ids, top_k=2)
