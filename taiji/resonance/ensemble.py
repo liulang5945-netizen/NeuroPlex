@@ -256,6 +256,7 @@ class ResonanceEnsemble:
         active_nids: Optional[List[str]] = None,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         mm_logits_modality: Optional[str] = None,
+        fusion_mode: str = "per_position",
     ) -> Dict:
         """Run the full resonance loop.
 
@@ -272,13 +273,17 @@ class ResonanceEnsemble:
             active_filter: if True, filter out low-resonance neurons each round
             active_nids: 如果提供，只 forward 这些 neuron（Phase 5.1 丘脑路由用）
                         None 表示全部参与（默认行为，向后兼容）
+                        支持字符串模式：'auto_topK'/'auto_all'/'auto_top1'（稀疏激活）
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
             mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
+            fusion_mode: 推理融合模式（方向③ 残差预测编码）
+                        - "per_position"（默认）：每位置按熵/置信度独立路由（向后兼容）
+                        - "residual"：族长完整预测 + 其他神经元残差修正
 
         Returns:
             dict with:
             - field_state: final field state vector
-            - weighted_logits: resonance-weighted average logits (if return_logits)
+            - weighted_logits: 融合后 logits (if return_logits)
             - final_scores: per-neuron resonance scores (final round)
             - n_rounds: actual number of rounds completed
             - skipped_resonance: True if gating skipped the resonance loop
@@ -575,7 +580,13 @@ class ResonanceEnsemble:
 
             # P7: 不同 neuron vocab 大小不同时跳过加权合并
             vocab_sizes = [logits.shape[-1] for logits in all_logits.values()]
-            if len(set(vocab_sizes)) == 1:
+            same_vocab = len(set(vocab_sizes)) == 1
+
+            if fusion_mode == "residual" and same_vocab and len(all_logits) >= 2:
+                # 方向③：残差预测编码（推理路径）
+                # 族长(共振分最高)完整预测 + 其他神经元残差修正
+                self._residual_logit_fusion(all_logits, scores, result, ref)
+            elif same_vocab:
                 self._compute_per_position_weights(
                     all_logits, vectors, scores, result, ref,
                 )
@@ -891,6 +902,68 @@ class ResonanceEnsemble:
             nid: float(position_weights[i].mean().item())
             for i, nid in enumerate(neuron_ids)
         }
+
+    def _residual_logit_fusion(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        scores: Dict[str, float],
+        result: dict,
+        ref: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> None:
+        """方向③：残差预测编码（推理路径）。
+
+        族长(共振分最高)给出完整预测 logits，
+        其他神经元预测族长的残差（纠正族长预测错误的部分），
+        最终 fused = leader_logits + Σ(w_i × other_logits_i)。
+
+        与训练路径 forward_train(fusion_mode='residual') 对称：
+        - 训练时族长获完整梯度（快速成强）
+        - 推理时族长给完整预测（能力最强），其他做残差修正
+
+        与 _compute_per_position_weights 的区别：
+        - per_position: 每位置独立选最自信神经元（熵路由）
+        - residual: 族长全局主导 + 其他全局修正（层级预测）
+        residual 更符合"族长带领"的人脑启发结构，且与训练路径一致。
+
+        Args:
+            all_logits: {nid: [B, L, V]} 所有激活神经元的 logits（同 vocab）
+            scores: {nid: float} 最终共振分
+            result: forward() 的 result dict，写入 weighted_logits 和 final_weights
+            ref: 参考 tensor（device 信息）
+            temperature: softmax 温度（低=更尖锐选择）
+        """
+        neuron_ids = list(all_logits.keys())
+        n_neurons = len(neuron_ids)
+        if n_neurons < 2:
+            # 单神经元退化：直接用它的 logits
+            result["weighted_logits"] = all_logits[neuron_ids[0]]
+            result["final_weights"] = {neuron_ids[0]: 1.0}
+            return
+
+        # 1. 选族长（共振分最高）
+        leader_nid = max(neuron_ids, key=lambda n: scores.get(n, 0.0))
+        leader_logits = all_logits[leader_nid]  # [B, L, V]
+
+        # 2. 其他神经元权重（softmax，族长不参与权重分配）
+        other_nids = [n for n in neuron_ids if n != leader_nid]
+        other_scores = torch.tensor(
+            [float(scores.get(n, 0.0)) for n in other_nids],
+            device=ref.device,
+        )
+        weights = F.softmax(other_scores / temperature, dim=0)  # [N-1]
+
+        # 3. 残差聚合：fused = 族长完整预测 + Σ(w_i × 其他神经元修正)
+        fused_logits = leader_logits.clone()
+        for i, nid in enumerate(other_nids):
+            fused_logits = fused_logits + weights[i] * all_logits[nid]
+
+        result["weighted_logits"] = fused_logits
+        # final_weights: 族长标记为 1.0（完整预测），其他按 softmax 权重
+        result["final_weights"] = {leader_nid: 1.0}
+        for i, nid in enumerate(other_nids):
+            result["final_weights"][nid] = float(weights[i].item())
+        result["leader_nid"] = leader_nid
 
     def evaluate_ppl(
         self,

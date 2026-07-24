@@ -682,6 +682,7 @@ class Cortex:
         self,
         shared_embeddings: torch.Tensor,
         active_nids: Optional[List[str]] = None,
+        fusion_mode: str = "per_position",
     ) -> Dict:
         """Run one round of resonance thinking.
 
@@ -692,6 +693,9 @@ class Cortex:
             shared_embeddings: [B, L, base_embed_dim] from shared_embedding(general_ids).
             active_nids: 如果指定，只激活这些 neuron（硬件受限路由）。
                         None 表示全部参与（默认行为，向后兼容）。
+            fusion_mode: 推理融合模式
+                        - "per_position"（默认）：每位置按熵/置信度独立路由
+                        - "residual"：族长完整预测 + 其他神经元残差修正（方向③）
 
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
@@ -701,6 +705,7 @@ class Cortex:
             shared_embeddings=shared_embeddings,
             return_logits=True,
             active_nids=active_nids,
+            fusion_mode=fusion_mode,
         )
         return result
 
@@ -717,6 +722,7 @@ class Cortex:
         routing_level: int = 1,
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
+        fusion_mode: str = "per_position",
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -734,6 +740,10 @@ class Cortex:
                            1=域路由（domain+general, 默认），
                            2=指纹 top-k 路由（fingerprint cosine 选最相关 neuron）。
             active_nids: 显式指定激活的神经元列表（实验用，覆盖路由逻辑）。
+                         支持字符串模式：'auto_topK'/'auto_all'/'auto_top1'（稀疏激活，方向④）。
+            fusion_mode: 推理融合模式（方向③ 残差预测编码）
+                         - "per_position"（默认）：每位置按熵/置信度独立路由
+                         - "residual"：族长完整预测 + 其他神经元残差修正
 
         Returns:
             generated text string.
@@ -1216,7 +1226,7 @@ class Cortex:
             ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
             shared_emb = self._shared_embedding(ids_tensor)
 
-            result = self.think(shared_emb, active_nids=active_nids)
+            result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode)
 
             # Get logits: 协作模式选择
             neuron_logits = result.get("neuron_logits", {})
