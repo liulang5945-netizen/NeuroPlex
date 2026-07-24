@@ -89,9 +89,12 @@
       zh_texts.jsonl 有 1.2GB = 740万条文本 = 262M tokens
       但 max_texts=200000 只加载了 91808 条 = 4.4M tokens（1.2%！）
       每人数据/参数比 = 0.12（差 Chinchilla 最优 167 倍）
-    阶段一重训 🔄 进行中：max_texts=10M，每人 ~147M tokens（数据/参数比 4.1）
-      先验证 zh_j0 从头训练 8000 步，确认 best_loss < 0.918
-      有效则全量训练 10 个神经元
+    阶段一重训 🔄 全量训练中：max_texts=10M，每人 ~160M tokens（数据/参数比 4.45）
+      zh_j0 验证 ✅ 完成：best_loss 0.846（比之前 0.918 好 7.8%）
+      评估结果：PPL 3.59（比之前 6.6-8.0 好 50%+），argmax 72.8%（持平 73.4%）
+      → PPL 大幅改善但 argmax 持平：数据量改善概率分布质量，argmax 瓶颈可能是模型容量
+      → 关键推断：个体 PPL 3.59 的协作 PPL 可能 < 2.0 → argmax 85%+
+      全量训练 9 个神经元（跳过 zh_j0）× 8000 步 × freeze_after_first
 
   → 四大架构升级已全部实现（2026-07-24）：
     ① 突触投影（Field Projector）✅ → unified_field_dim 可学习投影层，当前训练不浪费
