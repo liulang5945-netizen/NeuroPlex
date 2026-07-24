@@ -65,11 +65,16 @@ class Cortex:
 
         # ── Create field and ensemble ──
         if self.neurons:
-            dims = {n.config.field_dim for n in self.neurons.values()}
-            if len(dims) > 1:
+            # 突触投影：检查 effective_field_dim（unified_field_dim or field_dim）
+            # 不同规格神经元可通过 field_projector 投影到统一场空间
+            effective_dims = {
+                n.config.unified_field_dim if n.config.unified_field_dim is not None else n.config.field_dim
+                for n in self.neurons.values()
+            }
+            if len(effective_dims) > 1:
                 raise ValueError(
-                    f"[Cortex] neurons disagree on field_dim: {dims}. "
-                    f"Re-distill legacy checkpoints under H9 (field_dim=4096) before loading."
+                    f"[Cortex] neurons disagree on effective_field_dim: {effective_dims}. "
+                    f"Set unified_field_dim to a common value (e.g. 4096) to enable cross-spec mixing via Field Projector."
                 )
             hidden_sizes = {n.config.hidden_size for n in self.neurons.values()}
             if len(hidden_sizes) > 1:
@@ -77,7 +82,7 @@ class Cortex:
                     f"[Cortex] neurons disagree on hidden_size: {hidden_sizes}. "
                     f"All neurons must share the same hidden_size."
                 )
-            field_dim = dims.pop()
+            field_dim = effective_dims.pop()
         else:
             field_dim = 4096
         self.field = ResonanceField(dim=field_dim)

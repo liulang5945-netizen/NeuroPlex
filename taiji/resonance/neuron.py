@@ -88,6 +88,15 @@ class ResonanceNeuron(nn.Module):
         # ── Field write projection ──
         self.field_write = nn.Linear(c.hidden_size, c.field_dim, bias=False)
 
+        # 突触投影（Field Projector）：不同规格 field_dim → 统一场空间
+        # 模拟人脑突触可塑性（LTP/LTD）：不同类型神经元通过突触连接到统一网络
+        # None 或 == field_dim 时为 Identity（向后兼容，不影响现有训练）
+        effective_field_dim = c.unified_field_dim if c.unified_field_dim is not None else c.field_dim
+        if c.unified_field_dim is not None and c.unified_field_dim != c.field_dim:
+            self.field_projector = nn.Linear(c.field_dim, c.unified_field_dim, bias=False)
+        else:
+            self.field_projector = nn.Identity()
+
         # Attention pooling for field write (v2)
         # Learn a query that pools over all positions instead of only using the last token.
         # This surfaces the most salient conceptual content for field communication.
@@ -96,7 +105,7 @@ class ResonanceNeuron(nn.Module):
 
         # ── Field read projections (one per layer, for conditioning) ──
         self.field_read_layers = nn.ModuleList([
-            nn.Linear(c.field_dim, c.hidden_size, bias=False)
+            nn.Linear(effective_field_dim, c.hidden_size, bias=False)
             for _ in range(c.num_hidden_layers)
         ])
 
@@ -363,7 +372,8 @@ class ResonanceNeuron(nn.Module):
         if self.v1_compat:
             # v1: last-token write (matches old checkpoint training distribution)
             hidden_last = h[:, -1, :]  # [B, hidden]
-            v_raw = self.field_write(hidden_last)  # [B, D]
+            v_raw = self.field_write(hidden_last)  # [B, field_dim]
+            v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
@@ -374,7 +384,8 @@ class ResonanceNeuron(nn.Module):
             attn_scores = torch.matmul(h, self.field_pool_query) * self.field_pool_scale  # [B, L]
             attn_weights = torch.softmax(attn_scores, dim=-1)  # [B, L]
             pooled = (attn_weights.unsqueeze(-1) * h).sum(dim=1)  # [B, hidden]
-            v_raw = self.field_write(pooled)  # [B, D]
+            v_raw = self.field_write(pooled)  # [B, field_dim]
+            v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
@@ -415,4 +426,5 @@ class ResonanceNeuron(nn.Module):
         # Use mean pooling over sequence as a rough representation
         h_pooled = h.mean(dim=1)  # [B, hidden]
         v_raw = self.field_write(h_pooled)
+        v_raw = self.field_projector(v_raw)  # 突触投影
         return v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)

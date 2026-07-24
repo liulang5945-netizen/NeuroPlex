@@ -35,6 +35,11 @@ class NeuronConfig:
 
     # ── Field interface ──
     field_dim: int = 4096
+    # 突触投影（Field Projector）：不同规格 field_dim 通过可学习投影层映射到统一场空间
+    # 模拟人脑突触可塑性（LTP/LTD）：不同类型神经元通过突触连接到统一网络
+    # None = 不投影（向后兼容，field_dim 即场维度）
+    # 设为统一值（如4096）时，field_projector: Linear(field_dim → unified_field_dim)
+    unified_field_dim: Optional[int] = None
 
     # ── Domain extension (0 = disabled) ──
     num_domain_concepts: int = 0
