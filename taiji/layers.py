@@ -177,12 +177,16 @@ class TransformerBlock(nn.Module):
     """Pre-Norm Transformer 块"""
 
     def __init__(self, hidden_size: int, num_heads: int, num_kv_heads: int,
-                 intermediate_size: int, rms_norm_eps: float = 1e-5, bias: bool = False):
+                 intermediate_size: int, rms_norm_eps: float = 1e-5, bias: bool = False,
+                 dropout: float = 0.0):
         super().__init__()
-        self.attention = GroupedQueryAttention(hidden_size, num_heads, num_kv_heads, bias=bias)
+        self.attention = GroupedQueryAttention(hidden_size, num_heads, num_kv_heads,
+                                               dropout=dropout, bias=bias)
         self.attention_norm = RMSNorm(hidden_size, rms_norm_eps)
         self.feed_forward = SwiGLU(hidden_size, intermediate_size)
         self.ffn_norm = RMSNorm(hidden_size, rms_norm_eps)
+        # 残差 dropout：防止过拟合（社区规范 SmolLM/GPT-2 用 0.1）
+        self.resid_dropout = nn.Dropout(dropout)
 
     def forward(
         self, x: torch.Tensor,
@@ -192,7 +196,7 @@ class TransformerBlock(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         # Attention + Residual (Pre-Norm)
         h, new_kv_cache = self.attention(self.attention_norm(x), mask, kv_cache, use_cache)
-        x = x + h
+        x = x + self.resid_dropout(h)
         # FFN + Residual (Pre-Norm)
-        x = x + self.feed_forward(self.ffn_norm(x))
+        x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x)))
         return x, new_kv_cache
