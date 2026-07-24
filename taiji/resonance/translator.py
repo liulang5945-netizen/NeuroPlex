@@ -526,6 +526,7 @@ def batch_align_and_embed(
     general_sp,
     shared_embedding: torch.nn.Embedding,
     pad_token_id: int = 0,
+    max_seq_len: int = 128,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batch-align domain texts to general tokens and produce padded embeddings + targets.
 
@@ -551,10 +552,14 @@ def batch_align_and_embed(
 
     for text in texts:
         g_ids, d_targets = build_position_alignment(text, domain_sp, general_sp)
+        # 截断到最大序列长度（防止长文本拖慢训练）
+        if max_seq_len > 0 and len(g_ids) > max_seq_len:
+            g_ids = g_ids[:max_seq_len]
+            d_targets = d_targets[:max_seq_len]
         all_general_ids.append(g_ids)
         all_targets.append(d_targets)
 
-    # Pad to max length
+    # Pad to max length (capped by max_seq_len)
     max_len = max(len(ids) for ids in all_general_ids)
     B = len(texts)
 
