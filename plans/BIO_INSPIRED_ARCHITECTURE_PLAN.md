@@ -111,15 +111,22 @@
     ③ 残差预测编码 ✅ → forward_train fusion_mode='residual' 默认启用（族长+残差修正）
     ④ 稀疏激活优化 ✅ → auto_topK 自动选择，推理三模式就绪
 
-  → standard 族长训练 🔄 进行中（2026-07-25）：
-    决策：10×compact argmax 天花板 73% 确认为容量瓶颈 → 训练 standard 族长突破
-    核心：1×standard(131M) 族长 + 9×compact(36M) 跟随者 = "大带小"族长模式
+  → standard 族长训练 ✅ 完成 + 评估 ✅ 完成（2026-07-25）：
+    训练：1×standard(131M) 族长, 8000 步, batch=4, lr=1e-4, best_loss=0.7041@step7828, PPL=3.05, 80.9min
     数据修复（用户洞察）：全量 4.3M 文本不分割 + 顺序 epoch 采样（vs 随机采样 2% 利用率）
     突触投影：standard(field_dim=3072) + compact(field_dim=2048) → unified_field_dim=4096
-    训练参数：8000 步, batch=4, lr=1e-4, dropout=0.1, weight_decay=0.1, warmup=300
-    预计时间：~4.8h（每步 ~2.2s）
-    目标：族长 argmax ≥85%（突破 compact 73% 天花板）→ 验证生成连贯
-    下一步：训练完成 → eval_single.py 评估族长 argmax → 组装 1+9 混合规格协作
+
+    ⚠️ 评估结果（推翻"容量瓶颈"假说）：
+      族长个体 argmax=73.8%, PPL=3.05（对比 compact 平均 72.9%/3.39，仅 +0.9%）
+      1+9 协作 argmax=73.6%, PPL=4.39（协作 < 族长个体，融合有噪声）
+      生成仍乱码："中国的首都"→"中国的首都的首都的一{队四四建建..."
+    → ❌ 容量不是瓶颈！standard(131M) 容量 3.6x compact，argmax 几乎不变
+    → ❌ "大带小"族长模式无效！9 个 73% compact 跟随者无法帮助 73.8% 族长
+    → 🔍 真正根因待查（三个假说全部推翻后）：
+      假说1(容量瓶颈) ❌ 推翻：standard 131M 也卡 73%
+      假说2(训练不足) ⚠️ 存疑：standard 数据/参数比=1.22(远低于Chinchilla 20:1)
+      假说3(argmax指标天花板) ❓ 未验证：teacher-forcing argmax 可能天然有~75%天花板
+    → 下一步：深入分析 argmax 73% 天花板的错误分布（top-k准确率+错误token类型）
 ```
 
 ### 0.2 架构演进依赖关系
@@ -142,7 +149,7 @@
 闭环（睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活）
 ```
 
-**standard 族长训练进行中（131M，突破 compact 73% argmax 天花板），"大带小"族长模式落地。**
+**⚠️ argmax 73% 天花板 ≠ 容量瓶颈（standard 131M 也卡 73%）。需深入分析根因：训练不足？指标天花板？架构问题？**
 
 ### 0.3 组件状态一览
 
@@ -153,7 +160,8 @@
 | | active_nids 参数 | ✅ 已确认设计 | 推理三模式：高质量(全激活)/平衡(top-3族长)/实时(单族长)；训练时全员参与(forward_train) |
 | **神经元** | zh_j0~j4 (5×compact联合训练) | ✅ 涌现确认 | 协作PPL=24.4 < 最强个体47.2(-48.3%)；3个个体PPL>1000但集体超越最强 |
 | | zh_j0~j9 (10×compact 第一轮491M) | ✅ 完成 | PPL=11(软加权)/argmax=68%；数据不足(3M/491M=0.006)导致未达85%阈值 |
-| | zh_j0~j9 (10×compact 两阶段训练) | ⚠️ 已到顶 | 阶段一✅完成(个体PPL3.18~3.61/argmax72~73.5%)；协作argmax73.9%(无增益)；argmax天花板=容量瓶颈，10×compact路线已尽 |
+| | zh_j0~j9 (10×compact 两阶段训练) | ⚠️ 已到顶 | 阶段一✅完成(个体PPL3.18~3.61/argmax72~73.5%)；协作argmax73.9%(无增益)；argmax天花板非容量瓶颈 |
+| | zh_leader0 (1×standard 族长) | ❌ 未突破 | 131M族长argmax=73.8%/PPL=3.05(仅比compact+0.9%)；1+9协作argmax=73.6%(协作有害)；容量瓶颈假说推翻 |
 | | zh_j0~j7 (8×standard≈1B) | ❌ 已淘汰 | PPL=92.3比5×compact差4倍；avg_ce=nan数值不稳定；容量非瓶颈已确认 |
 | | zh单干/zh_1-3/code/en/general/math | 🗑️ 已删除 | 2026-07-24清理9个废弃文件释放1.2GB |
 | **🔍 审计** | 摸底诊断（2026-07-24） | ✅ 完成 | 0个连贯神经元 → 联合训练突破 |
