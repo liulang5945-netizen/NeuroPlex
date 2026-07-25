@@ -206,27 +206,53 @@
       ✅ field 组件不是无用的额外参数（+0.22M 参数换来 -13.9% PPL）
       ✅ "write → read → condition" 机制相当于额外信息处理回路
       ✅ 态极架构核心组件设计正确
-    → 下一步：实验 C 多神经元协作验证（3×4M 协作 vs 1×12M baseline）
-      验证态极核心假设：多神经元协作能否涌现出超过单大神经元的智能？
+
+  → ❌ 实验 C 多神经元协作验证完成（2026-07-25，job-b3e8a589）：
+    3×4M 小神经元协作（9.84M 参数, 2轮前向+logits平均, 63.8min CPU）
+    Best val PPL=16.7（比 baseline 16.6 还差！协作无效）
+    消融对比总结：
+      baseline (1×12M):         PPL=16.6
+      field-augmented (1×12M):  PPL=14.3 ✅ field组件有用
+      collab (3×~4M):           PPL=16.7 ❌ 协作无效
+    → 🎯 协作无效原因分析：
+      ① 参数量不足：3×4M(9.84M) < 1×12M(12.0M)，每个神经元太小无法 specialization
+      ② logits 平均是坏的融合方式（历史教训：10×compact协作 PPL=4.45 > 个体 3.39）
+         应该用残差预测编码（族长完整预测 + 其他神经元残差修正）
+      ③ 简单 logits 平均 != 联合训练（forward_train 梯度流经所有神经元才涌现）
+      ④ 共享 embedding 限制神经元多样性
+    → 🎯 关键区分：
+      ❌ "独立 forward + logits 平均" → 无效（实验 C 证明）
+      ✅ "联合训练 forward_train" → 有效（5×compact PPL=24.4 < 个体 47.2 历史确认）
+      → 下一步若验证协作，必须用联合训练 + 残差融合，不能用 logits 平均
+
+  → ✅ 简单中文数据准备完成（2026-07-25，job-fda3d082）：
+    下载 TinyStoriesAdv-zh（小学/幼儿园知识水平中文数据）
+    总条目：787,399 条，总字符：4.79亿字，估算 ~287M tokens
+    文件：data/simple_zh/simple_zh_texts.jsonl（1330 MB）
+    数据/参数比：compact(36M) = 8.0:1（比维基 0.18:1 好 44 倍）
+    内容：小学语文、百科、数学、童话、对话（简单语言匹配 36M 能力）
+    → 解决之前维基数据太复杂导致乱码的问题
+    → 下一步：用简单中文数据 + 正规配置训练 compact 神经元
 ```
 
 ### 0.2 架构演进依赖关系
 
 ```
-TinyStories 验证实验（🔄 进行中，2026-07-25）→ 验证基础 pipeline 是否正确
+TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipeline 是否正确
   实验 A：纯 transformer baseline + TinyStories ✅ 完成（PPL=16.6，生成连贯故事）
     → 确认训练 pipeline 无 bug；乱码根因 = 数据复杂度不匹配
   实验 B：field-augmented + TinyStories ✅ 完成（PPL=14.3，比 baseline -13.9%）
     → 确认 field 组件有用；态极架构核心组件设计正确
-  实验 C：多神经元协作 + TinyStories 🔄 下一步 → 验证态极核心假设
-    设计：3×4M 协作（总~12M）vs 1×12M baseline（同参数量、同数据、同超参）
-    预期：
-      若 3×4M 协作 PPL < 1×12M baseline(14.3) → 协作涌现确认，态极方向正确
-      若 3×4M 协作 PPL ≥ 1×12M baseline → 协作无效，需重新评估架构
-  评估：PPL + 生成质量（不用 argmax）
-  目标：在 CPU 上几小时内验证基础能力
+  实验 C：多神经元协作 + TinyStories ❌ 完成（PPL=16.7，协作无效）
+    → 确认"独立 forward + logits 平均"是坏的协作方式
+    → 联合训练 forward_train 才能涌现（历史已确认）
+  简单中文数据 ✅ 准备完成（TinyStoriesAdv-zh, 287M tokens, 小学水平）
      ↓
-（若 pipeline 正确）回归正确训练规模 → Chinchilla 合规 + batch_size ≥ 32 + 简化数据
+下一步：用简单中文数据 + 正规配置训练 compact 神经元
+  目标：验证 36M compact + 简单中文能否生成连贯中文
+  正规配置：batch≥32(梯度累积), embedding不衰减, 全量数据, WSD调度
+     ↓
+（若生成连贯）联合训练验证多神经元协作（forward_train + 残差融合）
      ↓
 四大架构升级（✅ 全部完成 2026-07-24）：
   ① 突触投影 ✅ → 消除规格混合限制（compact/standard/expert 无缝共存）
