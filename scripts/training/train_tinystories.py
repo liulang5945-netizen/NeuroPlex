@@ -28,21 +28,21 @@ from taiji.layers import TransformerBlock, RMSNorm
 # ── 配置 ──
 class Config:
     vocab_size = 50257       # GPT-2 BPE
-    hidden_size = 256        # ~10M 参数
-    num_layers = 6
+    hidden_size = 192        # CPU 友好 (~10M 参数)
+    num_layers = 4
     num_heads = 4
     num_kv_heads = 4         # MHA (不用 GQA，简化)
-    intermediate_size = 1024 # SwiGLU
-    block_size = 256         # 序列长度
+    intermediate_size = 768  # SwiGLU
+    block_size = 128         # 序列长度 (CPU 友好)
     rms_norm_eps = 1e-5
     dropout = 0.1
     # 训练
-    batch_size = 32          # 符合 Playbook (≥32)
+    batch_size = 12          # nanoGPT CPU 配置
     lr = 1e-3                # 小模型用高 lr (Playbook)
-    max_iters = 5000
-    warmup_iters = 200
+    max_iters = 3000
+    warmup_iters = 100
     eval_interval = 500
-    eval_iters = 50
+    eval_iters = 30
     save_path = "data/tinystories/baseline_model.pt"
 
 

@@ -157,14 +157,56 @@
       如果 36M + TinyStories 仍乱码 → 架构/pipeline 有 bug
       如果 36M + TinyStories 连贯 → 问题是维基数据太复杂
       同时训练纯 transformer baseline 做消融对比（验证 field 组件是否有用）
+
+  → 📚 Playbook v2.0 更新（2026-07-25）：整合 2025-2026 最新开源成果
+    来源（用户反馈"社区内容陈旧，deepseek等开源给了训练过程数据"）：
+      ① DeepSeek-R1 Nature 论文（2025-09-17，首个同行评审主流大模型）
+         - 训练成本仅 29.4万美元（512×H800，R1 80h，R1-Zero 198h）
+         - GRPO 算法 + 可验证奖励（数学/代码），不需要 critic 网络
+         - 4 阶段训练：冷启动SFT → 推理RL → 拒绝采样SFT → 全场景RL
+         - "Aha Moment"：模型自发学会用"wait"反思，AIME pass@1 15.6%→71.0%
+         - 数据去污染：仅数学领域预训练就删除 600万条潜在污染样本
+      ② SmolLM3 (2025-07) + SmolLM2 (COLM 2025)
+         - SmolLM3: 3B/11.2T tokens/128k上下文，100%开源
+         - 架构改进：GQA + NoPE(每4层移除RoPE) + 文档内注意力屏蔽 + 嵌入层不衰减
+         - 训练 bug 教训：11T训练到1T时发现张量并行相同种子bug，全量重启
+      ③ OLMo 3 (2025)：7B/32B 全流程开源
+         - 三阶段基础训练：预训练(6T) → 中期训练退火(100B) → 长上下文扩展(50-100B)
+         - 微退火(Microannealing)：小规模快速验证数据源有效性
+         - Delta Learning：用强弱模型生成偏好对，提供更强学习信号
+         - 质量感知上采样：高倍率训练高质量数据（不是简单过滤低质量）
+      ④ OpenThoughts3 (2025-06)：纯 SFT（无RL）达 SOTA
+         - 1.2M 推理数据（85万数学+25万代码+10万科学），用 QwQ-32B 标注
+         - 关键发现：模型性能好 ≠ 当老师好（QwQ-32B 比 DeepSeek-R1 是更好的老师）
+      ⑤ gpt-oss (OpenAI 2025-08)：Apache 2.0 开源，混合 RL + o3 技术
+      ⑥ PreSelect (香港科大 2025)：用模型预测能力筛选数据，10倍效率提升
+
+  → ✅ TinyStories baseline 验证完成（2026-07-25，job-13611ae7）：
+    纯 Transformer baseline（12M 参数, batch=12, 3000步, 20.9min CPU）
+    Best val PPL=16.6（step 3000，仍在下降）
+    生成样本（完全连贯的英文故事）：
+      "Once upon a time, there was a little girl named Lily. She loved to play
+       in the garden with her family. One day, Lily's boy came outside to play.
+       She had a big bag of leaves on the ground..."
+      多段落结构、角色、情节、语法几乎完美
+    → 🎯 核心假设验证：
+      ✅ 训练 pipeline 无 bug（纯 Transformer + 简单数据 = 连贯文本）
+      ✅ 之前维基百科乱码根因 100% 确认 = 数据复杂度不匹配（36M 参数太小）
+      ✅ TinyStories 是验证 pipeline 的正确基准
+    → 下一步：ResonanceNeuron + TinyStories 消融对比（验证 field 组件是否有用）
 ```
 
 ### 0.2 架构演进依赖关系
 
 ```
 TinyStories 验证实验（🔄 进行中，2026-07-25）→ 验证基础 pipeline 是否正确
-  实验 A：纯 transformer baseline + TinyStories → 确认训练 pipeline 无 bug
-  实验 B：ResonanceNeuron + TinyStories → 验证 field 组件是否有用（消融对比）
+  实验 A：纯 transformer baseline + TinyStories ✅ 完成（PPL=16.6，生成连贯故事）
+    → 确认训练 pipeline 无 bug；乱码根因 = 数据复杂度不匹配
+  实验 B：ResonanceNeuron + TinyStories 🔄 下一步 → 验证 field 组件是否有用（消融对比）
+    控制变量：同数据 + 同规模 + 同步数 + 同超参
+    预期：
+      若 ResonanceNeuron PPL ≤ baseline → field 组件有用，架构方向正确
+      若 ResonanceNeuron PPL > baseline → field 组件有害，需重构或移除
   评估：PPL + 生成质量（不用 argmax）
   目标：在 CPU 上几小时内验证基础能力
      ↓

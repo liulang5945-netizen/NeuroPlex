@@ -64,11 +64,13 @@ def train_cortex_joint(
     use_gamma: bool = False,
     fusion_mode: str = "residual",
     weight_decay: float = 0.1,
+    
     warmup_steps: int = 200,
     dropout: float = 0.1,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
+    
     所有神经元看所有数据，通过共振场聚合，专精化自然涌现。
 
     fusion_mode（方向③ 残差预测编码）：
