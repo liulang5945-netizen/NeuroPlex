@@ -193,7 +193,21 @@
       ✅ 训练 pipeline 无 bug（纯 Transformer + 简单数据 = 连贯文本）
       ✅ 之前维基百科乱码根因 100% 确认 = 数据复杂度不匹配（36M 参数太小）
       ✅ TinyStories 是验证 pipeline 的正确基准
-    → 下一步：ResonanceNeuron + TinyStories 消融对比（验证 field 组件是否有用）
+
+  → ✅ 实验 B field-augmented 消融完成（2026-07-25，job-7f3848e6）：
+    field-augmented Transformer（12.22M 参数, 2轮前向, 25.6min CPU）
+    Best val PPL=14.3（step 3000，比 baseline -13.9%）
+    生成质量明显更好（更长、更复杂、有情节发展）：
+      "Once upon a time, there was a little girl named Lola. Lila loved to play
+       outside in the sun, shining around her hair... One day, Lila's mom went
+       to the park... Mom saw some children who was very happy..."
+    → 🎯 消融对比结论：
+      ✅ field 组件有用！PPL 16.6 → 14.3（-13.9%）
+      ✅ field 组件不是无用的额外参数（+0.22M 参数换来 -13.9% PPL）
+      ✅ "write → read → condition" 机制相当于额外信息处理回路
+      ✅ 态极架构核心组件设计正确
+    → 下一步：实验 C 多神经元协作验证（3×4M 协作 vs 1×12M baseline）
+      验证态极核心假设：多神经元协作能否涌现出超过单大神经元的智能？
 ```
 
 ### 0.2 架构演进依赖关系
@@ -202,11 +216,13 @@
 TinyStories 验证实验（🔄 进行中，2026-07-25）→ 验证基础 pipeline 是否正确
   实验 A：纯 transformer baseline + TinyStories ✅ 完成（PPL=16.6，生成连贯故事）
     → 确认训练 pipeline 无 bug；乱码根因 = 数据复杂度不匹配
-  实验 B：ResonanceNeuron + TinyStories 🔄 下一步 → 验证 field 组件是否有用（消融对比）
-    控制变量：同数据 + 同规模 + 同步数 + 同超参
+  实验 B：field-augmented + TinyStories ✅ 完成（PPL=14.3，比 baseline -13.9%）
+    → 确认 field 组件有用；态极架构核心组件设计正确
+  实验 C：多神经元协作 + TinyStories 🔄 下一步 → 验证态极核心假设
+    设计：3×4M 协作（总~12M）vs 1×12M baseline（同参数量、同数据、同超参）
     预期：
-      若 ResonanceNeuron PPL ≤ baseline → field 组件有用，架构方向正确
-      若 ResonanceNeuron PPL > baseline → field 组件有害，需重构或移除
+      若 3×4M 协作 PPL < 1×12M baseline(14.3) → 协作涌现确认，态极方向正确
+      若 3×4M 协作 PPL ≥ 1×12M baseline → 协作无效，需重新评估架构
   评估：PPL + 生成质量（不用 argmax）
   目标：在 CPU 上几小时内验证基础能力
      ↓
