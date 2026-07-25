@@ -3,7 +3,10 @@
 核心改进（对比 train_individual_neurons.py）：
 1. 顺序 epoch 采样：shuffle → 顺序遍历 → 重洗，100% 利用率（vs 随机采样 0.8%）
 2. 全量数据：4.3M 文本不分割，最大化数据多样性
-3. 长时间训练：32000 步（4x 原始），看到 128K 唯一文本（vs 32K）
+3. 长数据覆盖率 0.7% → 模型只见过 0.7% 语言模式
+  → 见过的：高置信度正确（0.953）
+  → 没见过的：完全不知道（正确答案不在 Top-10，置信度 0.111）
+  → 68% token 高置信度（几乎全对）+ 27% 低置信度（几乎全错）= 73% argmax时间训练：32000 步（4x 原始），看到 128K 唯一文本（vs 32K）
 4. 用户洞察：CPU 对单个 compact 足够，不要太在意时间成本
 
 Usage:
@@ -162,7 +165,7 @@ def train_single_long(
             correct, total_eval = 0, 0
             with torch.no_grad():
                 for text in eval_texts[:50]:  # 50 条快速评估
-                    shared, targets, mask = batch_align_and_embed([text], domain_sp, general_sp, shared_emb)
+                    shared, targets, mask = batch_align_and_embed([text], domain_sp, general_sp, shared_embedding)
                     result = neuron.forward(shared, return_logits=True)
                     logits = result['logits']
                     shift_logits = logits[:, :-1, :]
@@ -182,7 +185,7 @@ def train_single_long(
     total_ce = 0.0
     with torch.no_grad():
         for text in eval_texts:
-            shared, targets, mask = batch_align_and_embed([text], domain_sp, general_sp, shared_emb)
+            shared, targets, mask = batch_align_and_embed([text], domain_sp, general_sp, shared_embedding)
             result = neuron.forward(shared, return_logits=True)
             logits = result['logits']
             shift_logits = logits[:, :-1, :].contiguous()
