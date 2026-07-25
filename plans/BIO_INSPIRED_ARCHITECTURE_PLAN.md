@@ -110,7 +110,16 @@
     ② 振荡同步接入 ✅ → forward_train 已接入 gamma_oscillator（--use_gamma 启用）
     ③ 残差预测编码 ✅ → forward_train fusion_mode='residual' 默认启用（族长+残差修正）
     ④ 稀疏激活优化 ✅ → auto_topK 自动选择，推理三模式就绪
-    下一步：等两阶段训练完成 → 评估 argmax 85%+ → 验证生成连贯
+
+  → standard 族长训练 🔄 进行中（2026-07-25）：
+    决策：10×compact argmax 天花板 73% 确认为容量瓶颈 → 训练 standard 族长突破
+    核心：1×standard(131M) 族长 + 9×compact(36M) 跟随者 = "大带小"族长模式
+    数据修复（用户洞察）：全量 4.3M 文本不分割 + 顺序 epoch 采样（vs 随机采样 2% 利用率）
+    突触投影：standard(field_dim=3072) + compact(field_dim=2048) → unified_field_dim=4096
+    训练参数：8000 步, batch=4, lr=1e-4, dropout=0.1, weight_decay=0.1, warmup=300
+    预计时间：~4.8h（每步 ~2.2s）
+    目标：族长 argmax ≥85%（突破 compact 73% 天花板）→ 验证生成连贯
+    下一步：训练完成 → eval_single.py 评估族长 argmax → 组装 1+9 混合规格协作
 ```
 
 ### 0.2 架构演进依赖关系
@@ -133,7 +142,7 @@
 闭环（睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活）
 ```
 
-**10×compact 路线已到顶（argmax 天花板 73%），需升级到 standard(111M) 突破容量瓶颈。**
+**standard 族长训练进行中（131M，突破 compact 73% argmax 天花板），"大带小"族长模式落地。**
 
 ### 0.3 组件状态一览
 
