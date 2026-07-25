@@ -137,14 +137,38 @@
       8000步×batch4=32000样本 / 4.3M总文本 = 0.7% 数据覆盖率
       模型只见过 0.7% 语言模式 → 大量模式"没见过就完全不会"
     → 下一步：train_single_long.py 顺序epoch采样 + 32000步 = 128K样本(4x覆盖率)，验证能否突破
+
+  → 🔄 社区学习 + 方向转变（2026-07-25）：
+    用户反思"AI真的是这么训练出来的吗" → 深入学习社区主流实践
+    学习来源：SmolLM3 Playbook(HuggingFace 2025)、nanoGPT(Karpathy)、TinyStories(Microsoft 2023)、Chinchilla(DeepMind 2022)
+
+    ⚠️ 发现 5 个根本性问题（当前方法偏离主流）：
+      ① 严重违反 Chinchilla 定律：compact 0.18:1（差111倍）、standard 0.05:1（差400倍）
+         主流 ≥ 20:1，SmolLM3 3667:1，LLaMA 143:1
+      ② 数据复杂度不匹配：TinyStories 证明 <10M 参数可生成连贯文本
+         但需简单数据（3-4岁词汇），维基百科对 36M 太复杂
+      ③ batch_size=4 严重不足（主流 ≥32，SmolLM3 2.36M tokens/step）
+      ④ field_write/read 等额外组件从未做消融验证（SmolLM3: 数据质量>架构创新）
+      ⑤ argmax 85% 是非主流指标（主流用 PPL+生成质量+下游任务）
+
+    → 📋 新增 AI 训练准则：plans/AI_TRAINING_PLAYBOOK.md（基于社区实践，强制性标准）
+    → 🎯 方向转变：从"追求 argmax 85%"转向"TinyStories 验证基础 pipeline"
+      核心：TinyStories 是唯一证明 <10M 参数能生成连贯文本的基准
+      如果 36M + TinyStories 仍乱码 → 架构/pipeline 有 bug
+      如果 36M + TinyStories 连贯 → 问题是维基数据太复杂
+      同时训练纯 transformer baseline 做消融对比（验证 field 组件是否有用）
 ```
 
 ### 0.2 架构演进依赖关系
 
 ```
-两阶段训练（450M tokens + 多样性数据 + 正则化）→ 验证 argmax 85%+ 能否生成连贯
-  阶段一：逐个训练 10 个神经元（每人不同数据 + 100% 梯度 + freeze_after_first）
-  阶段二：冻结 backbone，训练协作层（field_write/field_read）
+TinyStories 验证实验（🔄 进行中，2026-07-25）→ 验证基础 pipeline 是否正确
+  实验 A：纯 transformer baseline + TinyStories → 确认训练 pipeline 无 bug
+  实验 B：ResonanceNeuron + TinyStories → 验证 field 组件是否有用（消融对比）
+  评估：PPL + 生成质量（不用 argmax）
+  目标：在 CPU 上几小时内验证基础能力
+     ↓
+（若 pipeline 正确）回归正确训练规模 → Chinchilla 合规 + batch_size ≥ 32 + 简化数据
      ↓
 四大架构升级（✅ 全部完成 2026-07-24）：
   ① 突触投影 ✅ → 消除规格混合限制（compact/standard/expert 无缝共存）
@@ -152,14 +176,12 @@
   ③ 残差预测编码 ✅ → 族长+残差修正（fusion_mode='residual' 默认）
   ④ 稀疏激活 ✅ → auto_topK自动选择（active_nids='auto_topK'）
      ↓
-下一步：两阶段训练完成 → 评估（PPL+argmax+生成）→ 验证协作效果
-     ↓
 混合规格+多域扩展（突触投影已就绪）→ 大神经元带小神经元（族长模式落地）
      ↓
 闭环（睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活）
 ```
 
-**⚠️ argmax 73% 天花板 ≠ 容量瓶颈（standard 131M 也卡 73%）。需深入分析根因：训练不足？指标天花板？架构问题？**
+**⚠️ 方向转变：从"追求 argmax 85%"转向"TinyStories 验证基础 pipeline"。详见 plans/AI_TRAINING_PLAYBOOK.md。**
 
 ### 0.3 组件状态一览
 
