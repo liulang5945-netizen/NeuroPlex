@@ -1,4 +1,4 @@
-﻿# 态极生物学化架构计划 (Bio-Inspired Architecture Plan)
+# 态极生物学化架构计划 (Bio-Inspired Architecture Plan)
 
 > 本文档记录态极架构借鉴人脑神经科学的系统性改造计划。
 > 核心原则：**神经元差异性第一**、**自我进化能力**、**硬件限制不在考虑范围内**。
@@ -138,18 +138,36 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 
 ### 0.3 当前运行的实验（2026-07-26）
 
-| 实验 | 状态 | 数据 | 步数 | 关键指标 |
-|------|------|------|------|----------|
-| zh_full0 | 🔄 step 4400/8000 | 787K 全量（train embed） | 8000 | PPL=4.2, val PPL=84.93 |
-| zh_full1 | 🔄 step 3200/8000 | 248K shared+中文 | 8000 | PPL=4.8 |
-| zh_full2 | 🔄 step 3000/8000 | 340K shared+百科 | 8000 | PPL=4.6 |
-| zh_full3 | 🔄 step 2800/8000 | 670K shared+故事 | 8000 | PPL=4.8, val PPL=360.64 |
+**上一轮 4 路并行训练已停止**（进程中断，未保存 ckpt）。
 
-**批判性观察**：
-- 四人训练 PPL 高度一致（4.2~4.8），说明知识主要来自共享核心（236K），独有数据贡献极小
-- zh_full0 val PPL=84.93 仍远高于 TinyStories baseline 16.6（5 倍差距）
-- 生成在 step 4000 开始出现微弱连贯（"小朋友们...公园..."），但远不达标
-- 数据/参数比 4.4:1（zh_full0），距 Chinchilla 20:1 差 4.5 倍
+**问题诊断**：
+- 8000 步只看 256K 样本，数据利用率 <33%（zh_full0 仅 32.5%）
+- val PPL=84.93 > train PPL=66.7（exp(4.2)），已过拟合
+- shared_embedding.pt 是 7/25 旧版（因果掩码修复前，学坏的），zh_full1/2/3 frozen 模式加载了学坏的 embedding
+
+**新方向：数据多样性增强（方向 B，保持简单数据）**（2026-07-26）：
+
+策略：不增加数据复杂度（仍用 simple_zh 小学水平），通过数据增强 + 正则化提升多样性。
+
+| 改动 | 旧值 | 新值 | 目的 |
+|------|------|------|------|
+| 数据增强 | 无 | 随机截断(50-100%) + 片段拼接(30%概率) | 防 epoch 间逐字记忆 |
+| dropout | 0.1 | 0.2 | 加大正则化 |
+| 训练步数 | 8000 | 16000 | 让数据真正看完一遍（zh_full0 需 ~24600 步看完整 epoch） |
+| shared_embedding | 旧版(学坏) | 重新训练 | 因果掩码修复后干净起点 |
+
+**串行依赖**：zh_full0（train 模式）→ 完成后自动保存 shared_embedding → 启动 3 路并行 zh_full1/2/3（frozen 模式）。
+
+**当前状态**：
+- 🔄 4 路并行训练中（2026-07-26 启动）
+  - zh_aug0: 787K 全量, short_pool=102K, PID=57348
+  - zh_aug1: 249K 中文, short_pool=31K, PID=68800
+  - zh_aug2: 341K 百科, short_pool=66K, PID=75768
+  - zh_aug3: 670K 故事, short_pool=67K, PID=74340
+- 配置：每路 train 模式（独立 shared_embedding）, 3 threads/路, 16000 步, dropout=0.2, 数据增强 ON
+- 目标：训练完成后用于多神经元联合实验（充分利用硬件 + 数据差异化）
+- 启动脚本：scripts/training/run_parallel_aug.ps1
+- 监控：`Get-Content zh_aug0_train.log -Tail 5`
 
 ### 0.4 Playbook 合规状态（zh_full0 当前训练）
 

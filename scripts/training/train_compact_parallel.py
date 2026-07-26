@@ -28,6 +28,7 @@ import argparse
 import json
 import math
 import os
+import random
 import sys
 import time
 
@@ -78,6 +79,66 @@ def load_multi_texts(data_files: list[str], max_texts: int = 10000000) -> list[s
     return texts
 
 
+class AugmentingSampler:
+    """在 SequentialSampler 之上加数据增强（不增加复杂度，只增多样性）。
+
+    增强 1：随机截断 — 每条文本随机保留 50%-100% 长度（句末截断，保完整性）
+    增强 2：片段拼接 — 30% 概率把另一条短文本追加到当前文本（用换行分隔）
+
+    不改数据复杂度（仍是 simple_zh 小学水平），只增加 epoch 间的多样性，
+    防止模型逐字记忆训练集特定 token 序列。
+    """
+
+    def __init__(self, texts: list[str], batch_size: int, seed: int = 42,
+                 truncate_min_ratio: float = 0.5, concat_prob: float = 0.3):
+        from scripts.training.train_standard_leader import SequentialSampler
+        self.base = SequentialSampler(texts, batch_size, seed=seed)
+        self.texts = texts
+        self.n_texts = len(texts)
+        self.rng = random.Random(seed + 1)
+        self.truncate_min_ratio = truncate_min_ratio
+        self.concat_prob = concat_prob
+        # 预筛选短文本（< 200 字）用于拼接，避免长+长超长
+        self._short_texts = [t for t in texts if 20 <= len(t) <= 200]
+        print(f"  [AugmentingSampler] truncate_min={truncate_min_ratio}, "
+              f"concat_prob={concat_prob}, short_pool={len(self._short_texts)}", flush=True)
+
+    def _augment_one(self, text: str) -> str:
+        """对单条文本做随机截断 + 拼接。"""
+        # 增强 1：随机截断到 50%-100% 长度，按句末标点截断保完整
+        if len(text) > 50:
+            ratio = self.rng.uniform(self.truncate_min_ratio, 1.0)
+            keep_chars = max(30, int(len(text) * ratio))
+            sub = text[:keep_chars]
+            # 找最后一个句末标点（。。！？）
+            last_punct = max(
+                sub.rfind('。'), sub.rfind('！'), sub.rfind('？'),
+                sub.rfind('.'), sub.rfind('!'), sub.rfind('?'),
+            )
+            if last_punct > 30:
+                text = sub[:last_punct + 1]
+
+        # 增强 2：30% 概率拼接另一条短文本
+        if (self._short_texts and
+                self.rng.random() < self.concat_prob and
+                len(text) < 300):
+            other = self.rng.choice(self._short_texts)
+            text = text + '\n' + other
+        return text
+
+    def sample_batch(self) -> list[str]:
+        batch = self.base.sample_batch()
+        return [self._augment_one(t) for t in batch]
+
+    @property
+    def unique_seen(self) -> int:
+        return self.base.unique_seen
+
+    @property
+    def epoch(self) -> int:
+        return self.base.epoch
+
+
 def train_parallel(
     neuron: ResonanceNeuron,
     texts: list[str],
@@ -85,7 +146,7 @@ def train_parallel(
     shared_embedding: nn.Embedding,
     domain_sp: spm.SentencePieceProcessor,
     general_sp: spm.SentencePieceProcessor,
-    num_steps: int = 8000,
+    num_steps: int = 16000,
     batch_size: int = 8,
     grad_accum: int = 4,
     lr: float = 1e-3,
@@ -95,9 +156,19 @@ def train_parallel(
     warmup_steps: int = 200,
     eval_every: int = 2000,
     shared_emb_mode: str = "train",
+    augment: bool = True,
+    truncate_min_ratio: float = 0.5,
+    concat_prob: float = 0.3,
 ) -> dict:
     """并行训练配置。"""
-    sampler = SequentialSampler(texts, batch_size, seed=42)
+    if augment:
+        sampler = AugmentingSampler(
+            texts, batch_size, seed=42,
+            truncate_min_ratio=truncate_min_ratio,
+            concat_prob=concat_prob,
+        )
+    else:
+        sampler = SequentialSampler(texts, batch_size, seed=42)
 
     # 参数组分离
     embed_params = list(shared_embedding.parameters())
@@ -267,6 +338,14 @@ def train_parallel(
         },
     }, save_path)
 
+    # train 模式：自动保存 shared_embedding 到 data/shared_embedding.pt
+    # 这样后续 frozen 模式的神经元可以复用（因果掩码修复后的干净 embedding）
+    if shared_emb_mode == "train" and best_embed_state is not None:
+        from scripts.training.train_neuron import save_shared_embedding, SHARED_EMBEDDING_PATH
+        save_shared_embedding(shared_embedding, SHARED_EMBEDDING_PATH)
+        print(f"  [AUTO-SAVE] shared_embedding → {SHARED_EMBEDDING_PATH} "
+              f"(供后续 frozen 模式神经元复用)", flush=True)
+
     elapsed = time.time() - t_start
     print(f"\n  [{neuron_id}] Done. best_val_PPL={best_val_loss:.2f}@step{best_step}, time={elapsed/60:.1f}min", flush=True)
     print(f"  Saved: {save_path}", flush=True)
@@ -315,7 +394,7 @@ def main():
     parser = argparse.ArgumentParser(description="并行训练 compact 神经元（差异化数据）")
     parser.add_argument("--neuron_id", required=True)
     parser.add_argument("--data_files", nargs='+', required=True, help="数据文件名（在 data/simple_zh/ 下）")
-    parser.add_argument("--steps", type=int, default=8000)
+    parser.add_argument("--steps", type=int, default=16000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--grad_accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -324,8 +403,13 @@ def main():
     parser.add_argument("--eval_every", type=int, default=2000)
     parser.add_argument("--max_texts", type=int, default=10000000)
     parser.add_argument("--warmup_steps", type=int, default=200)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--threads", type=int, default=6, help="PyTorch 线程数（并行时限制）")
+    parser.add_argument("--no_augment", action="store_true", help="禁用数据增强")
+    parser.add_argument("--truncate_min_ratio", type=float, default=0.5,
+                        help="随机截断最小保留比例（0.5=保留 50%-100%）")
+    parser.add_argument("--concat_prob", type=float, default=0.3,
+                        help="片段拼接概率")
     parser.add_argument("--shared_emb_mode", choices=["train", "frozen"], default="frozen",
                         help="train=训练shared_embedding, frozen=冻结复用")
     args = parser.parse_args()
@@ -375,6 +459,9 @@ def main():
         lr=args.lr, device=args.device, log_every=args.log_every, save_path=save_path,
         warmup_steps=args.warmup_steps, eval_every=args.eval_every,
         shared_emb_mode=args.shared_emb_mode,
+        augment=not args.no_augment,
+        truncate_min_ratio=args.truncate_min_ratio,
+        concat_prob=args.concat_prob,
     )
 
     print(f"\n{'='*70}", flush=True)
