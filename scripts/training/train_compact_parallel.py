@@ -56,7 +56,7 @@ def load_multi_texts(data_files: list[str], max_texts: int = 10000000) -> list[s
     for fname in data_files:
         path = os.path.join(DATA_DIR, fname) if not os.path.isabs(fname) else fname
         if not os.path.exists(path):
-            print(f"  ⚠️ 文件不存在: {path}", flush=True)
+            print(f"  [WARN] 文件不存在: {path}", flush=True)
             continue
         count = 0
         with open(path, 'r', encoding='utf-8') as f:
@@ -234,7 +234,7 @@ def train_parallel(
                     total_ce += ce.item()
                     n_eval += 1
             val_ppl = math.exp(min(total_ce / max(n_eval, 1), 20))
-            print(f"\n  [{neuron_id}] ★ 评估 step {step}: val PPL={val_ppl:.2f}", flush=True)
+            print(f"\n  [{neuron_id}] [EVAL] step {step}: val PPL={val_ppl:.2f}", flush=True)
 
             if val_ppl < best_val_loss:
                 best_val_loss = val_ppl
@@ -242,7 +242,7 @@ def train_parallel(
                 best_state = {k: v.detach().clone() for k, v in neuron.state_dict().items()}
                 if shared_emb_mode == "train":
                     best_embed_state = {k: v.detach().clone() for k, v in shared_embedding.state_dict().items()}
-                print(f"    ✅ 保存 best (val PPL={best_val_loss:.2f})", flush=True)
+                print(f"    [SAVE] best (val PPL={best_val_loss:.2f})", flush=True)
 
             sample = generate_sample(neuron, domain_sp, general_sp, shared_embedding, device, prompt="小猫")
             print(f"    生成: {sample[:200]}", flush=True)
