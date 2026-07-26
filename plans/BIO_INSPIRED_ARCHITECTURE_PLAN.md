@@ -1,4 +1,4 @@
-# 态极生物学化架构计划 (Bio-Inspired Architecture Plan)
+﻿# 态极生物学化架构计划 (Bio-Inspired Architecture Plan)
 
 > 本文档记录态极架构借鉴人脑神经科学的系统性改造计划。
 > 核心原则：**神经元差异性第一**、**自我进化能力**、**硬件限制不在考虑范围内**。
@@ -38,17 +38,21 @@
 `taiji/resonance/neuron.py` forward Step 2：创建标准下三角 causal mask 并传给
 `block.attention(h_normed, mask=causal_mask)`。commit 2921b43。
 
-### 新方向
+### 新方向（修复后路线）
 
 1. ✅ bug 已修复（commit 2921b43）
-2. ✅ 架构底层审计完成（5 组件逐一验证，详见下方）
-3. ✅ 数据质量重新评估（数据本身没问题，"数据不足是根因"结论错误）
-4. 🔄 5×compact 联合训练验证（simple_zh 数据，3000 步，进行中，job-57fd0ce0）
-   - 初始 PPL=8506（step 50）→ 3503（step 100）→ 2382（step 150），warmup 阶段下降正常
-   - 修复前假 PPL=1.79，修复后初始 PPL=8506 = 真实随机初始化 → 因果掩码确实生效
-   - 预计 2.2 小时完成，之后用 eval_joint.py 评估生成质量
-5. ⏳ 评估修复后生成质量（如果连贯 → bug 是唯一根因；如果还乱 → RoPE theta 是首要嫌疑）
-6. ⏳ 清理错误产物（旧 ckpt 标记为无效）
+2. ✅ 架构底层审计完成（5 组件逐一验证，因果掩码是唯一关键 bug）
+3. ✅ 数据质量重新评估（数据清洗有效，但"数据量不足"仍是真约束——见 0.4 最新状态）
+4. ✅ 5×compact 联合训练验证（simple_zh 50K 数据，3000 步，完成）
+   - 协作 PPL=173.8 vs 最强个体 653.2（涌现-73.4%，确认因果掩码修复后协作机制仍有效）
+   - 但生成仍乱码 → PPL=173.8 远高于 TinyStories baseline 16.6，数据/参数比 0.008:1 太低
+5. 🔄 4×compact 并行独立训练（差异化数据，全量 simple_zh，8000 步/人，进行中）
+   - 策略转变：联合训练（1/5 梯度每人）→ 独立训练（100% 梯度每人），先验证单神经元能否生成连贯
+   - zh_full0（全量 787K + train embed）+ zh_full1/2/3（差异化 class 文件 + frozen embed）并行
+   - 当前：zh_full0 step 4400/8000, val PPL=84.93, 训练 PPL=4.2
+   - 修复：GBK 编码崩溃 → commit 8a6f341（emoji → ASCII）
+6. ⏳ 训练完成后评估：单神经元生成质量 + 四神经元协作效果
+7. ⏳ 如果仍然乱码 → RoPE theta=500000 是下一嫌疑（审计中标记的唯一非 bug 问题）
 
 ### 架构底层审计结果（2026-07-26）
 
@@ -90,350 +94,77 @@
 
 ---
 
-## 零、项目状态总览（导航仪表盘）— 2026-07-24 更新（⚠️ 受 bug 影响，数据虚高）
+## 零、项目状态总览（导航仪表盘）— 2026-07-26 更新（修复后真实数据）
 
-> **当感到混乱时，看这一节。** 三个问题不是平级的，有严格依赖顺序。
+> **因果掩码 bug 修复后，所有指标基于真实因果训练重新评估。**
+> 四个问题有严格依赖顺序：因果掩码 → 数据量 → 架构优化 → 协作涌现。
 
-### 0.1 当前唯一关键路径
-
-```
-核心实验：多同域神经元协作能否涌现集体智能？ ✅ 涌现确认！
-  ── 旧范式（单独训练→拼装→测试）──
-  logit融合(B1)失败 → 族长主导(L)避免崩溃 → L3≈S（协作未稳定优于单干）
-  摸底审计（2026-07-24）：0个质量好的神经元（个体太弱无法验证协作）
-
-  ── 新范式（整体联合训练）── 2026-07-24 突破
-  核心改变：从 train_single × N → assemble → test 变为 train_cortex(N together)
-  forward_train() 全可微：绕过 field.score()/.item() 梯度断裂，反向传播流经聚合权重
-  5 个 zh 神经元 × 3000 步联合训练（47min，保存 best@step2966）：
-    个体 PPL（66 条评估集，2026-07-24 复核）:
-      zh_j0=1119, zh_j1=5990, zh_j2=47.2(最强), zh_j3=1.8M, zh_j4=53K
-    协作 PPL: 24.4（比最强个体好 48.3%，低于连贯基线30）
-    → ✅ 涌现确认！5个弱个体（3个PPL>1000，zh_j3甚至1.8M）集体超越最强个体
-    → zh_j2 自然成为"族长"（权重0.53），其他神经元仍参与（非collapse）
-  生成质量：PPL达标但贪婪解码输出仍乱（"yx x x...they they...《《"）
-    → 诊断（2026-07-24，3 项测试）：
-      T1 teacher-forcing argmax=54.6%（双峰：标点p=0.99✓，内容p=0.03✗）
-      T2 token往返保真度=0%（每domain token→多general token，但非根因）
-      T3 自回归追踪：第1步预测'▁y'(p=0.095)就错，反馈前已漂移→死循环
-      个体vs协作 argmax: 融合56.2% ≥ 最强个体55.1% → 融合有效，非融合问题
-      数据审计: 23K条干净中文(教育/环保/VR/居里夫人...)，仅用了8K
-    → 根因100%确认：纯训练不足（3个神经元argmax<10%），非管线/非融合/非数据
-    → argmax 56%太低：0.56^10=0.3%概率连对10 token → 必然乱码；需≥85%才连贯
-
-  → 8×standard（≈1B）实验（2026-07-24 完成，253min）：
-    8×111M=888M + 冻结shared_embedding(131M) = 1019M ≈ 1B
-    协作 PPL=92.3（涌现确认-85% vs 最强个体613.4）但生成纯符号乱码
-    个体PPL极端分化: zh_j0=613, zh_j5=2232, zh_j7=2017万(损坏)
-    训练日志 avg_ce=nan（数值不稳定，梯度爆炸）
-    → 比 5×compact 更差（PPL 92.3 vs 24.4，生成更乱）
-    → 根因5条：
-      ① 数据/参数比低: 1B用20K数据(2.0条/万参数) vs 311M用8K(3.9条/万参数)
-      ② 训练严重不足: 8000步×batch2=16K样本，1B需百万级
-      ③ 数值不稳定: avg_ce=nan，zh_j7彻底损坏
-      ④ 冻结embedding不匹配: 311M训练的表示空间强用于1B
-      ⑤ 学习率过高: 5e-4对1B太高(标准1e-4~2e-4+warmup)
-    → 核心洞察：容量不是瓶颈，训练充分性才是
-      CPU上1B无法训到充分(需百万数据+数十小时)；5×compact可在2h内训到PPL24.4
-
-  → 10×compact(491M) 第一轮联合训练（✅ 完成，2026-07-24）：
-    10×36M=360M + shared_embedding(131M) = 491M（不冻结embedding）
-    8000步完成，训练 avg_ce=3.71 PPL=41.0
-    评估结果（A/B 对比 + argmax 检查）：
-      软加权融合 PPL=11.0, argmax=68.1%（比5×compact的56%有进步）
-      残差预测编码 PPL=149.2（训练-推理不匹配，需配套训练）
-      涌现确认：协作比最强个体好 97.6%（PPL 11 vs 458）
-      但生成仍乱码：argmax 68% < 85% 阈值，自回归错误累积
-
-  → 根因诊断（2026-07-24，Chinchilla 定律分析）：
-    数据/参数比 = 3M tokens / 491M 参数 = 0.006
-    Chinchilla 最优 = 20:1，差 3000 倍！
-    → 生成乱码根因 = 数据严重不足（非采样器、非管线、非融合模式）
-    → 社区规范参考：SmolLM3 Playbook, Chinchilla Scaling Laws
-
-  → 两阶段训练（🔄 阶段一续训中，2026-07-24）：
-    核心改变：联合训练每人只获 1/10 梯度 → 单独训练每人获 100% 梯度
-    数据下载：维基百科全量 1.2M 文章 = 450M tokens（之前 131.7M，3.4 倍）
-    数据分割：30% 共享核心 + 70% 独有数据（每人不同，保证多样性）
-    正则化：dropout=0.1 + weight_decay=0.1 + WSD 学习率调度
-    freeze_after_first：第一个神经元训练 embedding，之后冻结复用（节省训练时间）
-    阶段一（8000步）✅ 完成：10 个神经元 × 8000 步/人（每人 ~33min，总 5.5h）
-      个体 best PPL 2.2~2.5（best_step 7300-7902，接近终点→远未收敛！）
-      个体 final PPL 6.6~8.0, argmax 平均 73.4%
-    协作评估 ✅ 完成（随机协作层+残差模式）：
-      协作 PPL=3.99（比个体 best 2.5 差但比 final 6.6-8.0 好 50%+）
-      协作 argmax=74.2%（略高于个体 73.4%）
-      生成仍乱码：argmax 74%<85%，自回归错误累积
-      多轮共振(3轮)有部分改善："人工智能是"→"可以可以我们人类社会..."
-    训练协作层 ❌ 发散：lr=1e-3和1e-4都发散（PPL 3.8→4.8）
-      → 根因：10个同域神经元预测相似，残差训练引入噪声
-      → 结论：随机协作层已有效，训练反而有害
-    阶段一续训 ❌ 失败：lr=1e-4 也发散（best 0.954 > 0.918）
-      → 模型已在有限数据上达到最优，继续训练只会偏离
-    🔍 根因发现（2026-07-24）：数据浪费！
-      zh_texts.jsonl 有 1.2GB = 740万条文本 = 262M tokens
-      但 max_texts=200000 只加载了 91808 条 = 4.4M tokens（1.2%！）
-      每人数据/参数比 = 0.12（差 Chinchilla 最优 167 倍）
-    阶段一重训 ✅ 全量训练完成（2026-07-25）：max_texts=10M，每人 ~160M tokens（数据/参数比 4.45）
-      10 个神经元全部完成（zh_j0~j9，总 5.5h，最后 zh_j9 完成@06:06）
-      个体评估 ✅ 完成（100 条测试集，2026-07-25）：
-        argmax 范围 72.0%~73.5%（极窄！），平均 72.9%
-        PPL 范围 3.18~3.61，平均 3.39（比旧数据 6.6-8.0 好 50%+）
-        最强个体 zh_j2: argmax=73.5%, PPL=3.20
-      协作评估 ✅ 完成（100 条，残差模式）：
-        协作 argmax=73.9%（仅比最强个体 +0.4%，统计噪声级）
-        协作 PPL=4.45（比个体平均 3.39 更差！协作在伤害性能）
-        残差模式(50条) argmax=79.3%（样本少，待验证）
-        生成仍乱码：符号/重复/混合语言
-      → ⚠️ 关键诊断：argmax 瓶颈 100% 是容量问题（非数据/非训练/非融合）
-        10 倍数据让 PPL 翻倍但 argmax 纹丝不动 → compact(36M)结构性天花板 ~73%
-        10 个相同天花板的神经元做相似错误 → 协作无法突破
-      → 10×compact 路线已到顶，需升级到 standard(111M) 突破 argmax 天花板
-
-  → 四大架构升级已全部实现（2026-07-24）：
-    ① 突触投影（Field Projector）✅ → unified_field_dim 可学习投影层，当前训练不浪费
-    ② 振荡同步接入 ✅ → forward_train 已接入 gamma_oscillator（--use_gamma 启用）
-    ③ 残差预测编码 ✅ → forward_train fusion_mode='residual' 默认启用（族长+残差修正）
-    ④ 稀疏激活优化 ✅ → auto_topK 自动选择，推理三模式就绪
-
-  → standard 族长训练 ✅ 完成 + 评估 ✅ 完成（2026-07-25）：
-    训练：1×standard(131M) 族长, 8000 步, batch=4, lr=1e-4, best_loss=0.7041@step7828, PPL=3.05, 80.9min
-    数据修复（用户洞察）：全量 4.3M 文本不分割 + 顺序 epoch 采样（vs 随机采样 2% 利用率）
-    突触投影：standard(field_dim=3072) + compact(field_dim=2048) → unified_field_dim=4096
-
-    ⚠️ 评估结果（推翻"容量瓶颈"假说）：
-      族长个体 argmax=73.8%, PPL=3.05（对比 compact 平均 72.9%/3.39，仅 +0.9%）
-      1+9 协作 argmax=73.6%, PPL=4.39（协作 < 族长个体，融合有噪声）
-      生成仍乱码："中国的首都"→"中国的首都的首都的一{队四四建建..."
-    → ❌ 容量不是瓶颈！standard(131M) 容量 3.6x compact，argmax 几乎不变
-    → ❌ "大带小"族长模式无效！9 个 73% compact 跟随者无法帮助 73.8% 族长
-    → 🔍 真正根因待查（三个假说全部推翻后）：
-      假说1(容量瓶颈) ❌ 推翻：standard 131M 也卡 73%
-      假说2(训练不足) ⚠️ 存疑：standard 数据/参数比=1.22(远低于Chinchilla 20:1)
-      假说3(argmax指标天花板) ❓ 未验证：teacher-forcing argmax 可能天然有~75%天花板
-
-  → ⭐ argmax 天花板深度诊断 ✅ 完成（2026-07-25）：
-    Top-k 分布：Top-1=73.8%, Top-5=77.4%(+3.5%), Top-10=78.4%(+4.6%)
-      → Top-5 几乎不高于 Top-1（正常模型应 +15-25%）→ 模型"完全不知道"而非"差一点"
-    错误分析：82.7% 错误的正确答案不在 Top-10！→ 不是精度问题，是理解问题
-    置信度分化：正确=0.953, 错误=0.111 → "见过就会，没见过就完全不会"（过拟合特征）
-    错误类型：other类型准确率仅9.3%(447错/493总)；chinese 73.2%(722错/2691总)
-    → 🎯 根因确认：训练数据覆盖率严重不足！
-      8000步×batch4=32000样本 / 4.3M总文本 = 0.7% 数据覆盖率
-      模型只见过 0.7% 语言模式 → 大量模式"没见过就完全不会"
-    → 下一步：train_single_long.py 顺序epoch采样 + 32000步 = 128K样本(4x覆盖率)，验证能否突破
-
-  → 🔄 社区学习 + 方向转变（2026-07-25）：
-    用户反思"AI真的是这么训练出来的吗" → 深入学习社区主流实践
-    学习来源：SmolLM3 Playbook(HuggingFace 2025)、nanoGPT(Karpathy)、TinyStories(Microsoft 2023)、Chinchilla(DeepMind 2022)
-
-    ⚠️ 发现 5 个根本性问题（当前方法偏离主流）：
-      ① 严重违反 Chinchilla 定律：compact 0.18:1（差111倍）、standard 0.05:1（差400倍）
-         主流 ≥ 20:1，SmolLM3 3667:1，LLaMA 143:1
-      ② 数据复杂度不匹配：TinyStories 证明 <10M 参数可生成连贯文本
-         但需简单数据（3-4岁词汇），维基百科对 36M 太复杂
-      ③ batch_size=4 严重不足（主流 ≥32，SmolLM3 2.36M tokens/step）
-      ④ field_write/read 等额外组件从未做消融验证（SmolLM3: 数据质量>架构创新）
-      ⑤ argmax 85% 是非主流指标（主流用 PPL+生成质量+下游任务）
-
-    → 📋 新增 AI 训练准则：plans/AI_TRAINING_PLAYBOOK.md（基于社区实践，强制性标准）
-    → 🎯 方向转变：从"追求 argmax 85%"转向"TinyStories 验证基础 pipeline"
-      核心：TinyStories 是唯一证明 <10M 参数能生成连贯文本的基准
-      如果 36M + TinyStories 仍乱码 → 架构/pipeline 有 bug
-      如果 36M + TinyStories 连贯 → 问题是维基数据太复杂
-      同时训练纯 transformer baseline 做消融对比（验证 field 组件是否有用）
-
-  → 📚 Playbook v2.0 更新（2026-07-25）：整合 2025-2026 最新开源成果
-    来源（用户反馈"社区内容陈旧，deepseek等开源给了训练过程数据"）：
-      ① DeepSeek-R1 Nature 论文（2025-09-17，首个同行评审主流大模型）
-         - 训练成本仅 29.4万美元（512×H800，R1 80h，R1-Zero 198h）
-         - GRPO 算法 + 可验证奖励（数学/代码），不需要 critic 网络
-         - 4 阶段训练：冷启动SFT → 推理RL → 拒绝采样SFT → 全场景RL
-         - "Aha Moment"：模型自发学会用"wait"反思，AIME pass@1 15.6%→71.0%
-         - 数据去污染：仅数学领域预训练就删除 600万条潜在污染样本
-      ② SmolLM3 (2025-07) + SmolLM2 (COLM 2025)
-         - SmolLM3: 3B/11.2T tokens/128k上下文，100%开源
-         - 架构改进：GQA + NoPE(每4层移除RoPE) + 文档内注意力屏蔽 + 嵌入层不衰减
-         - 训练 bug 教训：11T训练到1T时发现张量并行相同种子bug，全量重启
-      ③ OLMo 3 (2025)：7B/32B 全流程开源
-         - 三阶段基础训练：预训练(6T) → 中期训练退火(100B) → 长上下文扩展(50-100B)
-         - 微退火(Microannealing)：小规模快速验证数据源有效性
-         - Delta Learning：用强弱模型生成偏好对，提供更强学习信号
-         - 质量感知上采样：高倍率训练高质量数据（不是简单过滤低质量）
-      ④ OpenThoughts3 (2025-06)：纯 SFT（无RL）达 SOTA
-         - 1.2M 推理数据（85万数学+25万代码+10万科学），用 QwQ-32B 标注
-         - 关键发现：模型性能好 ≠ 当老师好（QwQ-32B 比 DeepSeek-R1 是更好的老师）
-      ⑤ gpt-oss (OpenAI 2025-08)：Apache 2.0 开源，混合 RL + o3 技术
-      ⑥ PreSelect (香港科大 2025)：用模型预测能力筛选数据，10倍效率提升
-
-  → ✅ TinyStories baseline 验证完成（2026-07-25，job-13611ae7）：
-    纯 Transformer baseline（12M 参数, batch=12, 3000步, 20.9min CPU）
-    Best val PPL=16.6（step 3000，仍在下降）
-    生成样本（完全连贯的英文故事）：
-      "Once upon a time, there was a little girl named Lily. She loved to play
-       in the garden with her family. One day, Lily's boy came outside to play.
-       She had a big bag of leaves on the ground..."
-      多段落结构、角色、情节、语法几乎完美
-    → 🎯 核心假设验证：
-      ✅ 训练 pipeline 无 bug（纯 Transformer + 简单数据 = 连贯文本）
-      ✅ 之前维基百科乱码根因 100% 确认 = 数据复杂度不匹配（36M 参数太小）
-      ✅ TinyStories 是验证 pipeline 的正确基准
-
-  → ✅ 实验 B field-augmented 消融完成（2026-07-25，job-7f3848e6）：
-    field-augmented Transformer（12.22M 参数, 2轮前向, 25.6min CPU）
-    Best val PPL=14.3（step 3000，比 baseline -13.9%）
-    生成质量明显更好（更长、更复杂、有情节发展）：
-      "Once upon a time, there was a little girl named Lola. Lila loved to play
-       outside in the sun, shining around her hair... One day, Lila's mom went
-       to the park... Mom saw some children who was very happy..."
-    → 🎯 消融对比结论：
-      ✅ field 组件有用！PPL 16.6 → 14.3（-13.9%）
-      ✅ field 组件不是无用的额外参数（+0.22M 参数换来 -13.9% PPL）
-      ✅ "write → read → condition" 机制相当于额外信息处理回路
-      ✅ 态极架构核心组件设计正确
-
-  → ❌ 实验 C 多神经元协作验证完成（2026-07-25，job-b3e8a589）：
-    3×4M 小神经元协作（9.84M 参数, 2轮前向+logits平均, 63.8min CPU）
-    Best val PPL=16.7（比 baseline 16.6 还差！协作无效）
-    消融对比总结：
-      baseline (1×12M):         PPL=16.6
-      field-augmented (1×12M):  PPL=14.3 ✅ field组件有用
-      collab (3×~4M):           PPL=16.7 ❌ 协作无效
-    → 🎯 协作无效原因分析：
-      ① 参数量不足：3×4M(9.84M) < 1×12M(12.0M)，每个神经元太小无法 specialization
-      ② logits 平均是坏的融合方式（历史教训：10×compact协作 PPL=4.45 > 个体 3.39）
-         应该用残差预测编码（族长完整预测 + 其他神经元残差修正）
-      ③ 简单 logits 平均 != 联合训练（forward_train 梯度流经所有神经元才涌现）
-      ④ 共享 embedding 限制神经元多样性
-    → 🎯 关键区分：
-      ❌ "独立 forward + logits 平均" → 无效（实验 C 证明）
-      ✅ "联合训练 forward_train" → 有效（5×compact PPL=24.4 < 个体 47.2 历史确认）
-      → 下一步若验证协作，必须用联合训练 + 残差融合，不能用 logits 平均
-
-  → ✅ 简单中文数据准备完成（2026-07-25，job-fda3d082）：
-    下载 TinyStoriesAdv-zh（小学/幼儿园知识水平中文数据）
-    总条目：787,399 条，总字符：4.79亿字，估算 ~287M tokens
-    文件：data/simple_zh/simple_zh_texts.jsonl（1330 MB）
-    数据/参数比：compact(36M) = 8.0:1（比维基 0.18:1 好 44 倍）
-    内容：小学语文、百科、数学、童话、对话（简单语言匹配 36M 能力）
-    → 解决之前维基数据太复杂导致乱码的问题
-    → 下一步：用简单中文数据 + 正规配置训练 compact 神经元
-```
-
-### 0.2 架构演进依赖关系
+### 0.1 关键路径（修复后，2026-07-26）
 
 ```
-TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipeline 是否正确
-  实验 A：纯 transformer baseline + TinyStories ✅ 完成（PPL=16.6，生成连贯故事）
-    → 确认训练 pipeline 无 bug；乱码根因 = 数据复杂度不匹配
-  实验 B：field-augmented + TinyStories ✅ 完成（PPL=14.3，比 baseline -13.9%）
-    → 确认 field 组件有用；态极架构核心组件设计正确
-  实验 C：多神经元协作 + TinyStories ❌ 完成（PPL=16.7，协作无效）
-    → 确认"独立 forward + logits 平均"是坏的协作方式
-    → 联合训练 forward_train 才能涌现（历史已确认）
-  简单中文数据 ✅ 准备完成（TinyStoriesAdv-zh, 287M tokens, 小学水平）
+TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipeline 无 bug
+  实验 A：纯 transformer baseline + TinyStories ✅ PPL=16.6，生成连贯故事
+  实验 B：field-augmented + TinyStories ✅ PPL=14.3，field 组件有用（-13.9%）
+  实验 C：多神经元协作 + TinyStories ❌ PPL=16.7，logits 平均是坏的协作方式
      ↓
-下一步：用简单中文数据 + 正规配置训练 compact 神经元
-  目标：验证 36M compact + 简单中文能否生成连贯中文
-  正规配置：batch≥32(梯度累积), embedding不衰减, 全量数据, WSD调度
+因果掩码 bug 发现 + 修复（✅ 2026-07-26，commit 2921b43）
+  ResonanceNeuron.forward 未传 causal mask → 双向注意力 → 所有之前结果无效
+  修复后同一权重 argmax=0%（真实性能），PPL=8506（真实随机初始化）
+  架构审计：5 组件逐一验证，因果掩码是唯一关键 bug
      ↓
-（若生成连贯）联合训练验证多神经元协作（forward_train + 残差融合）
+5×compact 联合训练（✅ 完成，50K 数据，3000 步）
+  协作 PPL=173.8 vs 最强个体 653.2 → 涌现确认（修复后协作机制仍有效）
+  但生成仍乱码（全标点重复）→ PPL 仍太高（173.8 >> 16.6）
+  → 根因：数据/参数比 0.008:1 极低（每人 10K 条），联合训练每人获 1/5 梯度
      ↓
-四大架构升级（✅ 全部完成 2026-07-24）：
-  ① 突触投影 ✅ → 消除规格混合限制（compact/standard/expert 无缝共存）
-  ② 振荡同步 ✅ → forward_train 已接入相位门控（--use_gamma 启用）
-  ③ 残差预测编码 ✅ → 族长+残差修正（fusion_mode='residual' 默认）
-  ④ 稀疏激活 ✅ → auto_topK自动选择（active_nids='auto_topK'）
+4×compact 并行独立训练（🔄 进行中）
+  策略：独立训练 100% 梯度 + 全量 simple_zh 数据 + 差异化数据分配
+  zh_full0: 787K 全量（train embed）| zh_full1: 248K 中文 | zh_full2: 340K 百科 | zh_full3: 670K 故事
+  目标：先验证单神经元能否生成连贯，再验证协作
      ↓
-混合规格+多域扩展（突触投影已就绪）→ 大神经元带小神经元（族长模式落地）
+（若生成连贯）验证多神经元协作（forward_train + 残差融合）
      ↓
-闭环（睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活）
+（若仍乱码）RoPE theta=500000 调整 → 再评估
 ```
 
-**⚠️ 方向转变：从"追求 argmax 85%"转向"TinyStories 验证基础 pipeline"。详见 plans/AI_TRAINING_PLAYBOOK.md。**
+### 0.2 当前瓶颈分析（2026-07-26）
 
-### 0.3 组件状态一览
-
-| 层 | 组件 | 状态 | 说明 |
-|----|------|------|------|
-| **架构** | Cortex + Ensemble + Field | ✅ 就绪 | 协作机制全部就绪 |
-| | MoCo logit 融合 | ✅ 就绪 | 多神经元 logits 加权融合 |
-| | active_nids 参数 | ✅ 已确认设计 | 推理三模式：高质量(全激活)/平衡(top-3族长)/实时(单族长)；训练时全员参与(forward_train) |
-| **神经元** | zh_j0~j4 (5×compact联合训练) | ✅ 涌现确认 | 协作PPL=24.4 < 最强个体47.2(-48.3%)；3个个体PPL>1000但集体超越最强 |
-| | zh_j0~j9 (10×compact 第一轮491M) | ✅ 完成 | PPL=11(软加权)/argmax=68%；数据不足(3M/491M=0.006)导致未达85%阈值 |
-| | zh_j0~j9 (10×compact 两阶段训练) | ⚠️ 已到顶 | 阶段一✅完成(个体PPL3.18~3.61/argmax72~73.5%)；协作argmax73.9%(无增益)；argmax天花板非容量瓶颈 |
-| | zh_leader0 (1×standard 族长) | ❌ 未突破 | 131M族长argmax=73.8%/PPL=3.05(仅比compact+0.9%)；1+9协作argmax=73.6%(协作有害)；容量瓶颈假说推翻 |
-| | zh_j0~j7 (8×standard≈1B) | ❌ 已淘汰 | PPL=92.3比5×compact差4倍；avg_ce=nan数值不稳定；容量非瓶颈已确认 |
-| | zh单干/zh_1-3/code/en/general/math | 🗑️ 已删除 | 2026-07-24清理9个废弃文件释放1.2GB |
-| **🔍 审计** | 摸底诊断（2026-07-24） | ✅ 完成 | 0个连贯神经元 → 联合训练突破 |
-| **🧠 联合训练** | forward_train() + train_cortex_joint | ✅ 完成 | 全可微聚合；5×compact(PPL24.4)和8×standard(PPL92.3)均涌现 |
-| **🔍 生成诊断** | argmax/往返/自回归3项测试 | ✅ 完成 | 根因=训练不足(argmax56%)，非管线/非融合；数据23K干净仅用8K |
-| **🧠 容量实验** | 8×standard(1B) vs 5×compact(311M) | ✅ 完成 | 1B反而更差：数据不足+训练不足+数值不稳定+lr过高；容量非瓶颈 |
-| **🐛 bug** | _generate_p7 logits 优先级 | ✅ 已修 | weighted_logits(per-position路由)被_dynamic_logit_fusion拦截→已提优先级(cortex.py:1146) |
-| **🐛 bug** | train_one_neuron 保存末步 | ✅ 已修 | 改为滑动avg loss追踪best保存；末步PPL313 vs best≈2.7差100x |
-| **⚠️ 机制** | logit融合协作失败 | ✅已确认 | best模型+修复后B1协作仍崩(符号噪声)，B2单干(best)更好；根因:confidence陷阱+异构logits干扰，非模型质量 |
-| **⚠️ 验证** | 族长主导+场上下文 | ⚠️ L3≈S | 族长主导避免融合崩溃(B1)；但L3(3 best协作)≈S(单干)，未稳定优于；且个体不连贯导致结论可信度低 |
-| **路由** | L1 域路由 | ⚠️ 临时过渡 (86%) | 够用但非终态，将被 auto_topK 取代 |
-| | L2 原型路由 | ❌ 已废弃 (43%) | 上限低，被 auto_topK + 竞争激活取代 |
-| | **稀疏激活 auto_topK** | ✅ 已实现，方向④ | active_nids='auto_topK' 自动选共振分 top-K，替代手动 active_nids |
-| **四大升级** | ① 突触投影(Field Projector) | ✅ 已实现 | 可学习投影层(unified_field_dim)，消除规格混合限制；当前训练不浪费 |
-| | ② 振荡同步(GammaOscillator) | ✅ 已接入训练 | GammaOscillator+Kuramoto耦合+相位门控完整；forward_train 已接入(--use_gamma) |
-| | ③ 残差预测编码 | ✅ 已实现 | 族长完整预测+其他神经元残差修正；forward_train fusion_mode='residual' 默认启用 |
-| | ④ 稀疏激活 auto_topK | ✅ 已实现 | active_nids='auto_topK' 自动选择；推理三模式就绪 |
-| **生命周期** | 睡眠/喂养/调质/新生凋亡 | ✅ 已实现 | 当前实验不需要参与 |
-
-### 0.4 依赖序列（非并行）
-
-1. **连贯基线 + 协作测试**（✅ 完成）→ 联合训练 5 神经元，协作 PPL=24.4 < 个体 47.2
-   - 涌现确认：5 个弱个体（3 个 PPL>1000，zh_j3=1.8M）集体超越最强个体
-   - zh_j2 自然成为族长（权重 0.53），非 collapse
-1.5. **生成可用性**（🔄 进行中）→ 让生成连贯
-   - 诊断确认根因=训练不足（argmax 56%，非管线/非融合/非数据）
-   - 两阶段训练：逐个训练 10 个神经元（每人不同数据 + 100% 梯度 + 正则化）
-   - 核心改进：联合训练每人 1/10 梯度 → 单独训练每人 100% 梯度（10 倍效率）
-   - 数据：450M tokens（维基 1.2M 文章），30% 共享 + 70% 独有（多样性）
-   - freeze_after_first：第一个神经元训练 embedding，之后冻结复用
-   - 目标：argmax 56%→85%+，验证生成连贯
-2. **四大架构升级**（✅ 全部完成，2026-07-24）：
-   2a. **突触投影（Field Projector）** ✅ → 消除规格混合限制
-     - 不改统一4096（避免跑冤枉路），直接实现可学习投影层
-     - ResonanceNeuron 添加 field_projector: Linear(field_dim → unified_field_dim)
-     - 当前10×compact(field_dim=2048)训练权重可直接用，projector从中学习
-     - 完成后：compact/standard/expert 无缝混合，族长模式(大带小)落地
-   2b. **振荡同步接入** ✅ → 训练前向已接入相位门控
-     - GammaOscillator 已完整实现（相位+Kuramoto耦合+门控）
-     - forward_train 接入 gamma_oscillator 参数，--use_gamma 启用
-     - 同域同相位（绑定成知觉单元），相位对齐的神经元 gate≈1.0 增强
-     - 推理时 forward() 已有 kuramoto_step 相位耦合（多轮共振）
-   2c. **残差预测编码** ✅ → 族长 + 残差修正（替代软加权融合）
-     - 族长(共振分最高)完整预测 logits
-     - 其他神经元预测族长的残差（族长预测不准的部分）
-     - 总输出 = 族长 logits + Σ(残差 logits × 权重)
-     - 实现位置：ensemble.forward_train(fusion_mode='residual') 默认启用
-     - 梯度优势：族长获完整梯度（快速成强），其他神经元获加权梯度（专精修正）
-     - 更精确的协作方式，符合人脑层级预测
-   2d. **稀疏激活 auto_topK** ✅ → 推理自动化
-     - active_nids='auto_topK' 模式：自动计算共振分，选 top-K
-     - 三模式保留：全激活(高质量)/top-K(平衡)/top-1(实时)
-     - 实现位置：cortex._auto_topk_route + active_nids 字符串模式解析
-     - K 可自适应（输入复杂度或 life_scheduler 需求驱动）
-3. **混合规格+多域扩展**（突触投影完成后）→ 大神经元带小神经元 + 添加 en/code/math 域
-4. **闭环**（排在 3 之后）→ 睡眠训练 → 更好的神经元 → 更清晰的路由信号 → 更精准的稀疏激活
-
-### 0.5 可推迟的（不阻塞当前实验）
-
-- L2 路由超参调优（已被 auto_topK 取代，不再投入）
-- 其他域神经元重训（先验证 zh 域协作）
-- 单神经元加大数据（如果协作有效，不需要单个变强）
-- field_dim 统一4096（已被突触投影取代，不再改回4096；当前field_dim=2048训练不浪费）
-
-### 0.5 待清理的过时产物
-
-| 文件 | 状态 | 处理 |
+| 瓶颈 | 状态 | 证据 |
 |------|------|------|
-| crash_log.txt, trae-work-starbucks.png | 临时文件 | ✅ 已删除 |
-| v3 脚本 (joint_*, pipeline_v3*, train_v3*, verify_v3*) | P6/v3 时代，已被 P7 train_neuron.py 替代 | 标记待清理 |
-| 27 个 verify_*.py 脚本 | 部分活跃，部分旧时代 | 需逐一甄别 |
+| 因果掩码 | ✅ 已修复 | 唯一架构 bug，commit 2921b43 |
+| 数据量 | 🔄 验证中 | TinyStories 12M+PPL=16.6（33:1），zh_full0 36M+4.4:1 → 差距尚待量化 |
+| 架构优化 | ⏳ 待数据验证后 | field 组件 TinyStories 消融确认有用（-13.9%），但 RoPE theta 待调 |
+| 协作涌现 | ⏳ 待单神经元验证后 | 5×compact 联合训练涌现确认（协作 PPL < 最强个体 -73%），但需先有连贯单神经元 |
+
+### 0.3 当前运行的实验（2026-07-26）
+
+| 实验 | 状态 | 数据 | 步数 | 关键指标 |
+|------|------|------|------|----------|
+| zh_full0 | 🔄 step 4400/8000 | 787K 全量（train embed） | 8000 | PPL=4.2, val PPL=84.93 |
+| zh_full1 | 🔄 step 3200/8000 | 248K shared+中文 | 8000 | PPL=4.8 |
+| zh_full2 | 🔄 step 3000/8000 | 340K shared+百科 | 8000 | PPL=4.6 |
+| zh_full3 | 🔄 step 2800/8000 | 670K shared+故事 | 8000 | PPL=4.8, val PPL=360.64 |
+
+**批判性观察**：
+- 四人训练 PPL 高度一致（4.2~4.8），说明知识主要来自共享核心（236K），独有数据贡献极小
+- zh_full0 val PPL=84.93 仍远高于 TinyStories baseline 16.6（5 倍差距）
+- 生成在 step 4000 开始出现微弱连贯（"小朋友们...公园..."），但远不达标
+- 数据/参数比 4.4:1（zh_full0），距 Chinchilla 20:1 差 4.5 倍
+
+### 0.4 Playbook 合规状态（zh_full0 当前训练）
+
+| # | 条目 | 要求 | 当前值 | 判定 |
+|---|------|------|--------|------|
+| 1 | 数据/参数比 >= 20:1 | 720M tokens | 787K*~200tokens~157M (4.4:1) | ❌ CPU 物理限制 |
+| 2 | 数据复杂度匹配模型 | TinyStories 级别 | simple_zh 小学水平 | ✅ |
+| 3 | batch_size >= 32 | 32 | 8*4=32 | ✅ |
+| 4 | warmup | 100-2000 步 | 200 步 | ✅ |
+| 5 | decay | 最后 10-20% | WSD: step 6400→decay | ✅ |
+| 6 | embedding 不衰减 weight_decay | 0 | 0.0 | ✅ |
+| 7 | 评估用 PPL + 生成质量 | 双指标 | step 2000/4000/6000/8000 | ✅ |
+| 8 | 保存 best checkpoint | best loss | 按 best val PPL 保存 | ✅ |
+
+**合规判断**：除数据/参数比受 CPU 物理限制外，训练流程完全符合 Playbook 标准。
 
 ---
 
