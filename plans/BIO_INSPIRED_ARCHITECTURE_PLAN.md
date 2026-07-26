@@ -5,7 +5,56 @@
 
 ---
 
-## 零、项目状态总览（导航仪表盘）— 2026-07-24 更新
+## 🚨 紧急更新（2026-07-26）：架构级 bug 修复 — 之前所有训练无效
+
+### bug 发现
+
+**ResonanceNeuron.forward 的因果掩码缺失**：调用 `block.attention(h_normed)` 时没传
+`mask` 参数，导致 GQA 的 `is_causal=(mask is not None) and (seqlen>1)` 为 False →
+**双向注意力**（位置 K 能看到所有未来 token）。
+
+### 决定性诊断证据
+
+| 测试 | 修复前 | 修复后 |
+|------|--------|--------|
+| Shift teacher-forcing（完整序列 forward） | 100% | 0% |
+| 逐步预测（只给前 K 个 token） | 0% | 0% |
+| 完整 forward vs 逐步 forward 一致性 | 12/12 不一致 | ✅ 一致 |
+
+- 修复前 100% 是**假象**（模型偷看未来 token）
+- 修复后 0% 是**真实性能**（现有权重依赖偷看，学坏了）
+
+### 影响（之前所有结果无效）
+
+- ❌ PPL 1.79~3.85：虚低（偷看未来使预测虚高准确）
+- ❌ argmax 73~74%：虚高（同样原因）
+- ❌ Teacher-forcing 100%：假象
+- ❌ 所有神经元 ckpt（zh_j0~j9, zh_leader0, zh_simple0, zh_par1, zh_par2）：权重学坏
+- ❌ "数据不足是根因"的结论：错误（数据是次要因素，架构 bug 才是主因）
+- ❌ "容量瓶颈"假说：错误（之前 standard 族长 argmax 73.8% 是虚高）
+
+### 修复
+
+`taiji/resonance/neuron.py` forward Step 2：创建标准下三角 causal mask 并传给
+`block.attention(h_normed, mask=causal_mask)`。commit 2921b43。
+
+### 新方向
+
+1. ✅ bug 已修复
+2. 🔄 重新训练 compact 神经元验证（zh_fix0，simple_zh 数据，8000 步，进行中）
+3. ⏳ 评估修复后生成质量（如果连贯 → bug 是唯一根因；如果还乱 → 还有数据/tokenizer 问题）
+4. ⏳ 清理错误产物（旧 ckpt 标记为无效）
+
+### 教训
+
+- **诊断顺序错误**：之前先怀疑数据/容量/采样器，最后才检查因果掩码
+- **teacher-forcing 高准确率不等于模型好**：必须验证自回归生成
+- **架构修改必须消融验证**：因果掩码是基础组件，但从没验证过是否生效
+- **PPL 虚低是危险信号**：PPL 1.79（远低于 TinyStories baseline 16.6）应该是警钟
+
+---
+
+## 零、项目状态总览（导航仪表盘）— 2026-07-24 更新（⚠️ 受 bug 影响，数据虚高）
 
 > **当感到混乱时，看这一节。** 三个问题不是平级的，有严格依赖顺序。
 

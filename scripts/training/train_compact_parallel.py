@@ -274,33 +274,22 @@ def train_parallel(
 
 
 def generate_sample(neuron, domain_sp, general_sp, shared_embedding, device, prompt="从前"):
-    """生成中文样本（修复 tokenizer 映射 bug）。
+    """生成中文样本（和训练输入对齐）。
 
-    态极双 tokenizer 设计：
-    - 输入：domain token → 映射到 general token → shared_embedding 查找
-    - 输出：模型预测 domain token → domain_sp 解码
-    - 自回归：domain token → 映射回 general token → 下一步输入
+    训练时输入：text → general_sp.encode → general_ids（build_position_alignment）
+    生成时输入：prompt → general_sp.encode → general_ids（和训练一致）
+    模型预测：domain token → domain_sp 解码
+    自回归：domain token → piece → general_sp.encode → 追加所有 general ids
     """
     neuron.eval()
     with torch.no_grad():
-        # 1. prompt → domain ids
-        domain_ids = domain_sp.encode(prompt)
-        if not domain_ids:
+        # 1. prompt → general_ids（用 general tokenizer，和训练一致）
+        general_ids = general_sp.encode(prompt)
+        if not general_ids:
             return "(empty)"
 
-        # 2. domain ids → general ids（逐 token 映射，和训练对齐一致）
-        general_ids = []
-        for tid in domain_ids:
-            piece = domain_sp.decode([tid])
-            gids = general_sp.encode(piece)
-            if gids:
-                general_ids.append(gids[0])
-
-        if not general_ids:
-            return "(encode failed)"
-
-        # 3. 自回归生成（模型预测 domain token）
-        generated_domain_ids = list(domain_ids)
+        # 2. 自回归生成（模型预测 domain token）
+        generated_domain_ids = []
         for _ in range(80):
             emb_input = shared_embedding(torch.tensor([general_ids], device=device))
             result = neuron.forward(emb_input, return_logits=True)
@@ -308,15 +297,15 @@ def generate_sample(neuron, domain_sp, general_sp, shared_embedding, device, pro
             next_domain_id = logits.argmax(dim=-1).item()
             generated_domain_ids.append(next_domain_id)
 
-            # domain token → general token（用于下一步输入）
+            # domain token → general tokens（追加所有，和训练对齐一致）
             piece = domain_sp.decode([next_domain_id])
             gids = general_sp.encode(piece)
             if gids:
-                general_ids.append(gids[0])
+                general_ids.extend(gids)
             else:
-                break
+                general_ids.append(general_sp.unk_id() if hasattr(general_sp, "unk_id") else 0)
 
-        # 4. 用 domain_sp 解码（不是 general_sp！）
+        # 3. 用 domain_sp 解码生成的 domain tokens
         text = domain_sp.decode(generated_domain_ids)
     neuron.train()
     return text
