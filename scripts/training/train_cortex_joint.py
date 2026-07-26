@@ -47,6 +47,40 @@ DOMAIN = "zh"
 GENERAL_VOCAB_SIZE = 256000
 SHARED_EMBED_DIM = 512
 
+SIMPLE_ZH_DIR = "data/simple_zh"
+
+
+def load_simple_zh_texts(data_files: list[str], max_texts: int = 10000000) -> list[str]:
+    """从 data/simple_zh/ 加载多个数据文件并合并（简单中文，匹配 36M 能力）。
+
+    替代 load_domain_texts（维基百科数据对 compact 太复杂）。
+    """
+    import json
+    texts = []
+    for fname in data_files:
+        path = os.path.join(SIMPLE_ZH_DIR, fname) if not os.path.isabs(fname) else fname
+        if not os.path.exists(path):
+            print(f"  ⚠️ 文件不存在: {path}", flush=True)
+            continue
+        count = 0
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if len(texts) >= max_texts:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    text = d.get('text', '')
+                    if len(text) >= 20:
+                        texts.append(text)
+                        count += 1
+                except json.JSONDecodeError:
+                    continue
+        print(f"  {fname}: {count} 条", flush=True)
+    return texts
+
 
 def train_cortex_joint(
     n_neurons: int = 5,
@@ -64,9 +98,10 @@ def train_cortex_joint(
     use_gamma: bool = False,
     fusion_mode: str = "residual",
     weight_decay: float = 0.1,
-    
+
     warmup_steps: int = 200,
     dropout: float = 0.1,
+    data_files: list[str] = None,
 ):
     """联合训练 N 个神经元 + shared_embedding，端到端可微。
 
@@ -94,7 +129,12 @@ def train_cortex_joint(
 
     # ── 1. 加载数据 ──
     print(f"\n[1] 加载 {domain} 训练数据...", flush=True)
-    texts = load_domain_texts(domain, max_texts=max_texts)
+    if data_files:
+        print(f"  数据源: simple_zh ({data_files})", flush=True)
+        texts = load_simple_zh_texts(data_files, max_texts=max_texts)
+    else:
+        print(f"  数据源: load_domain_texts (维基+alpaca)", flush=True)
+        texts = load_domain_texts(domain, max_texts=max_texts)
     print(f"  {len(texts)} 条文本", flush=True)
 
     # ── 2. 加载 tokenizers ──
@@ -390,6 +430,9 @@ def main():
                         help="WSD 调度 warmup 步数（默认200）")
     parser.add_argument("--dropout", type=float, default=0.1,
                         help="Transformer dropout 率（默认0.1，防止过拟合）")
+    parser.add_argument("--data_files", nargs='+', default=None,
+                        help="simple_zh 数据文件名（在 data/simple_zh/ 下）；"
+                             "不指定则用 load_domain_texts（维基+alpaca）")
     args = parser.parse_args()
 
     train_cortex_joint(
@@ -410,6 +453,7 @@ def main():
         weight_decay=args.weight_decay,
         warmup_steps=args.warmup_steps,
         dropout=args.dropout,
+        data_files=args.data_files,
     )
 
 

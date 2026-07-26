@@ -31,6 +31,7 @@ from scripts.training.train_neuron import (
     load_domain_texts, load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR,
 )
+from scripts.training.train_cortex_joint import load_simple_zh_texts
 
 DOMAIN = "zh"
 
@@ -81,20 +82,26 @@ def compute_ppl(logits, targets, mask):
 
 
 def eval_ppl(neurons, shared_embedding, domain_sp, general_sp, device, n_eval=200,
-             fusion_mode="residual"):
+             fusion_mode="residual", data_files=None):
     """对比个体 vs 协作 PPL。
 
     Args:
         fusion_mode: 协作融合模式 'residual'(族长+残差修正) | 'soft'(软加权融合)
+        data_files: simple_zh 数据文件列表；None 则用 load_domain_texts
     """
     print("\n" + "=" * 70, flush=True)
     print(f"[PPL 评估] 个体 vs 协作 (fusion={fusion_mode})", flush=True)
     print("=" * 70, flush=True)
 
-    texts = load_domain_texts(DOMAIN, max_texts=n_eval)
-    # 用最后 n_eval 条作为评估集（避免和训练数据完全重叠的偏差）
-    texts = texts[-n_eval:] if len(texts) > n_eval else texts
-    print(f"  评估集: {len(texts)} 条文本", flush=True)
+    if data_files:
+        all_texts = load_simple_zh_texts(data_files, max_texts=n_eval * 5)
+        texts = all_texts[-n_eval:] if len(all_texts) > n_eval else all_texts
+        print(f"  评估集(simple_zh): {len(texts)} 条文本", flush=True)
+    else:
+        texts = load_domain_texts(DOMAIN, max_texts=n_eval)
+        # 用最后 n_eval 条作为评估集（避免和训练数据完全重叠的偏差）
+        texts = texts[-n_eval:] if len(texts) > n_eval else texts
+        print(f"  评估集(domain): {len(texts)} 条文本", flush=True)
 
     field = ResonanceField(dim=next(iter(neurons.values())).config.field_dim)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=1)
@@ -283,6 +290,9 @@ def main():
                         help="协作融合模式: residual(族长+残差修正,默认) | soft(软加权融合)")
     parser.add_argument("--compare_modes", action="store_true",
                         help="对比两种融合模式 (residual vs soft)，用于 A/B 评估")
+    parser.add_argument("--data_files", nargs='+', default=None,
+                        help="simple_zh 评估数据文件（在 data/simple_zh/ 下）；"
+                             "不指定则用 load_domain_texts")
     args = parser.parse_args()
 
     print(f"加载联合训练的 {args.n_neurons} 个 {args.domain}({args.spec}) 神经元...", flush=True)
@@ -304,7 +314,7 @@ def main():
             print(f"\n{'='*70}\n=== 评估 fusion_mode={mode} ===\n{'='*70}", flush=True)
             ind_ppls, collab_ppl = eval_ppl(
                 neurons, shared_embedding, domain_sp, general_sp,
-                args.device, args.n_eval, fusion_mode=mode,
+                args.device, args.n_eval, fusion_mode=mode, data_files=args.data_files,
             )
             results[mode] = {"individual": ind_ppls, "collab": collab_ppl}
             eval_generation(
@@ -326,7 +336,7 @@ def main():
         # 单模式评估
         individual_ppls, collab_ppl = eval_ppl(
             neurons, shared_embedding, domain_sp, general_sp,
-            args.device, args.n_eval, fusion_mode=args.fusion_mode,
+            args.device, args.n_eval, fusion_mode=args.fusion_mode, data_files=args.data_files,
         )
         eval_generation(
             neurons, shared_embedding, domain_sp, general_sp, cfg,
