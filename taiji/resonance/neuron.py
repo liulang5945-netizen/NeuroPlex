@@ -341,10 +341,24 @@ class ResonanceNeuron(nn.Module):
         # ── Step 2: Transformer layers + field conditioning ──
         bsz, seqlen, _ = h.shape
 
+        # Causal mask（修复双向注意力 bug）:
+        # GQA.is_causal = (mask is not None) and (seqlen > 1)
+        # 之前没传 mask → is_causal=False → 双向注意力 → 训练时偷看未来 token
+        # → teacher-forcing 虚高（100%）、自回归崩溃（死循环重复）
+        # 修复：传标准下三角 causal mask，确保位置 K 只看到 0..K
+        if seqlen > 1:
+            causal_mask = torch.full(
+                (1, 1, seqlen, seqlen), float('-inf'),
+                device=h.device, dtype=h.dtype,
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+        else:
+            causal_mask = None
+
         for i, block in enumerate(self.layers):
             # Standard transformer block (layers.py, zero changes)
             h_normed = block.attention_norm(h)
-            attn_out, _ = block.attention(h_normed)
+            attn_out, _ = block.attention(h_normed, mask=causal_mask)
             h = h + attn_out
             h = h + block.feed_forward(block.ffn_norm(h))
 
