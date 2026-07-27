@@ -153,6 +153,33 @@ class ResonanceNeuron(nn.Module):
         """兼容旧代码：side_channels 现在统一指向 excite_channels。"""
         return self.excite_channels
 
+    def establish_side_channel(
+        self,
+        peer_id: str,
+        peer_neuron: "ResonanceNeuron",
+        channel_type: str = "excite",
+        init_std: float = 0.01,
+    ):
+        """建立一条指向 peer 神经元的突触通道。
+
+        Args:
+            peer_id: peer 神经元标识。
+            peer_neuron: peer 神经元实例，用于读取其 field_dim。
+            channel_type: "excite" 或 "inhibit"。
+            init_std: 通道权重初始化标准差。
+        """
+        src_dim = peer_neuron.config.field_dim
+        dst_dim = self.config.hidden_size
+        channel = nn.Linear(src_dim, dst_dim, bias=False)
+        nn.init.normal_(channel.weight, std=init_std)
+
+        if channel_type == "excite":
+            self.excite_channels[peer_id] = channel
+        elif channel_type == "inhibit":
+            self.inhibit_channels[peer_id] = channel
+        else:
+            raise ValueError(f"Unknown channel_type: {channel_type}")
+
     def compute_logits(self, h: torch.Tensor) -> torch.Tensor:
         """计算 logits。
 
