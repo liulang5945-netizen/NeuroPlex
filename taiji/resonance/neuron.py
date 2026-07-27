@@ -404,10 +404,33 @@ class ResonanceNeuron(nn.Module):
                     gate = torch.sigmoid(self.field_read_gate(h))  # [B, L, 1]
                     h = h + gate * conditioning
 
-        # ── Step 3: Final norm ──
+        # ── Step 3: Side-channel modulation (per-pair synaptic projection) ──
+        # side_signals: {peer_id: peer_field_vector [B, peer_field_dim]}
+        # 通过 excite/inhibit_channels 把 peer 的 field_vector 投影到本神经元 hidden 空间，
+        # 以残差方式调制 h。
+        if side_signals:
+            excite_sum = None
+            inhibit_sum = None
+            for peer_id, sig in side_signals.items():
+                if peer_id in self.excite_channels:
+                    proj = self.excite_channels[peer_id](sig)  # [B, hidden_size]
+                    excite_sum = proj if excite_sum is None else excite_sum + proj
+                if peer_id in self.inhibit_channels:
+                    proj = self.inhibit_channels[peer_id](sig)
+                    inhibit_sum = proj if inhibit_sum is None else inhibit_sum + proj
+
+            side_mod = torch.zeros_like(h)
+            if excite_sum is not None:
+                side_mod = side_mod + excite_sum.unsqueeze(1) * 0.1
+            if inhibit_sum is not None:
+                side_mod = side_mod - inhibit_sum.unsqueeze(1) * 0.1
+
+            h = h + side_mod
+
+        # ── Step 4: Final norm ──
         h = self.norm(h)
 
-        # ── Step 4: Field write ──
+        # ── Step 5: Field write ──
         # P0#3: 不再对抑制性神经元取反（v=-v）。
         # field_vector 始终为正方向；抑制效果由 field.write_inhibit() 的
         # 乘法掩码实现（divisive inhibition，GABA-like）。
