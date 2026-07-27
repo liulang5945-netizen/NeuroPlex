@@ -171,6 +171,7 @@ class ResonanceEnsemble:
         return_logits_filter,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         mm_logits_modality: Optional[str] = None,
+        side_signals: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """并行 forward 多个神经元（人脑启发：神经元并行工作）。
 
@@ -188,6 +189,7 @@ class ResonanceEnsemble:
             return_logits_filter: callable(nid) -> bool，决定哪些 neuron 返回 logits
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
             mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
+            side_signals: {post_nid: {pre_nid: field_vector}} per-pair 突触信号
 
         Returns:
             (round_vecs, round_logits)
@@ -212,6 +214,8 @@ class ResonanceEnsemble:
                 round_num=round_num,
                 return_logits=need_logits,
             )
+            if side_signals is not None and nid in side_signals:
+                kwargs["side_signals"] = side_signals[nid]
             if mm_logits_modality is not None:
                 kwargs["mm_logits_modality"] = mm_logits_modality
             return self.neurons[nid].forward(emb, **kwargs)
@@ -442,6 +446,21 @@ class ResonanceEnsemble:
         # 修复：round 1 正常完成后也记录 n_active（之前只在 skip 或 round 2+ 记录）
         self.n_active_history.append(len(active_ids))
 
+        # ── Side-channel construction (per-pair synaptic projection) ──
+        # Round 1 后，每个 post 神经元接收其他 pre 神经元的原始 field_vector，
+        # 通过各自的 side_channels 投影到 hidden 空间进行调制。
+        side_signals_per_neuron: Optional[Dict[str, Dict[str, torch.Tensor]]] = None
+        if self.max_rounds >= 2:
+            side_signals_per_neuron = {nid: {} for nid in active_ids}
+            for post_id in active_ids:
+                for pre_id in active_ids:
+                    if post_id == pre_id:
+                        continue
+                    post_neuron = self.neurons[post_id]
+                    if (pre_id in post_neuron.excite_channels or
+                            pre_id in post_neuron.inhibit_channels):
+                        side_signals_per_neuron[post_id][pre_id] = round_vecs[pre_id]
+
         # ── Rounds 2+: conditioned resonance ──
         for round_num in range(2, self.max_rounds + 1):
             # P0-2 fix: round 2+ 也基于当前 _logits_keep_ids 过滤，但每轮会重新计算
@@ -458,6 +477,7 @@ class ResonanceEnsemble:
                 return_logits_filter=round2_logits_filter,
                 neuron_embeddings=neuron_embeddings,
                 mm_logits_modality=mm_logits_modality,
+                side_signals=side_signals_per_neuron,
             )
 
             # 人脑启发：不应期调度（错峰写入）
