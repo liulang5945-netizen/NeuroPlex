@@ -77,6 +77,19 @@ def load_aug_neurons():
             neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
         print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite side_channels", flush=True)
 
+    # 加载微调后的 side_channels（如果存在）
+    finetuned_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.pt")
+    if os.path.exists(finetuned_path):
+        side_state = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
+        for nid, neuron in neurons.items():
+            if nid in side_state:
+                for pid, ch_state in side_state[nid].get("excite", {}).items():
+                    if pid in neuron.excite_channels:
+                        neuron.excite_channels[pid].load_state_dict(ch_state)
+        print(f"  [side_channels] 已加载微调权重: {finetuned_path}", flush=True)
+    else:
+        print(f"  [side_channels] 未找到微调权重，使用随机初始化", flush=True)
+
     return neurons, shared_embeddings, cfg
 
 
