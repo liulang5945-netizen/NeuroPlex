@@ -109,7 +109,21 @@ def compute_metrics(text):
     }
 
 
-def generate_individual(prompt, neuron, shared_emb, domain_sp, general_sp, max_tokens=80):
+def apply_no_repeat_ngram(logits, generated_ids, n=4):
+    """禁止生成会形成已存在 n-gram 的 token。"""
+    if n <= 0 or len(generated_ids) < n - 1:
+        return logits
+    ngram_prefix = tuple(generated_ids[-(n - 1):])
+    banned = set()
+    for i in range(len(generated_ids) - n + 1):
+        if tuple(generated_ids[i:i + n - 1]) == ngram_prefix:
+            banned.add(generated_ids[i + n - 1])
+    if banned:
+        logits[:, list(banned)] = float('-inf')
+    return logits
+
+
+def generate_individual(prompt, neuron, shared_emb, domain_sp, general_sp, max_tokens=80, no_repeat_ngram=4):
     general_ids = general_sp.EncodeAsIds(prompt)
     if not general_ids:
         return ""
@@ -120,6 +134,7 @@ def generate_individual(prompt, neuron, shared_emb, domain_sp, general_sp, max_t
             emb_input = shared_emb(ids)
             result = neuron.forward(emb_input, return_logits=True)
             logits = result["logits"][:, -1, :]
+            logits = apply_no_repeat_ngram(logits, generated, no_repeat_ngram)
             next_token = logits.argmax(dim=-1).item()
             eos = getattr(domain_sp, 'eos_id', None)
             if eos is not None:
@@ -138,7 +153,7 @@ def generate_individual(prompt, neuron, shared_emb, domain_sp, general_sp, max_t
         return domain_sp.DecodeIds(generated)
 
 
-def generate_collab(prompt, neurons, shared_embeddings, ensemble, domain_sp, general_sp, max_tokens=80):
+def generate_collab(prompt, neurons, shared_embeddings, ensemble, domain_sp, general_sp, max_tokens=80, no_repeat_ngram=4):
     general_ids = general_sp.EncodeAsIds(prompt)
     if not general_ids:
         return ""
@@ -167,6 +182,7 @@ def generate_collab(prompt, neurons, shared_embeddings, ensemble, domain_sp, gen
                 best_nid = max(result.get("final_scores", {}), key=result["final_scores"].get, default=NEURON_IDS[0])
                 logits = neurons[best_nid].forward(neuron_embeddings[best_nid], return_logits=True)["logits"][:, -1, :]
 
+            logits = apply_no_repeat_ngram(logits, generated, no_repeat_ngram)
             next_token = logits.argmax(dim=-1).item()
             eos = getattr(domain_sp, 'eos_id', None)
             if eos is not None:
