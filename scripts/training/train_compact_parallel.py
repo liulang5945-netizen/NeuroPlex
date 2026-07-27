@@ -50,6 +50,9 @@ from scripts.training.train_standard_leader import SequentialSampler
 
 DATA_DIR = "data/simple_zh"
 
+# 同域 compact 神经元列表（用于 side_channels 预建立）
+ZH_COMPACT_NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
+
 
 def load_multi_texts(data_files: list[str], max_texts: int = 10000000) -> list[str]:
     """加载多个数据文件并合并。"""
@@ -446,8 +449,19 @@ def main():
     cfg = get_domain_neuron_config("zh", spec="compact")
     cfg.dropout = args.dropout
     neuron = ResonanceNeuron(cfg).to(args.device)
+
+    # 4.1 建立指向同域其他神经元的 side_channels（per-pair 突触投影）
+    # 这样训练时 side_channels 也会通过反向传播学习如何转译 peer 的 field_vector
+    peer_cfg = get_domain_neuron_config("zh", spec="compact")
+    for peer_id in ZH_COMPACT_NEURON_IDS:
+        if peer_id == args.neuron_id:
+            continue
+        peer_neuron = ResonanceNeuron(peer_cfg).to(args.device)
+        neuron.establish_side_channel(peer_id, peer_neuron, channel_type="excite")
+        del peer_neuron
+    n_side = len(neuron.excite_channels)
     n_params = sum(p.numel() for p in neuron.parameters())
-    print(f"  {args.neuron_id}: {n_params/1e6:.1f}M params", flush=True)
+    print(f"  {args.neuron_id}: {n_params/1e6:.1f}M params ({n_side} excite side_channels)", flush=True)
 
     # 5. 训练
     print(f"\n[5] 开始训练...", flush=True)
