@@ -208,6 +208,27 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 
 ---
 
+### 0.6 闭环修复批次（2026-07-28）
+
+系统性审查发现 23 项未闭环点，已处理 21 项，剩余 2 项待训练完成后处理。
+
+**已修复（21 项）：**
+
+| 类别 | 修复内容 | commit |
+|------|---------|--------|
+| 缺失模块 | 创建 agent_ext/ (9模块) + services/ (5模块) + memory_watchdog + output_engine stub | 2d7f2e7 |
+| 接线缺失 | assemble_cortex Step 9.2-9.6 批量接线 play/evolution/limbs/Agent/ContextManager | 4affa2f |
+| 死代码 | life_scheduler research 分支遮蔽修复 | 27d4853 |
+| 进化闭环 | 凋亡→新生反馈（Phase 4 凋亡后补偿创建） | 560e47b |
+| 数据闭环 | explore 结果接入 feed_engine 训练数据 | 2c1a66d |
+| 睡眠闭环 | Phase 3.5 knowledge_distillation 实现 | 3bec93f |
+| 方法接线 | #20-23: should_trigger_neurogenesis + record_sleep_training + 注释 deprecated | 32c8080 |
+| 状态保护 | #19: cortex_state.pt vs neuron_*.pt 时间戳检查 | ea20376 |
+
+**待处理（2 项）：**
+- #6 训练-推理路径对齐（forward_train vs forward 机制不一致）— 等 side_channels 训练完成后处理
+- #16-18 训练脚本改进（val/早停/决策）— 等当前训练完成后处理
+
 ## 一、设计原则
 
 ### 1.1 三大核心原则
