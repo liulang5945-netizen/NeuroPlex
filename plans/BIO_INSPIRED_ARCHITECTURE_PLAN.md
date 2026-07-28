@@ -311,6 +311,50 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 
 **架构事实**：标准 Dense Transformer，GQA。仓库已废弃指向 llama-models，无 MoE 创新。态极已采用 GQA，无需额外借鉴。
 
+#### GLM-5.2（744B MoE，智谱 AI，2026-06 开源）
+
+**架构事实**（来源：[NVIDIA NeMo 文档](https://docs.nvidia.com/nemo/automodel/model-coverage/large-language-models/glm-5-moe-dsa.md) + [智谱开源说明](https://cndba.cn/article/17044)）：
+- 744B 总参数，激活 40B（5.4% 稀疏度）
+- MLA (Multi-head Latent Attention) + **DSA (Dynamic Sparse Attention)** 动态稀疏注意力
+- **IndexShare DSA**：共享 DSA 层复用前一层的 top-k 稀疏注意力选择（跨层索引复用）
+- 1M token 上下文
+- MIT 协议
+- GlmMoeDsaForCausalLM 架构
+- TileLang 稀疏核可选
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★★ | **IndexShare DSA（跨层索引复用）** | GLM-5.2 每 4 层稀疏注意力共享同一套 top-k 索引，避免每层重新计算。**态极多轮共振可借鉴**：max_rounds=3 时，round 2/3 可以复用 round 1 的神经元激活模式（side_channels 的激活索引），避免每轮重新计算共振分。这能显著降低多轮共振的计算成本 |
+| ★★ | **DSA 动态稀疏注意力** | 与态极的"稀疏激活神经元"思路相近。GLM 用动态 top-k 选择注意力的 token，态极用共振分选择激活的神经元——都是"基于内容动态稀疏"而非固定路由 |
+
+#### DeepSeek V4（1.6T MoE，2026-04 开源）
+
+**架构事实**（来源：[技术报告解读](https://cloud.tencent.cn/developer/article/2661839)）：
+- V4-Pro: 1.6T 总参数，激活 49B（3.1% 稀疏度）
+- V4-Flash: 284B 总参数，激活 13B
+- **CSA (Compressed Sparse Attention) + HCA (Heavily Compressed Attention)** 混合注意力
+- **mHC (Manifold-Constrained Hyper-Connections)** 流形约束超连接
+- **Muon 优化器**（替代 AdamW）
+- **Conditional Memory** 条件记忆机制（架构级 RAG）
+- **OPD (On-Policy Distillation)** 在线策略蒸馏
+- 384 专家，激活 6 个（V4-Pro）
+- DSA2（融合 DSA+NSA）
+- 三种推理模式：Non-think / Think High / Think Max
+- 1M 上下文，MIT 协议
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★★ | **Conditional Memory（条件记忆机制）** | **架构级 RAG 整合**：用户 query 通过关键词/语义/场景标签三路触发门控，激活相关记忆块，跨注意力融合。**与态极的语义记忆 + 工作记忆设计高度契合**，当前态极记忆系统虽已接线（#10/#15 修复），但检索→推理的融合机制仍缺失。可借鉴 DeepSeek V4 的三路触发门控设计 |
+| ★★★ | **Muon 优化器** | 替代 AdamW，通过正交化更新方向使收敛更快更稳。**态极 side_channels 微调直接可借鉴**——当前用 Adam lr=1e-3，PPL 下降缓慢（132→目标<114），换 Muon 可能突破瓶颈。这是最低成本的尝试（只改优化器不改架构） |
+| ★★ | **mHC 流形约束超连接** | 解决万亿模型训练稳定性。态极 side_channels 训练也有梯度不稳定问题（PPL 偶尔跳变），mHC 的流形约束残差思想可借鉴用于稳定 side_channels 的梯度传播 |
+| ★★ | **OPD 在线策略蒸馏** | 分领域训练专家→多专家在线蒸馏融合。**与态极的"个体训练→协作训练"两阶段高度一致**。DeepSeek V4 用 OPD 把十几个领域专家能力融合进一个模型，态极用 side_channels 把多个神经元融合进 ensemble——可借鉴 OPD 的蒸馏策略优化 side_channels 训练 |
+| ★ | **CSA+HCA 混合注意力** | 分层压缩（CSA 精读 + HCA 广角），1M 上下文下 FLOPs 仅 27%。态极未来支持长上下文时借鉴 |
+| ★ | **三模式推理** | Non-think/Think High/Think Max 三档。与 Qwen3 的 thinking/non-thinking 双重验证了"按需调节思考深度"的正确性，态极可扩展为 max_rounds=1/2/3 三档 |
+
 ## 一、设计原则
 
 ### 1.1 三大核心原则
