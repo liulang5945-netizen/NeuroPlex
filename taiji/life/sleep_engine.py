@@ -1501,21 +1501,47 @@ class SleepEngine:
     def _sleep_phase_knowledge_distillation(self, report: SleepReport) -> dict:
         """Phase 3.5: 知识蒸馏 — 将累积知识转化为训练数据。
 
-        当前：最小实现，记录待处理样本数。
-        未来：从 SleepConsolidator 的高共振状态生成合成训练数据。
+        从 ContextManager 的对话历史中提取高频重要内容，
+        巩固为长期记忆，同时喂入 FeedEngine 作为睡眠训练数据。
         """
         if self._feed_engine is None:
             return {"status": "skipped"}
 
+        distilled = 0
+
+        # 1. 巩固 ContextManager 记忆（短期→长期）
+        try:
+            from taiji.agent.context_manager import get_context_manager
+            cm = get_context_manager()
+            cm.consolidate_for_sleep()
+
+            # 2. 把长期记忆内容喂入 feed_engine
+            if cm._memory_system is not None:
+                for slot in cm._memory_system.long_term:
+                    if not slot.is_empty() and slot.content:
+                        self._feed_engine.feed_text(
+                            text=slot.content,
+                            source="distillation:long_term_memory",
+                            category="knowledge",
+                        )
+                        distilled += 1
+        except Exception as e:
+            logger.debug(f"  Phase 3.5: 记忆蒸馏失败（非关键）: {e}")
+
+        # 3. 记录 pending 样本数
         pending = 0
         if hasattr(self._feed_engine, "get_pending_count"):
             try:
                 pending = self._feed_engine.get_pending_count()
             except Exception:
                 pass
-        if pending > 0:
-            logger.info(f"  Phase 3.5: {pending} 个待处理样本将在下次训练中使用")
-        return {"status": "ok", "pending_samples": pending}
+
+        logger.info(f"  Phase 3.5: 蒸馏 {distilled} 条记忆, {pending} 个待处理样本")
+        if distilled > 0:
+            report.recommendations.append(
+                f"[知识蒸馏] {distilled} 条长期记忆转化为训练数据"
+            )
+        return {"status": "ok", "distilled": distilled, "pending_samples": pending}
 
     def _sleep_phase_evaluation(self, report: SleepReport) -> dict:
         """Phase 4: 清醒准备 — 自我评估。
