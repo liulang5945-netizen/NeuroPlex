@@ -192,11 +192,30 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 | zh_aug2 solo | 182.1 | 百科数据训练，simple_zh 上表现中等 |
 | zh_aug0 solo | 205.9 | 全量数据训练，simple_zh 上过拟合 |
 | zh_aug3 solo | 248.1 | 故事数据训练，simple_zh 上最弱 |
-| **协作 PPL（训练前）** | **155.7** | 已 < 最强个体 157.7（EMERGE 出现） |
-| **协作 PPL（训练后 step 350）** | **131-134** | side_channels 微调进一步降低 16% |
+| **协作 PPL（训练前）** | **158.3** | 已 < 最强个体 175.3（EMERGE 出现） |
+| **协作 PPL（v1 step 350）** | **131-134** | 乘性门控 + Muon 优化器，PPL 停滞 |
+| **协作 PPL（v2 step 300）** | **124.9** | 突破停滞！post-norm + scale + bias |
 
-**结论**：EMERGE 现象已确认。协作 PPL (131) 比最强个体 solo PPL (157.7) 低 17%。
-side_channels 微调有效，将协作 PPL 从 155.7 → 131（降幅 16%）。
+**结论**：EMERGE 现象已确认。v2 修复后协作 PPL (124.9) 比最强个体 solo PPL (175.3) 低 29%。
+
+#### v1 → v2 突破：side_channels 架构修复（2026-07-28）
+
+v1 PPL 在 131-134 停滞 6 个数据点。诊断发现**所有 12 条通道都是"死"的**：
+- gate_deviation = 0.014（gate ≈ 1.0，无调制效果）
+- proj_mean = 0.008（每维度投影值极小）
+- gate_range = [0.944, 1.064]（仅 ±6% 调制）
+
+**三个根因及修复**：
+
+1. **side_channels 在 RMSNorm 之前应用** → norm 抵消乘性调制
+   - 修复：移到 norm 之后，调制直接作用于 logits 输入
+2. **投影值太小** → tanh(0.008) ≈ 0.008，gate 几乎等于 1.0
+   - 修复：添加可学习 scale 参数（init=50），proj×50 → tanh(0.4) ≈ 0.38
+3. **无动态平衡机制** → 部分 channel 可能一直弱
+   - 修复：实现 Auxiliary-loss-free balancing（借鉴 DeepSeek V3）
+   - 启发式 bias 更新：低利用率 channel 获得正 bias，不通过梯度
+
+**v2 PPL 趋势**：158.3 → 144.7 → 133.1 → **128.9** → 128.0 → 127.3 → **124.9**（持续下降）
 
 #### 根因分析：solo_ppl "异常高"的误解
 
@@ -216,14 +235,15 @@ side_channels 微调有效，将协作 PPL 从 155.7 → 131（降幅 16%）。
 | 训练数据 | simple_zh 10000 条 |
 | epochs | 6 |
 | batch_size | 4 |
-| lr | 1e-3（Muon 优化器） |
-| 可训练参数 | 12.58M（仅 side_channels，神经元核心冻结） |
-| 协作机制 | 12 条 excite 通道（4×3 双向），乘性门控调制 |
+| lr | 1e-3（Muon + AdamW 混合优化器） |
+| 可训练参数 | 12.58M（side_channels 2D） + 12（scale 0D） |
+| 协作机制 | 12 条 excite 通道，post-norm 乘性门控，scale 放大 |
 | field_conditioning | False（跳过未训练的 field_read_layers） |
+| Auxiliary-loss-free balancing | 启发式 bias 更新，每 50 步 |
 | LR 调度 | warmup 100 步 + cosine decay（最后 20%） |
 | 工程 | 日志 tee + 每 epoch checkpoint + 断点续训 |
 
-**当前日志**：`logs/finetune_side_channels_20260728_121657.log`
+**当前日志**：`logs/finetune_side_channels_20260728_131347.log`
 **脚本**：`scripts/training/finetune_side_channels.py`
 
 ### 0.5 Playbook 合规状态（side_channels 微调）
@@ -233,13 +253,13 @@ side_channels 微调有效，将协作 PPL 从 155.7 → 131（降幅 16%）。
 | 1 | 数据/参数比 | >= 20:1 | 10000*~200tokens/12.58M = 159:1 | ✅ |
 | 2 | 数据复杂度匹配 | simple_zh 级别 | simple_zh 小学水平 | ✅ |
 | 3 | batch_size | >= 32 | 4（CPU 限制） | ⚠️ 偏小 |
-| 4 | warmup | 100-2000 步 | 无（lr 恒定） | ❌ 待加 |
-| 5 | decay | 最后 10-20% | 无（lr 恒定） | ❌ 待加 |
+| 4 | warmup | 100-2000 步 | 100 步线性 warmup | ✅ |
+| 5 | decay | 最后 10-20% | 最后 20% cosine decay | ✅ |
 | 6 | 工程保障 | 日志+checkpoint+续训 | 已实现 | ✅ |
 | 7 | 评估用 PPL + 生成质量 | 双指标 | eval_aug_joint.py | ✅ |
 | 8 | 保存 best checkpoint | best loss | 每 epoch 保存 | ✅ |
 
-**合规判断**：数据/参数比充足（159:1），但 lr 调度缺失。如 PPL 在 114 上方停滞，需加 warmup+decay。
+**合规判断**：全部条目已满足（batch_size 偏小受 CPU 限制）。PPL 已突破 v1 停滞区间。
 
 ---
 
