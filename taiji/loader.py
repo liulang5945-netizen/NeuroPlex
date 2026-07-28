@@ -402,6 +402,100 @@ def assemble_cortex(
     except Exception as e:
         logger.warning("[assemble_cortex] LifeScheduler 接线失败（非致命）: %s", e)
 
+    # Step 9.2: 接线玩耍引擎（PlayEngine → cortex + coactivation）
+    # 修复：play_engine.set_brain_interfaces 全库零调用，
+    # 导致 play→CoactivationTracker 强化链路完全断开。
+    try:
+        from taiji.life.play_engine import get_play_engine
+        from taiji.resonance.tribal import CoactivationTracker
+        coactivation = CoactivationTracker()
+        play_engine = get_play_engine()
+        play_engine.set_brain_interfaces(
+            cortex=cortex,
+            coactivation=coactivation,
+            sleep_consolidator=modules.get("sleep_consolidator"),
+        )
+        modules["coactivation"] = coactivation
+        modules["play_engine"] = play_engine
+        logger.info("[assemble_cortex] PlayEngine wired to Cortex (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] PlayEngine 接线失败（非致命）: %s", e)
+
+    # Step 9.3: 接线进化引擎（EvolutionEngine → cortex + lifecycle）
+    # 修复：evolution_engine.set_brain_interfaces 全库零调用，
+    # 导致阶段升级→neurogenesis 信号链路断开。
+    try:
+        from taiji.life.evolution_engine import get_evolution_engine
+        from taiji.life.feed_engine import get_feed_engine
+        evolution_engine = get_evolution_engine()
+        evolution_engine.set_brain_interfaces(
+            cortex=cortex,
+            lifecycle=modules.get("lifecycle"),
+            feed_engine=get_feed_engine(),
+        )
+        modules["evolution_engine"] = evolution_engine
+        logger.info("[assemble_cortex] EvolutionEngine wired to Cortex (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] EvolutionEngine 接线失败（非致命）: %s", e)
+
+    # Step 9.4: 接线 limbs（代码执行结果 → feed_engine 训练样本）
+    # 修复：limbs.set_feed_engine 全库零调用，
+    # 导致工具执行结果喂不进训练数据。
+    try:
+        from taiji.body.limbs import set_feed_engine as limbs_set_feed_engine
+        from taiji.life.feed_engine import get_feed_engine
+        limbs_set_feed_engine(get_feed_engine())
+        logger.info("[assemble_cortex] limbs.set_feed_engine wired (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] limbs 接线失败（非致命）: %s", e)
+
+    # Step 9.5: 实例化 Agent 认知系统 + 接线
+    # 修复：PerceptionSystem/PlannerSystem/ReflectorSystem/MemorySystem
+    # 从未被实例化，Agent 五元闭环全死代码。
+    try:
+        from taiji.agent.perception import PerceptionSystem
+        from taiji.agent.planner import PlannerSystem
+        from taiji.agent.reflector import ReflectorSystem
+        from taiji.agent.memory import MemorySystem
+        from taiji.life.feed_engine import get_feed_engine
+
+        perception = PerceptionSystem(tokenizer=tokenizer)
+        planner = PlannerSystem()
+        reflector = ReflectorSystem()
+        memory_system = MemorySystem()
+
+        # PlannerSystem 接线（规划结果反馈学习）
+        planner.set_brain_interfaces(
+            feed_engine=get_feed_engine(),
+            neuromodulator=modules.get("neuromodulator"),
+            lifecycle=modules.get("lifecycle"),
+        )
+
+        modules["perception"] = perception
+        modules["planner"] = planner
+        modules["reflector"] = reflector
+        modules["memory_system"] = memory_system
+        logger.info("[assemble_cortex] Agent Systems 实例化 + 接线 (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] Agent Systems 接线失败（非致命）: %s", e)
+
+    # Step 9.6: 接线 ContextManager（记忆系统注入）
+    # 修复：ContextManager 的 set_working_memory/set_memory_system/set_semantic_memory
+    # 从未被调用，三个记忆子系统全部悬空。
+    # 同时设置持久化路径，让长期记忆跨会话保留。
+    try:
+        from taiji.agent.context_manager import get_context_manager
+        from taiji.agent.working_memory import get_working_memory
+        cm = get_context_manager()
+        wm = get_working_memory()
+        cm.set_working_memory(wm)
+        if "memory_system" in modules:
+            cm.set_memory_system(modules["memory_system"])
+        cm.set_persistent_path("data/agent_memory.json")
+        logger.info("[assemble_cortex] ContextManager wired with memory systems (闭环)")
+    except Exception as e:
+        logger.warning("[assemble_cortex] ContextManager 接线失败（非致命）: %s", e)
+
     # Step 10: P8 多模态默认启用 — 加载图像/音频/视频编解码器
     # checkpoint 不存在时跳过（非致命，保持向后兼容）
     # 注册到 TokenizerHub + 为所有 neuron 注册模态投影层
