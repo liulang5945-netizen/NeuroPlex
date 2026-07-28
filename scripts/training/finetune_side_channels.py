@@ -83,7 +83,7 @@ class TeeLogger:
         self.fp.close()
 
 
-def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history):
+def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history, adamw_optimizer=None, scheduler=None):
     """保存训练 checkpoint，支持断点续训。"""
     side_state = {}
     for nid, neuron in neurons.items():
@@ -91,20 +91,22 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history):
             "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
             "inhibit": {pid: ch.state_dict() for pid, ch in neuron.inhibit_channels.items()},
         }
-    torch.save(
-        {
-            "epoch": epoch,
-            "total_steps": total_steps,
-            "optimizer_state": optimizer.state_dict(),
-            "side_channels_state": side_state,
-            "loss_history": loss_history,
-            "saved_at": datetime.now().isoformat(),
-        },
-        path,
-    )
+    ckpt = {
+        "epoch": epoch,
+        "total_steps": total_steps,
+        "optimizer_state": optimizer.state_dict(),
+        "side_channels_state": side_state,
+        "loss_history": loss_history,
+        "saved_at": datetime.now().isoformat(),
+    }
+    if adamw_optimizer is not None:
+        ckpt["adamw_optimizer_state"] = adamw_optimizer.state_dict()
+    if scheduler is not None:
+        ckpt["scheduler_state"] = scheduler.state_dict()
+    torch.save(ckpt, path)
 
 
-def load_checkpoint(path, optimizer, neurons):
+def load_checkpoint(path, optimizer, neurons, adamw_optimizer=None, scheduler=None):
     """加载 checkpoint，恢复 side_channels、optimizer、训练进度。"""
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
     side_state = ckpt["side_channels_state"]
@@ -118,16 +120,23 @@ def load_checkpoint(path, optimizer, neurons):
             if pid in neuron.inhibit_channels:
                 neuron.inhibit_channels[pid].load_state_dict(ch_state)
     optimizer.load_state_dict(ckpt["optimizer_state"])
+    if adamw_optimizer is not None and "adamw_optimizer_state" in ckpt:
+        adamw_optimizer.load_state_dict(ckpt["adamw_optimizer_state"])
+    if scheduler is not None and "scheduler_state" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler_state"])
     return ckpt["epoch"], ckpt["total_steps"], ckpt.get("loss_history", [])
 
 
-def load_neuron_with_embedding(nid, cfg):
+def load_neuron_with_embedding(nid, cfg, debug=False):
     """加载单个神经元及其 shared_embedding。"""
     path = os.path.join(OUTPUT_DIR, f"neuron_{nid}.pt")
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
 
     neuron = ResonanceNeuron(cfg).to(DEVICE)
-    neuron.load_state_dict(ckpt["state_dict"], strict=False)
+    missing, unexpected = neuron.load_state_dict(ckpt["state_dict"], strict=False)
+    if debug and (missing or unexpected):
+        print(f"  [{nid}] missing keys: {missing[:5]}{'...' if len(missing)>5 else ''}", flush=True)
+        print(f"  [{nid}] unexpected keys: {unexpected[:5]}{'...' if len(unexpected)>5 else ''}", flush=True)
 
     shared_emb = nn.Embedding(256000, 512)
     if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
@@ -222,16 +231,65 @@ def main():
 
     # 7. 训练循环
     print("\n[5] 开始训练 side_channels...", flush=True)
-    side_params = []
+    # Muon + AdamW 混合优化器（借鉴 DeepSeek V4 / GLM-5.2）
+    # - 2D 权重矩阵（Linear weight）用 Muon：Newton-Schulz 正交化突破 Adam 局部最小值
+    # - 1D 参数（bias/LayerNorm）用 AdamW：Muon 仅适用于 2D
+    muon_params = []   # 2D weight
+    adamw_params = []  # 1D bias/norm
     for nid, neuron in neurons.items():
         for ch in neuron.excite_channels.values():
-            side_params.extend(ch.parameters())
+            for p in ch.parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim == 2:
+                    muon_params.append(p)
+                else:
+                    adamw_params.append(p)
         for ch in neuron.inhibit_channels.values():
-            side_params.extend(ch.parameters())
-    optimizer = torch.optim.Adam(side_params, lr=args.lr)
+            for p in ch.parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim == 2:
+                    muon_params.append(p)
+                else:
+                    adamw_params.append(p)
 
+    from torch.optim import Muon
+    # Muon 学习率：side_channels 是 12.58M 小参数，lr 不宜过大。
+    # 之前 lr=0.01 (args.lr*10) 导致 step 150 后 PPL 反弹震荡，降为 args.lr=1e-3。
+    muon_lr = args.lr
+    optimizer = Muon(
+        muon_params, lr=muon_lr, momentum=0.95,
+        nesterov=True, ns_steps=5,
+    )
+    # 1D 参数用 AdamW（side_channels 用 bias=False，可能无 1D 参数）
+    adamw_lr = args.lr
+    if len(adamw_params) > 0:
+        adamw_optimizer = torch.optim.AdamW(adamw_params, lr=adamw_lr, weight_decay=0.01)
+        print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
+        print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/norm, lr={adamw_lr})", flush=True)
+    else:
+        adamw_optimizer = None
+        print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
+        print(f"  AdamW 参数: 0 (side_channels bias=False，无 1D 参数，仅用 Muon)", flush=True)
+
+    # 学习率调度：warmup(100步线性) + cosine decay(最后20%衰减到 lr*0.1)
+    # 修复 Playbook #4(warmup) 和 #5(decay) 合规项
     NUM_EPOCHS = args.epochs
     BATCH_SIZE = args.batch_size
+    total_est_steps = NUM_EPOCHS * ((len(texts) - BATCH_SIZE) // BATCH_SIZE)
+    warmup_steps = 100
+    decay_start = int(total_est_steps * 0.8)
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps  # 线性 warmup
+        if step >= decay_start:
+            progress = (step - decay_start) / max(total_est_steps - decay_start, 1)
+            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))  # cosine 到 0.1
+        return 1.0
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    print(f"  LR 调度: warmup={warmup_steps}步, decay 从 {decay_start}/{total_est_steps} 步开始", flush=True)
+
     LOG_EVERY = 50
 
     total_steps = 0
@@ -242,7 +300,7 @@ def main():
     if args.resume and os.path.exists(CKPT_PATH):
         print(f"\n[resume] 加载 checkpoint: {CKPT_PATH}", flush=True)
         start_epoch, total_steps, loss_history = load_checkpoint(
-            CKPT_PATH, optimizer, neurons,
+            CKPT_PATH, optimizer, neurons, adamw_optimizer, scheduler,
         )
         # start_epoch 是上次完成的 epoch 编号，从下一个开始
         print(f"  已恢复: epoch={start_epoch} (从 epoch {start_epoch+1} 继续), "
@@ -277,12 +335,51 @@ def main():
                     mask = msk.to(DEVICE)
 
             optimizer.zero_grad()
+            if adamw_optimizer is not None:
+                adamw_optimizer.zero_grad()
 
             result = ensemble.forward(
                 neuron_embeddings=neuron_embeddings,
                 return_logits=True,
                 fusion_mode="soft",
+                field_conditioning=False,  # 跳过 field_read_layers（独立训练时未训练，引入噪声）
             )
+
+            # Debug: 首次 forward 打印 fusion 权重和各神经元单独 PPL
+            if total_steps == 0 and "neuron_logits" in result:
+                print("\n  [debug] Fusion 权重和各神经元单独 PPL:", flush=True)
+                if "final_weights" in result:
+                    for nid, w in result["final_weights"].items():
+                        print(f"    {nid}: fusion_weight={w:.4f}", flush=True)
+                # 计算各神经元单独 PPL
+                for nid, logits in result["neuron_logits"].items():
+                    shift_l = logits[:, :-1, :].contiguous()
+                    shift_t = targets[:, 1:].contiguous()
+                    shift_m = mask[:, 1:].contiguous()
+                    shift_t = shift_t.clone()
+                    shift_t[~shift_m] = -100
+                    n_tok = shift_m.sum().item()
+                    if n_tok > 0:
+                        loss_nid = F.cross_entropy(
+                            shift_l.view(-1, shift_l.size(-1)),
+                            shift_t.view(-1),
+                            ignore_index=-100,
+                            reduction="sum",
+                        ) / n_tok
+                        print(f"    {nid}: solo_ppl={math.exp(min(loss_nid.item(), 20)):.1f}", flush=True)
+                # 协作 PPL
+                if "weighted_logits" in result:
+                    fused = result["weighted_logits"]
+                    shift_l = fused[:, :-1, :].contiguous()
+                    loss_fused = F.cross_entropy(
+                        shift_l.view(-1, shift_l.size(-1)),
+                        shift_t.view(-1),
+                        ignore_index=-100,
+                        reduction="sum",
+                    ) / max(n_tok, 1)
+                    print(f"    协作 PPL={math.exp(min(loss_fused.item(), 20)):.1f}", flush=True)
+                print(f"    n_rounds={result.get('n_rounds', '?')}", flush=True)
+                print()
 
             if "weighted_logits" not in result:
                 valid = False
@@ -294,7 +391,6 @@ def main():
                 shift_mask = mask[:, 1:].contiguous()
                 shift_targets = shift_targets.clone()
                 shift_targets[~shift_mask] = -100
-
                 loss = F.cross_entropy(
                     shift_logits.view(-1, shift_logits.size(-1)),
                     shift_targets.view(-1),
@@ -306,6 +402,9 @@ def main():
 
                 loss.backward()
                 optimizer.step()
+                if adamw_optimizer is not None:
+                    adamw_optimizer.step()
+                scheduler.step()
 
                 epoch_loss += loss.item() * n_tokens
                 epoch_tokens += n_tokens
@@ -337,7 +436,7 @@ def main():
               f"耗时 {epoch_elapsed/60:.1f} min", flush=True)
 
         # 每 epoch 保存 checkpoint（断点续训用，含 optimizer state）
-        save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons, loss_history)
+        save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons, loss_history, adamw_optimizer, scheduler)
         print(f"  [checkpoint 已保存] {CKPT_PATH}", flush=True)
 
         # 同步保存最终产物（纯 side_state 格式，下游 eval 直接加载）

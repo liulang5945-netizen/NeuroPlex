@@ -407,7 +407,7 @@ class ResonanceNeuron(nn.Module):
         # ── Step 3: Side-channel modulation (per-pair synaptic projection) ──
         # side_signals: {peer_id: peer_field_vector [B, peer_field_dim]}
         # 通过 excite/inhibit_channels 把 peer 的 field_vector 投影到本神经元 hidden 空间，
-        # 以残差方式调制 h。
+        # 以乘性 gate 调制 h（加性调制会被 LayerNorm 抵消，乘性不会）。
         if side_signals:
             excite_sum = None
             inhibit_sum = None
@@ -419,13 +419,14 @@ class ResonanceNeuron(nn.Module):
                     proj = self.inhibit_channels[peer_id](sig)
                     inhibit_sum = proj if inhibit_sum is None else inhibit_sum + proj
 
-            side_mod = torch.zeros_like(h)
+            # 乘性调制：gate = 1 + tanh(proj)，初始 ≈ 1.0（不改变基线）
+            # excite 增强维度（gate > 1），inhibit 抑制维度（gate < 1）
             if excite_sum is not None:
-                side_mod = side_mod + excite_sum.unsqueeze(1) * 0.1
+                gate = 1.0 + torch.tanh(excite_sum.unsqueeze(1))  # [B, L, hidden]
+                h = h * gate
             if inhibit_sum is not None:
-                side_mod = side_mod - inhibit_sum.unsqueeze(1) * 0.1
-
-            h = h + side_mod
+                gate = 1.0 - torch.tanh(inhibit_sum.unsqueeze(1))  # [B, L, hidden]
+                h = h * gate
 
         # ── Step 4: Final norm ──
         h = self.norm(h)

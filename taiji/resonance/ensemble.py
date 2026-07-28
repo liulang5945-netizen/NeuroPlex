@@ -261,6 +261,7 @@ class ResonanceEnsemble:
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         mm_logits_modality: Optional[str] = None,
         fusion_mode: str = "per_position",
+        field_conditioning: bool = True,
     ) -> Dict:
         """Run the full resonance loop.
 
@@ -472,7 +473,7 @@ class ResonanceEnsemble:
             round_vecs, round_logits = self._parallel_forward(
                 active_ids,
                 shared_embeddings,
-                field_state=self.field.get_normalised_state(),
+                field_state=self.field.get_normalised_state() if field_conditioning else None,
                 round_num=round_num,
                 return_logits_filter=round2_logits_filter,
                 neuron_embeddings=neuron_embeddings,
@@ -876,17 +877,12 @@ class ResonanceEnsemble:
         confidence = 1.0 / (ent_stack + 1e-8)  # [N, B, L]
         position_weights = F.softmax(confidence * 3.0, dim=0)  # [N, B, L]
 
-        # H5: lift neurons the field actually resonated with. final_scores
-        # are the last round's leave-one-out resonance scores in [0,1]; map
-        # them to a multiplicative boost in [1,2] so the field's verdict
-        # survives into per-position routing instead of being washed out
-        # by the per-token softmax.
-        final_scores = self.round_scores[-1] if self.round_scores else scores
-        score_vals = torch.tensor(
-            [float(final_scores.get(nid, 0.0)) for nid in neuron_ids],
-            device=ref.device,
-        )
-        position_weights = position_weights * (1.0 + score_vals).unsqueeze(-1).unsqueeze(-1)
+        # H5 (disabled 2026-07-28): resonance score boost removed for independent-embedding
+        # neurons. field.score() compares field vectors across different embedding spaces,
+        # causing score inversion (worst-PPL neuron gets highest score). Per-position routing
+        # now relies purely on logits quality (entropy + prediction_complementarity below),
+        # which is embedding-space-agnostic and aligns with project_memory constraint:
+        # "Ensemble collaboration must use logits fusion instead of field space residual".
 
         # H6: reward neurons that correct the others' mistakes. This
         # replaces the legacy geometric orthogonality term (kept on the
