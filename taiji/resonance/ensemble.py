@@ -80,6 +80,14 @@ class ResonanceEnsemble:
         self.round_scores: List[Dict[str, float]] = []
         self.n_active_history: List[int] = []
 
+        # ── Auxiliary-loss-free balancing ──
+        # 每条 side_channel 的利用率统计（EMA），用于启发式 bias 更新
+        # 低利用率的 channel 获得正 bias，增强其调制效果
+        self._channel_usage: Dict[str, float] = {}  # "post->pre" -> EMA usage score
+        self._channel_usage_ema_alpha = 0.99
+        self._balancing_update_interval = 50  # 每 50 步更新一次 bias
+        self._step_count = 0
+
     def _init_geometry(self) -> None:
         """初始化 NeuronGeometry：按域分组分配坐标，注册到 coaction。"""
         from collections import defaultdict
@@ -98,6 +106,73 @@ class ResonanceEnsemble:
         # 注册到 coaction tracker（RSGN 距离先验自动生效）
         if self.coaction is not None and hasattr(self.coaction, "register_geometry"):
             self.coaction.register_geometry(self.geometry)
+
+    def _update_channel_usage(self, side_signals_per_neuron, round_vecs):
+        """更新 side_channel 利用率统计（EMA）。
+
+        每条 channel 的利用率 = proj 输出范数（越大说明信号越强）。
+        低利用率的 channel 在 bias 更新时获得正偏置。
+        """
+        if side_signals_per_neuron is None:
+            return
+        with torch.no_grad():
+            for post_id, signals in side_signals_per_neuron.items():
+                post_neuron = self.neurons[post_id]
+                for pre_id, sig in signals.items():
+                    key = f"{post_id}->{pre_id}"
+                    # 计算 proj 范数作为利用率指标
+                    if pre_id in post_neuron.excite_channels:
+                        proj = post_neuron.excite_channels[pre_id](sig)
+                        usage = proj.norm().item()
+                    elif pre_id in post_neuron.inhibit_channels:
+                        proj = post_neuron.inhibit_channels[pre_id](sig)
+                        usage = proj.norm().item()
+                    else:
+                        continue
+                    # EMA 更新
+                    if key in self._channel_usage:
+                        alpha = self._channel_usage_ema_alpha
+                        self._channel_usage[key] = alpha * self._channel_usage[key] + (1 - alpha) * usage
+                    else:
+                        self._channel_usage[key] = usage
+
+    def _update_channel_biases(self):
+        """Auxiliary-loss-free balancing: 启发式更新 channel bias。
+
+        低利用率的 channel 获得正 bias，增强其调制效果。
+        高利用率的 channel bias 衰减到 0。
+        不通过梯度更新，避免污染主损失。
+        """
+        if not self._channel_usage:
+            return
+        # 计算平均利用率
+        avg_usage = sum(self._channel_usage.values()) / len(self._channel_usage)
+        if avg_usage < 1e-8:
+            return
+
+        with torch.no_grad():
+            for key, usage in self._channel_usage.items():
+                post_id, pre_id = key.split("->")
+                post_neuron = self.neurons[post_id]
+                # 低利用率 → 正 bias（增强），高利用率 → bias 衰减
+                ratio = usage / avg_usage  # <1 说明低利用率
+                if ratio < 0.5:
+                    # 严重低利用率，增加 bias
+                    bias_delta = 0.1 * (1.0 - ratio)
+                elif ratio > 1.5:
+                    # 高利用率，衰减 bias
+                    bias_delta = -0.05
+                else:
+                    # 正常范围，轻微调整
+                    bias_delta = 0.0
+
+                # 更新 excite bias
+                bias_attr = f"excite_bias_{pre_id}"
+                if hasattr(post_neuron, bias_attr):
+                    bias_buf = getattr(post_neuron, bias_attr)
+                    bias_buf.add_(bias_delta)
+                    # 限制 bias 范围 [-1.0, 2.0]
+                    bias_buf.clamp_(-1.0, 2.0)
 
     def add_neuron(self, nid: str, neuron: ResonanceNeuron, from_split: Optional[str] = None) -> None:
         """运行时添加新神经元到 ensemble（neurogenesis 入口）。
@@ -461,6 +536,12 @@ class ResonanceEnsemble:
                     if (pre_id in post_neuron.excite_channels or
                             pre_id in post_neuron.inhibit_channels):
                         side_signals_per_neuron[post_id][pre_id] = round_vecs[pre_id]
+
+            # Auxiliary-loss-free balancing: 更新 channel 利用率统计
+            self._update_channel_usage(side_signals_per_neuron, round_vecs)
+            self._step_count += 1
+            if self._step_count % self._balancing_update_interval == 0:
+                self._update_channel_biases()
 
         # ── Rounds 2+: conditioned resonance ──
         for round_num in range(2, self.max_rounds + 1):

@@ -86,16 +86,27 @@ class TeeLogger:
 def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history, adamw_optimizer=None, scheduler=None):
     """保存训练 checkpoint，支持断点续训。"""
     side_state = {}
+    scale_bias_state = {}
     for nid, neuron in neurons.items():
         side_state[nid] = {
             "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
             "inhibit": {pid: ch.state_dict() for pid, ch in neuron.inhibit_channels.items()},
         }
+        # 保存 scale 和 bias 参数
+        sb = {}
+        for name, p in neuron.named_parameters():
+            if "scale_" in name:
+                sb[name] = p.data.clone()
+        for name, buf in neuron.named_buffers():
+            if "bias_" in name:
+                sb[name] = buf.clone()
+        scale_bias_state[nid] = sb
     ckpt = {
         "epoch": epoch,
         "total_steps": total_steps,
         "optimizer_state": optimizer.state_dict(),
         "side_channels_state": side_state,
+        "scale_bias_state": scale_bias_state,
         "loss_history": loss_history,
         "saved_at": datetime.now().isoformat(),
     }
@@ -107,9 +118,10 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history, 
 
 
 def load_checkpoint(path, optimizer, neurons, adamw_optimizer=None, scheduler=None):
-    """加载 checkpoint，恢复 side_channels、optimizer、训练进度。"""
+    """加载 checkpoint，恢复 side_channels、scale/bias、optimizer、训练进度。"""
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
     side_state = ckpt["side_channels_state"]
+    scale_bias_state = ckpt.get("scale_bias_state", {})
     for nid, neuron in neurons.items():
         if nid not in side_state:
             continue
@@ -119,6 +131,15 @@ def load_checkpoint(path, optimizer, neurons, adamw_optimizer=None, scheduler=No
         for pid, ch_state in side_state[nid].get("inhibit", {}).items():
             if pid in neuron.inhibit_channels:
                 neuron.inhibit_channels[pid].load_state_dict(ch_state)
+        # 恢复 scale 和 bias 参数
+        if nid in scale_bias_state:
+            sb = scale_bias_state[nid]
+            for name, p in neuron.named_parameters():
+                if name in sb and "scale_" in name:
+                    p.data.copy_(sb[name])
+            for name, buf in neuron.named_buffers():
+                if name in sb and "bias_" in name:
+                    buf.copy_(sb[name])
     optimizer.load_state_dict(ckpt["optimizer_state"])
     if adamw_optimizer is not None and "adamw_optimizer_state" in ckpt:
         adamw_optimizer.load_state_dict(ckpt["adamw_optimizer_state"])
@@ -194,7 +215,7 @@ def main():
             neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
         print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite channels", flush=True)
 
-    # 4. 冻结核心参数，仅 side_channels 可训练
+    # 4. 冻结核心参数，仅 side_channels + scale 可训练
     print("\n[3] 冻结核心参数...", flush=True)
     for nid, neuron in neurons.items():
         for p in neuron.parameters():
@@ -204,6 +225,10 @@ def main():
                 p.requires_grad = True
         for ch in neuron.inhibit_channels.values():
             for p in ch.parameters():
+                p.requires_grad = True
+        # scale 参数可训练（Auxiliary-loss-free balancing 的可学习部分）
+        for name, p in neuron.named_parameters():
+            if "scale_" in name:
                 p.requires_grad = True
         neuron.train()
 
@@ -234,8 +259,9 @@ def main():
     # Muon + AdamW 混合优化器（借鉴 DeepSeek V4 / GLM-5.2）
     # - 2D 权重矩阵（Linear weight）用 Muon：Newton-Schulz 正交化突破 Adam 局部最小值
     # - 1D 参数（bias/LayerNorm）用 AdamW：Muon 仅适用于 2D
+    # - scale 参数（0D scalar）用 AdamW
     muon_params = []   # 2D weight
-    adamw_params = []  # 1D bias/norm
+    adamw_params = []  # 1D bias/norm + 0D scale
     for nid, neuron in neurons.items():
         for ch in neuron.excite_channels.values():
             for p in ch.parameters():
@@ -253,6 +279,12 @@ def main():
                     muon_params.append(p)
                 else:
                     adamw_params.append(p)
+        # scale 参数（0D scalar，可学习）
+        for name, p in neuron.named_parameters():
+            if not p.requires_grad:
+                continue
+            if "scale_" in name and p.ndim == 0:
+                adamw_params.append(p)
 
     from torch.optim import Muon
     # Muon 学习率：side_channels 是 12.58M 小参数，lr 不宜过大。
@@ -262,16 +294,16 @@ def main():
         muon_params, lr=muon_lr, momentum=0.95,
         nesterov=True, ns_steps=5,
     )
-    # 1D 参数用 AdamW（side_channels 用 bias=False，可能无 1D 参数）
+    # 1D/0D 参数用 AdamW（scale 参数需要 AdamW 优化）
     adamw_lr = args.lr
     if len(adamw_params) > 0:
         adamw_optimizer = torch.optim.AdamW(adamw_params, lr=adamw_lr, weight_decay=0.01)
         print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
-        print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/norm, lr={adamw_lr})", flush=True)
+        print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/scale, lr={adamw_lr})", flush=True)
     else:
         adamw_optimizer = None
         print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
-        print(f"  AdamW 参数: 0 (side_channels bias=False，无 1D 参数，仅用 Muon)", flush=True)
+        print(f"  AdamW 参数: 0 (无 1D 参数)", flush=True)
 
     # 学习率调度：warmup(100步线性) + cosine decay(最后20%衰减到 lr*0.1)
     # 修复 Playbook #4(warmup) 和 #5(decay) 合规项

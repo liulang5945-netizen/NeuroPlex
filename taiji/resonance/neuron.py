@@ -159,6 +159,7 @@ class ResonanceNeuron(nn.Module):
         peer_neuron: "ResonanceNeuron",
         channel_type: str = "excite",
         init_std: float = 0.01,
+        init_scale: float = 50.0,
     ):
         """建立一条指向 peer 神经元的突触通道。
 
@@ -167,6 +168,8 @@ class ResonanceNeuron(nn.Module):
             peer_neuron: peer 神经元实例，用于读取其 field_dim。
             channel_type: "excite" 或 "inhibit"。
             init_std: 通道权重初始化标准差。
+            init_scale: 可学习缩放因子初始值（放大 proj 信号使 tanh 饱和）。
+                        proj_mean ≈ 0.008，scale=50 → tanh(0.4) ≈ 0.38（有效调制）。
         """
         src_dim = peer_neuron.config.field_dim
         dst_dim = self.config.hidden_size
@@ -179,6 +182,21 @@ class ResonanceNeuron(nn.Module):
             self.inhibit_channels[peer_id] = channel
         else:
             raise ValueError(f"Unknown channel_type: {channel_type}")
+
+        # 可学习缩放因子（放大 proj 信号使 tanh 产生有效 gate）
+        scale_param = nn.Parameter(torch.tensor(init_scale))
+        if channel_type == "excite":
+            self.register_parameter(f"excite_scale_{peer_id}", scale_param)
+        else:
+            self.register_parameter(f"inhibit_scale_{peer_id}", scale_param)
+
+        # Auxiliary-loss-free balancing bias（非梯度更新，启发式驱动）
+        # 低利用率的通道获得正 bias，增强其调制效果
+        bias_buf = torch.zeros(1)
+        if channel_type == "excite":
+            self.register_buffer(f"excite_bias_{peer_id}", bias_buf)
+        else:
+            self.register_buffer(f"inhibit_bias_{peer_id}", bias_buf)
 
     def compute_logits(self, h: torch.Tensor) -> torch.Tensor:
         """计算 logits。
@@ -404,32 +422,43 @@ class ResonanceNeuron(nn.Module):
                     gate = torch.sigmoid(self.field_read_gate(h))  # [B, L, 1]
                     h = h + gate * conditioning
 
-        # ── Step 3: Side-channel modulation (per-pair synaptic projection) ──
+        # ── Step 3: Final norm ──
+        # side_channels 移到 norm 之后，避免 RMSNorm 抵消乘性调制
+        h = self.norm(h)
+
+        # ── Step 4: Side-channel modulation (after norm, directly affects logits) ──
         # side_signals: {peer_id: peer_field_vector [B, peer_field_dim]}
         # 通过 excite/inhibit_channels 把 peer 的 field_vector 投影到本神经元 hidden 空间，
-        # 以乘性 gate 调制 h（加性调制会被 LayerNorm 抵消，乘性不会）。
+        # 以乘性 gate 调制 h（移到 norm 后，避免被 RMSNorm 抵消）。
+        # Auxiliary-loss-free balancing: 每条 channel 有可学习 scale + 启发式 bias
         if side_signals:
             excite_sum = None
             inhibit_sum = None
             for peer_id, sig in side_signals.items():
                 if peer_id in self.excite_channels:
                     proj = self.excite_channels[peer_id](sig)  # [B, hidden_size]
+                    # 可学习缩放因子 + 启发式 bias（Auxiliary-loss-free balancing）
+                    scale = getattr(self, f"excite_scale_{peer_id}", None)
+                    bias = getattr(self, f"excite_bias_{peer_id}", None)
+                    if scale is not None:
+                        proj = proj * scale + (bias if bias is not None else 0.0)
                     excite_sum = proj if excite_sum is None else excite_sum + proj
                 if peer_id in self.inhibit_channels:
                     proj = self.inhibit_channels[peer_id](sig)
+                    scale = getattr(self, f"inhibit_scale_{peer_id}", None)
+                    bias = getattr(self, f"inhibit_bias_{peer_id}", None)
+                    if scale is not None:
+                        proj = proj * scale + (bias if bias is not None else 0.0)
                     inhibit_sum = proj if inhibit_sum is None else inhibit_sum + proj
 
-            # 乘性调制：gate = 1 + tanh(proj)，初始 ≈ 1.0（不改变基线）
-            # excite 增强维度（gate > 1），inhibit 抑制维度（gate < 1）
+            # 乘性调制：gate = 1 + tanh(proj * scale + bias)
+            # scale=50 使 proj_mean=0.008 → 0.4，tanh(0.4)≈0.38（有效调制）
             if excite_sum is not None:
                 gate = 1.0 + torch.tanh(excite_sum.unsqueeze(1))  # [B, L, hidden]
                 h = h * gate
             if inhibit_sum is not None:
                 gate = 1.0 - torch.tanh(inhibit_sum.unsqueeze(1))  # [B, L, hidden]
                 h = h * gate
-
-        # ── Step 4: Final norm ──
-        h = self.norm(h)
 
         # ── Step 5: Field write ──
         # P0#3: 不再对抑制性神经元取反（v=-v）。
