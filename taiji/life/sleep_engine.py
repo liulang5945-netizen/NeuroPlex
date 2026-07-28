@@ -1585,6 +1585,25 @@ class SleepEngine:
                                 )
                             except Exception as ce:
                                 logger.warning(f"  凋亡清理失败 {nid}: {ce}")
+
+                    # 凋亡→新生反馈：为凋亡的域创建替代神经元，
+                    # 维持种群规模（修复凋亡后种群单调下降问题）
+                    if self.cortex is not None and self._lifecycle is not None:
+                        for nid in apoptosed:
+                            domain = nid.split("_")[0] if "_" in nid else nid
+                            try:
+                                split_parent = self._select_split_parent(domain)
+                                new_nid = self.cortex.add_neuron(
+                                    domain, lifecycle=self._lifecycle,
+                                    from_split=split_parent,
+                                )
+                                split_info = f" (split from {split_parent})" if split_parent else " (from scratch)"
+                                logger.info(f"  🌱 凋亡补偿新生: {new_nid}{split_info} (替代 {nid})")
+                                report.recommendations.append(
+                                    f"[神经新生] 凋亡补偿: {nid} → {new_nid}{split_info}"
+                                )
+                            except Exception as ne:
+                                logger.warning(f"  凋亡补偿新生失败 ({domain}): {ne}")
             except Exception as e:
                 logger.warning(f"  凋亡检查失败: {e}")
 
