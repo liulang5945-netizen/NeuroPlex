@@ -627,6 +627,17 @@ class SleepEngine:
             app_state.finish_training()
 
         # 检查 neurogenesis 触发条件
+        # #20: 神经调质低多巴胺也可以触发 neurogenesis（定义但曾无人调用）
+        if self._neuromodulator is not None and self._lifecycle is not None:
+            try:
+                if self._neuromodulator.should_trigger_neurogenesis():
+                    logger.info("  多巴胺持续过低，触发 neurogenesis 信号")
+                    report.recommendations.append(
+                        "[神经新生] 多巴胺持续偏低，建议扩展神经元种群"
+                    )
+            except Exception as e:
+                logger.debug(f"  neuromodulator neurogenesis 检查失败: {e}")
+
         if self._lifecycle is not None and self._feed_engine is not None:
             try:
                 error_rates = self._feed_engine.get_domain_error_rates()
@@ -711,6 +722,17 @@ class SleepEngine:
         # 记录训练损失
         if trained_count > 0:
             report.training_loss = total_loss / trained_count
+
+            # #23: 记录睡眠训练结果到进化引擎
+            try:
+                from taiji.life.evolution_engine import get_evolution_engine
+                evo = get_evolution_engine()
+                evo.record_sleep_training(
+                    loss=report.training_loss,
+                    samples=trained_count,
+                )
+            except Exception as e:
+                logger.debug(f"  record_sleep_training 失败（非关键）: {e}")
 
         # ── 自适应学习率：双信号驱动神经调质 ──
         if trained_count > 0 and self._neuromodulator is not None:
@@ -1695,6 +1717,8 @@ class SleepEngine:
                         "strengths": self._identify_strengths(),
                         "resource_constraints": self._get_resource_constraints(),
                     }
+                    # #21: design_next_generation 已标记 deprecated，仅生成设计 JSON
+                    # 不改变模型。保留作为设计参考，未来替换为新方案。
                     next_gen_design = improver.design_next_generation(current_info)
 
                     # 保存设计方案
@@ -1710,6 +1734,8 @@ class SleepEngine:
                                f"(direction: {next_gen_design['evolution_direction']})")
 
                     # ── 第三层闭环：执行代际迁移 ──
+                    # #22: execute_generation_transition raise NotImplementedError，
+                    # auto_generation_transition 默认 False，此路径当前禁用。
                     if self.config.auto_generation_transition:
                         try:
                             logger.info("  启动代际迁移（知识蒸馏）...")
