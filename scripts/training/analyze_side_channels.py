@@ -24,11 +24,10 @@ from taiji.resonance import (
     get_domain_neuron_config,
 )
 from taiji.resonance.translator import batch_align_and_embed
-from scripts.training.train_neuron import (
+from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR,
+    OUTPUT_DIR, load_simple_zh_texts,
 )
-from scripts.training.train_cortex_joint import load_simple_zh_texts
 from scripts.training.finetune_side_channels import load_neuron_with_embedding
 
 DOMAIN = "zh"

@@ -44,11 +44,10 @@ from taiji.resonance import (
     get_domain_neuron_config,
 )
 from taiji.resonance.translator import batch_align_and_embed
-from scripts.training.train_neuron import (
+from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR,
+    OUTPUT_DIR, load_simple_zh_texts,
 )
-from scripts.training.train_cortex_joint import load_simple_zh_texts
 
 DOMAIN = "zh"
 NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]

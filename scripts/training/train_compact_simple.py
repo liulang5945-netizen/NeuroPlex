@@ -33,12 +33,11 @@ import torch.nn.functional as F
 
 from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
 from taiji.resonance.translator import batch_align_and_embed
-from scripts.training.train_neuron import (
+from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR,
+    OUTPUT_DIR, SequentialSampler,
 )
-from scripts.training.train_standard_leader import SequentialSampler
 
 DATA_PATH = "data/simple_zh/simple_zh_texts.jsonl"
 

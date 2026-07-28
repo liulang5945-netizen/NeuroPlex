@@ -11,6 +11,77 @@
 
 ---
 
+## 🧹 项目整理记录（2026-07-28）
+
+### 清理总结
+
+删除 **43 个废弃脚本**，抽取 **1 个工具模块**，项目结构从 67 个训练脚本精简到 24 个。
+
+### 删除的废弃脚本（43 个）
+
+**错误方向训练脚本（14 个）**：
+- train_single_long.py, train_collaboration.py, train_individual_neurons.py, train_multi_zh.py
+- joint_train_p7.py, train_v3_neuron.py, verify_v3_quick.py, pipeline_v3_full.py
+- pipeline_verify_v3.py, joint_and_generate_v3.py, train_tinystories_collab.py
+- train_neuron.py, train_standard_leader.py, train_cortex_joint.py（工具函数已抽取到 utils.py）
+
+**错误方向评估/路由脚本（13 个）**：
+- eval_leader.py, eval_individual.py, eval_joint.py, eval_single.py, eval_simple_neuron.py
+- eval_collab.py, eval_all_singles.py, eval_gen_quality.py
+- verify_routing_accuracy.py, verify_routing_16c.py, verify_routing_short.py
+- verify_fingerprint_routing.py, verify_contrastive_fix.py, verify_p7_resonance.py
+
+**一次性诊断脚本（16 个）**：
+- diagnose_argmax.py, diagnose_generation.py, diagnose_rounds.py, diag_collab.py, diag_quality.py
+- analyze_argmax_ceiling.py, check_argmax.py, integrate_verify.py, test_collaboration.py
+- verify_scaled_training.py, gen_test.py, gen_constrained.py, quick_gen_test.py
+- audit_neurons.py, test_p7_e2e.py
+
+### 新增工具模块
+
+**`scripts/training/utils.py`**：从 train_neuron.py、train_standard_leader.py、train_cortex_joint.py 抽取的工具函数：
+- 常量：OUTPUT_DIR, SHARED_EMBEDDING_PATH, SIMPLE_ZH_DIR, DATA_DIR 等
+- tokenizer：load_domain_tokenizer, load_general_tokenizer
+- 数据加载：load_domain_texts, load_all_texts, load_simple_zh_texts
+- shared_embedding：create_shared_embedding, load_or_create_shared_embedding, save_shared_embedding
+- 采样器：SequentialSampler
+
+### 当前活跃脚本（24 个）
+
+**训练核心（5 个）**：
+- `train_compact_parallel.py` — 训练 zh_aug0~3 compact 神经元
+- `finetune_side_channels.py` — side_channels 联合微调（当前运行中）
+- `eval_aug_joint.py` — 评估个体 vs 协作 PPL
+- `run_parallel_aug.ps1` — 并行训练 PowerShell 脚本
+- `analyze_side_channels.py` — side_channels 死通道诊断
+
+**工具/数据脚本（6 个）**：
+- build_domain_tokenizers.py, download_simple_zh.py, download_tinystories.py
+- download_zh_data.py, split_simple_zh.py, tokenize_sft_p7.py
+
+**已完成消融实验（2 个，保留作参考）**：
+- train_tinystories.py（实验 A baseline, PPL=16.6）
+- train_tinystories_field.py（实验 B field-augmented, PPL=14.3）
+
+**P8 多模态/未来方向（4 个）**：
+- train_encodec.py, train_vqvae.py, train_video.py, train_neurons_from_scratch.py
+
+**简化参考（1 个）**：
+- train_compact_simple.py（train_compact_parallel.py 的简化版）
+
+**集成回归测试（18 个 verify_*.py）**：
+- 验证 apoptosis/neurogenesis/cortex chat/http api/state persistence 等运行时闭环
+
+### 项目结构清理原则
+
+1. **错误方向产物立即清理**：避免后续开发被误导
+2. **工具函数先抽取再删除**：防止破坏活跃脚本依赖
+3. **一次性诊断脚本用完即删**：结论写入 plans 文档即可
+4. **集成测试保留**：验证运行时闭环，有长期价值
+5. **消融实验保留**：作为历史参考，结论已写入 plans
+
+---
+
 ## 🚨 紧急更新（2026-07-26）：架构级 bug 修复 — 之前所有训练无效
 
 ### bug 发现

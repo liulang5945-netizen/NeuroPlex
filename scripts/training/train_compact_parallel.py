@@ -344,7 +344,7 @@ def train_parallel(
     # train 模式：自动保存 shared_embedding 到 data/shared_embedding.pt
     # 这样后续 frozen 模式的神经元可以复用（因果掩码修复后的干净 embedding）
     if shared_emb_mode == "train" and best_embed_state is not None:
-        from scripts.training.train_neuron import save_shared_embedding, SHARED_EMBEDDING_PATH
+        from scripts.training.utils import save_shared_embedding, SHARED_EMBEDDING_PATH
         save_shared_embedding(shared_embedding, SHARED_EMBEDDING_PATH)
         print(f"  [AUTO-SAVE] shared_embedding → {SHARED_EMBEDDING_PATH} "
               f"(供后续 frozen 模式神经元复用)", flush=True)
