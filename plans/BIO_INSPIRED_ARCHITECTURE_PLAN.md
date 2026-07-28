@@ -233,6 +233,35 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 
 调研主流开源模型技术文档，记录可借鉴的工程思想。**目的不是改方向，是吸收工程技巧优化现有神经元共振架构。**
 
+#### 借鉴点优先级总览（按实施顺序）
+
+| 优先级 | 技术 | 来源模型 | 态极应用场景 | 实施时机 |
+|--------|------|---------|-------------|---------|
+| ★★★ 立即 | **Muon 优化器** | DeepSeek V4 | side_channels 微调换 Adam→Muon，突破 PPL 瓶颈 | 当前训练完成后第一实验 |
+| ★★★ 立即 | **Auxiliary-loss-free balancing** | DeepSeek V3 | 解决 side_channels "死通道"问题，用偏置项动态调整而非辅助损失 | Muon 实验后 |
+| ★★★ 中期 | **Shared Expert 机制** | Kimi K3 + DeepSeek V3 | 训练 general 神经元始终激活，其他域神经元稀疏激活 | side_channels 验证 EMERGE 后 |
+| ★★★ 中期 | **IndexShare 索引复用** | GLM-5.2 | max_rounds=3 时复用 round 1 激活模式，降低多轮共振成本 | 扩展到 max_rounds=3 时 |
+| ★★★ 中期 | **Conditional Memory** | DeepSeek V4 | 三路触发门控（关键词/语义/场景标签）补全记忆→推理融合 | Agent 闭环实现时 |
+| ★★★ 中期 | **Confidence-Guided Selection** | ConfSMoE (ICML 2026) | 优化共振分公式，处理"多神经元共振分接近"的模糊场景 | 路由优化阶段 |
+| ★★ 后期 | **OPD 在线策略蒸馏** | DeepSeek V4 | 优化"个体训练→协作训练"两阶段的蒸馏策略 | 训练流程重构时 |
+| ★★ 后期 | **mHC 流形约束超连接** | DeepSeek V4 | 稳定 side_channels 梯度传播，防止 PPL 跳变 | 训练稳定性优化时 |
+| ★★ 后期 | **Quantile Balancing** | Kimi K3 | 防止 side_channels 死通道（与 Auxiliary-loss-free 互补） | 路由优化阶段 |
+| ★★ 后期 | **Thinking/Non-thinking 双模式** | Qwen3 + DeepSeek V4 | max_rounds=1（快速）/2（平衡）/3（深度）三档自动切换 | Cortex 路由优化时 |
+| ★ 远期 | **KDA 线性注意力** | Kimi K3 | 长上下文（>2K token）时部分层换线性注意力 | 长上下文支持时 |
+| ★ 远期 | **CSA+HCA 混合注意力** | DeepSeek V4 | 分层压缩（精读+广角），1M 上下文 FLOPs 仅 27% | 长上下文支持时 |
+| ★ 远期 | **MoonViT-V2 训练方式** | Kimi K3 | VQ-VAE 用 next-token prediction 从零训练 | VQ-VAE 重训时 |
+| ★ 远期 | **AgentEnv 沙箱设计** | Kimi K3 | 工具学习闭环的快照/恢复/fork | limbs.py 重构时 |
+
+**核心洞察：**
+- 所有主流开源模型（Kimi K3 / DeepSeek V3/V4 / GLM-5.2 / Qwen3）均采用 MoE 路线，与态极的神经元共振是不同技术路线
+- MoE 是"一个大脑内 FFN 子模块稀疏激活"，态极是"多个完整模型协作"——根本差异在专家粒度
+- **真正值得借鉴的不是架构，是工程技巧**：优化器（Muon）、负载均衡（Auxiliary-loss-free）、记忆融合（Conditional Memory）、索引复用（IndexShare）
+- **ConfSMoE 是学术上最接近态极设计哲学的工作**：置信度路由与共振分都是"基于信号质量而非学习权重做路由"
+
+---
+
+#### 各模型详细架构事实与借鉴分析
+
 #### Kimi K3（2.8T MoE，Moonshot AI，2026-07-27 开源）
 
 **架构事实**（来源：[GitHub README](https://github.com/MoonshotAI/Kimi-K3)）：
