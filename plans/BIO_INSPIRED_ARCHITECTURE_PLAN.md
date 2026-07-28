@@ -229,6 +229,88 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 - #6 训练-推理路径对齐（forward_train vs forward 机制不一致）— 等 side_channels 训练完成后处理
 - #16-18 训练脚本改进（val/早停/决策）— 等当前训练完成后处理
 
+### 0.7 开源模型借鉴清单（2026-07-28）
+
+调研主流开源模型技术文档，记录可借鉴的工程思想。**目的不是改方向，是吸收工程技巧优化现有神经元共振架构。**
+
+#### Kimi K3（2.8T MoE，Moonshot AI，2026-07-27 开源）
+
+**架构事实**（来源：[GitHub README](https://github.com/MoonshotAI/Kimi-K3)）：
+- 93 层 = 1 Dense + 69 KDA（线性注意力）+ 24 Gated MLA（潜在注意力）
+- 896 路由专家 + 2 共享专家，每 token 激活 16 个，激活参数 104B/2.8T（3.7%）
+- SiTU-GLU 激活 + Quantile Balancing 防路由崩溃
+- MXFP4 权重 / MXFP8 激活（量化感知训练）
+- MoonViT-V2 视觉编码器：next-token prediction 从零训练（不用对比预训练）
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★★ | **Shared Expert 机制** | 保留 general 神经元始终激活（类似 shared expert），其他域神经元稀疏激活。对应 Cortex routing_level=1 模式，但当前 general 神经元从未训练过——需要训练一个 general 神经元作为"共享专家" |
+| ★★ | **Quantile Balancing** | side_channels 微调面临"死通道"问题（12 条通道中可能只有几条被激活学习）。借鉴分位数平衡思想，强制所有 side_channels 至少参与一定比例的梯度更新 |
+| ★★ | **KDA 线性注意力** | 未来支持长上下文（>2K token）时，可把部分 attention 层换成线性注意力。当前 compact 神经元（512 hidden, 6 层）还不需要 |
+| ★ | **MoonViT-V2 训练方式** | 视觉编码器用 next-token prediction 从零训练（不用对比预训练），获得更稳定的优化过程。态极 VQ-VAE 训练可借鉴 |
+| ★ | **AgentEnv 沙箱设计** | 快照/恢复/fork 思路对 taiji/body/limbs.py 工具学习闭环有启发 |
+
+**不借鉴的方向：**
+- MoE 路由器（态极用共振分而非可学习 router，设计哲学不同）
+- Gated MLA 矩阵分解（态极单神经元规模太小，不需要 KV cache 压缩）
+- 3:1 KDA:MLA 混合比例（态极神经元层数少，不需要混合注意力）
+
+#### DeepSeek V3（671B MoE，2024-12 开源）
+
+**架构事实**（来源：[GitHub README](https://github.com/deepseek-ai/DeepSeek-V3)）：
+- 671B 总参数，37B 激活（5.5% 稀疏度）
+- MLA (Multi-head Latent Attention) + DeepSeekMoE
+- 256 个专家
+- **Auxiliary-loss-free load balancing** — 无辅助损失的负载均衡策略
+- MTP (Multi-Token Prediction) 14B 模块
+- 128K 上下文
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★★ | **Auxiliary-loss-free load balancing** | DeepSeek V3 的核心创新：不用辅助损失强制负载均衡（辅助损失会污染主损失导致性能退化），而是用偏置项动态调整。态极 side_channels 的"死通道"问题可以借鉴此思路——不用正则项强制通道激活，而是用偏置项动态调整通道被选中的概率 |
+| ★★ | **MTP (Multi-Token Prediction)** | 训练时预测多个未来 token（不只是 next-token），提升训练效率。态极 _train_single_neuron 当前只用 next-token CE loss，可考虑加 MTP 辅助头增强表征学习 |
+| ★ | **DeepSeekMoE 细粒度专家** | 共享专家 + 路由专家分离设计。与 Kimi K3 的 shared expert 思路一致，双重验证了"保留通用专家 + 稀疏路由专家"的正确性 |
+
+#### Qwen3（Dense + MoE 全尺寸，2025 开源）
+
+**架构事实**（来源：[GitHub README](https://github.com/QwenLM/Qwen2.5)）：
+- Dense: 0.6B / 1.7B / 4B / 8B / 14B / 32B
+- MoE: 30B-A3B / 235B-A22B
+- **Thinking / Non-thinking 双模式**
+- Agent 能力强化（工具调用 in thinking & unthinking modes）
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★ | **Thinking/Non-thinking 双模式** | 态极可借鉴：默认 max_rounds=1（快速响应），复杂任务时切换到 max_rounds=3（深度思考，多轮共振）。对应 Cortex 已有的 routing_level 参数，但当前没有"任务复杂度感知"的自动切换机制 |
+| ★ | **小尺寸 dense 模型（0.6B-32B）** | 验证了小模型路线可行性。态极 compact 神经元（36M）比 Qwen3 最小的 0.6B 还小一个数量级，说明态极在"超小模型协作"赛道有独特定位 |
+
+#### ConfSMoE（ICML 2026，Confidence-Guided Sparse Expert Selection）
+
+**架构事实**（来源：[GitHub](https://github.com/IcurasLW/ICML2026-Official-Repository-of-ConfSMoE)）：
+- 用**置信度引导**稀疏专家选择，而非可学习路由器
+- 专门处理**缺失输入**和**多模态输入**场景
+- 学术论文，代码开源
+
+**借鉴点：**
+
+| 优先级 | 技术 | 态极应用场景 |
+|--------|------|-------------|
+| ★★★ | **Confidence-Guided Expert Selection** | **与态极的"共振分"高度契合**。ConfSMoE 用输入置信度选专家，态极用共振分选神经元——两者本质都是"基于信号质量而非学习权重做路由"。可以借鉴 ConfSMoE 的置信度计算方式优化共振分公式，特别是处理"输入模糊"场景（多神经元共振分接近时如何选择） |
+
+#### Mixtral 8x7B / 8x22B（Mistral AI，已归档）
+
+**架构事实**：标准 MoE，8 个专家每 token 激活 2 个。仓库已归档，技术较老，无特殊借鉴价值。
+
+#### Llama 3（Meta，已废弃）
+
+**架构事实**：标准 Dense Transformer，GQA。仓库已废弃指向 llama-models，无 MoE 创新。态极已采用 GQA，无需额外借鉴。
+
 ## 一、设计原则
 
 ### 1.1 三大核心原则
