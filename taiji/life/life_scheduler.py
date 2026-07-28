@@ -622,13 +622,14 @@ class LifeScheduler:
             return "feed"
         if self.needs.fatigue >= self.FATIGUE_THRESHOLD:
             return "sleep"
+        # research 必须在 explore 之前判断，否则 curiosity>=85 时
+        # 永远先匹配 explore 分支，research 成为死代码
+        if self.needs.curiosity >= self.RESEARCH_THRESHOLD:
+            return "research"
         if self.needs.curiosity >= self.CURIOSITY_THRESHOLD:
             return "explore"
         if self.needs.boredom >= self.BOREDOM_THRESHOLD:
             return "play"
-        # B1 修复：curiosity 极高时触发科学研究
-        if self.needs.curiosity >= self.RESEARCH_THRESHOLD:
-            return "research"
 
         return None
 
