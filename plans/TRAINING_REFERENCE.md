@@ -1,4 +1,8 @@
-# AI 训练准则 (AI Training Playbook)
+# AI 训练准则 (Training Reference)
+
+> **📖 参考文档（非 plan）**
+> 本文档是训练工作的强制性参考标准，不是项目计划文档。
+> 项目当前进度见 `BIO_INSPIRED_ARCHITECTURE_PLAN.md`。
 
 > 本文档基于社区主流实践编写，是态极项目所有训练工作的**强制性参考标准**。
 > **v2.0 (2026-07-25)**：整合 2025-2026 最新开源成果（DeepSeek-R1 Nature 封面、SmolLM3、OLMo 3、OpenThoughts3、gpt-oss）。

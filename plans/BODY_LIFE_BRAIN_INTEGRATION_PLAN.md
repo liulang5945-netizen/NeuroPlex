@@ -1,5 +1,10 @@
 # 躯体与生命系统适配大脑架构计划 (Body-Life-Brain Integration Plan)
 
+> **🔧 子系统设计参考**
+> 本文档是 body/life/brain 三系统整合的设计参考。
+> 大部分内容已实现（life_scheduler 调质映射、feed_engine 域分类、sleep_engine P7 训练、metabolism 神经调质），未实现部分（explore/play 按域反馈）为后续工作。
+> 当前进度见 `BIO_INSPIRED_ARCHITECTURE_PLAN.md`。
+
 > 核心思想：**让躯体和生命系统更适配这个大脑**（神经元共振架构）。
 > 当前问题：躯体/生命系统是为一代号单体 ModelSelf 设计的，与 Cortex + ResonanceEnsemble 脱节。
 

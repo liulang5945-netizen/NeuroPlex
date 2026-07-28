@@ -3,6 +3,12 @@
 > 本文档记录态极架构借鉴人脑神经科学的系统性改造计划。
 > 核心原则：**神经元差异性第一**、**自我进化能力**、**硬件限制不在考虑范围内**。
 
+> **📋 项目主 plan（活跃维护）**
+> 本文档是项目的状态总览和路线图。其他 plans/ 文件：
+> - `TRAINING_REFERENCE.md` — 训练准则参考（非 plan）
+> - `BODY_LIFE_BRAIN_INTEGRATION_PLAN.md` — body/life/brain 子系统设计参考
+> - `archive/` — 历史归档（COMPREHENSIVE v1.0、H1-H8 修复记录、side-channels 实现细节）
+
 ---
 
 ## 🚨 紧急更新（2026-07-26）：架构级 bug 修复 — 之前所有训练无效
