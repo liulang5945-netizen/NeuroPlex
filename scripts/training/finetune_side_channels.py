@@ -460,6 +460,11 @@ def main():
                         "tokens": epoch_tokens,
                     })
 
+                # 中途 checkpoint（每 500 步保存，防止崩溃丢失进度）
+                if total_steps % 500 == 0:
+                    save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons, loss_history, adamw_optimizer, scheduler)
+                    print(f"  [中途 checkpoint] step {total_steps} 已保存", flush=True)
+
         avg_epoch_loss = epoch_loss / max(epoch_tokens, 1)
         ppl = math.exp(min(avg_epoch_loss, 20))
         epoch_elapsed = time.time() - epoch_start_time
