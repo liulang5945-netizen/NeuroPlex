@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Optional, Any
 
 import torch
@@ -596,9 +597,26 @@ def assemble_cortex(
     # Step 11: 加载已保存的可学习状态（经验积累恢复）
     # 启动时自动从 neurons_dir/cortex_state.pt 恢复 shared_embedding + lm_head 权重，
     # 使 Cortex 从上次训练结束的状态继续，而非每次从随机初始化开始。
+    # #19: 时间戳检查防止旧的 cortex_state.pt 覆盖新的 neuron_*.pt
     try:
         state_path = os.path.join(neurons_dir, "cortex_state.pt")
         if os.path.exists(state_path):
+            state_mtime = os.path.getmtime(state_path)
+            # 找最新的 neuron_*.pt 修改时间
+            newest_neuron_mtime = 0
+            for fname in os.listdir(neurons_dir):
+                if fname.startswith("neuron_") and fname.endswith(".pt"):
+                    mtime = os.path.getmtime(os.path.join(neurons_dir, fname))
+                    newest_neuron_mtime = max(newest_neuron_mtime, mtime)
+
+            if newest_neuron_mtime > state_mtime:
+                logger.warning(
+                    "[assemble_cortex] neuron_*.pt 比 cortex_state.pt 新 "
+                    "(neuron: %s vs state: %s)，离线训练可能被在线状态覆盖",
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(newest_neuron_mtime)),
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(state_mtime)),
+                )
+
             cortex.load_state(state_path)
             logger.info("[assemble_cortex] 已恢复经验积累状态: %s", state_path)
         else:
