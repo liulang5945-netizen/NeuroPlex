@@ -159,30 +159,46 @@ TinyStories 验证实验（✅ 全部完成，2026-07-25）→ 验证基础 pipe
 **串行依赖**：zh_full0（train 模式）→ 完成后自动保存 shared_embedding → 启动 3 路并行 zh_full1/2/3（frozen 模式）。
 
 **当前状态**：
-- 🔄 4 路并行训练中（2026-07-26 启动）
-  - zh_aug0: 787K 全量, short_pool=102K, PID=57348
-  - zh_aug1: 249K 中文, short_pool=31K, PID=68800
-  - zh_aug2: 341K 百科, short_pool=66K, PID=75768
-  - zh_aug3: 670K 故事, short_pool=67K, PID=74340
-- 配置：每路 train 模式（独立 shared_embedding）, 3 threads/路, 16000 步, dropout=0.2, 数据增强 ON
-- 目标：训练完成后用于多神经元联合实验（充分利用硬件 + 数据差异化）
-- 启动脚本：scripts/training/run_parallel_aug.ps1
-- 监控：`Get-Content zh_aug0_train.log -Tail 5`
+- ✅ 4 路并行训练完成（2026-07-27）
+  - zh_aug0: 787K 全量, best_val_ppl=39.6（过拟合，单字重复）
+  - zh_aug1: 249K 中文, best_val_ppl=146.6（生成乱码）
+  - zh_aug2: 341K 百科, best_val_ppl=22.5（最连贯，知识类数据质量优势）
+  - zh_aug3: 670K 故事, best_val_ppl=71.8（半连贯）
+  - 关键发现：数据质量 > 数据量（百科 341K 战胜全量 787K）
+  - 关键修复：训练脚本保存 per-neuron shared_embedding，避免覆盖导致 embedding 空间不一致
 
-### 0.4 Playbook 合规状态（zh_full0 当前训练）
+### 0.4 side_channels 联合微调（2026-07-28 进行中）
+
+**目标**：协作 PPL < 114（zh_aug1 的最强个体 PPL），验证 EMERGE 现象。
+
+| 配置 | 值 |
+|------|------|
+| 训练数据 | simple_zh 10000 条 |
+| epochs | 6 |
+| batch_size | 4 |
+| lr | 1e-3 |
+| 可训练参数 | 12.58M（仅 side_channels，神经元核心冻结） |
+| 协作机制 | 12 条 excite 通道（4×3 双向），Ensemble max_rounds=2 |
+| 工程 | 日志 tee + 每 epoch checkpoint + 断点续训 |
+
+**当前进度**：Epoch 1/6 step 100, PPL=132.4（目标 <114，下降中，ETA 14.5h 总计）
+**日志**：`logs/finetune_side_channels_20260728_093654.log`
+**脚本**：`scripts/training/finetune_side_channels.py --resume`（支持断点续训）
+
+### 0.5 Playbook 合规状态（side_channels 微调）
 
 | # | 条目 | 要求 | 当前值 | 判定 |
 |---|------|------|--------|------|
-| 1 | 数据/参数比 >= 20:1 | 720M tokens | 787K*~200tokens~157M (4.4:1) | ❌ CPU 物理限制 |
-| 2 | 数据复杂度匹配模型 | TinyStories 级别 | simple_zh 小学水平 | ✅ |
-| 3 | batch_size >= 32 | 32 | 8*4=32 | ✅ |
-| 4 | warmup | 100-2000 步 | 200 步 | ✅ |
-| 5 | decay | 最后 10-20% | WSD: step 6400→decay | ✅ |
-| 6 | embedding 不衰减 weight_decay | 0 | 0.0 | ✅ |
-| 7 | 评估用 PPL + 生成质量 | 双指标 | step 2000/4000/6000/8000 | ✅ |
-| 8 | 保存 best checkpoint | best loss | 按 best val PPL 保存 | ✅ |
+| 1 | 数据/参数比 | >= 20:1 | 10000*~200tokens/12.58M = 159:1 | ✅ |
+| 2 | 数据复杂度匹配 | simple_zh 级别 | simple_zh 小学水平 | ✅ |
+| 3 | batch_size | >= 32 | 4（CPU 限制） | ⚠️ 偏小 |
+| 4 | warmup | 100-2000 步 | 无（lr 恒定） | ❌ 待加 |
+| 5 | decay | 最后 10-20% | 无（lr 恒定） | ❌ 待加 |
+| 6 | 工程保障 | 日志+checkpoint+续训 | 已实现 | ✅ |
+| 7 | 评估用 PPL + 生成质量 | 双指标 | eval_aug_joint.py | ✅ |
+| 8 | 保存 best checkpoint | best loss | 每 epoch 保存 | ✅ |
 
-**合规判断**：除数据/参数比受 CPU 物理限制外，训练流程完全符合 Playbook 标准。
+**合规判断**：数据/参数比充足（159:1），但 lr 调度缺失。如 PPL 在 114 上方停滞，需加 warmup+decay。
 
 ---
 
