@@ -309,6 +309,19 @@ class ExploreEngine:
             except Exception as e:
                 logger.debug("explore_engine: non-critical %s", e, exc_info=True)
 
+            # 同时喂入 FeedEngine，让探索结果成为睡眠训练数据
+            # 修复：探索结果只进 RAG 不进权重训练，"探索→学习→记忆"未闭环
+            try:
+                from taiji.life.feed_engine import get_feed_engine
+                feed = get_feed_engine()
+                feed.feed_text(
+                    text=content[:3000],
+                    source=f"explore:{topic}",
+                    category="knowledge",
+                )
+            except Exception as e:
+                logger.debug("explore_engine: feed_text failed %s", e, exc_info=True)
+
             return True
         except Exception as e:
             logger.warning(f"Store knowledge failed: {e}")
