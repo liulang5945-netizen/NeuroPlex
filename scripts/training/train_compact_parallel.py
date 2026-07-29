@@ -41,12 +41,11 @@ import torch.nn.functional as F
 
 from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
 from taiji.resonance.translator import batch_align_and_embed
-from scripts.training.train_neuron import (
+from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR,
+    OUTPUT_DIR, SequentialSampler,
 )
-from scripts.training.train_standard_leader import SequentialSampler
 
 DATA_DIR = "data/simple_zh"
 
@@ -94,7 +93,7 @@ class AugmentingSampler:
 
     def __init__(self, texts: list[str], batch_size: int, seed: int = 42,
                  truncate_min_ratio: float = 0.5, concat_prob: float = 0.3):
-        from scripts.training.train_standard_leader import SequentialSampler
+        from scripts.training.utils import SequentialSampler
         self.base = SequentialSampler(texts, batch_size, seed=seed)
         self.texts = texts
         self.n_texts = len(texts)

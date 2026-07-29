@@ -51,11 +51,19 @@ class ResonanceEnsemble:
         neuromodulator: Optional[Any] = None,
         maturity: Optional[Any] = None,
         gamma_oscillator: Optional[Any] = None,
+        shared_expert_id: Optional[str] = None,
+        shared_expert_weight: float = 0.3,
     ):
         self.neurons = neurons
         self.field = field
         self.max_rounds = max_rounds
         self.diversity_lambda = diversity_lambda
+
+        # ── Shared Expert（借鉴 Kimi K3 / DeepSeek V3）──
+        # general 神经元 always-active，提供基础语言能力
+        # 融合时获得固定基础权重，域特定神经元分配剩余权重
+        self.shared_expert_id = shared_expert_id
+        self.shared_expert_weight = shared_expert_weight
 
         # ── Bio-inspired trackers（P1 接线）──
         self.stdp_tracker = stdp_tracker
@@ -403,6 +411,10 @@ class ResonanceEnsemble:
         else:
             active_ids = set(neuron_ids)
 
+        # Shared Expert: general 神经元始终激活（不受路由/精简模式影响）
+        if self.shared_expert_id and self.shared_expert_id in self.neurons:
+            active_ids.add(self.shared_expert_id)
+
         vectors: Dict[str, torch.Tensor] = {}
         all_logits: Dict[str, torch.Tensor] = {}
         logits_history: List[torch.Tensor] = []
@@ -693,6 +705,27 @@ class ResonanceEnsemble:
                     all_logits, vectors, scores, result, ref,
                 )
             # else: neuron_logits already in result, _generate_p7 handles extraction
+
+            # Shared Expert 重新加权（借鉴 Kimi K3 / DeepSeek V3）
+            # general 神经元获得固定基础权重，域特定神经元按原逻辑分配剩余权重
+            # final = shared_weight * shared_logits + (1-shared_weight) * original_fused
+            if (
+                self.shared_expert_id
+                and self.shared_expert_id in all_logits
+                and "weighted_logits" in result
+            ):
+                shared_logits = all_logits[self.shared_expert_id]
+                original_fused = result["weighted_logits"]
+                sw = self.shared_expert_weight
+                result["weighted_logits"] = sw * shared_logits + (1.0 - sw) * original_fused
+                # 更新 final_weights 反映 Shared Expert 的固定权重
+                if "final_weights" in result:
+                    weights = result["final_weights"]
+                    # 域特定神经元权重缩放到 (1-sw)
+                    for nid in weights:
+                        if nid != self.shared_expert_id:
+                            weights[nid] = weights[nid] * (1.0 - sw)
+                    weights[self.shared_expert_id] = sw
 
         return result
 
