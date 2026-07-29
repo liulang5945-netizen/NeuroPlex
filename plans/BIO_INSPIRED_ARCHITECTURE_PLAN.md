@@ -135,6 +135,53 @@ Epoch 1/1 step 50: loss=5.0741 PPL=159.8 [50/74 ETA 1.9min]
 
 ---
 
+## 🧠 Shared Expert 机制实施（2026-07-29，进行中）
+
+### 背景
+
+生成质量评估确认根本瓶颈：compact 神经元训练不充分导致生成不连贯（PPL 好但生成差）。
+借鉴 Kimi K3 / DeepSeek V3 的 Shared Expert 机制，添加 always-active 的 general 神经元
+提供基础语言能力，与域特定神经元互补。
+
+### 借鉴来源
+
+Kimi K3 / DeepSeek V3 的 Shared Expert：一个 always-active 的通用专家，与稀疏激活的
+域特定专家协同，提供基础能力保障。
+
+### 实施进度
+
+**1. general 神经元训练**（🔄 进行中）
+- 数据：`shared_core.jsonl`（236K 条通用核心数据）
+- 规格：36M compact，train 模式（保存自己的 shared_embedding）
+- 训练参数：4000 步，batch 8×grad_accum 4=32，lr=1e-3，dropout=0.2
+- 当前进度：step 600/4000，train PPL=5.9（持续下降）
+- 预计完成时间：~1 小时
+
+**2. ensemble Shared Expert 架构**（✅ 已完成）
+- `ResonanceEnsemble.__init__` 添加 `shared_expert_id` 和 `shared_expert_weight` 参数
+- `forward()` 中 shared expert 始终加入 `active_ids`（不受路由/精简模式影响）
+- 最终融合后重新加权：`final = sw * shared_logits + (1-sw) * original_fused`
+- 默认 `shared_expert_weight=0.3`（general 神经元获得 30% 固定权重）
+
+**3. 评估脚本支持**（✅ 已完成）
+- `eval_aug_joint.py` 添加 `--shared_expert` 和 `--shared_expert_weight` 参数
+- `load_aug_neurons()` 支持 `include_shared_expert` 加载 general 神经元
+- `eval_ppl()` 和 `eval_generation()` 传递 shared_expert 配置到 ensemble
+
+### 下一步验证
+
+训练完成后运行：
+```bash
+python -u scripts/training/eval_aug_joint.py --shared_expert --shared_expert_weight 0.3
+```
+
+验证指标：
+1. Shared Expert 协作 PPL 是否低于无 Shared Expert 的协作 PPL（62.6）
+2. 生成质量是否改善（general 神经元提供基础语言能力）
+3. 不同 shared_expert_weight（0.2/0.3/0.5）的效果对比
+
+---
+
 ## 🧹 项目整理记录（2026-07-28）
 
 ### 清理总结
