@@ -136,6 +136,37 @@ Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身
 - 需要额外架构改动 + 微调
 - 优势：能利用现有 compact 神经元，不需要全部重新训练
 
+### 跨规格 side_channels 协作突破（2026-07-29，EMERGE 确认）
+
+**关键发现**：side_channels 本身已支持跨规格（`establish_side_channel` 用 `src_dim=peer.field_dim, dst_dim=self.hidden_size`），但 ResonanceField 是单一维度，无法容纳不同 field_dim 的向量。
+
+**解决方案**：在 ensemble.py 添加跨规格投影层：
+1. **正向投影**（field_dim → unified_dim）：neuron 写入 field 前投影到统一维度
+2. **反向投影**（unified_dim → field_dim）：round 2+ conditioning 时将 field.state 投影回 neuron.field_dim
+
+**评估结果**（5 神经元：4×compact + 1×standard）：
+
+| 模式 | 协作 PPL | 对比最强个体 |
+|------|---------|-------------|
+| 4×compact（v2 baseline） | 62.6 | -45.3% EMERGE |
+| **4×compact + 1×standard（side_channels）** | **96.5** | **-35.3% EMERGE** |
+| 4×compact + 1×standard（logits 融合） | 213.8 | NO_EMERGE |
+
+**融合权重**：zh_aug1:0.471（最强 compact 主导）, zh_std0:0.194（standard 第二）, zh_aug0:0.180, zh_aug2:0.092, zh_aug3:0.063
+
+**关键结论**：
+1. ✅ **跨规格 side_channels 协作成功**：大神经元 + 小神经元联合验证通过
+2. ✅ **EMERGE 确认**：协作 PPL=96.5 < 最强个体 149.0，涌现 35.3%
+3. ⚠️ **投影层未训练引入噪声**：PPL 96.5 > 纯 compact 62.6，因为跨规格投影层是随机初始化
+4. ✅ **生成质量改善**："树叶洒落下来，鸟儿悠闲地翻。一只小兔子在树枝间，毛茸" — 有画面感
+
+**技术产物**：
+- `taiji/resonance/ensemble.py`：添加 `_cross_spec_projectors` 和 `_cross_spec_back_projectors`
+- `_project_vec()` 方法：统一处理 write/score 时的维度投影
+- `_parallel_forward` 中的 `_forward_neuron`：round 2+ conditioning 时反向投影 field.state
+
+**下一步**：微调跨规格投影层 + side_channels，消除投影噪声，使 PPL 从 96.5 → 接近或超越 62.6
+
 ---
 
 ## 🎉 重大里程碑（2026-07-29）：EMERGE 现象确认
