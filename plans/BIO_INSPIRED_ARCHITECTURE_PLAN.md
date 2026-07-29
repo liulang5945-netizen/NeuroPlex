@@ -90,6 +90,52 @@ Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身
 3. **更长训练**：8000→16000 步，看生成质量能否进一步提升
 4. **更大规格**：如果 standard 效果好，尝试 expert 规格（~300M）
 
+### 混合协作评估结果（2026-07-29，NO_EMERGE）
+
+运行命令：`python -u scripts/training/eval_std_neuron.py --mode mixed --n_eval 50`
+评估日志：`logs/eval_std_mixed_*.log`
+
+**个体 PPL**（simple_zh 评估集）：
+
+| 神经元 | 规格 | 评估 PPL | 训练 val PPL |
+|--------|------|---------|-------------|
+| zh_aug0 | compact | 275.6 | 39.63 |
+| zh_aug1 | compact | 149.0（最强） | 146.57 |
+| zh_aug2 | compact | 286.2 | 22.53 |
+| zh_aug3 | compact | 311.6 | 71.84 |
+| zh_std0 | standard | 294.9 | 34.07 |
+
+**协作 PPL**（std_w=0.5 logits 融合）：213.8
+**结果**：NO_EMERGE（213.8 >= 149.0）
+
+### 关键结论
+
+1. **简单 logits 融合无效**：50% standard + 50% compact 平均稀释了 zh_aug1 的表现
+2. **side_channels 是有效协作机制**：之前 compact 协作 PPL=62.6 << 114.6 靠的是 side_channels，
+   不是 logits 融合。简单 logits 融合无法复现 EMERGE
+3. **side_channels 无法跨规格**：field_dim 不同（standard=3072, compact=2048），
+   per-pair side_channels 投影矩阵维度不匹配
+4. **评估集分布很重要**：zh_std0 训练数据（shared_core+百科）与 simple_zh 分布差异大，
+   导致评估 PPL=294.9 远高于训练 val PPL=34.07
+5. **训练 val PPL ≠ 评估 PPL**：zh_aug2 训练 val PPL=22.53 但评估 PPL=286.2，
+   说明训练 val 集与 simple_zh 分布也不同
+
+### 后续方向
+
+要验证多规格协作 EMERGE，有两条路径：
+
+**路径 A：多 standard 神经元 + side_channels**（推荐）
+- 训练 3 个 additional standard 神经元（差异化数据）
+- 同规格（field_dim=3072）可通过 side_channels 协作
+- side_channels 微调后验证 EMERGE
+- 预计耗时：3×3.2 小时训练 + 14 小时微调 = ~24 小时
+
+**路径 B：Field Projector 跨规格协作**
+- 实现 Field Projector: Linear(field_dim -> unified_field_dim)
+- 让 standard 和 compact 通过投影到统一 field_dim 协作
+- 需要额外架构改动 + 微调
+- 优势：能利用现有 compact 神经元，不需要全部重新训练
+
 ---
 
 ## 🎉 重大里程碑（2026-07-29）：EMERGE 现象确认
