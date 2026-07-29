@@ -161,6 +161,7 @@ def train_parallel(
     augment: bool = True,
     truncate_min_ratio: float = 0.5,
     concat_prob: float = 0.3,
+    spec: str = "compact",
 ) -> dict:
     """并行训练配置。"""
     if augment:
@@ -335,7 +336,7 @@ def train_parallel(
             "best_step": best_step,
             "steps": step,
             "saved": "best" if best_state is not None else "final",
-            "spec": args.spec,
+            "spec": spec,
             "shared_emb_mode": shared_emb_mode,
         },
     }, save_path)
@@ -479,6 +480,7 @@ def main():
         augment=not args.no_augment,
         truncate_min_ratio=args.truncate_min_ratio,
         concat_prob=args.concat_prob,
+        spec=args.spec,
     )
 
     print(f"\n{'='*70}", flush=True)
