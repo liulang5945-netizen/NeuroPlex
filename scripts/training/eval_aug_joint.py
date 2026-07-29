@@ -235,7 +235,7 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
         "在公园里，阳光透过",
     ]
 
-    def generate_individual(prompt, nid, max_tokens=80):
+    def generate_individual(prompt, nid, max_tokens=80, temperature=0.8, top_k=40, repetition_penalty=1.2):
         neuron = neurons[nid]
         shared_emb = shared_embeddings[nid]
         general_ids = general_sp.EncodeAsIds(prompt)
@@ -247,8 +247,25 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
             for _ in range(max_tokens):
                 emb_input = shared_emb(ids)
                 result = neuron.forward(emb_input, return_logits=True)
-                logits = result["logits"][:, -1, :]
-                next_token = logits.argmax(dim=-1).item()
+                logits = result["logits"][:, -1, :].float()
+
+                # Repetition penalty: 降低已生成 token 的概率
+                if generated_domain:
+                    for prev_token in set(generated_domain[-20:]):  # 只惩罚最近 20 个 token
+                        logits[0, prev_token] /= repetition_penalty
+
+                # Temperature scaling
+                logits = logits / temperature
+
+                # Top-k filtering
+                if top_k > 0 and top_k < logits.size(-1):
+                    topk_vals, _ = torch.topk(logits, top_k, dim=-1)
+                    logits[logits < topk_vals[:, -1:]] = float('-inf')
+
+                # Softmax + sampling
+                probs = torch.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1).item()
+
                 if hasattr(domain_sp, 'eos_id'):
                     eos = domain_sp.eos_id() if callable(domain_sp.eos_id) else domain_sp.eos_id
                     if next_token == eos:
@@ -265,7 +282,7 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
             text = domain_sp.DecodeIds(generated_domain)
         return text
 
-    def generate_collab(prompt, max_tokens=80):
+    def generate_collab(prompt, max_tokens=80, temperature=0.8, top_k=40, repetition_penalty=1.2):
         general_ids = general_sp.EncodeAsIds(prompt)
         if not general_ids:
             return "(empty)"
@@ -290,21 +307,36 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
 
                 # 获取融合后的 logits
                 if "weighted_logits" in result:
-                    logits = result["weighted_logits"][:, -1, :]
+                    logits = result["weighted_logits"][:, -1, :].float()
                 elif "neuron_logits" in result:
                     n_logits = list(result["neuron_logits"].values())
                     if len(set(l.shape[-1] for l in n_logits)) == 1:
-                        logits = torch.stack(n_logits).mean(dim=0)[:, -1, :]
+                        logits = torch.stack(n_logits).mean(dim=0)[:, -1, :].float()
                     else:
                         best_nid = max(result.get("final_scores", {}), key=result["final_scores"].get, default=NEURON_IDS[0])
-                        logits = result["neuron_logits"][best_nid][:, -1, :]
+                        logits = result["neuron_logits"][best_nid][:, -1, :].float()
                 else:
                     best_nid = max(result.get("final_scores", {}), key=result["final_scores"].get, default=NEURON_IDS[0])
                     logits = neurons[best_nid].forward(
                         neuron_embeddings[best_nid], return_logits=True
-                    )["logits"][:, -1, :]
+                    )["logits"][:, -1, :].float()
 
-                next_token = logits.argmax(dim=-1).item()
+                # Repetition penalty: 降低已生成 token 的概率
+                if generated_domain:
+                    for prev_token in set(generated_domain[-20:]):
+                        logits[0, prev_token] /= repetition_penalty
+
+                # Temperature scaling
+                logits = logits / temperature
+
+                # Top-k filtering
+                if top_k > 0 and top_k < logits.size(-1):
+                    topk_vals, _ = torch.topk(logits, top_k, dim=-1)
+                    logits[logits < topk_vals[:, -1:]] = float('-inf')
+
+                # Softmax + sampling
+                probs = torch.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1).item()
 
                 if hasattr(domain_sp, 'eos_id'):
                     eos = domain_sp.eos_id() if callable(domain_sp.eos_id) else domain_sp.eos_id
