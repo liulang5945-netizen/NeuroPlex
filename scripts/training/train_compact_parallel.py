@@ -318,6 +318,24 @@ def train_parallel(
                     best_embed_state = {k: v.detach().clone() for k, v in shared_embedding.state_dict().items()}
                 print(f"    [SAVE] best (val PPL={best_val_loss:.2f})", flush=True)
 
+                # 中途 checkpoint：每次刷新 best 时立即保存，防止崩溃丢失进度
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                torch.save({
+                    "neuron_config": neuron.config,
+                    "state_dict": best_state,
+                    "shared_embedding_state": best_embed_state if best_embed_state else None,
+                    "domain": "zh",
+                    "data_source": "simple_zh_split",
+                    "result": {
+                        "best_val_ppl": best_val_loss,
+                        "best_step": best_step,
+                        "steps": step,
+                        "saved": "best",
+                        "spec": spec,
+                        "shared_emb_mode": shared_emb_mode,
+                    },
+                }, save_path)
+
             sample = generate_sample(neuron, domain_sp, general_sp, shared_embedding, device, prompt="小猫")
             print(f"    生成: {sample[:200]}", flush=True)
             print()
