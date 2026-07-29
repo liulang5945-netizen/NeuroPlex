@@ -61,6 +61,49 @@ PPL 指标确认协作有效，但生成文本仍有重复（所有神经元共�
 
 ---
 
+## 🔧 Auxiliary-loss-free balancing 实施（2026-07-29）
+
+### 背景
+
+EMERGE 已确认（协作 PPL 62.6 << 最强个体 114.6），但 plans 中标记的"Auxiliary-loss-free balancing"
+此前只是框架（scale + bias buffer 已注册，但**启发式 bias 更新逻辑未实现**）。本次完成完整实施。
+
+### 借鉴来源
+
+DeepSeek V3 的 Auxiliary-loss-free Load Balancing：不通过辅助损失，而是用非梯度启发式更新
+bias 项，动态平衡各专家（channel）利用率，解决"死通道"问题。
+
+### 实施细节
+
+**`taiji/resonance/neuron.py`**：
+1. `__init__`：添加 `_channel_usage: Dict[str, float]` 运行时统计字段（不持久化）
+2. `forward` Step 4：side_signal 处理时记录 `proj.detach().abs().mean().item()` 到 `_channel_usage`
+3. 新增 `update_channel_bias(update_rate=0.1)`：根据 usage 偏离平均的程度更新 bias
+   - `delta = update_rate * (avg_usage - channel_usage)`
+   - 低 usage → 正 bias（鼓励激活）
+   - 高 usage → 负 bias（抑制过度激活）
+4. 新增 `get_channel_usage_stats()`：返回当前 usage 统计（用于日志/诊断）
+
+**`scripts/training/finetune_side_channels.py`**：
+1. 每 50 步（`BIAS_UPDATE_EVERY=50`）调用 `update_channel_bias(update_rate=0.1)`
+2. 每 50 步（`LOG_EVERY`）输出 channel usage 诊断：avg/min/max/dead count
+   - 死通道判定：`usage < avg * 0.1`
+
+### 验证
+
+端到端测试通过：
+- 单 channel：avg=usage → delta=0（预期，无竞争）
+- 双 channel（强/弱信号）：强 channel 获得负 bias (-8.65)，弱 channel 获得正 bias (+8.65)
+
+### 下一步验证
+
+需要运行短训练（1-2 epochs）观察：
+1. bias 更新是否实际降低死通道数量
+2. PPL 是否进一步下降（相比 v2 的 124.9）
+3. channel usage 分布是否更均匀
+
+---
+
 ## 🧹 项目整理记录（2026-07-28）
 
 ### 清理总结
