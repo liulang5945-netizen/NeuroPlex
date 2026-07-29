@@ -148,6 +148,11 @@ class ResonanceNeuron(nn.Module):
         # v1 compatibility: use last-token write + broadcast read (for old ckpts)
         self.v1_compat: bool = False
 
+        # Auxiliary-loss-free balancing 运行时统计（不持久化）
+        # _channel_usage[peer_id] = 最近一次 forward 的 |proj*scale+bias| 均值
+        # 用于启发式 bias 更新：低 usage channel → 正 bias，高 usage → 负 bias
+        self._channel_usage: Dict[str, float] = {}
+
     @property
     def side_channels(self) -> nn.ModuleDict:
         """兼容旧代码：side_channels 现在统一指向 excite_channels。"""
@@ -197,6 +202,49 @@ class ResonanceNeuron(nn.Module):
             self.register_buffer(f"excite_bias_{peer_id}", bias_buf)
         else:
             self.register_buffer(f"inhibit_bias_{peer_id}", bias_buf)
+
+    def update_channel_bias(self, update_rate: float = 0.1) -> Dict[str, float]:
+        """Auxiliary-loss-free balancing 启发式 bias 更新（借鉴 DeepSeek V3）。
+
+        根据最近一次 forward 的 channel usage 统计，调整 bias：
+        - 低 usage channel → 正 bias（鼓励激活，增加 |proj*scale+bias|）
+        - 高 usage channel → 负 bias（抑制过度激活）
+        - 更新幅度 = update_rate * (avg_usage - channel_usage)
+
+        非梯度更新，不参与反向传播。每 N 步调用一次（N=50 推荐）。
+
+        Args:
+            update_rate: bias 更新步长（典型 0.1）
+
+        Returns:
+            Dict[channel_key, bias_delta] 用于日志记录
+        """
+        if not self._channel_usage:
+            return {}
+
+        usages = list(self._channel_usage.values())
+        avg_usage = sum(usages) / len(usages)
+        deltas: Dict[str, float] = {}
+
+        for key, usage in self._channel_usage.items():
+            # 偏离平均的 channel 获得补偿 bias
+            delta = update_rate * (avg_usage - usage)
+            if abs(delta) < 1e-6:
+                continue
+
+            ch_type, peer_id = key.split(":", 1)
+            bias_name = f"{ch_type}_bias_{peer_id}"
+            bias_buf = getattr(self, bias_name, None)
+            if bias_buf is not None:
+                # 直接修改 buffer（非梯度更新）
+                bias_buf.data.add_(delta)
+                deltas[key] = delta
+
+        return deltas
+
+    def get_channel_usage_stats(self) -> Dict[str, float]:
+        """获取当前 channel usage 统计（用于日志/诊断）。"""
+        return dict(self._channel_usage)
 
     def compute_logits(self, h: torch.Tensor) -> torch.Tensor:
         """计算 logits。
@@ -431,6 +479,7 @@ class ResonanceNeuron(nn.Module):
         # 通过 excite/inhibit_channels 把 peer 的 field_vector 投影到本神经元 hidden 空间，
         # 以乘性 gate 调制 h（移到 norm 后，避免被 RMSNorm 抵消）。
         # Auxiliary-loss-free balancing: 每条 channel 有可学习 scale + 启发式 bias
+        # usage 统计：记录 |scaled_proj| 均值，供启发式 bias 更新使用
         if side_signals:
             excite_sum = None
             inhibit_sum = None
@@ -442,6 +491,10 @@ class ResonanceNeuron(nn.Module):
                     bias = getattr(self, f"excite_bias_{peer_id}", None)
                     if scale is not None:
                         proj = proj * scale + (bias if bias is not None else 0.0)
+                        # 记录 usage = |scaled_proj|.mean()（detached，不参与梯度）
+                        self._channel_usage[f"excite:{peer_id}"] = (
+                            proj.detach().abs().mean().item()
+                        )
                     excite_sum = proj if excite_sum is None else excite_sum + proj
                 if peer_id in self.inhibit_channels:
                     proj = self.inhibit_channels[peer_id](sig)
@@ -449,6 +502,9 @@ class ResonanceNeuron(nn.Module):
                     bias = getattr(self, f"inhibit_bias_{peer_id}", None)
                     if scale is not None:
                         proj = proj * scale + (bias if bias is not None else 0.0)
+                        self._channel_usage[f"inhibit:{peer_id}"] = (
+                            proj.detach().abs().mean().item()
+                        )
                     inhibit_sum = proj if inhibit_sum is None else inhibit_sum + proj
 
             # 乘性调制：gate = 1 + tanh(proj * scale + bias)

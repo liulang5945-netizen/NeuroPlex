@@ -322,6 +322,8 @@ def main():
     print(f"  LR 调度: warmup={warmup_steps}步, decay 从 {decay_start}/{total_est_steps} 步开始", flush=True)
 
     LOG_EVERY = 50
+    BIAS_UPDATE_EVERY = 50  # Auxiliary-loss-free balancing bias 更新频率
+    BIAS_UPDATE_RATE = 0.1  # bias 更新步长
 
     total_steps = 0
     start_epoch = 0
@@ -441,6 +443,20 @@ def main():
                 epoch_tokens += n_tokens
                 total_steps += 1
 
+                # Auxiliary-loss-free balancing bias 更新（每 BIAS_UPDATE_EVERY 步）
+                # 借鉴 DeepSeek V3：非梯度更新，根据 channel usage 启发式调整 bias
+                # 必须在 total_steps 增量后，与 LOG_EVERY 对齐
+                if total_steps % BIAS_UPDATE_EVERY == 0:
+                    total_delta = 0.0
+                    for nid, neuron in neurons.items():
+                        deltas = neuron.update_channel_bias(update_rate=BIAS_UPDATE_RATE)
+                        total_delta += sum(abs(d) for d in deltas.values())
+                    if total_delta > 0:
+                        n_channels = sum(len(n.get_channel_usage_stats()) for n in neurons.values())
+                        print(f"  [bias update] step {total_steps}: "
+                              f"{n_channels} channels, total_delta={total_delta:.4f}",
+                              flush=True)
+
                 if total_steps % LOG_EVERY == 0:
                     avg_loss = epoch_loss / max(epoch_tokens, 1)
                     ppl = math.exp(min(avg_loss, 20))
@@ -459,6 +475,23 @@ def main():
                         "ppl": ppl,
                         "tokens": epoch_tokens,
                     })
+
+                    # Channel usage 诊断（每 LOG_EVERY 步输出，监控死通道）
+                    all_usages = []
+                    for nid, neuron in neurons.items():
+                        stats = neuron.get_channel_usage_stats()
+                        for ch_key, usage in stats.items():
+                            all_usages.append(usage)
+                    if all_usages:
+                        avg_usage = sum(all_usages) / len(all_usages)
+                        min_usage = min(all_usages)
+                        max_usage = max(all_usages)
+                        # 死通道判定：usage < avg * 0.1
+                        dead_count = sum(1 for u in all_usages if u < avg_usage * 0.1)
+                        print(f"    [channels] usage avg={avg_usage:.4f} "
+                              f"min={min_usage:.4f} max={max_usage:.4f} "
+                              f"dead={dead_count}/{len(all_usages)}",
+                              flush=True)
 
                 # 中途 checkpoint（每 500 步保存，防止崩溃丢失进度）
                 if total_steps % 500 == 0:
