@@ -35,24 +35,25 @@ from scripts.training.utils import (
 DOMAIN = "zh"
 NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
 SHARED_EXPERT_ID = "zh_general"
+STD_NEURON_ID = "zh_std0"  # standard 规格，用于混合规格协作
 DEVICE = "cpu"
 
 
-def load_aug_neurons(include_shared_expert=False):
+def load_aug_neurons(include_shared_expert=False, include_std=False):
     """加载 aug 神经元，每个用自己的 embedding，并建立 side_channels。
 
     Args:
         include_shared_expert: 是否加载 general 神经元（Shared Expert 机制）
+        include_std: 是否加载 standard 神经元 zh_std0（混合规格协作）
     """
-    cfg = get_domain_neuron_config(DOMAIN, spec="compact")
-    # 保持低维，不启用 unified_field_dim
-    cfg.unified_field_dim = None
     neurons = {}
     shared_embeddings = {}
 
     all_ids = list(NEURON_IDS)
     if include_shared_expert:
         all_ids.append(SHARED_EXPERT_ID)
+    if include_std:
+        all_ids.append(STD_NEURON_ID)
 
     for nid in all_ids:
         path = os.path.join(OUTPUT_DIR, f"neuron_{nid}.pt")
@@ -60,6 +61,14 @@ def load_aug_neurons(include_shared_expert=False):
             print(f"  [{nid}] WARN 未找到 checkpoint: {path}，跳过", flush=True)
             continue
         ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
+
+        # 优先使用 checkpoint 中的 neuron_config，支持混合规格
+        if "neuron_config" in ckpt and ckpt["neuron_config"] is not None:
+            cfg = ckpt["neuron_config"]
+        else:
+            cfg = get_domain_neuron_config(DOMAIN, spec="compact")
+        # 保持低维，不启用 unified_field_dim
+        cfg.unified_field_dim = None
 
         # 加载神经元权重
         neuron = ResonanceNeuron(cfg).to(DEVICE)
@@ -71,16 +80,17 @@ def load_aug_neurons(include_shared_expert=False):
         shared_emb = nn.Embedding(256000, 512)
         if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
             shared_emb.load_state_dict(ckpt["shared_embedding_state"])
-            print(f"  [{nid}] OK 加载自己的 shared_embedding", flush=True)
+            print(f"  [{nid}] OK 加载自己的 shared_embedding (spec={cfg.spec})", flush=True)
         else:
             print(f"  [{nid}] WARN 无 shared_embedding_state，用随机初始化", flush=True)
         shared_emb.to(DEVICE).eval()
         shared_embeddings[nid] = shared_emb
 
         result = ckpt.get("result", {})
-        print(f"  [{nid}] best_val_ppl={result.get('best_val_ppl', '?')}", flush=True)
+        print(f"  [{nid}] spec={cfg.spec}, best_val_ppl={result.get('best_val_ppl', '?')}", flush=True)
 
     # 建立 per-pair side_channels：每个 post 神经元对 pre 神经元建立 excite 通道
+    # side_channels 天然支持跨规格：src_dim=peer.field_dim, dst_dim=self.hidden_size
     loaded_ids = list(neurons.keys())
     for post_id in loaded_ids:
         for pre_id in loaded_ids:
@@ -123,8 +133,9 @@ def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100,
     texts = texts[-n_eval:] if len(texts) > n_eval else texts
     print(f"  评估集(simple_zh): {len(texts)} 条文本", flush=True)
 
-    # 创建 Ensemble（低维 field，max_rounds=2 启用 side_channels）
-    field = ResonanceField(dim=next(iter(neurons.values())).config.field_dim)
+    # 创建 Ensemble（用最大 field_dim，跨规格投影由 ensemble 内部处理）
+    max_field_dim = max(n.config.field_dim for n in neurons.values())
+    field = ResonanceField(dim=max_field_dim)
     ensemble = ResonanceEnsemble(
         neurons, field, max_rounds=2,
         shared_expert_id=shared_expert_id,
@@ -251,7 +262,9 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
     print(f"[生成质量对比] 个体 vs 协作{mode_label}", flush=True)
     print("=" * 70, flush=True)
 
-    field = ResonanceField(dim=cfg.field_dim)
+    # 用最大 field_dim，跨规格投影由 ensemble 内部处理
+    max_field_dim = max(n.config.field_dim for n in neurons.values())
+    field = ResonanceField(dim=max_field_dim)
     ensemble = ResonanceEnsemble(
         neurons, field, max_rounds=2,
         shared_expert_id=shared_expert_id,
@@ -406,18 +419,22 @@ def main():
                         help="启用 Shared Expert 机制（加载 general 神经元）")
     parser.add_argument("--shared_expert_weight", type=float, default=0.3,
                         help="Shared Expert 的固定融合权重（默认 0.3）")
+    parser.add_argument("--include_std", action="store_true",
+                        help="加载 standard 神经元 zh_std0（混合规格协作）")
     parser.add_argument("--n_eval", type=int, default=100,
                         help="PPL 评估文本数（默认 100）")
     args = parser.parse_args()
 
     mode_label = " + Shared Expert" if args.shared_expert else ""
+    std_label = " + Standard (zh_std0)" if args.include_std else ""
     print("=" * 60, flush=True)
-    print(f"zh_aug0~3 四神经元联合评估（side_channels，低维）{mode_label}", flush=True)
+    print(f"zh_aug0~3 四神经元联合评估（side_channels，低维）{mode_label}{std_label}", flush=True)
     print("=" * 60, flush=True)
 
     print("\n[1] 加载神经元...", flush=True)
     neurons, shared_embeddings, cfg = load_aug_neurons(
         include_shared_expert=args.shared_expert,
+        include_std=args.include_std,
     )
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()

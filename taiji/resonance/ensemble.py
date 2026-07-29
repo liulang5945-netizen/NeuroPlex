@@ -96,6 +96,36 @@ class ResonanceEnsemble:
         self._balancing_update_interval = 50  # 每 50 步更新一次 bias
         self._step_count = 0
 
+        # ── Cross-spec field projector ──
+        # 混合规格协作：不同神经元 field_dim 不同时，投影到 field.dim 统一写入
+        # 投影层随机初始化（未训练），仅用于维度对齐使 side_channels 能跨规格工作
+        # 正式使用需要通过 side_channels 微调训练这些投影层
+        self._cross_spec_projectors: Dict[str, nn.Linear] = {}  # forward: field_dim -> unified
+        self._cross_spec_back_projectors: Dict[str, nn.Linear] = {}  # backward: unified -> field_dim
+        field_dim = self.field.dim
+        for nid, neuron in self.neurons.items():
+            nfd = neuron.config.field_dim
+            if nfd != field_dim:
+                proj = nn.Linear(nfd, field_dim, bias=False)
+                nn.init.normal_(proj.weight, std=field_dim ** -0.5)
+                self._cross_spec_projectors[nid] = proj
+                # 反向投影：round 2 conditioning 时将 field.state 投影回 neuron.field_dim
+                back_proj = nn.Linear(field_dim, nfd, bias=False)
+                nn.init.normal_(back_proj.weight, std=nfd ** -0.5)
+                self._cross_spec_back_projectors[nid] = back_proj
+        if self._cross_spec_projectors:
+            print(f"  [ensemble] 检测到混合 field_dim，创建 {len(self._cross_spec_projectors)} 个跨规格投影层"
+                  f"（含反向投影）", flush=True)
+
+    def _project_vec(self, nid: str, vec: torch.Tensor) -> torch.Tensor:
+        """Cross-spec projection: 将 neuron 的 field_vector 投影到 field.dim。
+
+        混合规格协作时，不同神经元的 field_dim 不同，需要投影到统一维度才能写入 field。
+        """
+        if nid in self._cross_spec_projectors:
+            return self._cross_spec_projectors[nid](vec)
+        return vec
+
     def _init_geometry(self) -> None:
         """初始化 NeuronGeometry：按域分组分配坐标，注册到 coaction。"""
         from collections import defaultdict
@@ -292,8 +322,12 @@ class ResonanceEnsemble:
 
         def _forward_neuron(nid: str, emb: torch.Tensor, need_logits: bool) -> Dict:
             """单个 neuron forward，统一封装多模态参数。"""
+            # Cross-spec back-projection: 将 field.state 投影回 neuron.field_dim
+            fs = field_state
+            if fs is not None and nid in self._cross_spec_back_projectors:
+                fs = self._cross_spec_back_projectors[nid](fs)
             kwargs = dict(
-                field_state=field_state,
+                field_state=fs,
                 round_num=round_num,
                 return_logits=need_logits,
             )
@@ -451,10 +485,12 @@ class ResonanceEnsemble:
             # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
             maturity_w = (self.maturity.get_resonance_weight(nid)
                           if self.maturity is not None else 1.0)
+            # Cross-spec projection: 将不同 field_dim 的向量投影到 field.dim
+            vec = self._project_vec(nid, round_vecs[nid])
             if neuron.is_inhibitory:
-                self.field.write_inhibit(nid, round_vecs[nid], weight=maturity_w)
+                self.field.write_inhibit(nid, vec, weight=maturity_w)
             else:
-                self.field.write(nid, round_vecs[nid], scale=write_scale * maturity_w)
+                self.field.write(nid, vec, scale=write_scale * maturity_w)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
             if self.stdp_tracker is not None:
                 self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
@@ -485,7 +521,7 @@ class ResonanceEnsemble:
         # 这样 round 2+ 中分数较低的 neuron 有机会写入，实现信息轮替
         scores: Dict[str, float] = {}
         for nid in active_ids:
-            scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
+            scores[nid] = self.field.score(self._project_vec(nid, round_vecs[nid]), neuron_id=nid)
         self.round_scores.append(scores)
 
         # 按 score 降序排序，只让 top-K 进入不应期（K = min(half, logits_top_k)）
@@ -589,11 +625,12 @@ class ResonanceEnsemble:
                 # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
                 maturity_w = (self.maturity.get_resonance_weight(nid)
                               if self.maturity is not None else 1.0)
+                vec = self._project_vec(nid, round_vecs[nid])
                 if neuron.is_inhibitory:
-                    self.field.write_inhibit(nid, round_vecs[nid], weight=maturity_w)
+                    self.field.write_inhibit(nid, vec, weight=maturity_w)
                 else:
                     # P1-2: round 2+ 也应用 neuromodulator 调质
-                    self.field.update(nid, round_vecs[nid], scale=write_scale * maturity_w)
+                    self.field.update(nid, vec, scale=write_scale * maturity_w)
                 self.neurons[nid].enter_refractory(multiplier=refractory_mult)
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:
@@ -625,7 +662,7 @@ class ResonanceEnsemble:
 
             scores = {}
             for nid in active_ids:
-                scores[nid] = self.field.score(round_vecs[nid], neuron_id=nid)
+                scores[nid] = self.field.score(self._project_vec(nid, round_vecs[nid]), neuron_id=nid)
             self.round_scores.append(scores)
 
             # P0-2 fix: 每轮基于当前 scores 重新计算 _logits_keep_ids（原 bug：round 1 后冻结）
@@ -638,11 +675,13 @@ class ResonanceEnsemble:
                 filtered = set()
                 active_list = list(active_ids)
                 for nid in active_list:
-                    other_vecs = [round_vecs[o] for o in active_list if o != nid]
+                    other_vecs = [self._project_vec(o, round_vecs[o]) for o in active_list if o != nid]
                     if not other_vecs:
                         filtered.add(nid)
                         continue
-                    congestion = self.field.directional_congestion(round_vecs[nid], other_vecs)
+                    congestion = self.field.directional_congestion(
+                        self._project_vec(nid, round_vecs[nid]), other_vecs
+                    )
                     threshold = self.field.compute_threshold(congestion)
                     if scores[nid] >= threshold:
                         filtered.add(nid)
