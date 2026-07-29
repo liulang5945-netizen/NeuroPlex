@@ -53,11 +53,30 @@ PPL 指标确认协作有效，但生成文本仍有重复（所有神经元共�
 2. 改进生成策略（sampling, repetition penalty）
 3. 扩大规模（更多神经元，更大规格）
 
+### 生成质量评估（2026-07-29，top-k sampling 改进后）
+
+**PPL 结果**（v2 baseline，已恢复）：
+- 个体 [zh_aug0]: PPL=211.6
+- 个体 [zh_aug1]: PPL=114.6（最强个体）
+- 个体 [zh_aug2]: PPL=225.3
+- 个体 [zh_aug3]: PPL=246.9
+- **协作 PPL=62.6**（EMERGE 协作比最强个体好 45.3%）
+
+**生成质量观察**：
+- top-k sampling (k=40) + repetition penalty (1.2) + temperature (0.8) **消除了机械重复**
+  （之前是"天气天气天气..."纯重复，现在是有变化的生成）
+- 但生成文本仍**语义不连贯**，有乱码、断裂、混合多种风格
+- 这是典型的"PPL 好但生成差"问题，根因是 compact 神经元训练不充分
+
+**根本瓶颈确认**：神经元训练不充分是当前所有生成质量问题的根因。架构改进（side_channels、
+Auxiliary-loss-free balancing、sampling 策略）已到位，但无法弥补神经元本身能力不足。
+
 ### 产物
 
-- 微调权重：`data/neurons/side_channels_finetuned.pt`
+- 微调权重：`data/neurons/side_channels_finetuned.pt`（v2 baseline, PPL=62.6）
+- v2 baseline 备份：`data/neurons/side_channels_finetuned_v2_baseline.pt`
 - 训练历史：`logs/finetune_side_channels_history.json`（299 条记录）
-- 评估日志：`logs/eval_aug_joint_20260729_*.log`
+- 评估日志：`logs/eval_aug_joint_sampling_20260729_132638.log`
 
 ---
 
