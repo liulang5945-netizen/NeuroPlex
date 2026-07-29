@@ -11,6 +11,56 @@
 
 ---
 
+## 🎉 重大里程碑（2026-07-29）：EMERGE 现象确认
+
+### 实验结果
+
+**4 神经元协作 side_channels 微调（6 epochs，14950 步，~14 小时）**
+
+| 神经元 | solo PPL | 融合权重 |
+|--------|---------|---------|
+| zh_aug0 | 211.6 | 0.250 |
+| zh_aug1 | 114.6（最强个体） | 0.555（主导） |
+| zh_aug2 | 225.3 | 0.129 |
+| zh_aug3 | 246.9 | 0.066 |
+| **协作** | **62.6** | - |
+
+### 关键指标
+
+- **协作 PPL: 62.6**
+- **最强个体 PPL: 114.6**
+- **EMERGE 幅度: 协作比最强个体好 45.3%**
+
+### 技术配置
+
+- 神经元规格：4× compact（36M 参数/个，共 144M）
+- 可训练参数：side_channels 12.58M + scale 12 个
+- 优化器：Muon（ns_steps=5, momentum=0.95, nesterov=True）
+- 学习率调度：warmup(100步) + constant + cosine decay(最后 20%)
+- side_channels 调制：乘性门控 `h = h * (1 + tanh(proj))`
+- field_conditioning：False（跳过未训练的 field_read_layers）
+- max_rounds：2（round 1 独立，round 2 带 side_signals）
+- 数据：simple_zh 10000 条，6 epochs
+
+### 意义
+
+这是态极架构的**关键验证点**：多个小型神经元通过 side_channels 协作，涌现出超越最强个体的能力。验证了"小神经元协同工作匹配大模型"的核心设计理念。
+
+### 生成质量
+
+PPL 指标确认协作有效，但生成文本仍有重复（所有神经元共性问题）。原因是 compact 神经元训练不充分（CPU 限制，数据/参数比不足）。后续需要：
+1. 更充分的神经元训练（更多数据，更多步数）
+2. 改进生成策略（sampling, repetition penalty）
+3. 扩大规模（更多神经元，更大规格）
+
+### 产物
+
+- 微调权重：`data/neurons/side_channels_finetuned.pt`
+- 训练历史：`logs/finetune_side_channels_history.json`（299 条记录）
+- 评估日志：`logs/eval_aug_joint_20260729_*.log`
+
+---
+
 ## 🧹 项目整理记录（2026-07-28）
 
 ### 清理总结
