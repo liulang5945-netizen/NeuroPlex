@@ -34,19 +34,31 @@ from scripts.training.utils import (
 
 DOMAIN = "zh"
 NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
+SHARED_EXPERT_ID = "zh_general"
 DEVICE = "cpu"
 
 
-def load_aug_neurons():
-    """加载 aug 神经元，每个用自己的 embedding，并建立 side_channels。"""
+def load_aug_neurons(include_shared_expert=False):
+    """加载 aug 神经元，每个用自己的 embedding，并建立 side_channels。
+
+    Args:
+        include_shared_expert: 是否加载 general 神经元（Shared Expert 机制）
+    """
     cfg = get_domain_neuron_config(DOMAIN, spec="compact")
     # 保持低维，不启用 unified_field_dim
     cfg.unified_field_dim = None
     neurons = {}
     shared_embeddings = {}
 
-    for nid in NEURON_IDS:
+    all_ids = list(NEURON_IDS)
+    if include_shared_expert:
+        all_ids.append(SHARED_EXPERT_ID)
+
+    for nid in all_ids:
         path = os.path.join(OUTPUT_DIR, f"neuron_{nid}.pt")
+        if not os.path.exists(path):
+            print(f"  [{nid}] WARN 未找到 checkpoint: {path}，跳过", flush=True)
+            continue
         ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
 
         # 加载神经元权重
@@ -69,14 +81,16 @@ def load_aug_neurons():
         print(f"  [{nid}] best_val_ppl={result.get('best_val_ppl', '?')}", flush=True)
 
     # 建立 per-pair side_channels：每个 post 神经元对 pre 神经元建立 excite 通道
-    for post_id in NEURON_IDS:
-        for pre_id in NEURON_IDS:
+    loaded_ids = list(neurons.keys())
+    for post_id in loaded_ids:
+        for pre_id in loaded_ids:
             if pre_id == post_id:
                 continue
             neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
         print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite side_channels", flush=True)
 
     # 加载微调后的 side_channels（如果存在）
+    # 注意：Shared Expert 的 side_channels 不在微调权重中，会用随机初始化
     finetuned_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.pt")
     if os.path.exists(finetuned_path):
         side_state = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
@@ -92,10 +106,17 @@ def load_aug_neurons():
     return neurons, shared_embeddings, cfg
 
 
-def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100):
-    """个体 vs 协作 PPL（side_channels + max_rounds=2）。"""
+def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100,
+             shared_expert_id=None, shared_expert_weight=0.3):
+    """个体 vs 协作 PPL（side_channels + max_rounds=2）。
+
+    Args:
+        shared_expert_id: 如果提供，启用 Shared Expert 机制
+        shared_expert_weight: Shared Expert 的固定融合权重
+    """
+    mode_label = f" + Shared Expert ({shared_expert_id}, w={shared_expert_weight})" if shared_expert_id else ""
     print("\n" + "=" * 70, flush=True)
-    print("[PPL 评估] 个体 vs 协作 (side_channels, max_rounds=2)", flush=True)
+    print(f"[PPL 评估] 个体 vs 协作 (side_channels, max_rounds=2){mode_label}", flush=True)
     print("=" * 70, flush=True)
 
     texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=n_eval * 3)
@@ -104,7 +125,11 @@ def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100):
 
     # 创建 Ensemble（低维 field，max_rounds=2 启用 side_channels）
     field = ResonanceField(dim=next(iter(neurons.values())).config.field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    ensemble = ResonanceEnsemble(
+        neurons, field, max_rounds=2,
+        shared_expert_id=shared_expert_id,
+        shared_expert_weight=shared_expert_weight,
+    )
 
     # 个体 PPL
     individual_ppls = {}
@@ -218,14 +243,20 @@ def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100):
     return individual_ppls, collab_ppl
 
 
-def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
+def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
+                    shared_expert_id=None, shared_expert_weight=0.3):
     """生成质量对比：个体 vs 协作（side_channels）。"""
+    mode_label = f" + Shared Expert" if shared_expert_id else ""
     print("\n" + "=" * 70, flush=True)
-    print("[生成质量对比] 个体 vs 协作", flush=True)
+    print(f"[生成质量对比] 个体 vs 协作{mode_label}", flush=True)
     print("=" * 70, flush=True)
 
     field = ResonanceField(dim=cfg.field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    ensemble = ResonanceEnsemble(
+        neurons, field, max_rounds=2,
+        shared_expert_id=shared_expert_id,
+        shared_expert_weight=shared_expert_weight,
+    )
 
     PROMPTS = [
         "你好，请介绍一下自己",
@@ -369,20 +400,40 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="评估 zh_aug 神经元联合效果")
+    parser.add_argument("--shared_expert", action="store_true",
+                        help="启用 Shared Expert 机制（加载 general 神经元）")
+    parser.add_argument("--shared_expert_weight", type=float, default=0.3,
+                        help="Shared Expert 的固定融合权重（默认 0.3）")
+    parser.add_argument("--n_eval", type=int, default=100,
+                        help="PPL 评估文本数（默认 100）")
+    args = parser.parse_args()
+
+    mode_label = " + Shared Expert" if args.shared_expert else ""
     print("=" * 60, flush=True)
-    print("zh_aug0~3 四神经元联合评估（side_channels，低维）", flush=True)
+    print(f"zh_aug0~3 四神经元联合评估（side_channels，低维）{mode_label}", flush=True)
     print("=" * 60, flush=True)
 
     print("\n[1] 加载神经元...", flush=True)
-    neurons, shared_embeddings, cfg = load_aug_neurons()
+    neurons, shared_embeddings, cfg = load_aug_neurons(
+        include_shared_expert=args.shared_expert,
+    )
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
 
+    se_id = SHARED_EXPERT_ID if args.shared_expert else None
+
     print("\n[2] PPL 评估...", flush=True)
-    eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100)
+    eval_ppl(neurons, shared_embeddings, domain_sp, general_sp,
+             n_eval=args.n_eval,
+             shared_expert_id=se_id,
+             shared_expert_weight=args.shared_expert_weight)
 
     print("\n[3] 生成质量...", flush=True)
-    eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg)
+    eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
+                    shared_expert_id=se_id,
+                    shared_expert_weight=args.shared_expert_weight)
 
     print("\n" + "=" * 60, flush=True)
     print("评估完成", flush=True)
