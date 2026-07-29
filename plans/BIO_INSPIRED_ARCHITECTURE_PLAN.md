@@ -11,6 +11,42 @@
 
 ---
 
+## 🔄 Standard 神经元训练（2026-07-29，进行中）
+
+### 背景
+
+Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身能力不足。
+所有评估都指向同一个根本瓶颈：compact 神经元（36M, 4000 步）训练不充分，
+导致生成质量差（PPL 好但生成不连贯）。
+
+### 实验目标
+
+训练 standard 规格（116M）单神经元，验证更大容量 + 充分训练能否生成连贯文本。
+这是解决生成质量问题的最直接验证路径。
+
+### 训练配置
+
+- **规格**：standard（hidden=768, layers=10, heads=12, kv_heads=4, ~116M 参数）
+- **数据**：shared_core.jsonl（236K）+ class_b_encyclopedia.jsonl（105K）= 340K 条
+- **训练参数**：8000 步，batch 8×grad_accum 4=32，lr=1e-3，dropout=0.2，WSD 调度
+- **shared_emb_mode**：train（训练自己的 shared_embedding）
+- **side_channels**：4 条（指向 zh_aug0~3 compact 神经元，peer_cfg=compact）
+- **预计耗时**：~3.3 小时
+
+### 当前进度
+
+- step 200: train PPL=7.3（持续下降）
+- 日志：`logs/train_zh_std0_*.log`
+
+### 验证指标
+
+训练完成后运行生成质量评估：
+1. 单神经元生成是否连贯（对比 compact 神经元的乱码生成）
+2. val PPL 是否优于 compact 神经元（zh_aug1 best_val_ppl=146.6）
+3. 若生成连贯，后续验证多 standard 神经元协作
+
+---
+
 ## 🎉 重大里程碑（2026-07-29）：EMERGE 现象确认
 
 ### 实验结果
