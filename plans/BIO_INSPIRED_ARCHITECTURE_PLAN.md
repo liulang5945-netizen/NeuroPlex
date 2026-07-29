@@ -135,7 +135,7 @@ Epoch 1/1 step 50: loss=5.0741 PPL=159.8 [50/74 ETA 1.9min]
 
 ---
 
-## 🧠 Shared Expert 机制实施（2026-07-29，进行中）
+## 🧠 Shared Expert 机制实施（2026-07-29，已完成，结论：负向）
 
 ### 背景
 
@@ -150,12 +150,12 @@ Kimi K3 / DeepSeek V3 的 Shared Expert：一个 always-active 的通用专家�
 
 ### 实施进度
 
-**1. general 神经元训练**（🔄 进行中）
+**1. general 神经元训练**（✅ 已完成）
 - 数据：`shared_core.jsonl`（236K 条通用核心数据）
 - 规格：36M compact，train 模式（保存自己的 shared_embedding）
 - 训练参数：4000 步，batch 8×grad_accum 4=32，lr=1e-3，dropout=0.2
-- 当前进度：step 600/4000，train PPL=5.9（持续下降）
-- 预计完成时间：~1 小时
+- 结果：best_val_PPL=148.80@step4000，耗时 57.8min
+- 训练日志：`logs/train_zh_general_20260729.log`
 
 **2. ensemble Shared Expert 架构**（✅ 已完成）
 - `ResonanceEnsemble.__init__` 添加 `shared_expert_id` 和 `shared_expert_weight` 参数
@@ -168,17 +168,48 @@ Kimi K3 / DeepSeek V3 的 Shared Expert：一个 always-active 的通用专家�
 - `load_aug_neurons()` 支持 `include_shared_expert` 加载 general 神经元
 - `eval_ppl()` 和 `eval_generation()` 传递 shared_expert 配置到 ensemble
 
-### 下一步验证
+### 评估结果（2026-07-29，负向）
 
-训练完成后运行：
-```bash
-python -u scripts/training/eval_aug_joint.py --shared_expert --shared_expert_weight 0.3
-```
+运行命令：`python -u scripts/training/eval_aug_joint.py --shared_expert --shared_expert_weight 0.3`
+评估日志：`logs/eval_shared_expert_20260729_145858.log`
 
-验证指标：
-1. Shared Expert 协作 PPL 是否低于无 Shared Expert 的协作 PPL（62.6）
-2. 生成质量是否改善（general 神经元提供基础语言能力）
-3. 不同 shared_expert_weight（0.2/0.3/0.5）的效果对比
+**PPL 对比**：
+
+| 模式 | 协作 PPL | 对比 baseline |
+|------|---------|--------------|
+| 无 Shared Expert（v2 baseline） | 62.6 | - |
+| **Shared Expert (w=0.3)** | **108.6** | **恶化 +73.6%** |
+
+**个体 PPL**：
+- zh_aug0: 211.6 | zh_aug1: 114.6（最强个体）| zh_aug2: 225.3 | zh_aug3: 246.9
+- **zh_general: 257.5（最弱）** ← 关键问题
+
+**融合权重**：zh_aug1:0.320, zh_general:0.300, zh_aug0:0.122, zh_aug2:0.062, zh_aug3:0.032
+
+### 结论与教训
+
+**Shared Expert 机制在当前实施下负向**，反而降低了协作质量。
+
+**根本原因**：Shared Expert 机制的前提是 general 神经元必须足够强（提供基础能力保障），
+但实际 zh_general 神经元训练不充分（best_val_PPL=148.80，评估 PPL=257.5），反而比所有
+aug 神经元都差。强制给它 30% 固定权重稀释了 zh_aug1（最强个体）的主导作用。
+
+**关键教训**：
+1. **借鉴机制不能盲目照搬**：Shared Expert 在 Kimi K3/DeepSeek V3 中有效，是因为它们的
+   general 专家训练充分（数万亿 token）。在小规模 compact 神经元（36M, 4000 步）上，
+   general 神经元反而成为最弱环节
+2. **机制有效性依赖前置条件**：Shared Expert 要求 general ≥ 域特定神经元的能力，
+   否则会拖累整体
+3. **固定权重的风险**：30% 固定权重缺乏自适应，无论 general 神经元质量如何都会强制分配，
+   应该改为基于神经元实际能力的动态权重
+
+### 后续方向
+
+Shared Expert 机制暂不启用（保持 v2 baseline PPL=62.6 作为最佳协作结果）。
+若要重新启用，需要：
+1. 大幅增加 general 神经元训练数据量和步数（达到或超过 aug 神经元水平）
+2. 改为动态权重（基于 general 神经元实际 PPL 自适应调整）
+3. 或放弃固定权重，让 general 神经元参与正常的共振评分竞争
 
 ---
 
