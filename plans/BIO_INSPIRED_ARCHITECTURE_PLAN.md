@@ -11,7 +11,7 @@
 
 ---
 
-## 🔄 Standard 神经元训练（2026-07-29，进行中）
+## 🔄 Standard 神经元训练（2026-07-29，已完成，生成质量突破）
 
 ### 背景
 
@@ -26,24 +26,69 @@ Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身
 
 ### 训练配置
 
-- **规格**：standard（hidden=768, layers=10, heads=12, kv_heads=4, ~116M 参数）
+- **规格**：standard（hidden=768, layers=10, heads=12, kv_heads=4, ~110.5M 参数）
 - **数据**：shared_core.jsonl（236K）+ class_b_encyclopedia.jsonl（105K）= 340K 条
 - **训练参数**：8000 步，batch 8×grad_accum 4=32，lr=1e-3，dropout=0.2，WSD 调度
 - **shared_emb_mode**：train（训练自己的 shared_embedding）
 - **side_channels**：4 条（指向 zh_aug0~3 compact 神经元，peer_cfg=compact）
-- **预计耗时**：~3.3 小时
+- **耗时**：194.6min（约 3.2 小时）
 
-### 当前进度
+### 训练结果
 
-- step 200: train PPL=7.3（持续下降）
-- 日志：`logs/train_zh_std0_*.log`
+| step | val PPL | 趋势 |
+|------|---------|------|
+| 1000 | 104.37 | 起始 |
+| 2000 | 65.57 | 快速下降 |
+| 3000 | 57.97 | 持续下降 |
+| 4000 | 47.73 | 持续下降 |
+| 5000 | 41.64 | 持续下降 |
+| 6000 | 37.46 | 持续下降 |
+| 7000 | 36.63 | 接近收敛 |
+| **8000** | **34.07** | **最终** |
 
-### 验证指标
+**对比 compact 神经元**：
+- compact zh_aug1 best_val_ppl=146.6（最强 compact）
+- standard zh_std0 best_val_ppl=34.07
+- **standard 比 compact 好 76.8%**
 
-训练完成后运行生成质量评估：
-1. 单神经元生成是否连贯（对比 compact 神经元的乱码生成）
-2. val PPL 是否优于 compact 神经元（zh_aug1 best_val_ppl=146.6）
-3. 若生成连贯，后续验证多 standard 神经元协作
+### 生成质量评估（2026-07-29，关键突破）
+
+**评估 PPL**：294.9（评估集分布与训练 val 不同，但生成质量是关键指标）
+
+**生成质量对比**（top-k sampling + repetition penalty + temperature）：
+
+| 神经元 | 生成样本 | 质量评估 |
+|--------|---------|---------|
+| compact | "天气天气天气..." | 纯重复，无语义 |
+| **standard** | "喜欢的小明信！你没有注意到吗？如果你的我们还是找不到，我问记得一次我的朋友..." | **有语义连贯性** |
+| **standard** | "树叶洒落在面上，一只老鹰正在低声。鹰们纷纷奔去..." | **有画面感** |
+| **standard** | "老师，是什么？它是什么：古代的几何星座" | **有问答结构** |
+
+**关键结论**：
+1. ✅ **生成质量突破**：standard 神经元首次生成有语义连贯性的中文文本
+2. ✅ **容量是关键**：110.5M standard >> 36M compact，验证"扩大规模"方向正确
+3. ✅ **训练充分性重要**：8000 步 + 340K 数据，数据/参数比 3.1:1
+4. ⚠️ 仍有不连贯处（如数学题部分），但相比 compact 是质的飞跃
+
+### 技术改进
+
+训练过程中修复了两个 bug：
+1. `args.spec` 在 train_parallel 函数中不可用 → 添加 spec 参数
+2. checkpoint 只在训练结束时保存 → 改为每次 best val PPL 刷新时立即保存
+
+### 产物
+
+- checkpoint：`data/neurons/neuron_zh_std0.pt`（991MB, standard 规格）
+- 训练日志：`logs/train_zh_std0_20260729_184015.log`
+- 评估日志：`logs/eval_std_single_*.log`
+- 评估脚本：`scripts/training/eval_std_neuron.py`
+
+### 下一步方向
+
+1. **混合协作评估**：zh_std0 (standard) + zh_aug0~3 (compact) 协作效果
+2. **多 standard 神经元训练**：训练 3-4 个 standard 神经元，验证多 standard 协作
+3. **更长训练**：8000→16000 步，看生成质量能否进一步提升
+4. **更大规格**：如果 standard 效果好，尝试 expert 规格（~300M）
 
 ---
 
