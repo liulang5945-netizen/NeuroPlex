@@ -335,7 +335,7 @@ def train_parallel(
             "best_step": best_step,
             "steps": step,
             "saved": "best" if best_state is not None else "final",
-            "spec": "compact",
+            "spec": args.spec,
             "shared_emb_mode": shared_emb_mode,
         },
     }, save_path)
@@ -393,9 +393,11 @@ def generate_sample(neuron, domain_sp, general_sp, shared_embedding, device, pro
 
 
 def main():
-    parser = argparse.ArgumentParser(description="并行训练 compact 神经元（差异化数据）")
+    parser = argparse.ArgumentParser(description="并行训练 compact/standard 神经元（差异化数据）")
     parser.add_argument("--neuron_id", required=True)
     parser.add_argument("--data_files", nargs='+', required=True, help="数据文件名（在 data/simple_zh/ 下）")
+    parser.add_argument("--spec", choices=["compact", "standard"], default="compact",
+                        help="神经元规格：compact(36M) 或 standard(~100M)")
     parser.add_argument("--steps", type=int, default=16000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--grad_accum", type=int, default=4)
@@ -421,8 +423,9 @@ def main():
     print(f"PyTorch 线程数: {args.threads}", flush=True)
 
     print("=" * 70, flush=True)
-    print(f"并行训练 compact 神经元（差异化数据）", flush=True)
+    print(f"并行训练 {args.spec} 神经元（差异化数据）", flush=True)
     print(f"  neuron_id: {args.neuron_id}", flush=True)
+    print(f"  spec: {args.spec}", flush=True)
     print(f"  data_files: {args.data_files}", flush=True)
     print(f"  shared_emb_mode: {args.shared_emb_mode}", flush=True)
     print(f"  effective batch: {args.batch_size} × {args.grad_accum} = {args.batch_size * args.grad_accum}", flush=True)
@@ -444,13 +447,14 @@ def main():
     shared_embedding = load_or_create_shared_embedding(args.device)
 
     # 4. 神经元
-    print(f"\n[4] 创建 compact 神经元...", flush=True)
-    cfg = get_domain_neuron_config("zh", spec="compact")
+    print(f"\n[4] 创建 {args.spec} 神经元...", flush=True)
+    cfg = get_domain_neuron_config("zh", spec=args.spec)
     cfg.dropout = args.dropout
     neuron = ResonanceNeuron(cfg).to(args.device)
 
     # 4.1 建立指向同域其他神经元的 side_channels（per-pair 突触投影）
     # 这样训练时 side_channels 也会通过反向传播学习如何转译 peer 的 field_vector
+    # 注意：ZH_COMPACT_NEURON_IDS 中的神经元是 compact 规格，peer_cfg 固定 compact
     peer_cfg = get_domain_neuron_config("zh", spec="compact")
     for peer_id in ZH_COMPACT_NEURON_IDS:
         if peer_id == args.neuron_id:
