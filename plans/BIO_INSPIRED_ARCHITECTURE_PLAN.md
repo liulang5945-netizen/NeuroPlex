@@ -85,10 +85,10 @@ Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身
 
 ### 下一步方向
 
-1. **混合协作评估**：zh_std0 (standard) + zh_aug0~3 (compact) 协作效果
-2. **多 standard 神经元训练**：训练 3-4 个 standard 神经元，验证多 standard 协作
-3. **更长训练**：8000→16000 步，看生成质量能否进一步提升
-4. **更大规格**：如果 standard 效果好，尝试 expert 规格（~300M）
+1. ✅ **混合协作评估**：zh_std0 (standard) + zh_aug0~3 (compact) 协作效果 — 已完成，跨规格微调后 PPL=66.3，EMERGE 42.2%（详见下方"跨规格协作最终评估结果"章节）
+2. ⏳ **多 standard 神经元训练**：训练 3-4 个 standard 神经元，验证多 standard 协作能否进一步降低 PPL
+3. ⏳ **更长训练**：8000→16000 步，看生成质量能否进一步提升
+4. ⏳ **更大规格**：如果 standard 效果好，尝试 expert 规格（~300M）
 
 ### 混合协作评估结果（2026-07-29，NO_EMERGE）
 
@@ -166,6 +166,83 @@ Shared Expert 评估负向结论确认：机制改进无法弥补神经元本身
 - `_parallel_forward` 中的 `_forward_neuron`：round 2+ conditioning 时反向投影 field.state
 
 **下一步**：微调跨规格投影层 + side_channels，消除投影噪声，使 PPL 从 96.5 → 接近或超越 62.6
+
+### 跨规格协作最终评估结果（2026-07-30，EMERGE 42.2%）
+
+**目标**：通过联合微调 side_channels + 跨规格投影层，消除随机投影噪声，验证混合规格协作能否超越纯 compact 协作。
+
+**训练配置**：
+
+| 配置 | 值 |
+|------|-----|
+| 神经元 | 4×compact（zh_aug0~3）+ 1×standard（zh_std0） |
+| 训练数据 | simple_zh 10000 条 |
+| epochs | 3 |
+| batch_size | 4 |
+| lr | 1e-3（Muon + AdamW 混合优化器） |
+| 可训练参数 | side_channels 25.17M（2D） + 跨规格投影层 50.33M（2D） + scale 20（0D） |
+| 跨规格投影层 | 4 正向（field_dim→3072）+ 4 反向（3072→field_dim） |
+| LR 调度 | warmup 100 步 + cosine decay（最后 20%） |
+| 总耗时 | ~13.2 小时（3 epochs × 264 min） |
+
+**训练 PPL 趋势**：
+
+| Epoch | avg PPL | 趋势 |
+|-------|---------|------|
+| 1 | 116.9 | 144.2 → 116.9（快速下降） |
+| 2 | 103.2 | 95.1 起步 → 103.0 收敛 |
+| 3 | 97.5 | 95.1 起步 → 97.5 收敛（趋稳） |
+
+**最终评估结果**（simple_zh 100 条，eval_aug_joint.py --include_std）：
+
+| 神经元 | 规格 | solo PPL | 融合权重 |
+|--------|------|---------|---------|
+| zh_aug0 | compact | 211.6 | 0.233 |
+| **zh_aug1** | **compact** | **114.6（最强个体）** | **0.494（主导）** |
+| zh_aug2 | compact | 225.3 | 0.120 |
+| zh_aug3 | compact | 246.9 | 0.061 |
+| zh_std0 | standard | 229.1 | 0.091 |
+| **协作** | **混合** | **66.3** | - |
+
+**共振分**：zh_aug1:-0.362（最强）, zh_std0:-0.370, zh_aug3:-0.399, zh_aug2:-0.434, zh_aug0:-0.517
+
+**EMERGE 对比**：
+
+| 模式 | 协作 PPL | 对比最强个体 114.6 |
+|------|---------|---------------------|
+| 4×compact + 1×standard（随机投影） | 96.5 | -15.8% EMERGE |
+| 4×compact + 1×standard（logits 融合） | 213.8 | NO_EMERGE |
+| **4×compact + 1×standard（跨规格微调）** | **66.3** | **-42.2% EMERGE** |
+| 4×compact（纯 compact v2 baseline） | 62.6 | -45.3% EMERGE |
+
+**关键结论**：
+1. ✅ **跨规格微调成功**：微调后 PPL 从 96.5（随机投影）降至 66.3，降幅 31.3%
+2. ✅ **EMERGE 42.2%**：协作 PPL 66.3 << 最强个体 114.6，强 EMERGE 现象确认
+3. ✅ **接近纯 compact 协作**：66.3 vs 62.6（纯 compact），差距仅 5.9%，跨规格投影噪声基本消除
+4. ✅ **standard 神经元有效参与**：zh_std0 获得 9.1% 融合权重，作为辅助信号贡献协作
+5. ⚠️ **standard 未成为主导**：zh_std0 融合权重仅 0.091（vs zh_aug1 的 0.494），原因是评估集 simple_zh 与 zh_std0 训练数据（百科+shared_core）分布差异大，solo PPL=229.1 远高于训练 val PPL=34.07
+
+**生成质量对比**（prompt: "在公园里，阳光透过"）：
+
+| 神经元 | 生成样本 |
+|--------|---------|
+| 协作 | "树叶洒落下来，几阳光透得。小兔子兴奋地好看书。主人看到小兔子说：'我来你愿意分享！我们可以一起吃果味！'" |
+| zh_aug1（最强个体） | "树叶，洒落下的地面，是一个着，。小明和朋友们一起玩耍，阳光轻轻洒落在地上..." |
+| zh_std0 | "树叶洒在一个阳光明媚下午，几只小猫们在公园里，突然被一只小兔子..." |
+
+**关键洞察**：
+- 协作生成具备画面感（"树叶洒落"、"小兔子兴奋"）和叙事结构（对话+动作），优于多数个体
+- zh_aug1（compact）仍是主导，因为 simple_zh 评估集与 zh_aug1 训练数据分布更接近
+- standard 神经元在评估集上表现不佳是**域偏移**问题（训练数据 vs 评估数据分布不同），不是能力问题（训练 val PPL=34.07 是所有神经元中最好的）
+
+**技术产物**：
+- 微调权重：`data/neurons/cross_spec_finetuned.pt`（含 side_channels + 跨规格投影层）
+- 训练 checkpoint：`data/neurons/cross_spec_finetuned.ckpt.pt`
+- 训练脚本：`scripts/training/finetune_cross_spec.py`
+- 评估脚本：`scripts/training/eval_aug_joint.py`（添加 `_load_cross_spec_weights`）
+- 训练日志：`logs/finetune_cross_spec_20260729_233044.log`
+- 训练历史：`logs/finetune_cross_spec_history.json`（149 条记录）
+- 评估日志：`logs/eval_cross_spec_finetuned_20260730_124105.log`
 
 ---
 

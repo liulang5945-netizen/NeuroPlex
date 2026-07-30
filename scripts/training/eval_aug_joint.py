@@ -101,19 +101,51 @@ def load_aug_neurons(include_shared_expert=False, include_std=False):
 
     # 加载微调后的 side_channels（如果存在）
     # 注意：Shared Expert 的 side_channels 不在微调权重中，会用随机初始化
+    # 跨规格微调权重优先（含 side_channels + cross_spec 投影层）
+    cross_spec_path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
     finetuned_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.pt")
-    if os.path.exists(finetuned_path):
-        side_state = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
-        for nid, neuron in neurons.items():
-            if nid in side_state:
-                for pid, ch_state in side_state[nid].get("excite", {}).items():
-                    if pid in neuron.excite_channels:
-                        neuron.excite_channels[pid].load_state_dict(ch_state)
+
+    loaded_side_state = None
+    if os.path.exists(cross_spec_path):
+        ckpt_data = torch.load(cross_spec_path, map_location=DEVICE, weights_only=False)
+        if isinstance(ckpt_data, dict) and "side_channels" in ckpt_data:
+            loaded_side_state = ckpt_data["side_channels"]
+            print(f"  [side_channels] 已加载跨规格微调权重: {cross_spec_path}", flush=True)
+        else:
+            loaded_side_state = ckpt_data
+            print(f"  [side_channels] 已加载微调权重: {cross_spec_path}", flush=True)
+    elif os.path.exists(finetuned_path):
+        loaded_side_state = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
         print(f"  [side_channels] 已加载微调权重: {finetuned_path}", flush=True)
     else:
         print(f"  [side_channels] 未找到微调权重，使用随机初始化", flush=True)
 
+    if loaded_side_state is not None:
+        for nid, neuron in neurons.items():
+            if nid in loaded_side_state:
+                for pid, ch_state in loaded_side_state[nid].get("excite", {}).items():
+                    if pid in neuron.excite_channels:
+                        neuron.excite_channels[pid].load_state_dict(ch_state)
+
     return neurons, shared_embeddings, cfg
+
+
+def _load_cross_spec_weights(ensemble):
+    """加载跨规格投影层微调权重（如果存在）。"""
+    cross_spec_path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
+    if not os.path.exists(cross_spec_path):
+        return
+    ckpt_data = torch.load(cross_spec_path, map_location=DEVICE, weights_only=False)
+    if not isinstance(ckpt_data, dict) or "cross_spec" not in ckpt_data:
+        return
+    cross_spec_state = ckpt_data["cross_spec"]
+    for nid, sd in cross_spec_state.get("forward", {}).items():
+        if nid in ensemble._cross_spec_projectors:
+            ensemble._cross_spec_projectors[nid].load_state_dict(sd)
+    for nid, sd in cross_spec_state.get("backward", {}).items():
+        if nid in ensemble._cross_spec_back_projectors:
+            ensemble._cross_spec_back_projectors[nid].load_state_dict(sd)
+    print(f"  [cross_spec] 已加载跨规格投影层权重: {cross_spec_path}", flush=True)
 
 
 def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100,
@@ -141,6 +173,9 @@ def eval_ppl(neurons, shared_embeddings, domain_sp, general_sp, n_eval=100,
         shared_expert_id=shared_expert_id,
         shared_expert_weight=shared_expert_weight,
     )
+
+    # 加载跨规格投影层微调权重（如果存在）
+    _load_cross_spec_weights(ensemble)
 
     # 个体 PPL
     individual_ppls = {}
@@ -270,6 +305,9 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
         shared_expert_id=shared_expert_id,
         shared_expert_weight=shared_expert_weight,
     )
+
+    # 加载跨规格投影层微调权重（如果存在）
+    _load_cross_spec_weights(ensemble)
 
     PROMPTS = [
         "你好，请介绍一下自己",
