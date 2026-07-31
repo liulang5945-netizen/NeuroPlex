@@ -11,6 +11,89 @@
 
 ---
 
+## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
+
+### 背景
+
+协作层训练实验结论：side_channels 协作层只能让神经元协作，**不能让神经元产生新能力**。用对话数据训练协作层（3 epoch，PPL 203），但生成是词汇碎片拼接，完全无法交流。
+
+根本原因：神经元本身（百科/作文训练）没有对话能力，协作层无法创造它们不具备的能力。
+
+### 从头训练对话神经元失败（zh_sft_std0）
+
+用 alpaca-zh SFT 21458 条对话数据从头训练 standard 神经元（8000 步，4 小时）：
+- val PPL=57.14（train PPL 3.6，严重过拟合）
+- 生成是词汇碎片拼接，无法交流
+- **根本原因**：数据量不足（21K 条 vs 116M 参数，数据/参数比 0.18:1，远低于 Chinchilla 20:1）
+
+### 🐛 关键突破：生成路径 bug（2026-07-31）
+
+**所有生成脚本（eval_single_dialogue / eval_dialogue / finetune generate_sample）存在严重 bug**：
+- neuron 的 lm_head 输出是 **domain token ID**（zh=20K），不是 general token ID（256K）
+- 旧代码把 domain token ID 当 general token ID 追加到输入（查到错误 embedding）→ 用 general_sp 解码 → 中英混杂碎片
+- **此 bug 导致所有"生成质量差"评估结果失真**（PPL 评估正确，但生成评估完全错误）
+
+修复方案（domain ID → 文本 → general ID 转换）：
+```python
+# neuron 输出 domain token ID
+piece_text = domain_sp.decode([next_domain_token])
+new_general_ids = general_sp.encode(piece_text)
+ids = torch.cat([ids, torch.tensor([new_general_ids])], dim=1)
+# 解码用 domain_sp，不是 general_sp
+text = domain_sp.DecodeIds(generated_domain_ids)
+```
+- 修复前 zh_std0 生成："重塑day有害物质检查一个 |一样 program激活函数..."（碎片）
+- 修复后 zh_std0 生成："当然知道啦！我今天要学习题..."（连贯中文）
+
+### ✅ fine-tune 成功（zh_std0_dialogue）
+
+**关键配置**：lr=5e-4 + 冻结 shared_embedding + 生成 bug 已修复
+
+| 版本 | 配置 | 结果 |
+|------|------|------|
+| v1 | lr=5e-4, embedding 可训练 | val PPL=149（生成 bug 掩盖了真实进展）|
+| v2 | lr=1e-4, 冻结 embedding | val PPL=192（lr 太低，学习慢）|
+| **v3** | **lr=5e-4, 冻结 embedding** | **val PPL=95.27 ✅** |
+
+v3 训练曲线：166(step1000) → 130(2000) → 119(3000) → **95.27(4000)**，持续下降
+
+**v3 生成效果**（对话能力已成型）：
+```
+问：你好，请介绍一下自己
+答：那是指您的，所以我无法为您提供帮助。能否提供更多详细信息。请问您想的内容，以便我能为您提供一些帮助、一些建议？
+问：什么是人工智能？
+答：人工智能是一种人工智能技术，具有计算机能够模拟人类执行、决策和AI...
+问：今天天气怎么样？
+答：作为一个人工智能助手你的，我无法选择天气晴朗...
+```
+
+**教训**：
+1. fine-tune 必须冻结 shared_embedding（token 映射不可破坏）
+2. lr=5e-4 对 fine-tune 有效（v2 的 1e-4 学习太慢）
+3. 所有生成评估必须确认 token ID 空间（domain vs general）
+
+---
+
+## ⚠️ 协作层训练实验（2026-07-30，负向结论）
+
+### 实验
+
+用 alpaca-zh SFT 10000 条对话训练协作层（side_channels + 跨规格投影层），3 epoch，PPL 203。
+
+### 结果
+
+生成完全是词汇碎片拼接，无法交流：
+```
+问：你好，请介绍一下自己
+答：易于 C来帮助你有害物质lo算法通过有更多的ctions自然有关...
+```
+
+### 结论
+
+**协作层只能让神经元协作，不能让神经元产生新能力。** 神经元本身没有对话能力时，协作层无法创造对话能力。必须先让神经元具备对话能力，再用协作层融合。
+
+---
+
 ## 🔄 Standard 神经元训练（2026-07-29，已完成，生成质量突破）
 
 ### 背景
