@@ -72,19 +72,28 @@ v3 训练曲线：166(step1000) → 130(2000) → 119(3000) → **95.27(4000)**�
 2. lr=5e-4 对 fine-tune 有效（v2 的 1e-4 学习太慢）
 3. 所有生成评估必须确认 token ID 空间（domain vs general）
 
-### 🔄 Compact 对话训练（2026-08-01，进行中）
+### ✅ Compact 对话训练完成（2026-08-01）
 
 4 个 compact 神经元用同一份 48K alpaca-zh SFT fine-tune（lr=5e-4, 冻结 embedding, 4000 步）：
 
-| 神经元 | 基础 PPL | step 2000 val PPL | 状态 |
-|--------|---------|-------------------|------|
+| 神经元 | 基础 PPL | 最终 val PPL | 状态 |
+|--------|---------|-------------|------|
 | zh_aug0_dialogue | 39.6 | 88.85 | ✅ 完成 |
-| zh_aug1_dialogue | 146.6 | 128.69 | 🔄 step 2800/4000 train PPL=64.0 运行中 |
-| zh_aug2_dialogue | 22.5 | 119.38 | 🔄 step 2800/4000 train PPL=60.9 运行中 |
-| zh_aug3_dialogue | 71.8 | 133.22 | 🔄 step 2800/4000 train PPL=69.1 运行中 |
+| zh_aug1_dialogue | 146.6 | 99.39 | ✅ 完成 |
+| zh_aug2_dialogue | 22.5 | 90.43 | ✅ 完成（最强） |
+| zh_aug3_dialogue | 71.8 | 102.01 | ✅ 完成 |
 
 > 注：checkpoint 已支持每次 eval 保存 latest（commit 6b94214），resume 从最新 step 继续。
-> 当前训练 resume 自 step 2000（旧 checkpoint），后续中断可从 latest 恢复。
+
+### 🔄 对话协作层训练（2026-08-01，进行中）
+
+**目标**：用对话数据训练 side_channels + 跨规格投影层，让 5 个对话神经元（4×compact_dialogue + 1×std_dialogue）协作交流。
+
+**配置**：`finetune_cross_spec.py --data dialogue --epochs 3 --max_texts 10000`
+- 神经元：`ENSEMBLE_DIALOGUE_IDS`（zh_aug0~3_dialogue + zh_std0_dialogue）
+- 训练数据：alpaca-zh SFT 对话数据
+- 产物：`cross_spec_dialogue.pt`（独立于 simple_zh 训练的 `cross_spec_finetuned.pt`）
+- 预计耗时：~13 小时（参考 simple_zh 3 epochs × 264 min）
 
 ### ✅ 错误率斜率判别器落地（2026-08-01）
 
