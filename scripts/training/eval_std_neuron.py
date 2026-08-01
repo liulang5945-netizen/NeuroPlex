@@ -40,6 +40,8 @@ from scripts.training.experiment_config import (
     ZH_COMPACT_NEURON_IDS as COMPACT_NEURON_IDS,
     ZH_STD_NEURON_ID as STD_NEURON_ID,
     DEFAULT_DOMAIN as DOMAIN,
+    SAMPLING_TEMPERATURE, SAMPLING_TOP_K, SAMPLING_REPETITION_PENALTY, SAMPLING_MAX_TOKENS,
+    BASE_PROMPTS,
 )
 
 DEVICE = "cpu"
@@ -131,13 +133,7 @@ def eval_single_generation(neuron, shared_emb, domain_sp, general_sp):
     print(f"[单神经元生成] {STD_NEURON_ID}", flush=True)
     print("=" * 70, flush=True)
 
-    PROMPTS = [
-        "你好，请介绍一下自己",
-        "什么是人工智能？",
-        "深度学习在自然语言处理中的应用",
-        "请解释神经网络的工作原理",
-        "在公园里，阳光透过",
-    ]
+    PROMPTS = BASE_PROMPTS
 
     for prompt in PROMPTS:
         general_ids = general_sp.EncodeAsIds(prompt)
@@ -147,7 +143,7 @@ def eval_single_generation(neuron, shared_emb, domain_sp, general_sp):
         ids = torch.tensor([general_ids], dtype=torch.long, device=DEVICE)
         with torch.no_grad():
             generated_domain = []
-            for _ in range(80):
+            for _ in range(SAMPLING_MAX_TOKENS):
                 emb_input = shared_emb(ids)
                 result = neuron.forward(emb_input, return_logits=True)
                 logits = result["logits"][:, -1, :].float()
@@ -155,12 +151,12 @@ def eval_single_generation(neuron, shared_emb, domain_sp, general_sp):
                 # Repetition penalty
                 if generated_domain:
                     for prev_token in set(generated_domain[-20:]):
-                        logits[0, prev_token] /= 1.2
+                        logits[0, prev_token] /= SAMPLING_REPETITION_PENALTY
 
                 # Temperature + top-k
-                logits = logits / 0.8
-                if 40 < logits.size(-1):
-                    topk_vals, _ = torch.topk(logits, 40, dim=-1)
+                logits = logits / SAMPLING_TEMPERATURE
+                if SAMPLING_TOP_K < logits.size(-1):
+                    topk_vals, _ = torch.topk(logits, SAMPLING_TOP_K, dim=-1)
                     logits[logits < topk_vals[:, -1:]] = float('-inf')
 
                 probs = torch.softmax(logits, dim=-1)
@@ -297,7 +293,11 @@ def main():
     parser.add_argument("--mode", choices=["single", "mixed", "both"], default="both",
                         help="评估模式：single(单神经元) / mixed(混合协作) / both")
     parser.add_argument("--n_eval", type=int, default=100, help="PPL 评估文本数")
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     print("=" * 70, flush=True)
     print("zh_std0 (standard) 神经元评估", flush=True)

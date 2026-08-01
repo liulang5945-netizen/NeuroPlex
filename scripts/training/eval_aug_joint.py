@@ -362,7 +362,7 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
             text = domain_sp.DecodeIds(generated_domain)
         return text
 
-    def generate_collab(prompt, max_tokens=80, temperature=0.8, top_k=40, repetition_penalty=1.2):
+    def generate_collab(prompt, max_tokens=SAMPLING_MAX_TOKENS, temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K, repetition_penalty=SAMPLING_REPETITION_PENALTY):
         general_ids = general_sp.EncodeAsIds(prompt)
         if not general_ids:
             return "(empty)"

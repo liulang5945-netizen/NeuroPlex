@@ -10,6 +10,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import sys
@@ -35,6 +36,13 @@ DEVICE = "cpu"
 
 
 def main():
+    parser = argparse.ArgumentParser(description="分析 side_channels 利用率")
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
+    args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
+
     print("=" * 60)
     print("side_channels 利用率分析")
     print("=" * 60)

@@ -176,7 +176,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_texts", type=int, default=10000)
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     # 1. 设置日志 tee
     os.makedirs(LOG_DIR, exist_ok=True)

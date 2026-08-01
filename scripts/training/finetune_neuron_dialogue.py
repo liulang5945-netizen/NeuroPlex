@@ -38,7 +38,7 @@ from scripts.training.utils import (
     OUTPUT_DIR, SequentialSampler, create_shared_embedding,
     make_wsd_scheduler,
 )
-from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K
+from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K, DIALOGUE_PROMPTS
 
 DEVICE = "cpu"
 
@@ -103,7 +103,7 @@ def load_base_neuron(base_id: str):
     return neuron, shared_emb, cfg
 
 
-def generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt="问：你好\n答："):
+def generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt=DIALOGUE_PROMPTS[0]):
     """生成样本用于训练监控。
 
     关键修复：neuron 输出 domain token ID，需转回 general token IDs 才能追加到输入，
@@ -165,7 +165,11 @@ def main():
     parser.add_argument("--warmup_steps", type=int, default=100)
     parser.add_argument("--max_texts", type=int, default=100000)
     parser.add_argument("--threads", type=int, default=6)
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     torch.set_num_threads(args.threads)
 
@@ -349,7 +353,7 @@ def main():
             }, save_path)
 
             # 生成样本
-            sample = generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt="问：你好\n答：")
+            sample = generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt=DIALOGUE_PROMPTS[0])
             print(f"    生成: {sample[:200]}", flush=True)
             neuron.train()
 

@@ -79,12 +79,12 @@ v3 训练曲线：166(step1000) → 130(2000) → 119(3000) → **95.27(4000)**�
 | 神经元 | 基础 PPL | step 2000 val PPL | 状态 |
 |--------|---------|-------------------|------|
 | zh_aug0_dialogue | 39.6 | 88.85 | ✅ 完成 |
-| zh_aug1_dialogue | 146.6 | 128.69 | 🔄 resume 训练中（step 2000→4000）|
-| zh_aug2_dialogue | 22.5 | 119.38 | 🔄 resume 训练中 |
-| zh_aug3_dialogue | 71.8 | 133.22 | 🔄 resume 训练中 |
+| zh_aug1_dialogue | 146.6 | 128.69 | 🔄 step 2800/4000 train PPL=64.0 运行中 |
+| zh_aug2_dialogue | 22.5 | 119.38 | 🔄 step 2800/4000 train PPL=60.9 运行中 |
+| zh_aug3_dialogue | 71.8 | 133.22 | 🔄 step 2800/4000 train PPL=69.1 运行中 |
 
-> 注：checkpoint 只保存 best@step2000，Trae 更新中断后 resume 从 step 2000 继续（optimizer/scheduler 状态已恢复）。
-> 工程改进点（待办）：checkpoint 应同时保存 latest，避免 resume 回退。
+> 注：checkpoint 已支持每次 eval 保存 latest（commit 6b94214），resume 从最新 step 继续。
+> 当前训练 resume 自 step 2000（旧 checkpoint），后续中断可从 latest 恢复。
 
 ### ✅ 错误率斜率判别器落地（2026-08-01）
 
@@ -112,6 +112,43 @@ state = lifecycle.neurogenesis.diagnose_domain("dialogue")
 # 记录错误率（斜率判别自动启用）
 should_create = lifecycle.neurogenesis.record_domain_error("dialogue", 0.7)
 ```
+
+### ✅ P1-P3 硬编码修复（2026-08-01，commit 55521f4）
+
+**问题**：硬编码审计发现 P1-P3 级漏洞——WSD 调度公式在 5 个文件重复、采样参数/PROMPTS 散落 4 个 eval 脚本、Muon 配置在 2 个 finetune 脚本重复、核心模块阈值缺依据注释、eval 脚本硬编码 `DEVICE="cpu"`。
+
+| 级别 | 修复项 | 产物 |
+|------|--------|------|
+| P1 | WSD 调度抽取 | [utils.make_wsd_scheduler](file:///e:/taiji-neuron/scripts/training/utils.py#L322)，替换 5 文件 |
+| P1 | 采样参数集中 | `experiment_config.SAMPLING_*`，4 脚本 generate 默认参数替换 |
+| P1 | 评估 prompt 集中 | `DIALOGUE_PROMPTS`/`BASE_PROMPTS`，3 eval 脚本替换 |
+| P1 | Muon 配置抽取 | [utils.build_muon_adamw_optimizers](file:///e:/taiji-neuron/scripts/training/utils.py#L361)，2 finetune 脚本替换 |
+| P2 | 阈值依据注释 | lifecycle.py（ApoptosisTracker/MaturityTracker/NeurogenesisTrigger）+ ensemble.py（构造函数/bias 更新）|
+| P3 | eval --device 参数 | 3 eval 脚本支持 `--device` 覆盖 `DEVICE` |
+
+**验证**：py_compile 12 文件通过 + 8 脚本 import 链验证通过。
+
+**设计决策**：
+- PROMPTS 分两组：`DIALOGUE_PROMPTS`（"问：答："格式，匹配对话训练数据）vs `BASE_PROMPTS`（纯问题，base 神经元评估）
+- `SAMPLING_MAX_TOKENS=100`（折中 single=100/aug_joint=80/dialogue=120）
+- 阈值注释标注生物学/工程依据（如 `activation_ratio=0.05` 对应 4 神经元均匀激活 25% 的 1/5）
+
+### ✅ P1-P3 硬编码修复补充（2026-08-01）
+
+**问题**：P1-P3 首轮修复存在 4 处遗漏，覆盖训练流程的 dialogue/cross_spec/评估阶段。
+
+| 漏洞 | 级别 | 修复项 | 产物 |
+|------|------|--------|------|
+| A | P1 | `eval_aug_joint.py:365` `generate_collab` 函数签名硬编码采样参数 | 替换为 `SAMPLING_*` 常量 |
+| B | P1 | `eval_std_neuron.py` 整脚本未替换 | PROMPTS→`BASE_PROMPTS`，采样参数→`SAMPLING_*` |
+| C | P3 | 5 脚本仍硬编码 `DEVICE="cpu"` 无 `--device` 覆盖 | `finetune_cross_spec`/`finetune_side_channels`/`finetune_neuron_dialogue`/`eval_std_neuron`/`analyze_side_channels` 添加 `--device` 参数 |
+| D | P1 | `finetune_neuron_dialogue.py:106,352` 训练监控 prompt 散落 | 替换为 `DIALOGUE_PROMPTS[0]` |
+
+**验证**：py_compile 6 文件通过 + import 链验证通过。
+
+**设计决策**：
+- 漏洞 D 用 `DIALOGUE_PROMPTS[0]`（"问：你好，请介绍一下自己\n答："）替换原简化版 "问：你好\n答："——监控 prompt 与评估 prompt 统一，避免新增冗余常量
+- `analyze_side_channels.py` 原无 argparse，本次新增 `--device` 参数支持
 
 ---
 

@@ -203,7 +203,11 @@ def main():
     parser.add_argument("--data", type=str, default="dialogue",
                         choices=["dialogue", "simple_zh"],
                         help="dialogue=alpaca-zh SFT, simple_zh=作文数据")
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     os.makedirs(LOG_DIR, exist_ok=True)
     log_path = os.path.join(
