@@ -40,7 +40,8 @@ from scripts.training.utils import (
 )
 
 DOMAIN = "zh"
-NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3", "zh_std0"]
+# 使用已 fine-tune 对话能力的神经元
+NEURON_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue", "zh_aug3_dialogue", "zh_std0_dialogue"]
 DEVICE = "cpu"
 
 LOG_DIR = os.path.join(

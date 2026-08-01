@@ -34,8 +34,8 @@ from scripts.training.utils import (
 from scripts.training.finetune_cross_spec import load_dialogue_texts, load_neuron_with_embedding
 
 DOMAIN = "zh"
-# zh_std0_dialogue: 已 fine-tune 对话能力的 standard 神经元
-NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3", "zh_std0_dialogue"]
+# 所有神经元都已 fine-tune 对话能力
+NEURON_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue", "zh_aug3_dialogue", "zh_std0_dialogue"]
 DEVICE = "cpu"
 
 
