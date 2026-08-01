@@ -80,6 +80,28 @@ SAMPLING_MAX_TOKENS = 100  # 折中默认值（原 single=100, aug_joint=80, dia
 # 训练时只对 "答：" 之后的 token 计算 loss（answer masking）
 SFT_ANSWER_MARKER = "答："
 
+# ── 对话训练数据文件列表（S5: 数据扩充）─────────────────────────────────
+# 本地已有的对话数据文件（均为 {"text": "问：...\n答：..."} 格式）
+# 合并后约 97K 条，是 alpaca_zh_sft 单文件的 2 倍
+DIALOGUE_DATA_FILES = [
+    "alpaca_zh_sft.jsonl",    # 48818 条（alpaca-zh SFT 格式）
+    "sft_shared_core.jsonl",  # 14629 条（共享核心对话）
+    "sft_unique_0.jsonl",     # 6827 条（aug0 独有）
+    "sft_unique_1.jsonl",     # 6827 条（aug1 独有）
+    "sft_unique_2.jsonl",     # 6827 条（aug2 独有）
+    "sft_unique_3.jsonl",     # 6827 条（aug3 独有）
+    "sft_unique_4.jsonl",     # 6827 条（aug4 独有）
+]
+
+# HuggingFace 对话数据源（S5: 可选扩充，需联网下载）
+# 用于进一步扩充对话数据多样性（多轮、推理、代码等）
+DIALOGUE_HF_SOURCES = [
+    {"dataset": "BelleGroup/train_2M_CN", "config": "default", "split": "train",
+     "text_fields": ["instruction", "output"], "max_samples": 100000},
+    {"dataset": "COIG/COIG", "config": "default", "split": "train",
+     "text_fields": ["instruction", "output"], "max_samples": 50000},
+]
+
 # ── 评估 prompt（按神经元类型分组）──────────────────────────────────────
 # 对话神经元（fine-tune 过对话数据）：用 "问：...答：" 格式匹配训练数据
 DIALOGUE_PROMPTS = [

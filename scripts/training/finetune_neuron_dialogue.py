@@ -36,7 +36,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, SequentialSampler, create_shared_embedding,
-    make_wsd_scheduler,
+    make_wsd_scheduler, load_dialogue_texts_multi,
 )
 from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K, DIALOGUE_PROMPTS, SFT_ANSWER_MARKER
 
@@ -192,13 +192,13 @@ def main():
     n_params = sum(p.numel() for p in neuron.parameters())
     print(f"  参数: {n_params/1e6:.1f}M, spec={cfg.spec}", flush=True)
 
-    # 2. 加载训练数据
+    # 2. 加载训练数据（S5: 多文件合并扩充）
     print("\n[2] 加载对话训练数据...", flush=True)
-    dialogue_path = os.path.join(
+    dialogue_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "data", "simple_zh", "alpaca_zh_sft.jsonl",
+        "data", "simple_zh",
     )
-    texts = load_dialogue_texts(dialogue_path, max_texts=args.max_texts)
+    texts = load_dialogue_texts_multi(dialogue_dir, max_texts=args.max_texts)
     print(f"  训练集: {len(texts)} 条对话", flush=True)
 
     # 3. tokenizer
@@ -206,9 +206,9 @@ def main():
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
 
-    # 4. 评估数据（用训练数据的最后 30 条作为 val）
-    eval_texts = texts[-30:]
-    train_texts = texts[:-30]
+    # 4. 评估数据（S5: 扩充到 100 条 val，从训练数据末尾取）
+    eval_texts = texts[-100:]
+    train_texts = texts[:-100]
 
     # 5. sampler
     sampler = SequentialSampler(train_texts, args.batch_size, seed=42)

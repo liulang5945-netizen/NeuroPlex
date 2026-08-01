@@ -38,6 +38,7 @@ from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
     make_wsd_scheduler, build_muon_adamw_optimizers,
+    load_dialogue_texts_multi,
 )
 
 from scripts.training.experiment_config import ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN, SFT_ANSWER_MARKER
@@ -293,17 +294,17 @@ def main():
     )
     print(f"  可训练参数: side_channels={trainable_side:,}, 跨规格投影={trainable_proj:,}", flush=True)
 
-    # 5. 加载训练数据
+    # 5. 加载训练数据（S5: 多文件合并扩充）
     print("\n[4] 加载训练数据...", flush=True)
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
     if args.data == "dialogue":
-        dialogue_path = os.path.join(
+        dialogue_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "data", "simple_zh", "alpaca_zh_sft.jsonl",
+            "data", "simple_zh",
         )
-        texts = load_dialogue_texts(dialogue_path, max_texts=args.max_texts)
-        print(f"  训练集(alpaca-zh SFT): {len(texts)} 条对话", flush=True)
+        texts = load_dialogue_texts_multi(dialogue_dir, max_texts=args.max_texts)
+        print(f"  训练集(多文件合并对话): {len(texts)} 条对话", flush=True)
     else:
         texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
         print(f"  训练集(simple_zh): {len(texts)} 条文本", flush=True)

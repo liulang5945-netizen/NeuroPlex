@@ -48,6 +48,7 @@ from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
     make_wsd_scheduler, build_muon_adamw_optimizers,
+    load_dialogue_texts_multi,
 )
 from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN, SFT_ANSWER_MARKER
 
@@ -175,7 +176,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--max_texts", type=int, default=10000)
+    parser.add_argument("--max_texts", type=int, default=100000)
+    parser.add_argument("--data", type=str, default="dialogue",
+                        choices=["dialogue", "simple_zh"],
+                        help="S5: dialogue=多文件合并对话数据, simple_zh=作文数据")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
 
@@ -250,12 +254,20 @@ def main():
     field = ResonanceField(dim=cfg.field_dim)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
 
-    # 6. 加载训练数据
+    # 6. 加载训练数据（S5: 支持对话数据扩充）
     print("\n[4] 加载训练数据...", flush=True)
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
-    texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
-    print(f"  训练集: {len(texts)} 条文本", flush=True)
+    if args.data == "dialogue":
+        dialogue_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "data", "simple_zh",
+        )
+        texts = load_dialogue_texts_multi(dialogue_dir, max_texts=args.max_texts)
+        print(f"  训练集(多文件合并对话): {len(texts)} 条对话", flush=True)
+    else:
+        texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
+        print(f"  训练集(simple_zh): {len(texts)} 条文本", flush=True)
 
     # 7. 训练循环
     print("\n[5] 开始训练 side_channels...", flush=True)

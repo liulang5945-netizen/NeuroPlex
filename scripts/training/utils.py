@@ -32,6 +32,9 @@ from scripts.training.experiment_config import (
     SIMPLE_ZH_DIR_STR as SIMPLE_ZH_DIR,
     GENERAL_VOCAB_SIZE,
     SHARED_EMBED_DIM,
+    DIALOGUE_DATA_FILES,
+    DIALOGUE_HF_SOURCES,
+    SFT_ANSWER_MARKER,
 )
 
 
@@ -240,6 +243,152 @@ def load_simple_zh_texts(data_files: List[str], max_texts: int = 10000000) -> Li
                     continue
         print(f"  {fname}: {count} 条", flush=True)
     return texts
+
+
+def load_dialogue_texts_multi(
+    data_dir: str,
+    filenames: List[str] = None,
+    max_texts: int = 100000,
+    answer_marker: str = SFT_ANSWER_MARKER,
+) -> List[str]:
+    """S5: 从多个 jsonl 文件加载对话数据（合并扩充）。
+
+    每个文件格式：{"text": "问：...\\n答：..."}
+    合并后去重、打乱，截断到 max_texts。
+
+    Args:
+        data_dir: 数据目录（如 data/simple_zh/）
+        filenames: 文件名列表。None 时用 DIALOGUE_DATA_FILES 默认列表。
+        max_texts: 最大加载条数
+        answer_marker: SFT 分隔符（用于过滤无分隔符的脏数据）
+
+    Returns:
+        对话文本列表
+    """
+    if filenames is None:
+        filenames = DIALOGUE_DATA_FILES
+
+    texts = []
+    for fname in filenames:
+        path = os.path.join(data_dir, fname) if not os.path.isabs(fname) else fname
+        if not os.path.exists(path):
+            print(f"  ⚠️ 文件不存在: {path}", flush=True)
+            continue
+        count = 0
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if len(texts) >= max_texts:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    text = d.get('text', '')
+                    # S5: 过滤无 answer_marker 的脏数据（保证 SFT masking 有效）
+                    if len(text) >= 20 and answer_marker in text:
+                        texts.append(text)
+                        count += 1
+                except json.JSONDecodeError:
+                    continue
+        print(f"  {fname}: {count} 条", flush=True)
+
+    # 去重
+    unique_texts = list(set(texts))
+    if len(unique_texts) < len(texts):
+        print(f"  去重: {len(texts)} → {len(unique_texts)} 条", flush=True)
+    texts = unique_texts
+
+    # 打乱
+    random.Random(42).shuffle(texts)
+    texts = texts[:max_texts]
+    print(f"  合计: {len(texts)} 条对话", flush=True)
+    return texts
+
+
+def load_dialogue_texts_hf(
+    sources: List[dict] = None,
+    max_texts: int = 100000,
+    answer_marker: str = SFT_ANSWER_MARKER,
+    cache_path: str = None,
+) -> List[str]:
+    """S5: 从 HuggingFace 下载对话数据并转换为统一格式。
+
+    将 instruction+output 转换为 "问：{instruction}\\n答：{output}" 格式。
+    下载后缓存到本地 jsonl 文件。
+
+    Args:
+        sources: HF 数据源列表。None 时用 DIALOGUE_HF_SOURCES 默认列表。
+        max_texts: 最大加载条数
+        answer_marker: SFT 分隔符
+        cache_path: 缓存路径（如 data/simple_zh/dialogue_hf_merged.jsonl）
+
+    Returns:
+        对话文本列表
+    """
+    if sources is None:
+        sources = DIALOGUE_HF_SOURCES
+
+    # 优先从缓存加载
+    if cache_path and os.path.exists(cache_path):
+        texts = []
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            for i, line in enumerate(f):
+                if i >= max_texts:
+                    break
+                line = line.strip()
+                if line:
+                    try:
+                        d = json.loads(line)
+                        text = d.get('text', '')
+                        if len(text) >= 20:
+                            texts.append(text)
+                    except json.JSONDecodeError:
+                        continue
+        if texts:
+            print(f"  从缓存加载 {len(texts)} 条 HF 对话: {cache_path}", flush=True)
+            return texts
+
+    # 从 HuggingFace 下载
+    all_texts = []
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        print(f"  ⚠️ datasets 库未安装，跳过 HF 数据下载", flush=True)
+        return []
+
+    for src in sources:
+        if len(all_texts) >= max_texts:
+            break
+        remaining = max_texts - len(all_texts)
+        limit = min(remaining, src.get("max_samples", max_texts))
+
+        print(f"  下载 {src['dataset']} (目标 {limit})...", flush=True)
+        try:
+            ds = load_dataset(src["dataset"], src["config"], split=src["split"])
+            for example in ds:
+                if len(all_texts) >= limit:
+                    break
+                # 转换为 "问：{instruction}\n答：{output}" 格式
+                instruction = example.get("instruction", "")
+                output = example.get("output", "")
+                if isinstance(instruction, str) and isinstance(output, str):
+                    if instruction.strip() and output.strip():
+                        text = f"问：{instruction.strip()}\n答：{output.strip()}"
+                        all_texts.append(text)
+        except Exception as e:
+            print(f"  ⚠️ {src['dataset']} 下载失败: {e}，跳过", flush=True)
+
+    # 缓存到本地
+    if all_texts and cache_path:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            for text in all_texts:
+                f.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
+        print(f"  缓存 {len(all_texts)} 条 HF 对话到: {cache_path}", flush=True)
+
+    print(f"  HF 对话数据: {len(all_texts)} 条", flush=True)
+    return all_texts
 
 
 # ── Shared embedding 管理 ─────────────────────────────────────────────────

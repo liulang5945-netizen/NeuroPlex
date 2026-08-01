@@ -87,16 +87,29 @@
 - base 神经元训练步数未改（已训练完成，后续进化时再提升）
 - **待重新训练才能验证效果**（建议等 S5 数据扩充完成后统一重新训练）
 
-### S5. 数据规模与复杂度偏小 ★★
+### S5. 数据规模与复杂度偏小 ★★ ✅ 代码已修复（待联网下载扩充）
 
-| 数据集 | 当前规模 | 建议规模 |
-|--------|---------|---------|
-| simple_zh (base) | ~100K 小学作文 | 500K+ 混合语料 |
-| alpaca-zh (finetune) | 50K（实际用 10K-100K） | 200K+（加 Belle/COIG） |
-| side_channels 训练 | 10K simple_zh | 100K+ 对话数据 |
-| eval | 50 条 | 500+ held-out |
+| 数据集 | 修复前 | 修复后 | 建议规模 |
+|--------|---------|---------|---------|
+| simple_zh (base) | ~100K 小学作文 | ~100K（未改，已训练完成） | 500K+ 混合语料 |
+| alpaca-zh (finetune) | 49K（单文件） | **49K→200K+（待联网下载 Belle/COIG）** | 200K+ |
+| side_channels 训练 | 10K simple_zh | **100K 对话数据（默认 dialogue）** | 100K+ |
+| eval | 30 条 | **100 条** | 500+ |
 
 **simple_zh 是小学水平**，compact 神经元在它上面学到的语言能力上限低。**alpaca-zh 单点依赖**，覆盖面窄（偏百科问答），缺多轮、缺推理、缺代码。
+
+**修复详情**（2026-08-01）：
+- [experiment_config.py](file:///e:/taiji-neuron/scripts/training/experiment_config.py)：
+  - 新增 `DIALOGUE_DATA_FILES` 列表（7 个本地文件，合并 ~97K 条，去重后 ~49K）
+  - 新增 `DIALOGUE_HF_SOURCES` 列表（Belle 2M CN + COIG，可扩充 150K+）
+- [utils.py](file:///e:/taiji-neuron/scripts/training/utils.py)：
+  - 新增 `load_dialogue_texts_multi()`：多文件合并 + 去重 + 打乱 + SFT marker 过滤
+  - 新增 `load_dialogue_texts_hf()`：从 HuggingFace 下载 Belle/COIG，转 "问：...\n答：..." 格式，本地缓存
+- 3 个对话训练脚本改为使用 `load_dialogue_texts_multi`：
+  - [finetune_neuron_dialogue.py](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py)：eval 扩充 30→100 条
+  - [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：dialogue 模式用多文件合并
+  - [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：默认改为 dialogue 数据，max_texts 10K→100K
+- **待联网下载**：本地文件去重后仅 ~49K 条（sft_unique 是 alpaca_zh_sft 子集），需运行 `load_dialogue_texts_hf()` 下载 Belle/COIG 扩充到 200K+
 
 ### S6. 域 token → re-encode 往返（推理核心缺陷）★★
 
