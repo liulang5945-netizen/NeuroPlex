@@ -132,15 +132,33 @@
   - 保留 fallback 路径（对齐表为空时走旧路径）
 - **KV cache 仍未启用**（底层 layers.py 支持，但 neuron.py:454 丢弃 cache）—— 作为后续独立优化项
 
-### S7. side_channels 全连接拓扑 ★★
+### S7. side_channels 全连接拓扑 ★★ ✅ 已修复
 
-| 维度 | 当前 | 上限更高 |
+| 维度 | 修复前 | 修复后 |
 |------|------|---------|
-| 拓扑 | 全连接 mesh（N×N-1 条） | 结构性拓扑（k 近邻 / hub-spoke） |
-| 后果 | 通道互相干扰，梯度信号被均分 | 每条通道学到更鲜明角色 |
-| 妥协原因 | `NeuronGeometry` 距离已算但未用于裁剪 | |
-| 提升幅度 | 训练效率 +40%，协作质量 +5-10% | |
+| 拓扑 | 全连接 mesh（N×N-1 条） | **结构性拓扑：full / knn / hub_spoke / hybrid（默认）** |
+| 后果 | 通道互相干扰，梯度信号被均分 | 每条通道学到更鲜明角色；近邻更强先验 |
+| 妥协原因 | `NeuronGeometry` 距离已算但未用于裁剪 | **已用距离+规格容量驱动拓扑构建** |
+| 提升幅度 | 训练效率 +40%，协作质量 +5-10% | 已解除 |
 | 实施难度 | 中 | |
+
+**修复详情**（2026-08-01）：
+- 新建 [topology.py](file:///e:/taiji-neuron/taiji/resonance/topology.py)：4 种拓扑模式
+  - `full`：全连接（向后兼容）
+  - `knn`：k 近邻对称拓扑（按 NeuronGeometry 距离）
+  - `hub_spoke`：最大规格神经元作 hub，其他只经 hub 通信
+  - `hybrid`（默认）：仿皮层分级 — 同(域,规格)全连接 → 跨规格经规格hub → 跨域经全局hub
+- hub 选择：按容量（hidden_size × num_layers）降序，centroid 距离为 tiebreak
+- 距离门控 init_scale：近邻 gate≈1 → 50.0（强先验），远邻 gate≈0 → 10.0（弱先验）
+- [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)：`__init__` 新增 `geometry` 参数，接受外部传入的 NeuronGeometry
+- `infer_topology_from_state()`：从 checkpoint 的 side_channels_state keys 自动推断训练时拓扑
+- 5 个脚本更新为拓扑驱动建立：
+  - [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：`--topology` 默认 hybrid
+  - [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：`--topology` 默认 hybrid
+  - [eval_dialogue.py](file:///e:/taiji-neuron/scripts/training/eval_dialogue.py)：优先从 checkpoint 推断拓扑，回退 hybrid
+  - [eval_aug_joint.py](file:///e:/taiji-neuron/scripts/training/eval_aug_joint.py)：同上
+  - [analyze_side_channels.py](file:///e:/taiji-neuron/scripts/training/analyze_side_channels.py)：同上
+- **向后兼容**：评估脚本自动从 checkpoint 推断拓扑，旧 checkpoint（全连接）自动匹配全连接拓扑
 
 ### S8. 冻结策略过保守 ★★
 

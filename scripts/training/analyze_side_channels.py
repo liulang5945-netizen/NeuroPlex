@@ -22,7 +22,11 @@ import torch.nn as nn
 
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
-    get_domain_neuron_config,
+    get_domain_neuron_config, NeuronGeometry,
+)
+from taiji.resonance.topology import (
+    build_topology, establish_topology_channels,
+    infer_topology_from_state, topology_detail,
 )
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
@@ -57,17 +61,24 @@ def main():
         neurons[nid] = n
         shared_embeddings[nid] = emb
 
-    # 建立 side_channels（随机初始化，未训练）
-    for post_id in NEURON_IDS:
-        for pre_id in NEURON_IDS:
-            if pre_id == post_id:
-                continue
-            neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
-
-    # 尝试加载已训练的 side_channels（如果存在）
+    # S7: 建立 side_channels（拓扑驱动，优先从 checkpoint 推断）
     ckpt_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.ckpt.pt")
+    geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+    topology = None
+    ckpt = None
     if os.path.exists(ckpt_path):
         ckpt = torch.load(ckpt_path, map_location=DEVICE, weights_only=False)
+        side_state_peek = ckpt.get("side_channels_state", {})
+        if side_state_peek and isinstance(side_state_peek, dict):
+            topology = infer_topology_from_state(side_state_peek)
+            print(f"[topology] 从 checkpoint 推断: {topology_detail(topology, neurons)}")
+    if topology is None or not any(topology.values() if topology else []):
+        topology = build_topology(neurons, geometry, mode="hybrid")
+        print(f"[topology] 回退到 hybrid: {topology_detail(topology, neurons)}")
+    establish_topology_channels(neurons, topology, geometry)
+
+    # 加载已训练的 side_channels（如果存在）
+    if ckpt is not None:
         side_state = ckpt["side_channels_state"]
         for nid, neuron in neurons.items():
             if nid not in side_state:

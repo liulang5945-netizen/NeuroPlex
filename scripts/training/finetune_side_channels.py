@@ -41,7 +41,10 @@ import torch.nn.functional as F
 
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
-    get_domain_neuron_config,
+    get_domain_neuron_config, NeuronGeometry,
+)
+from taiji.resonance.topology import (
+    build_topology, establish_topology_channels, topology_detail,
 )
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
@@ -181,6 +184,11 @@ def main():
                         choices=["dialogue", "simple_zh"],
                         help="S5: dialogue=多文件合并对话数据, simple_zh=作文数据")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
+    parser.add_argument("--topology", default="hybrid",
+                        choices=["full", "knn", "hub_spoke", "hybrid"],
+                        help="S7: side_channels 拓扑模式 (default: hybrid)")
+    parser.add_argument("--topology_k", type=int, default=3,
+                        help="k-NN 拓扑的 k 值 (仅 knn 模式)")
     args = parser.parse_args()
 
     global DEVICE
@@ -213,14 +221,16 @@ def main():
         neurons[nid] = n
         shared_embeddings[nid] = emb
 
-    # 3. 建立 side_channels
-    print("\n[2] 建立 side_channels...", flush=True)
-    for post_id in NEURON_IDS:
-        for pre_id in NEURON_IDS:
-            if pre_id == post_id:
-                continue
-            neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
-        print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite channels", flush=True)
+    # 3. 建立 side_channels（S7: 拓扑驱动替代全连接 mesh）
+    print(f"\n[2] 建立 side_channels (topology={args.topology})...", flush=True)
+    geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+    topology = build_topology(
+        neurons, geometry, mode=args.topology, k=args.topology_k,
+    )
+    print(f"  {topology_detail(topology, neurons)}", flush=True)
+    stats = establish_topology_channels(neurons, topology, geometry)
+    for nid, n_ch in stats.items():
+        print(f"  [{nid}] {n_ch} excite channels", flush=True)
 
     # 4. 冻结核心参数，仅 side_channels + scale 可训练
     print("\n[3] 冻结核心参数...", flush=True)
@@ -252,7 +262,7 @@ def main():
 
     # 5. 创建 ensemble
     field = ResonanceField(dim=cfg.field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=geometry)
 
     # 6. 加载训练数据（S5: 支持对话数据扩充）
     print("\n[4] 加载训练数据...", flush=True)

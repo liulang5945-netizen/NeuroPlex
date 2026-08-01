@@ -32,6 +32,10 @@ from .stdp import STDPTracker, STDPRule, FiringRecord
 from .neuro_modulation import NeuromodulatorState, SleepConsolidator
 from .gamma_oscillator import GammaOscillator, apply_gamma_gate
 from .geometry import NeuronGeometry
+from .topology import (
+    build_topology, establish_topology_channels,
+    infer_topology_from_state, topology_summary, topology_detail,
+)
 
 __all__ = [
     # Core
@@ -64,4 +68,7 @@ __all__ = [
     "GammaOscillator", "apply_gamma_gate",
     # RSGN 几何
     "NeuronGeometry",
+    # S7 拓扑
+    "build_topology", "establish_topology_channels",
+    "infer_topology_from_state", "topology_summary", "topology_detail",
 ]

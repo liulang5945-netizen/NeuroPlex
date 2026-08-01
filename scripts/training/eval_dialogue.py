@@ -24,7 +24,11 @@ import torch.nn.functional as F
 
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
-    get_domain_neuron_config,
+    get_domain_neuron_config, NeuronGeometry,
+)
+from taiji.resonance.topology import (
+    build_topology, establish_topology_channels,
+    infer_topology_from_state, topology_detail,
 )
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
@@ -41,11 +45,15 @@ from scripts.training.experiment_config import (
 DEVICE = "cpu"
 
 
-def load_neurons_and_weights(weights_type: str = "dialogue"):
+def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str = "hybrid"):
     """加载神经元和指定类型的权重。
+
+    S7: 优先从 checkpoint 自动推断拓扑（匹配训练时拓扑），
+    checkpoint 不存在时回退到 topology_mode 参数。
 
     Args:
         weights_type: "dialogue"=对话训练权重, "cross_spec"=simple_zh训练权重, "none"=无权重
+        topology_mode: 回退拓扑模式 (当无法从 checkpoint 推断时使用)
     """
     neurons = {}
     shared_embeddings = {}
@@ -56,15 +64,7 @@ def load_neurons_and_weights(weights_type: str = "dialogue"):
         neurons[nid] = n
         shared_embeddings[nid] = emb
 
-    # 建立 side_channels
-    for post_id in NEURON_IDS:
-        for pre_id in NEURON_IDS:
-            if pre_id == post_id:
-                continue
-            neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
-        print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite channels", flush=True)
-
-    # 加载权重
+    # 确定权重路径（用于推断训练时拓扑）
     if weights_type == "dialogue":
         weights_path = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
     elif weights_type == "cross_spec":
@@ -72,8 +72,27 @@ def load_neurons_and_weights(weights_type: str = "dialogue"):
     else:
         weights_path = None
 
+    # S7: 优先从 checkpoint 推断拓扑，回退到 topology_mode
+    topology = None
+    geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+    ckpt_data = None
     if weights_path and os.path.exists(weights_path):
         ckpt_data = torch.load(weights_path, map_location=DEVICE, weights_only=False)
+        side_state_peek = ckpt_data.get("side_channels", ckpt_data)
+        if side_state_peek and isinstance(side_state_peek, dict):
+            topology = infer_topology_from_state(side_state_peek)
+            print(f"  [topology] 从 checkpoint 推断: {topology_detail(topology, neurons)}", flush=True)
+
+    if topology is None:
+        topology = build_topology(neurons, geometry, mode=topology_mode)
+        print(f"  [topology] 回退到 {topology_mode}: {topology_detail(topology, neurons)}", flush=True)
+
+    stats = establish_topology_channels(neurons, topology, geometry)
+    for nid, n_ch in stats.items():
+        print(f"  [{nid}] {n_ch} excite channels", flush=True)
+
+    # 加载权重
+    if ckpt_data is not None:
         side_state = ckpt_data.get("side_channels", ckpt_data)
         for nid, neuron in neurons.items():
             if nid in side_state:
@@ -391,6 +410,9 @@ def main():
     parser.add_argument("--skip_gen", action="store_true", help="跳过生成评估")
     parser.add_argument("--multi_turn", action="store_true", help="启用多轮对话评测")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
+    parser.add_argument("--topology", default="hybrid",
+                        choices=["full", "knn", "hub_spoke", "hybrid"],
+                        help="S7: 回退拓扑模式 (checkpoint 无拓扑信息时使用)")
     args = parser.parse_args()
 
     global DEVICE
@@ -400,7 +422,7 @@ def main():
     print(f"态极综合体交流能力评估 (weights={args.weights})", flush=True)
     print("=" * 70, flush=True)
 
-    neurons, shared_embeddings = load_neurons_and_weights(args.weights)
+    neurons, shared_embeddings = load_neurons_and_weights(args.weights, args.topology)
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
 

@@ -24,7 +24,11 @@ import torch.nn.functional as F
 
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
-    get_domain_neuron_config,
+    get_domain_neuron_config, NeuronGeometry,
+)
+from taiji.resonance.topology import (
+    build_topology, establish_topology_channels,
+    infer_topology_from_state, topology_detail,
 )
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
@@ -43,12 +47,15 @@ from scripts.training.experiment_config import (
 DEVICE = "cpu"
 
 
-def load_aug_neurons(include_shared_expert=False, include_std=False):
+def load_aug_neurons(include_shared_expert=False, include_std=False, topology_mode="hybrid"):
     """加载 aug 神经元，每个用自己的 embedding，并建立 side_channels。
+
+    S7: 优先从 checkpoint 推断拓扑，回退到 topology_mode。
 
     Args:
         include_shared_expert: 是否加载 general 神经元（Shared Expert 机制）
         include_std: 是否加载 standard 神经元 zh_std0（混合规格协作）
+        topology_mode: 回退拓扑模式 (checkpoint 无拓扑信息时使用)
     """
     neurons = {}
     shared_embeddings = {}
@@ -93,19 +100,11 @@ def load_aug_neurons(include_shared_expert=False, include_std=False):
         result = ckpt.get("result", {})
         print(f"  [{nid}] spec={cfg.spec}, best_val_ppl={result.get('best_val_ppl', '?')}", flush=True)
 
-    # 建立 per-pair side_channels：每个 post 神经元对 pre 神经元建立 excite 通道
+    # S7: 建立 side_channels（拓扑驱动，优先从 checkpoint 推断）
     # side_channels 天然支持跨规格：src_dim=peer.field_dim, dst_dim=self.hidden_size
     loaded_ids = list(neurons.keys())
-    for post_id in loaded_ids:
-        for pre_id in loaded_ids:
-            if pre_id == post_id:
-                continue
-            neurons[post_id].establish_side_channel(pre_id, neurons[pre_id], channel_type="excite")
-        print(f"  [{post_id}] {len(neurons[post_id].excite_channels)} excite side_channels", flush=True)
 
-    # 加载微调后的 side_channels（如果存在）
-    # 注意：Shared Expert 的 side_channels 不在微调权重中，会用随机初始化
-    # 跨规格微调权重优先（含 side_channels + cross_spec 投影层）
+    # 先 peek checkpoint 推断训练时拓扑
     cross_spec_path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
     finetuned_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.pt")
 
@@ -123,6 +122,21 @@ def load_aug_neurons(include_shared_expert=False, include_std=False):
         print(f"  [side_channels] 已加载微调权重: {finetuned_path}", flush=True)
     else:
         print(f"  [side_channels] 未找到微调权重，使用随机初始化", flush=True)
+
+    geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+    topology = None
+    if loaded_side_state is not None and isinstance(loaded_side_state, dict):
+        topology = infer_topology_from_state(loaded_side_state)
+        # 只保留实际加载的 neuron 的拓扑
+        topology = {k: [p for p in v if p in neurons] for k, v in topology.items() if k in neurons}
+        print(f"  [topology] 从 checkpoint 推断: {topology_detail(topology, neurons)}", flush=True)
+    if topology is None or not any(topology.values()):
+        topology = build_topology(neurons, geometry, mode=topology_mode)
+        print(f"  [topology] 回退到 {topology_mode}: {topology_detail(topology, neurons)}", flush=True)
+
+    stats = establish_topology_channels(neurons, topology, geometry)
+    for nid, n_ch in stats.items():
+        print(f"  [{nid}] {n_ch} excite side_channels", flush=True)
 
     if loaded_side_state is not None:
         for nid, neuron in neurons.items():
@@ -460,6 +474,9 @@ def main():
     parser.add_argument("--n_eval", type=int, default=100,
                         help="PPL 评估文本数（默认 100）")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
+    parser.add_argument("--topology", default="hybrid",
+                        choices=["full", "knn", "hub_spoke", "hybrid"],
+                        help="S7: 回退拓扑模式 (checkpoint 无拓扑信息时使用)")
     args = parser.parse_args()
 
     global DEVICE
@@ -475,6 +492,7 @@ def main():
     neurons, shared_embeddings, cfg = load_aug_neurons(
         include_shared_expert=args.shared_expert,
         include_std=args.include_std,
+        topology_mode=args.topology,
     )
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()

@@ -53,6 +53,7 @@ class ResonanceEnsemble:
         gamma_oscillator: Optional[Any] = None,
         shared_expert_id: Optional[str] = None,
         shared_expert_weight: float = 0.3,  # 共享专家基础权重 0.3，域神经元分配剩余 0.7（借鉴 DeepSeek V3）
+        geometry: Optional[Any] = None,  # S7: 外部传入 NeuronGeometry（拓扑构建时已创建）
     ):
         self.neurons = neurons
         self.field = field
@@ -76,9 +77,15 @@ class ResonanceEnsemble:
         self.gamma_oscillator = gamma_oscillator
 
         # ── RSGN 融合: 几何坐标空间（神经元距离衰减先验）──
-        from .geometry import NeuronGeometry
-        self.geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
-        self._init_geometry()
+        # S7: 优先使用外部传入的 geometry（与拓扑构建共享同一实例）
+        if geometry is not None:
+            self.geometry = geometry
+            # 确保新加入的 neuron 有坐标
+            self._init_geometry()
+        else:
+            from .geometry import NeuronGeometry
+            self.geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
+            self._init_geometry()
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
