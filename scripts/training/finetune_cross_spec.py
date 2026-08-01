@@ -47,8 +47,9 @@ LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs",
 )
-CKPT_PATH = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.ckpt.pt")
-FINAL_PATH = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
+# 对话训练产物（独立于 simple_zh 训练产物）
+CKPT_PATH = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.ckpt.pt")
+FINAL_PATH = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
 
 
 class TeeLogger:
@@ -176,13 +177,31 @@ def load_neuron_with_embedding(nid):
     return neuron, shared_emb
 
 
+def load_dialogue_texts(jsonl_path: str, max_texts: int = 10000) -> list:
+    """加载对话训练数据（alpaca-zh SFT 格式）。
+
+    每条格式: "问：{instruction}\n答：{output}"
+    """
+    texts = []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            item = json.loads(line)
+            texts.append(item["text"])
+            if len(texts) >= max_texts:
+                break
+    return texts
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--epochs", type=int, default=6)
+    parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_texts", type=int, default=10000)
+    parser.add_argument("--data", type=str, default="dialogue",
+                        choices=["dialogue", "simple_zh"],
+                        help="dialogue=alpaca-zh SFT, simple_zh=作文数据")
     args = parser.parse_args()
 
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -194,7 +213,7 @@ def main():
     sys.stdout = logger
 
     print("=" * 60, flush=True)
-    print("微调跨规格 side_channels + 投影层", flush=True)
+    print("微调跨规格 side_channels + 投影层（对话训练）", flush=True)
     print(f"神经元: {NEURON_IDS}", flush=True)
     print(f"日志: {log_path}", flush=True)
     print(f"参数: {vars(args)}", flush=True)
@@ -273,8 +292,16 @@ def main():
     print("\n[4] 加载训练数据...", flush=True)
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
-    texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
-    print(f"  训练集: {len(texts)} 条文本", flush=True)
+    if args.data == "dialogue":
+        dialogue_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "data", "simple_zh", "alpaca_zh_sft.jsonl",
+        )
+        texts = load_dialogue_texts(dialogue_path, max_texts=args.max_texts)
+        print(f"  训练集(alpaca-zh SFT): {len(texts)} 条对话", flush=True)
+    else:
+        texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
+        print(f"  训练集(simple_zh): {len(texts)} 条文本", flush=True)
 
     # 6. 训练循环
     print("\n[5] 开始训练...", flush=True)
@@ -504,7 +531,7 @@ def main():
     print(f"  训练历史: {history_path} ({len(loss_history)} 条记录)", flush=True)
 
     print("\n" + "=" * 60, flush=True)
-    print("微调完成。运行 eval_aug_joint.py --include_std 查看效果。", flush=True)
+    print("微调完成。运行 eval_dialogue.py 查看交流效果。", flush=True)
     print("=" * 60, flush=True)
 
     logger.close()

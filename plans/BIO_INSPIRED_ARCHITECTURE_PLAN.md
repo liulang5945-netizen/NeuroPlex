@@ -72,6 +72,47 @@ v3 训练曲线：166(step1000) → 130(2000) → 119(3000) → **95.27(4000)**�
 2. lr=5e-4 对 fine-tune 有效（v2 的 1e-4 学习太慢）
 3. 所有生成评估必须确认 token ID 空间（domain vs general）
 
+### 🔄 Compact 对话训练（2026-08-01，进行中）
+
+4 个 compact 神经元用同一份 48K alpaca-zh SFT fine-tune（lr=5e-4, 冻结 embedding, 4000 步）：
+
+| 神经元 | 基础 PPL | step 2000 val PPL | 状态 |
+|--------|---------|-------------------|------|
+| zh_aug0_dialogue | 39.6 | 88.85 | ✅ 完成 |
+| zh_aug1_dialogue | 146.6 | 128.69 | 🔄 resume 训练中（step 2000→4000）|
+| zh_aug2_dialogue | 22.5 | 119.38 | 🔄 resume 训练中 |
+| zh_aug3_dialogue | 71.8 | 133.22 | 🔄 resume 训练中 |
+
+> 注：checkpoint 只保存 best@step2000，Trae 更新中断后 resume 从 step 2000 继续（optimizer/scheduler 状态已恢复）。
+> 工程改进点（待办）：checkpoint 应同时保存 latest，避免 resume 回退。
+
+### ✅ 错误率斜率判别器落地（2026-08-01）
+
+**问题**：NeurogenesisTrigger 原逻辑只看"错误率超阈值"就触发新生，无法区分"数据不足"还是"容量不足"——两者都表现为高错误率，但需要不同的进化动作。
+
+**落地**：[lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py#L265-L374) NeurogenesisTrigger 增加斜率判别：
+
+| 错误率曲线斜率 | 诊断 | 系统动作 |
+|---------------|------|---------|
+| < -0.02（持续下降）| `data_insufficient` | 不触发新生，继续喂数据 |
+| ≥ -0.02（平台/上升）| `capacity_limited` | 触发 neurogenesis（加神经元）|
+| ≤ 阈值 | `healthy` | 无需进化 |
+| 历史 < 5 次 | `unknown` | 沿用原计数逻辑（保守触发）|
+
+**生物学对应**：Hebbian 学习饱和（突触塑性到极限）vs 结构性增长（新生神经元）。
+
+**验证**：6 个单元测试全部通过（下降/平台/上升/低错误率/历史不足/平台触发新生）。
+
+**使用方式**：
+```python
+# 系统自诊断（不触发动作）
+state = lifecycle.neurogenesis.diagnose_domain("dialogue")
+# → "data_insufficient" / "capacity_limited" / "healthy" / "unknown"
+
+# 记录错误率（斜率判别自动启用）
+should_create = lifecycle.neurogenesis.record_domain_error("dialogue", 0.7)
+```
+
 ---
 
 ## ⚠️ 协作层训练实验（2026-07-30，负向结论）

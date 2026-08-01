@@ -262,8 +262,63 @@ class NeurogenesisTrigger:
     error_rate_threshold: float = 0.5
     error_count_for_trigger: int = 8  # 需要连续 8 次高错误率才触发（避免过快扩张）
 
+    # 错误率斜率判别器：区分"数据不足" vs "容量不足"
+    # domain -> 最近错误率序列
+    _domain_error_history: dict = field(default_factory=dict)
+    slope_window: int = 5  # 斜率计算窗口（最近 N 次评估）
+    # 斜率 ≥ 此值视为"平台/上升"（容量不足）；< 此值视为"仍在学习"（数据不足）
+    # 负值越接近 0 表示下降越慢；正值表示错误率在上升（退化）
+    plateau_slope_threshold: float = -0.02
+
+    @staticmethod
+    def _compute_slope(values: list) -> float:
+        """对最近 N 个点做简单线性回归，返回斜率。
+
+        斜率 < 0：错误率持续下降（神经元还在学习 → 数据不足）
+        斜率 ≈ 0：平台期（神经元学到上限 → 容量不足）
+        斜率 > 0：错误率上升（退化 → 容量不足 / 过拟合）
+        """
+        n = len(values)
+        if n < 2:
+            return 0.0
+        xs = list(range(n))
+        mean_x = sum(xs) / n
+        mean_y = sum(values) / n
+        num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, values))
+        den = sum((x - mean_x) ** 2 for x in xs)
+        if den == 0:
+            return 0.0
+        return num / den
+
+    def diagnose_domain(self, domain: str) -> str:
+        """诊断某 domain 当前处于哪种状态（不触发任何动作）。
+
+        Returns:
+            "healthy"           —— 错误率低，无需进化
+            "data_insufficient" —— 错误率高但仍在下降（斜率<阈值），应喂数据
+            "capacity_limited"  —— 错误率高且平台/上升（斜率≥阈值），应加神经元
+            "unknown"           —— 历史数据不足，无法判定
+        """
+        history = self._domain_error_history.get(domain, [])
+        if not history:
+            return "unknown"
+        latest = history[-1]
+        if latest <= self.error_rate_threshold:
+            return "healthy"
+        if len(history) < self.slope_window:
+            return "unknown"
+        slope = self._compute_slope(history[-self.slope_window:])
+        if slope < self.plateau_slope_threshold:
+            return "data_insufficient"
+        return "capacity_limited"
+
     def record_domain_error(self, domain: str, error_rate: float) -> bool:
         """记录某 domain 的错误率，返回是否触发新生。
+
+        斜率判别（2026-08-01 落地）：
+        - 错误率高 + 斜率<0（持续下降）→ 神经元还在学习 → 数据不足，不触发新生
+        - 错误率高 + 斜率≈0 或 >0（平台/上升）→ 容量上限 → 触发 neurogenesis
+        - 历史不足 slope_window 次时，沿用原计数逻辑（保守触发）
 
         Args:
             domain: 域名
@@ -272,21 +327,49 @@ class NeurogenesisTrigger:
         Returns:
             True 如果该 domain 需要新生神经元
         """
-        if error_rate > self.error_rate_threshold:
-            self._domain_error_counts[domain] = self._domain_error_counts.get(domain, 0) + 1
-            if self._domain_error_counts[domain] >= self.error_count_for_trigger:
-                logger.warning(
-                    "domain %s 连续 %d 次错误率 > %.1f（当前 %.3f），触发新生",
-                    domain,
-                    self._domain_error_counts[domain],
-                    self.error_rate_threshold,
-                    error_rate,
-                )
-                # 重置计数，避免重复触发
-                self._domain_error_counts[domain] = 0
-                return True
-        else:
+        # 1. 记录错误率历史
+        history = self._domain_error_history.setdefault(domain, [])
+        history.append(error_rate)
+        if len(history) > self.slope_window * 2:
+            history.pop(0)
+
+        # 2. 错误率低 → 重置计数，不触发
+        if error_rate <= self.error_rate_threshold:
             self._domain_error_counts[domain] = 0
+            return False
+
+        # 3. 高错误率：累计计数
+        self._domain_error_counts[domain] = self._domain_error_counts.get(domain, 0) + 1
+
+        # 4. 斜率判别：历史足够长才启用
+        if len(history) >= self.slope_window:
+            slope = self._compute_slope(history[-self.slope_window:])
+            if slope < self.plateau_slope_threshold:
+                # 还在学习，数据不足——不触发新生，也不重置计数
+                logger.info(
+                    "domain %s 错误率高但持续下降（斜率 %.4f < %.2f），"
+                    "判定为数据不足，继续喂数据而非加神经元",
+                    domain, slope, self.plateau_slope_threshold,
+                )
+                return False
+
+        # 5. 平台/上升 或 历史不足：达到计数阈值则触发新生
+        if self._domain_error_counts[domain] >= self.error_count_for_trigger:
+            slope_str = "N/A"
+            if len(history) >= self.slope_window:
+                slope_str = f"{self._compute_slope(history[-self.slope_window:]):.4f}"
+            logger.warning(
+                "domain %s 连续 %d 次错误率 > %.1f（当前 %.3f，斜率 %s），"
+                "判定为容量不足，触发新生",
+                domain,
+                self._domain_error_counts[domain],
+                self.error_rate_threshold,
+                error_rate,
+                slope_str,
+            )
+            # 重置计数，避免重复触发
+            self._domain_error_counts[domain] = 0
+            return True
 
         return False
 
