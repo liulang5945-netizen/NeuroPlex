@@ -22,16 +22,23 @@
 
 **核心问题**：`forward_train` 调用 `neuron.forward(shared_embeddings, return_logits=True)`，**不传 field_state、不传 side_signals、不应用 neuromodulator scale**。所有生物学机制（STDP/神经调质/Gamma/睡眠/新生）均以 `Optional[Any]` 注入，且**只在推理 forward() 生效，未进入梯度流**。
 
-### S2. 256K embedding 配 16K tokenizer（隐性错配）★★★
+### S2. 256K embedding 配 16K tokenizer（隐性错配）★★★ ✅ 已修复
 
-| 维度 | 当前 | 上限更高 |
+| 维度 | 修复前 | 修复后 |
 |------|------|---------|
-| shared_embedding | `nn.Embedding(256000, 512)`（[utils.py:246-256](file:///e:/taiji-neuron/scripts/training/utils.py#L246-L256)） | 匹配的 256K general tokenizer |
-| general tokenizer | 16K en tokenizer 回退（[utils.py:111-117](file:///e:/taiji-neuron/scripts/training/utils.py#L111-L117)） | 训 256K general BPE |
-| 后果 | 14.6 万 embedding 行永远训练不到；中文生僻字被 byte fallback | 全词覆盖 |
-| 妥协原因 | `build_domain_tokenizers.py` 无 general 域 | |
-| 提升幅度 | 词覆盖 +30-50%，PPL 虚高根因 | |
-| 实施难度 | 中（训 256K BPE） | |
+| shared_embedding | `nn.Embedding(256000, 512)`（[utils.py:246-256](file:///e:/taiji-neuron/scripts/training/utils.py#L246-L256)） | 不变（256K × 512） |
+| general tokenizer | 16K en tokenizer 回退（[utils.py:111-117](file:///e:/taiji-neuron/scripts/training/utils.py#L111-L117)） | **256K general BPE（已存在）** |
+| 后果 | 14.6 万 embedding 行永远训练不到；中文生僻字被 byte fallback | 全词覆盖（中文测试 20 token, 0 unk） |
+| 妥协原因 | `build_domain_tokenizers.py` 无 general 域 | **已补充 general 域 + 修复路径不一致（T13）** |
+| 提升幅度 | 词覆盖 +30-50%，PPL 虚高根因 | 已解除 |
+
+**修复详情**（2026-08-01）：
+- 验证 `taiji/domains/general/sp_general.model` 已是 256K vocab，中文覆盖率优秀（整词覆盖，0 unk）
+- 修复 [build_domain_tokenizers.py](file:///e:/taiji-neuron/scripts/training/build_domain_tokenizers.py)：
+  - `OUTPUT_DIR` 从 `domain_tokenizers/` 改为 `taiji/domains/`（与 load 路径一致，修复 T13）
+  - 修复 `PROJECT_ROOT` 路径计算错误（少一级 parent）
+  - `DOMAINS` 加入 general 域（256K vocab，混合语料 zh+en+code+math）
+  - 新增 `load_mixed_corpus()` 函数支持 general 域的混合语料加载
 
 ### S3. Loss 单一化（全线纯 CE）★★★
 

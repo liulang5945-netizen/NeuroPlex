@@ -78,8 +78,8 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 | K | ✅ 已修复 | translator.py TokenTranslator | 删除死代码类 + build_translator + translators 字段；同时修复 `_get_token_spans` 空格对齐 bug（独立 `▁` token 零长度 span 导致缩进丢失，代码文本对齐率 38%→100%） |
 | L | ⚠️ 架构缺失 | ensemble.py 跨域语义对齐 | 当前 EMERGE 靠同 vocab logits 融合（非 field 对齐）；跨域（zh/code）field_vector 语义不对齐，加入 code neuron 会互相噪声污染。详见 [HUB_NEURON_DESIGN.md](file:///e:/taiji-neuron/plans/HUB_NEURON_DESIGN.md) |
 | M | ⚠️ 代码缺口 | ensemble.py `forward_train` | `torch.stack(all_logits)` 要求同形状，跨 vocab 联合训练直接崩溃；跨域联合训练路径未实现 |
-| N | ⚠️ 系统性妥协 | ensemble.py `forward_train` 共振从未训练 | 训练路径不传 field_state/side_signals/neuromodulator，"共振"是推理期技巧，neuron 从未学过协同。详见 [ARCHITECTURE_COMPROMISE_AUDIT.md](file:///e:/taiji-neuron/plans/ARCHITECTURE_COMPROMISE_AUDIT.md) S1 |
-| O | ⚠️ 系统性妥协 | utils.py:111-117 256K emb 配 16K tokenizer | 14.6 万 embedding 行是死参数；所有 PPL 数字被 tokenizer 噪声掩盖。详见审查报告 S2 |
+| N | ✅ 已修复 | ensemble.py `forward_train` 共振从未训练 | forward_train 重写为全可微多轮共振：round 2+ 注入 side_signals+field_state，调质×scores，Gamma 门控，diversity_loss。6/6 验证通过。详见审查报告 S1 |
+| O | ✅ 已修复 | utils.py:111-117 256K emb 配 16K tokenizer | general tokenizer 已是 256K（中文 0 unk）；修复 build_domain_tokenizers.py 路径不一致 + 补充 general 域。详见审查报告 S2 |
 | P | ⚠️ 系统性妥协 | 全训练脚本 Loss 单一化 | 5 个脚本全用纯 CE，无 SFT masking / margin ranking / diversity / 对比 loss。详见审查报告 S3 |
 | Q | ⚠️ 系统性妥协 | cortex.py:1350-1358 域 token re-encode 往返 | 每步 domain→text→general→emb，信息丢失 + 无 KV cache + 训练-推理分布偏移。详见审查报告 S6 |
 | R | ⚠️ 系统性妥协 | 生物学机制是推理期占位 | STDP/调质/Gamma/睡眠/新生均 Optional 注入，forward_train 不引用，是"装饰"非"骨架"。详见审查报告 S9 |
