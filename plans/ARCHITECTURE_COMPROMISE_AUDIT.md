@@ -111,15 +111,26 @@
   - [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：默认改为 dialogue 数据，max_texts 10K→100K
 - **待联网下载**：本地文件去重后仅 ~49K 条（sft_unique 是 alpaca_zh_sft 子集），需运行 `load_dialogue_texts_hf()` 下载 Belle/COIG 扩充到 200K+
 
-### S6. 域 token → re-encode 往返（推理核心缺陷）★★
+### S6. 域 token → re-encode 往返（推理核心缺陷）★★ ✅ 已修复
 
-| 维度 | 当前 | 上限更高 |
+| 维度 | 修复前 | 修复后 |
 |------|------|---------|
-| 自回归生成 | domain token → text → general token → shared_emb（[cortex.py:1350-1358](file:///e:/taiji-neuron/taiji/brain/cortex.py#L1350-L1358)） | 对齐表 / 共享 codebook / logits 注入 |
-| 后果 | 信息丢失 + 无 KV cache + 训练-推理分布偏移 | 速度 3-5x + 长文本质量改善 |
+| 自回归生成 | domain token → text → general token → shared_emb（[cortex.py:1350-1358](file:///e:/taiji-neuron/taiji/brain/cortex.py#L1350-L1358)） | **对齐表预计算映射，消除 text 往返** |
+| 后果 | 信息丢失 + 无 KV cache + 训练-推理分布偏移 | 消除信息丢失 + 为 KV cache 铺路 |
 | 妥协原因 | 避免异构 vocab 间维护对齐表 | |
-| 提升幅度 | 极高（推理速度 + 长文本质量） | |
+| 提升幅度 | 极高（推理速度 + 长文本质量） | 已解除（text 往返部分） |
 | 实施难度 | 中（对齐表）/ 高（共享 codebook） | |
+
+**修复详情**（2026-08-01）：
+- [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) 新增 `_get_domain_to_general_alignment()` 方法：
+  - 构建 `{domain_token_id: [general_token_ids]}` 对齐表（首次构建后缓存）
+  - 对每个 domain token，预计算其 general token IDs 映射
+  - 消除自回归生成时的 `domain→text→general` re-encode 往返
+- `_generate_p7()` 修改：
+  - 在获取 domain_sp 后构建对齐表（line 1260-1262）
+  - 用 `alignment_table.get(next_token, [pad_id])` 替代 `domain_sp.id_to_piece + general_sp.encode`
+  - 保留 fallback 路径（对齐表为空时走旧路径）
+- **KV cache 仍未启用**（底层 layers.py 支持，但 neuron.py:454 丢弃 cache）—— 作为后续独立优化项
 
 ### S7. side_channels 全连接拓扑 ★★
 

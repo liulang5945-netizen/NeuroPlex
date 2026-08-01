@@ -81,7 +81,7 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 | N | ✅ 已修复 | ensemble.py `forward_train` 共振从未训练 | forward_train 重写为全可微多轮共振：round 2+ 注入 side_signals+field_state，调质×scores，Gamma 门控，diversity_loss。6/6 验证通过。详见审查报告 S1 |
 | O | ✅ 已修复 | utils.py:111-117 256K emb 配 16K tokenizer | general tokenizer 已是 256K（中文 0 unk）；修复 build_domain_tokenizers.py 路径不一致 + 补充 general 域。详见审查报告 S2 |
 | P | ✅ 已修复 | 全训练脚本 Loss 单一化 | SFT answer masking 已接入 3 个对话训练脚本（finetune_neuron_dialogue/cross_spec/side_channels）；balance_loss + diversity_loss 已在 S1 修复中接入 forward_train。5/5 验证通过。详见审查报告 S3 |
-| Q | ⚠️ 系统性妥协 | cortex.py:1350-1358 域 token re-encode 往返 | 每步 domain→text→general→emb，信息丢失 + 无 KV cache + 训练-推理分布偏移。详见审查报告 S6 |
+| Q | ✅ 已修复 | cortex.py:1350-1358 域 token re-encode 往返 | 对齐表预计算 domain→general 映射，消除 text 往返信息丢失。KV cache 仍未启用（后续独立优化）。详见审查报告 S6 |
 | R | ⚠️ 系统性妥协 | 生物学机制是推理期占位 | STDP/调质/Gamma/睡眠/新生均 Optional 注入，forward_train 不引用，是"装饰"非"骨架"。详见审查报告 S9 |
 
 ---

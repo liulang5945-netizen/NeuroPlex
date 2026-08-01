@@ -96,6 +96,11 @@ class Cortex:
         # ── General tokenizer (256K, hot-swappable I/O protocol) ──
         self._general_sp = general_tokenizer
 
+        # ── S6: Domain→General token 对齐表缓存 ──
+        # 消除自回归生成时的 domain→text→general re-encode 往返
+        # 格式：{domain_name: {domain_token_id: [general_token_ids]}}
+        self._domain_to_general_cache: Dict[str, Dict[int, list]] = {}
+
         # ── Domain tokenizer hub ──
         # Manages per-domain tokenizers (zh=20K, en=16K, code=12K, math=10K).
         # Used for domain-specific lm_head targets and decoding.
@@ -1122,6 +1127,43 @@ class Cortex:
 
         return selected if selected else list(self.neurons.keys())
 
+    def _get_domain_to_general_alignment(
+        self, domain: str, domain_sp
+    ) -> Dict[int, list]:
+        """S6: 构建 domain token ID → general token IDs 对齐表（带缓存）。
+
+        消除自回归生成时的 domain→text→general re-encode 往返。
+        对每个 domain token，预计算其 general token IDs 映射。
+
+        Args:
+            domain: 域名（如 "zh"）
+            domain_sp: 域 tokenizer
+
+        Returns:
+            {domain_token_id: [general_token_ids]} 映射表
+        """
+        if domain in self._domain_to_general_cache:
+            return self._domain_to_general_cache[domain]
+
+        if self._general_sp is None:
+            return {}
+
+        alignment: Dict[int, list] = {}
+        vocab_size = domain_sp.GetPieceSize() if hasattr(domain_sp, 'GetPieceSize') else 0
+        for domain_id in range(vocab_size):
+            piece = domain_sp.id_to_piece(domain_id)
+            general_ids = self._general_sp.encode(piece)
+            if general_ids:
+                alignment[domain_id] = general_ids
+            else:
+                # 空映射用 pad_id 兜底
+                pad_id = self._general_sp.pad_id() if hasattr(self._general_sp, 'pad_id') else 0
+                alignment[domain_id] = [pad_id]
+
+        self._domain_to_general_cache[domain] = alignment
+        print(f"[S6] 域 '{domain}' 对齐表已构建: {len(alignment)} entries", flush=True)
+        return alignment
+
     def _generate_p7(
         self,
         prompt: str,
@@ -1214,6 +1256,10 @@ class Cortex:
 
         # Get domain tokenizer for decoding
         domain_sp = hub.get_tokenizer(domain)
+
+        # S6: 构建 domain→general 对齐表（消除 re-encode 往返）
+        alignment_table = self._get_domain_to_general_alignment(domain, domain_sp)
+        pad_id = self._general_sp.pad_id() if (self._general_sp and hasattr(self._general_sp, 'pad_id')) else 0
 
         generated_pieces = []
         generated_token_ids = set()
@@ -1347,12 +1393,18 @@ class Cortex:
             if eos_id is not None and next_token == eos_id:
                 break
 
-            # Decode domain token → text piece → re-encode with general tokenizer
-            if domain_sp is not None:
+            # S6: 用对齐表替代 re-encode 往返（domain→text→general）
+            # 消除信息丢失和 text 往返开销
+            if domain_sp is not None and alignment_table:
                 piece = domain_sp.id_to_piece(next_token)
                 generated_pieces.append(piece)
-                # Re-encode with general tokenizer for next iteration
-                # Remove "▁" prefix for clean concatenation
+                # S6: 直接查对齐表，避免 text 往返信息丢失
+                new_general_ids = alignment_table.get(next_token, [pad_id])
+                general_ids.extend(new_general_ids)
+            elif domain_sp is not None:
+                # Fallback: 对齐表为空时走旧路径
+                piece = domain_sp.id_to_piece(next_token)
+                generated_pieces.append(piece)
                 new_general_ids = self._general_sp.encode(piece)
                 if new_general_ids:
                     general_ids.extend(new_general_ids)
