@@ -11,6 +11,96 @@
 
 ---
 
+## 🗺️ 一、项目全景（2026-08-01 更新）
+
+> 本章节是文档导航入口，按主题组织项目现状。第三章起为训练流水线详情，第四章起为历史实验记录归档。
+
+### 1.1 系统架构总览
+
+```
+taiji/                    核心包
+├── resonance/            共振场核心：Neuron/Field/Ensemble + lifecycle(进化) + STDP + 神经调质 + gamma + 几何
+├── brain/                Cortex 认知主体：封装 ResonanceEnsemble，generate() 高层接口
+├── life/                 生命系统：life_scheduler / feed / sleep / play / evolution 引擎（在线学习闭环）
+├── agent/ + agent_ext/   认知五元系统 + ReAct 推理 / MCP / 工具 / 自修改
+├── body/                 身体系统：core / limbs(工具) / metabolism(硬件) / senses
+├── core/                 app_state / model_loader / websocket / security
+├── domains/              域专用 tokenizer（zh/en/code/math/general）
+├── multimodal/           多模态（VQVAE / EnCodec / Video）
+└── loader.py             统一装配入口 assemble_cortex（接线所有 bio 模块）
+
+api/                      FastAPI 服务层：app.py(lifespan) / chat_strategies / routes_life / routes_taiji / ...
+scripts/training/         离线训练流水线（手动脚本）：base → dialogue → cross_spec → eval
+data/                     数据 + 产物：simple_zh/ distill/ sft/ neurons/（checkpoint）
+```
+
+**核心数据流**：神经元规格分 compact(36M)/standard(116M)/expert(~300M)，各有独立 domain lm_head 和 shared_embedding 副本；协作通过 per-pair side_channels（excite/inhibit）+ 跨规格投影层（field_dim→unified）实现。
+
+### 1.2 训练→推理链路与闭环状态
+
+```
+离线训练（手动脚本，已闭环）                    运行时（Cortex/API，未闭环）
+base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ──╳──► Cortex.forward
+(train_compact)  (finetune_neuron)    (finetune_cross_spec)      ↑ 断裂 A-D
+       └──► checkpoint: neuron_*.pt / *_dialogue.pt / cross_spec_dialogue.pt
+```
+
+**训练侧**：base → dialogue → cross_spec → eval 配置一致（`ENSEMBLE_DIALOGUE_IDS`）、产物齐全，**闭环成立**。
+**推理侧**：Cortex 无法装配训练好的综合体（详见 1.4），**未闭环**。
+
+### 1.3 当前状态（2026-08-01）
+
+| 环节 | 状态 | 关键产物 / 结果 |
+|------|------|----------------|
+| base 训练（5 神经元） | ✅ 完成 | zh_aug0~3 (compact) + zh_std0 (standard, val PPL 34.07) |
+| dialogue fine-tune（5 神经元） | ✅ 完成 | 4×compact_dialogue (val PPL 88.85~102.01) + zh_std0_dialogue (95.27) |
+| cross_spec 协作层（对话版） | 🔄 训练中 | `finetune_cross_spec.py --data dialogue`，产物 `cross_spec_dialogue.pt` |
+| 综合体对话评估 | ⏳ 待协作层完成 | `eval_dialogue.py` |
+| 运行时（Cortex/API） | ❌ 断裂 | 混合规格崩溃 + 协作权重未加载 + embedding 随机初始化 + 域路由 key 不匹配 |
+| 进化机制（在线） | ⚠️ 部分接线 | 斜率判别器已接入 sleep_engine；`select_spec`/`diagnose_domain` 零调用 |
+| 硬编码治理 | ✅ P0-P3 完成 | `experiment_config.py` + `utils.py` 集中管理 |
+
+### 1.4 闭环缺口清单（未闭环设计）
+
+| # | 类型 | 位置 | 说明 |
+|---|------|------|------|
+| A | 断裂 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py#L66-L88) | 混合规格（compact+standard）导致 `Cortex.__init__` 抛 ValueError，运行时启动即崩溃 |
+| B | 断裂 | `taiji/`、`api/` 零引用 | `cross_spec_dialogue.pt` 协作层权重（side_channels+投影层）从不加载进运行时 |
+| C | 断裂 | [loader.py](file:///e:/taiji-neuron/taiji/loader.py#L278-L283) | 运行时 shared_embedding 随机初始化，不读 `data/shared_embedding.pt` |
+| D | 断裂 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_load_neurons`/`_infer_domain` | 神经元 key 用文件名（zh_aug0...），与域路由期望（zh/en/code/math/general）不匹配 |
+| E | 未接线 | [lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py#L399) `select_spec` | SpecSelector 零调用，`cortex.add_neuron` 硬编码 COMPACT——进化永远生成最小规格 |
+| F | 未接线 | [lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py) `diagnose_domain` | 斜率判别器诊断 API 零调用（判别逻辑已内嵌生效，但对外诊断入口未用） |
+| G | 断裂 | loader.py Step 9.2 + play_engine.py | Play→CoactivationTracker 强化链路双重断裂（注入独立实例 + 调用不存在的方法） |
+| H | 缺失 | `scripts/training/` | 无真正的多轮对话评测脚本（eval_dialogue 仅 5 个独立单轮 prompt） |
+| I | 缺失 | `api/` | 综合体未接入聊天接口，无发布/导出脚本 |
+| J | 死代码 | cognitive_enhancements.py | CorticalColumn/ColumnRegistry/AttentionBeam/ThresholdPlasticity 全库零调用 |
+| K | 死代码 | translator.py TokenTranslator | P7 后旧对齐机制无调用方 |
+
+---
+
+## 🧭 二、路线图
+
+### 2.1 当前执行中
+- 🔄 cross_spec 对话协作层训练（`--data dialogue`，预计 ~13h）
+- 完成后：`eval_dialogue.py` 评估综合体对话 PPL + 生成质量（对照最强单神经元）
+
+### 2.2 下一步：闭环修复（按依赖排序）
+1. **运行时装配**（断裂 A/B/C/D）：让 Cortex 支持混合规格或统一装配，加载协作层权重 + shared_embedding，修正域路由 key —— 打通"训练产物→实际对话"
+2. **进化规格选择**（断裂 E）：`cortex.add_neuron` 接入 `select_spec`，让进化按错误率自动选 compact/standard/expert
+3. **多轮对话评测**（缺口 H）：实现带上下文的真多轮评测脚本
+
+### 2.3 中期
+- 综合体接入 API/聊天（缺口 I）
+- play→coaction 链路修复（缺口 G）
+- 清理死代码（J/K）
+
+### 2.4 远期
+- 多 standard 神经元协作验证
+- 更长训练（8000→16000 步）
+- expert 规格
+
+---
+
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
 
 ### 背景
@@ -161,7 +251,12 @@ should_create = lifecycle.neurogenesis.record_domain_error("dialogue", 0.7)
 
 ---
 
-## ⚠️ 协作层训练实验（2026-07-30，负向结论）
+## 📚 历史实验记录（归档）
+
+> 以下章节按时间线记录历史实验与结论，供追溯参考。当前项目状态以"一、项目全景"和"二、路线图"为准。
+> 关键结论已提炼到全景章节，此处保留细节。
+
+### 协作层训练实验（2026-07-30，负向结论）
 
 ### 实验
 
@@ -778,7 +873,9 @@ Shared Expert 机制暂不启用（保持 v2 baseline PPL=62.6 作为最佳协�
 
 ---
 
-## 零、项目状态总览（导航仪表盘）— 2026-07-26 更新（修复后真实数据）
+## 归档：项目状态总览（旧导航，2026-07-26，已被"一、项目全景"取代）
+
+> ⚠️ 本仪表盘为 2026-07-26 旧导航，状态已过时，仅保留历史数据供追溯。
 
 > **因果掩码 bug 修复后，所有指标基于真实因果训练重新评估。**
 > 四个问题有严格依赖顺序：因果掩码 → 数据量 → 架构优化 → 协作涌现。
@@ -1199,7 +1296,11 @@ v1 PPL 在 131-134 停滞 6 个数据点。诊断发现**所有 12 条通道都�
 | ★ | **CSA+HCA 混合注意力** | 分层压缩（CSA 精读 + HCA 广角），1M 上下文下 FLOPs 仅 27%。态极未来支持长上下文时借鉴 |
 | ★ | **三模式推理** | Non-think/Think High/Think Max 三档。与 Qwen3 的 thinking/non-thinking 双重验证了"按需调节思考深度"的正确性，态极可扩展为 max_rounds=1/2/3 三档 |
 
-## 一、设计原则
+## 📐 设计文档：设计原则与 Phase 1-8 历史记录
+
+> 以下为历史设计文档（Phase 1-8 实施记录），大部分已完成或废弃，保留供架构追溯。
+
+### 设计原则
 
 ### 1.1 三大核心原则
 
@@ -1225,7 +1326,7 @@ v1 PPL 在 131-134 停滞 6 个数据点。诊断发现**所有 12 条通道都�
 | 从零独立训练 | 每 neuron 独立 embedding + body + lm_head，零教师依赖（P7-P8） |
 
 ---
-## 二、Phase 1: 基础生物学化 (已实施)
+### Phase 1: 基础生物学化 (已实施)
 
 ### 2.1 兴奋/抑制神经元分化
 
@@ -1265,7 +1366,7 @@ v1 PPL 在 131-134 停滞 6 个数据点。诊断发现**所有 12 条通道都�
 
 ---
 
-## 三、Phase 2: 自我进化闭环
+### Phase 2: 自我进化闭环
 
 ### 3.1 神经元凋亡 (Apoptosis)
 
@@ -1321,7 +1422,7 @@ new_neuron.maturity_counter = 0  # 成熟度计数器
 
 ---
 
-## 四、Phase 3: 高级认知机制
+### Phase 3: 高级认知机制
 
 ### 4.1 STDP 局部学习
 
@@ -1376,7 +1477,7 @@ new_neuron.maturity_counter = 0  # 成熟度计数器
 
 ---
 
-## 五、Phase 4: 组织化机制
+### Phase 4: 组织化机制
 
 ### 5.1 功能柱 (Cortical Column) 原生实现
 
@@ -1408,7 +1509,7 @@ new_neuron.maturity_counter = 0  # 成熟度计数器
 
 ---
 
-## 五之续：Phase 5 丘脑路由与动态扩展 — **[已废弃，P7 替代]**
+### 废弃：Phase 5 丘脑路由与动态扩展 — **[已废弃，P7 替代]**
 
 > **废弃原因**：Phase 5 ThalamicRouter 依赖 1.5B 教师 hidden state 做路由判断（prototype 计算、实时路由决策），
 > 与 P7 从零训练、零教师依赖的架构方向冲突。P7 每 neuron 自带独立 embedding + 域 tokenizer，
@@ -1424,7 +1525,7 @@ Phase 5 所有子任务（5.1 丘脑路由、5.2 动态扩展、5.3 学徒期、
 
 ---
 
-## 六、四个原问题的解决方案
+### 四个原问题的解决方案
 
 ### 6.1 lm_head: per-neuron 独立（P7 升级）
 
@@ -1489,7 +1590,7 @@ general_token_ids (256K I/O 协议)
 
 ---
 
-## 七、实施进度
+### 实施进度
 
 ### 已完成 (Phase 1)
 - [x] 兴奋/抑制神经元分化
@@ -1597,7 +1698,7 @@ general_token_ids (256K I/O 协议)
 
 ---
 
-## 八、与现有架构的兼容性
+### 与现有架构的兼容性
 
 ### 8.1 Checkpoint 兼容
 - 新增字段（neuron_type, refractory_counter）使用默认值，旧 ckpt 可加载
@@ -1620,7 +1721,7 @@ general_token_ids (256K I/O 协议)
 
 ---
 
-## 九、P7 架构落地（已完成）
+### P7 架构落地（已完成）
 
 > 2026-07-21：P7-1 ~ P7-9 全部完成。项目从"蒸馏为主"彻底转向"从零训练"。
 
@@ -1944,7 +2045,7 @@ route_loss 从 0.130 卡住变为 0.032 真正收敛。tokenization 不一致确
 
 ---
 
-## 十、Phase 8: 从零独立训练（下一步）
+### Phase 8: 从零独立训练（已执行 → standard 训练）
 
 > **核心命题**：神经元规模小（24M-118M），从零训练完全可行。人脑不蒸馏，婴儿直接暴露于语言环境。
 >
@@ -2012,7 +2113,7 @@ route_loss 从 0.130 卡住变为 0.032 真正收敛。tokenization 不一致确
 
 ---
 
-## 十一、项目健康度
+### 项目健康度
 
 ### 11.1 代码统计
 
