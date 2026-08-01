@@ -154,7 +154,7 @@ def main():
     parser.add_argument("--base_id", required=True, help="基础神经元 ID（如 zh_std0）")
     parser.add_argument("--target_id", required=True, help="目标神经元 ID（如 zh_std0_dialogue）")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--steps", type=int, default=4000)
+    parser.add_argument("--steps", type=int, default=12000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--grad_accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)

@@ -196,7 +196,7 @@ def load_dialogue_texts(jsonl_path: str, max_texts: int = 10000) -> list:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--max_texts", type=int, default=10000)

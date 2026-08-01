@@ -67,17 +67,25 @@
 
 **注**：margin ranking 暂未实现（与 balance_loss 语义部分冲突，且需要 individual_logits 额外计算开销）。当前 balance_loss + diversity_loss 已覆盖协作约束需求。
 
-### S4. 训练步数整体偏短 ★★
+### S4. 训练步数整体偏短 ★★ ✅ 代码已修复（待重新训练）
 
-| 阶段 | 当前步数 | 建议步数 |
-|------|---------|---------|
-| base (compact) | 16000 | 30000-50000 |
-| base (standard) | 16000 | 50000-80000 |
-| dialogue finetune | 4000 | 12000-16000 |
-| side_channels | 7500 (3ep) | 20000+ |
-| cross_spec | 7500 (3ep) | 20000+ |
+| 阶段 | 修复前 | 修复后 | 建议步数 |
+|------|---------|---------|---------|
+| base (compact) | 16000 | 16000（未改，已训练完成） | 30000-50000 |
+| base (standard) | 16000 | 16000（未改，已训练完成） | 50000-80000 |
+| dialogue finetune | 4000 | **12000** | 12000-16000 |
+| side_channels | 6ep (~15000步) | **8ep (~20000步)** | 20000+ |
+| cross_spec | 3ep (~7500步) | **8ep (~20000步)** | 20000+ |
 
 **4000 步对话微调确实太少**——36M 小模型需更多 epoch 内化对话格式，4000 步只够 2.5 epoch，明显欠拟合。当前多轮对话质量差的根因之一。
+
+**修复详情**（2026-08-01）：
+- [finetune_neuron_dialogue.py](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py)：`--steps` 默认值 4000 → 12000
+- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：`--epochs` 默认值 3 → 8
+- [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：`--epochs` 默认值 6 → 8
+- warmup_steps=100 保持不变（12000-20000 步训练中占比 0.5-0.83%，合理）
+- base 神经元训练步数未改（已训练完成，后续进化时再提升）
+- **待重新训练才能验证效果**（建议等 S5 数据扩充完成后统一重新训练）
 
 ### S5. 数据规模与复杂度偏小 ★★
 
