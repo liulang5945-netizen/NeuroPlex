@@ -333,24 +333,24 @@ def main():
                 best_step = step
                 print(f"    [SAVE] best (val PPL={best_val_loss:.2f})", flush=True)
 
-                # 保存 best checkpoint
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                torch.save({
-                    "neuron_config": neuron.config,
-                    "state_dict": {k: v.detach().clone() for k, v in neuron.state_dict().items()},
-                    "shared_embedding_state": {k: v.detach().clone() for k, v in shared_emb.state_dict().items()},
-                    "domain": DOMAIN,
-                    "data_source": "alpaca_zh_sft_finetune",
-                    "result": {
-                        "best_val_ppl": best_val_loss,
-                        "best_step": best_step,
-                        "steps": step,
-                        "base_id": args.base_id,
-                        "finetune": True,
-                    },
-                    "optimizer_state": optimizer.state_dict(),
-                    "scheduler_state": scheduler.state_dict(),
-                }, save_path)
+            # 每次 eval 都保存 latest checkpoint（避免 resume 回退到旧 best）
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            torch.save({
+                "neuron_config": neuron.config,
+                "state_dict": {k: v.detach().clone() for k, v in neuron.state_dict().items()},
+                "shared_embedding_state": {k: v.detach().clone() for k, v in shared_emb.state_dict().items()},
+                "domain": DOMAIN,
+                "data_source": "alpaca_zh_sft_finetune",
+                "result": {
+                    "best_val_ppl": best_val_loss,
+                    "best_step": best_step,
+                    "steps": step,
+                    "base_id": args.base_id,
+                    "finetune": True,
+                },
+                "optimizer_state": optimizer.state_dict(),
+                "scheduler_state": scheduler.state_dict(),
+            }, save_path)
 
             # 生成样本
             sample = generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt="问：你好\n答：")
