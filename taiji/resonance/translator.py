@@ -19,68 +19,6 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 
-class TokenTranslator:
-    """Bidirectional translation between domain tokenizer and general tokenizer.
-
-    Each neuron has its own translator instance.
-    """
-
-    def __init__(self, domain_vocab_size: int, general_vocab_size: int = 256000):
-        self.domain_vocab_size = domain_vocab_size
-        self.general_vocab_size = general_vocab_size
-
-        # Alignment table: domain_token_id → [general_token_ids]
-        self.alignment: Dict[int, list[int]] = {}
-
-    def build_alignment(self, domain_tokenizer, general_tokenizer) -> None:
-        """Build alignment table by encoding each domain token into general tokens.
-
-        Args:
-            domain_tokenizer: domain-specific SentencePiece processor.
-            general_tokenizer: general 256K SentencePiece processor.
-        """
-        from sentencepiece import SentencePieceProcessor
-
-        self.alignment = {}
-        for domain_id in range(self.domain_vocab_size):
-            word = domain_tokenizer.id_to_piece(domain_id)
-            # Re-encode using general tokenizer
-            general_ids = general_tokenizer.encode(word)
-            self.alignment[domain_id] = general_ids
-
-    def domain_to_general(self, domain_ids: list[int]) -> list[int]:
-        """Convert domain token IDs to general token IDs.
-
-        Args:
-            domain_ids: list of domain token IDs.
-
-        Returns:
-            list of corresponding general token IDs.
-        """
-        result = []
-        for did in domain_ids:
-            if did in self.alignment:
-                result.extend(self.alignment[did])
-            else:
-                # OOV fallback: return empty (will be handled by caller)
-                pass
-        return result
-
-    def general_to_domain(self, general_ids: list[int], domain_tokenizer) -> list[int]:
-        """Convert general token IDs to domain token IDs (for output).
-
-        Args:
-            general_ids: list of general token IDs.
-            domain_tokenizer: domain tokenizer for re-encoding.
-
-        Returns:
-            list of domain token IDs.
-        """
-        # Decode general tokens to text, then re-encode with domain tokenizer
-        # This is handled at a higher level since we need the general tokenizer for decoding
-        raise NotImplementedError("Use domain tokenizer encode(decode_text) pattern")
-
-
 class TokenizerHub:
     """Central registry for all domain tokenizers (multi-modal aware).
 
@@ -120,7 +58,6 @@ class TokenizerHub:
         """
         # 文本域 tokenizer：{domain: tokenizer}
         self.tokenizers: Dict[str, object] = {}
-        self.translators: Dict[str, TokenTranslator] = {}
         self.general_tokenizer = general_tokenizer
 
         # 多模态编码器（P8 预留）：{modality: encoder}
@@ -333,27 +270,6 @@ class TokenizerHub:
         """P8: 列出所有已注册的非文本模态。"""
         return list(self.modal_encoders.keys())
 
-    def build_translator(self, domain: str) -> Optional[TokenTranslator]:
-        """Build a translator between a domain tokenizer and the general tokenizer.
-
-        Args:
-            domain: domain name to build translator for.
-
-        Returns:
-            TokenTranslator instance, or None if general tokenizer is not available.
-        """
-        if "general" not in self.tokenizers or domain not in self.tokenizers:
-            return None
-
-        domain_tok = self.tokenizers[domain]
-        general_tok = self.tokenizers["general"]
-        vocab_size = getattr(domain_tok, "vocab_size", getattr(domain_tok, "GetPieceSize", lambda: 0)())
-
-        translator = TokenTranslator(vocab_size, 256000)
-        translator.build_alignment(domain_tok, general_tok)
-        self.translators[domain] = translator
-        return translator
-
     @classmethod
     def load_default_domains(
         cls,
@@ -453,21 +369,34 @@ def _get_token_spans(sp, text: str) -> Tuple[List[int], List[Tuple[int, int]]]:
     """
     pieces = sp.encode(text, out_type=str)  # list of piece strings
     ids = sp.encode(text)  # list of token IDs
+    text_len = len(text)
 
     spans = []
     pos = 0
     for piece in pieces:
-        # Remove "▁" prefix to get the actual text span
-        if piece.startswith("▁"):
+        # SentencePiece 的 ▁ (U+2581) 代表空格：
+        #   - 独立 "▁" → 原始文本中的一个空格字符（缩进、词间分隔）
+        #   - "▁word"  → 词界标记（前导空格），word 是实际内容
+        if piece == "▁":
+            # 独立空格 token：对应文本中的一个空格字符
+            # 修复前 clean="" 导致零长度 span，缩进信息丢失
+            span_len = 1
+            spans.append((pos, pos + span_len))
+            pos += span_len
+        elif piece.startswith("▁"):
+            # ▁word：前导空格是词界标记
+            # 仅当当前位置确实是空格时才 skip（避免开头 ▁word 误 skip）
+            if 0 < pos < text_len and text[pos] == " ":
+                pos += 1  # skip the space separator
             clean = piece[1:]
-            if pos > 0:  # space separator between words
-                pos += 1  # skip the space character
+            span_len = len(clean)
+            spans.append((pos, pos + span_len))
+            pos += span_len
         else:
             clean = piece
-
-        span_len = len(clean)
-        spans.append((pos, pos + span_len))
-        pos += span_len
+            span_len = len(clean)
+            spans.append((pos, pos + span_len))
+            pos += span_len
 
     return ids, spans
 

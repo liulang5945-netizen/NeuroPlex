@@ -9,8 +9,8 @@ Each neuron:
 
 注意：neuron 不再拥有独立的 nn.Embedding。所有 neuron 共享
 一张外部 nn.Embedding(256000, 512)（Layer 1 共享感官层）。
-TokenTranslator 将域 tokenizer 的输出映射到通用 token ID，
-再查共享嵌入表。
+P7 对齐通过 build_position_alignment（字符 span 重叠）实现
+general/domain token 映射，再查共享嵌入表。
 """
 
 from __future__ import annotations

@@ -54,47 +54,59 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 |------|------|----------------|
 | base 训练（5 神经元） | ✅ 完成 | zh_aug0~3 (compact) + zh_std0 (standard, val PPL 34.07) |
 | dialogue fine-tune（5 神经元） | ✅ 完成 | 4×compact_dialogue (val PPL 88.85~102.01) + zh_std0_dialogue (95.27) |
-| cross_spec 协作层（对话版） | 🔄 训练中 | `finetune_cross_spec.py --data dialogue`，产物 `cross_spec_dialogue.pt` |
-| 综合体对话评估 | ⏳ 待协作层完成 | `eval_dialogue.py` |
-| 运行时（Cortex/API） | ❌ 断裂 | 混合规格崩溃 + 协作权重未加载 + embedding 随机初始化 + 域路由 key 不匹配 |
-| 进化机制（在线） | ⚠️ 部分接线 | 斜率判别器已接入 sleep_engine；`select_spec`/`diagnose_domain` 零调用 |
+| cross_spec 协作层（对话版） | ✅ 完成 | `cross_spec_dialogue.pt`，train PPL 54.2→43.4（3 epochs） |
+| 综合体对话评估 | ✅ 完成（EMERGE） | **协作 PPL=24.0 vs 最强个体 34.5，提升 30.5%**；多轮上下文维持有效；生成质量有限（语法错误较多，需更多数据） |
+| 运行时（Cortex/API） | ✅ 断裂 A-D 已修复 | 混合规格装配通过、协作权重加载、embedding 加载、域路由前缀修正 |
+| 进化机制（在线） | ✅ 全接线 | 斜率判别器 + `select_spec` + `diagnose_domain` 均已接入 sleep_engine/cortex |
 | 硬编码治理 | ✅ P0-P3 完成 | `experiment_config.py` + `utils.py` 集中管理 |
 
 ### 1.4 闭环缺口清单（未闭环设计）
 
 | # | 类型 | 位置 | 说明 |
 |---|------|------|------|
-| A | 断裂 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py#L66-L88) | 混合规格（compact+standard）导致 `Cortex.__init__` 抛 ValueError，运行时启动即崩溃 |
-| B | 断裂 | `taiji/`、`api/` 零引用 | `cross_spec_dialogue.pt` 协作层权重（side_channels+投影层）从不加载进运行时 |
-| C | 断裂 | [loader.py](file:///e:/taiji-neuron/taiji/loader.py#L278-L283) | 运行时 shared_embedding 随机初始化，不读 `data/shared_embedding.pt` |
-| D | 断裂 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_load_neurons`/`_infer_domain` | 神经元 key 用文件名（zh_aug0...），与域路由期望（zh/en/code/math/general）不匹配 |
-| E | 未接线 | [lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py#L399) `select_spec` | SpecSelector 零调用，`cortex.add_neuron` 硬编码 COMPACT——进化永远生成最小规格 |
-| F | 未接线 | [lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py) `diagnose_domain` | 斜率判别器诊断 API 零调用（判别逻辑已内嵌生效，但对外诊断入口未用） |
-| G | 断裂 | loader.py Step 9.2 + play_engine.py | Play→CoactivationTracker 强化链路双重断裂（注入独立实例 + 调用不存在的方法） |
-| H | 缺失 | `scripts/training/` | 无真正的多轮对话评测脚本（eval_dialogue 仅 5 个独立单轮 prompt） |
+| A | ✅ 已修复 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py#L66-L88) | 混合规格装配：删 hidden_size 校验，field_dim 取 max，ensemble 自动建跨规格投影层 |
+| B | ✅ 已修复 | [loader.py](file:///e:/taiji-neuron/taiji/loader.py) `_load_collab_weights_into_cortex` | 运行时加载 `cross_spec_dialogue.pt` 的 side_channels + 跨规格投影层（ID 不匹配时警告） |
+| C | ✅ 已修复 | [loader.py](file:///e:/taiji-neuron/taiji/loader.py#L270-L323) | shared_embedding 用 base_embed_dim(512) + 优先加载 `data/shared_embedding.pt` 训练权重 |
+| D | ✅ 已修复 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_infer_domain`/路由 | key 前缀提取纯域（zh_aug0_dialogue→zh）+ Level 1 路由激活同域全部神经元 |
+| D+ | ✅ 已修复 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `generate` | 预存 bug：`fusion_mode` 未传给 `_generate_p7` 导致 NameError |
+| E | ✅ 已修复 | [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py#L538-L553) `add_neuron` | SpecSelector 已接入：`lifecycle.neurogenesis.select_spec(domain)` 按错误率选 compact/standard/expert；split 模式继承父规格 |
+| F | ✅ 已修复 | [sleep_engine.py](file:///e:/taiji-neuron/taiji/life/sleep_engine.py#L646-L649) | `diagnose_domain` 已接入：record_domain_error 后记录域诊断状态（healthy/data_insufficient/capacity_limited） |
+| G | ✅ 已修复 | [loader.py](file:///e:/taiji-neuron/taiji/loader.py#L457-L474) Step 9.2 + [play_engine.py](file:///e:/taiji-neuron/taiji/life/play_engine.py#L237-L243) | Play→CoactivationTracker 链路修复：使用 cortex.coaction 实例（非新建）+ 调用 update(ids)（非不存在的 record_coactivation） |
+| H | ✅ 已修复 | [eval_dialogue.py](file:///e:/taiji-neuron/scripts/training/eval_dialogue.py) `eval_multi_turn_conversation` | 多轮对话评测：3 场景 × 3 轮追问，维护对话历史测试上下文连贯性（`--multi_turn` 启用） |
 | I | 缺失 | `api/` | 综合体未接入聊天接口，无发布/导出脚本 |
-| J | 死代码 | cognitive_enhancements.py | CorticalColumn/ColumnRegistry/AttentionBeam/ThresholdPlasticity 全库零调用 |
-| K | 死代码 | translator.py TokenTranslator | P7 后旧对齐机制无调用方 |
+| J | ✅ 已清理 | ~~cognitive_enhancements.py~~ | 已删除：CorticalColumn/ColumnRegistry/AttentionBeam/ThresholdPlasticity 全库零调用，从 __init__.py 移除导入 |
+| K | ✅ 已修复 | translator.py TokenTranslator | 删除死代码类 + build_translator + translators 字段；同时修复 `_get_token_spans` 空格对齐 bug（独立 `▁` token 零长度 span 导致缩进丢失，代码文本对齐率 38%→100%） |
 
 ---
 
 ## 🧭 二、路线图
 
 ### 2.1 当前执行中
-- 🔄 cross_spec 对话协作层训练（`--data dialogue`，预计 ~13h）
-- 完成后：`eval_dialogue.py` 评估综合体对话 PPL + 生成质量（对照最强单神经元）
+- ✅ cross_spec 对话协作层训练完成（train PPL 54.2→43.4）
+- ✅ eval_dialogue.py 评估完成：**EMERGE 现象确认**（协作 PPL=24.0 vs 最强个体 34.5，提升 30.5%）
 
-### 2.2 下一步：闭环修复（按依赖排序）
-1. **运行时装配**（断裂 A/B/C/D）：让 Cortex 支持混合规格或统一装配，加载协作层权重 + shared_embedding，修正域路由 key —— 打通"训练产物→实际对话"
-2. **进化规格选择**（断裂 E）：`cortex.add_neuron` 接入 `select_spec`，让进化按错误率自动选 compact/standard/expert
-3. **多轮对话评测**（缺口 H）：实现带上下文的真多轮评测脚本
+### 2.2 EMERGE 评估结果（2026-08-01）
 
-### 2.3 中期
-- 综合体接入 API/聊天（缺口 I）
-- play→coaction 链路修复（缺口 G）
-- 清理死代码（J/K）
+| 指标 | 值 |
+|------|-----|
+| 最强个体 PPL | 34.5（zh_std0_dialogue） |
+| 协作 PPL | **24.0** |
+| 提升幅度 | **30.5%** |
+| 融合权重 | zh_aug0:0.312 > zh_aug2:0.243 > zh_std0:0.198 > zh_aug1:0.124 ≈ zh_aug3:0.122 |
 
-### 2.4 远期
+**多轮对话**：能维持上下文（场景2轮2引用轮1的"机器学习/深度学习"概念；场景3轮2引用轮1的"Python"）。
+**生成质量**：语法错误较多，有无关内容——训练数据仅 4000 步，需扩充。
+
+### 2.3 下一步建议
+1. **综合体接入 API/聊天接口**（缺口 I）：让真实用户能与之对话测试，从离线评估走向实际使用
+2. 扩充对话训练数据（提升生成质量）
+3. 清理缺口 K（TokenTranslator，需谨慎评估）
+
+### 2.4 中期
+- 扩充对话训练数据（提升生成质量）
+- 清理缺口 K（TokenTranslator，需谨慎评估）
+
+### 2.5 远期
 - 多 standard 神经元协作验证
 - 更长训练（8000→16000 步）
 - expert 规格

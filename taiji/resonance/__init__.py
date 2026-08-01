@@ -5,8 +5,8 @@
 - Layer 2 (认知空间): per-neuron embed_adapter + Transformer body
 - Layer 3 (神经语言): 4096-dim 共振场
 
-TokenTranslator 桥接域 tokenizer → 通用 token → 共享嵌入。
-通用词表可热插拔，不影响 neuron 内部。
+P7 对齐机制：build_position_alignment 通过字符 span 重叠对齐 general/domain
+token，batch_align_and_embed 查共享嵌入表。通用词表可热插拔，不影响 neuron 内部。
 
 Core components:
 - ResonanceField: shared 4096-dim field with L2-normalized writes
@@ -24,15 +24,12 @@ from .config import (
     DOMAIN_VOCAB_SIZES, GENERAL_TOKENIZER_DOMAIN, get_domain_neuron_config,
 )
 from .translator import (
-    TokenTranslator, TokenizerHub,
+    TokenizerHub,
     build_position_alignment, batch_align_and_embed,
 )
 from .lifecycle import LifecycleManager, ApoptosisTracker, MaturityTracker, NeurogenesisTrigger
 from .stdp import STDPTracker, STDPRule, FiringRecord
 from .neuro_modulation import NeuromodulatorState, SleepConsolidator
-from .cognitive_enhancements import (
-    CorticalColumn, ColumnRegistry, AttentionBeam, ThresholdPlasticity,
-)
 from .gamma_oscillator import GammaOscillator, apply_gamma_gate
 from .geometry import NeuronGeometry
 
@@ -51,7 +48,6 @@ __all__ = [
     "GENERAL_TOKENIZER_DOMAIN",
     "get_domain_neuron_config",
     # Translator
-    "TokenTranslator",
     "TokenizerHub",
     "build_position_alignment",
     "batch_align_and_embed",
@@ -64,8 +60,6 @@ __all__ = [
     "STDPTracker", "STDPRule", "FiringRecord",
     # 神经调质
     "NeuromodulatorState", "SleepConsolidator",
-    # 认知增强
-    "CorticalColumn", "ColumnRegistry", "AttentionBeam", "ThresholdPlasticity",
     # Gamma 同步
     "GammaOscillator", "apply_gamma_gate",
     # RSGN 几何
