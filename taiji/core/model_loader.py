@@ -14,6 +14,25 @@ import os
 
 logger = logging.getLogger("ModelLoader")
 
+# 默认装配集合：态极对话综合体（4×compact_dialogue + 1×standard_dialogue）
+# 排除 base 版神经元（无对话能力，会污染生成）。
+# 可用环境变量 TAIJI_NEURON_IDS 覆盖（逗号分隔），如 "zh_aug0_dialogue,zh_std0_dialogue"。
+DEFAULT_NEURON_IDS = [
+    "zh_aug0_dialogue",
+    "zh_aug1_dialogue",
+    "zh_aug2_dialogue",
+    "zh_aug3_dialogue",
+    "zh_std0_dialogue",
+]
+
+
+def _resolve_neuron_ids() -> list | None:
+    """解析装配集合：环境变量优先，否则用默认对话综合体。"""
+    env_ids = os.environ.get("TAIJI_NEURON_IDS", "")
+    if env_ids.strip():
+        return [x.strip() for x in env_ids.split(",") if x.strip()]
+    return list(DEFAULT_NEURON_IDS)
+
 
 def load_model_on_startup() -> None:
     """启动时加载 Cortex 神经元架构到 app_state。
@@ -43,11 +62,19 @@ def load_model_on_startup() -> None:
         # 装配 Cortex
         from taiji.loader import assemble_cortex
         neurons_dir = os.environ.get("TAIJI_NEURONS_DIR", "data/neurons")
+        neuron_ids = _resolve_neuron_ids()
         cortex, tokenizer, modules = assemble_cortex(
             neurons_dir=neurons_dir,
             device=device,
             max_rounds=3,
             wire_bio_modules=True,
+            neuron_ids=neuron_ids,
+        )
+
+        logger.info(
+            "[ModelLoader] 装配集合: %d 神经元 (%s)",
+            len(cortex.neurons),
+            ", ".join(cortex.neurons.keys()),
         )
 
         # 注入 app_state（直接赋值，不调用 update_model 避免 gc 旧模型的副作用）

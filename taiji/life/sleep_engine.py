@@ -643,6 +643,10 @@ class SleepEngine:
                 error_rates = self._feed_engine.get_domain_error_rates()
                 for domain, error_rate in error_rates.items():
                     triggered = self._lifecycle.neurogenesis.record_domain_error(domain, error_rate)
+                    # 缺口 F 修复：接入 diagnose_domain 诊断 API，记录域状态
+                    diagnosis = self._lifecycle.neurogenesis.diagnose_domain(domain)
+                    if diagnosis != "healthy":
+                        logger.info(f"  域 '{domain}' 诊断: {diagnosis}（错误率 {error_rate:.0%}）")
                     if triggered:
                         logger.info(f"  域 '{domain}' 触发 neurogenesis（错误率 {error_rate:.0%}）")
                         report.recommendations.append(

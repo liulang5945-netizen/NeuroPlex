@@ -235,9 +235,102 @@ def eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
     return individual_ppls, collab_ppl
 
 
+def _generate_collab(neurons, shared_embeddings, ensemble, domain_sp, general_sp,
+                     prompt, max_tokens=SAMPLING_MAX_TOKENS,
+                     temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K,
+                     repetition_penalty=SAMPLING_REPETITION_PENALTY):
+    """协作生成（模块级函数，供单轮和多轮评测共用）。
+
+    关键修复：ensemble 输出的 weighted_logits 维度 = zh domain vocab_size，
+    next_token 是 domain token ID，需转回 general token IDs 才能追加到输入，
+    解码用 domain_sp（不是 general_sp）。
+    """
+    general_ids = general_sp.EncodeAsIds(prompt)
+    if not general_ids:
+        return "(empty)"
+
+    ids = torch.tensor([general_ids], dtype=torch.long, device=DEVICE)
+    generated_domain = []
+
+    # domain tokenizer 的 EOS
+    domain_eos_id = None
+    if hasattr(domain_sp, 'eos_id'):
+        eid = domain_sp.eos_id()
+        if eid is not None and eid >= 0:
+            domain_eos_id = int(eid)
+
+    with torch.no_grad():
+        for _ in range(max_tokens):
+            # 每个神经元独立编码
+            neuron_embeddings = {}
+            for nid, shared_emb in shared_embeddings.items():
+                neuron_embeddings[nid] = shared_emb(ids)
+
+            result = ensemble.forward(
+                neuron_embeddings=neuron_embeddings,
+                return_logits=True,
+                fusion_mode="soft",
+            )
+
+            if "weighted_logits" in result:
+                logits = result["weighted_logits"][:, -1, :].float()
+            else:
+                best_nid = max(result.get("final_scores", {}), key=result["final_scores"].get, default=NEURON_IDS[0])
+                logits = neurons[best_nid].forward(
+                    neuron_embeddings[best_nid], return_logits=True
+                )["logits"][:, -1, :].float()
+
+            # Repetition penalty
+            if generated_domain:
+                for prev_token in set(generated_domain[-20:]):
+                    if prev_token < logits.size(-1):
+                        logits[0, prev_token] /= repetition_penalty
+
+            # Temperature + top-k
+            logits = logits / temperature
+            if top_k > 0:
+                cur_top_k = min(top_k, logits.size(-1))
+                topk_vals, _ = torch.topk(logits[0], cur_top_k)
+                threshold = topk_vals[-1]
+                logits[0][logits[0] < threshold] = float('-inf')
+
+            probs = F.softmax(logits, dim=-1)
+            next_domain_token = torch.multinomial(probs, num_samples=1).item()
+            generated_domain.append(next_domain_token)
+
+            # EOS 检测（domain tokenizer）
+            if domain_eos_id is not None and next_domain_token == domain_eos_id:
+                break
+
+            # 关键修复：domain token ID → 文本 → general token IDs → 追加到输入
+            piece_text = domain_sp.decode([next_domain_token])
+            new_general_ids = general_sp.encode(piece_text)
+            if not new_general_ids:
+                new_general_ids = [general_sp.pad_id()]
+            ids = torch.cat([ids, torch.tensor([new_general_ids], dtype=torch.long, device=DEVICE)], dim=1)
+
+    # 用 domain tokenizer 解码
+    text = domain_sp.DecodeIds(generated_domain)
+    return text
+
+
+# 多轮对话场景：每个场景是一系列追问，测试综合体维持上下文的能力
+MULTI_TURN_SCENARIOS = [
+    ["你好，请介绍一下自己",
+     "你和小神经元是什么关系？",
+     "那你能做什么？"],
+    ["什么是人工智能？",
+     "它和机器学习有什么区别？",
+     "能举个例子吗？"],
+    ["如何学习编程？",
+     "应该先学哪门语言？",
+     "有什么好的学习资源推荐吗？"],
+]
+
+
 def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
                       weights_type: str = "dialogue"):
-    """实际对话生成质量评估。"""
+    """实际对话生成质量评估（单轮）。"""
     print("\n" + "=" * 70, flush=True)
     print(f"[对话生成质量评估] (weights={weights_type})", flush=True)
     print("=" * 70, flush=True)
@@ -247,89 +340,44 @@ def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
     load_cross_spec_weights(ensemble, weights_type)
 
-    # 对话 prompt（从 experiment_config.DIALOGUE_PROMPTS 导入，匹配训练数据格式）
-    PROMPTS = DIALOGUE_PROMPTS
-
-    def generate_collab(prompt, max_tokens=SAMPLING_MAX_TOKENS, temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K, repetition_penalty=SAMPLING_REPETITION_PENALTY):
-        """协作生成。
-
-        关键修复：ensemble 输出的 weighted_logits 维度 = zh domain vocab_size，
-        next_token 是 domain token ID，需转回 general token IDs 才能追加到输入，
-        解码用 domain_sp（不是 general_sp）。
-        """
-        general_ids = general_sp.EncodeAsIds(prompt)
-        if not general_ids:
-            return "(empty)"
-
-        ids = torch.tensor([general_ids], dtype=torch.long, device=DEVICE)
-        generated_domain = []
-
-        # domain tokenizer 的 EOS
-        domain_eos_id = None
-        if hasattr(domain_sp, 'eos_id'):
-            eid = domain_sp.eos_id()
-            if eid is not None and eid >= 0:
-                domain_eos_id = int(eid)
-
-        with torch.no_grad():
-            for _ in range(max_tokens):
-                # 每个神经元独立编码
-                neuron_embeddings = {}
-                for nid, shared_emb in shared_embeddings.items():
-                    neuron_embeddings[nid] = shared_emb(ids)
-
-                result = ensemble.forward(
-                    neuron_embeddings=neuron_embeddings,
-                    return_logits=True,
-                    fusion_mode="soft",
-                )
-
-                if "weighted_logits" in result:
-                    logits = result["weighted_logits"][:, -1, :].float()
-                else:
-                    best_nid = max(result.get("final_scores", {}), key=result["final_scores"].get, default=NEURON_IDS[0])
-                    logits = neurons[best_nid].forward(
-                        neuron_embeddings[best_nid], return_logits=True
-                    )["logits"][:, -1, :].float()
-
-                # Repetition penalty
-                if generated_domain:
-                    for prev_token in set(generated_domain[-20:]):
-                        if prev_token < logits.size(-1):
-                            logits[0, prev_token] /= repetition_penalty
-
-                # Temperature + top-k
-                logits = logits / temperature
-                if top_k > 0:
-                    top_k = min(top_k, logits.size(-1))
-                    topk_vals, _ = torch.topk(logits[0], top_k)
-                    threshold = topk_vals[-1]
-                    logits[0][logits[0] < threshold] = float('-inf')
-
-                probs = F.softmax(logits, dim=-1)
-                next_domain_token = torch.multinomial(probs, num_samples=1).item()
-                generated_domain.append(next_domain_token)
-
-                # EOS 检测（domain tokenizer）
-                if domain_eos_id is not None and next_domain_token == domain_eos_id:
-                    break
-
-                # 关键修复：domain token ID → 文本 → general token IDs → 追加到输入
-                piece_text = domain_sp.decode([next_domain_token])
-                new_general_ids = general_sp.encode(piece_text)
-                if not new_general_ids:
-                    new_general_ids = [general_sp.pad_id()]
-                ids = torch.cat([ids, torch.tensor([new_general_ids], dtype=torch.long, device=DEVICE)], dim=1)
-
-        # 用 domain tokenizer 解码
-        text = domain_sp.DecodeIds(generated_domain)
-        return text
-
-    for prompt in PROMPTS:
+    for prompt in DIALOGUE_PROMPTS:
         print(f"\n  {prompt}", flush=True)
-        response = generate_collab(prompt)
+        response = _generate_collab(neurons, shared_embeddings, ensemble,
+                                    domain_sp, general_sp, prompt)
         print(f"  协作回复: {response}", flush=True)
         print(f"  {'-' * 60}", flush=True)
+
+
+def eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_sp,
+                                 weights_type: str = "dialogue"):
+    """多轮对话评测（缺口 H 修复）：测试综合体维持上下文的能力。
+
+    每个场景包含多轮追问，综合体需要根据上下文生成连贯回复。
+    输入格式与训练数据对齐：问：xxx\\n答：xxx\\n问：yyy\\n答：
+    """
+    print("\n" + "=" * 70, flush=True)
+    print(f"[多轮对话评测] (weights={weights_type})", flush=True)
+    print("=" * 70, flush=True)
+
+    max_field_dim = max(n.config.field_dim for n in neurons.values())
+    field = ResonanceField(dim=max_field_dim)
+    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    load_cross_spec_weights(ensemble, weights_type)
+
+    for scenario_idx, questions in enumerate(MULTI_TURN_SCENARIOS, 1):
+        print(f"\n  场景 {scenario_idx}:", flush=True)
+        history = ""
+        for turn_idx, question in enumerate(questions, 1):
+            # 拼接对话历史 + 当前问题（与训练数据格式对齐）
+            prompt = f"{history}问：{question}\n答："
+            print(f"\n  [轮 {turn_idx}] 问：{question}", flush=True)
+            response = _generate_collab(neurons, shared_embeddings, ensemble,
+                                        domain_sp, general_sp, prompt,
+                                        max_tokens=128)
+            print(f"  [轮 {turn_idx}] 答：{response}", flush=True)
+            # 将本轮对话加入历史
+            history = f"{history}问：{question}\n答：{response}\n"
+        print(f"  {'=' * 60}", flush=True)
 
 
 def main():
@@ -341,6 +389,7 @@ def main():
     parser.add_argument("--n_eval", type=int, default=50)
     parser.add_argument("--skip_ppl", action="store_true", help="跳过 PPL 评估")
     parser.add_argument("--skip_gen", action="store_true", help="跳过生成评估")
+    parser.add_argument("--multi_turn", action="store_true", help="启用多轮对话评测")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
 
@@ -362,6 +411,10 @@ def main():
     if not args.skip_gen:
         eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
                           weights_type=args.weights)
+
+    if args.multi_turn:
+        eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_sp,
+                                     weights_type=args.weights)
 
     print("\n" + "=" * 70, flush=True)
     print("评估完成", flush=True)

@@ -237,10 +237,8 @@ class PlayEngine:
             # 记录共激活：同时激活的神经元对
             if self._coaction is not None and len(activated_neurons) >= 2:
                 try:
-                    for i, (nid_a, score_a) in enumerate(activated_neurons):
-                        for nid_b, score_b in activated_neurons[i+1:]:
-                            if hasattr(self._coaction, 'record_coactivation'):
-                                self._coaction.record_coactivation(nid_a, nid_b)
+                    active_ids = [nid for nid, _ in activated_neurons]
+                    self._coaction.update(active_ids)
                 except Exception as e:
                     logger.debug(f"共激活记录失败（非关键）: {e}")
 

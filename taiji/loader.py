@@ -64,6 +64,7 @@ def create_cortex(
     device: str = "cpu",
     max_rounds: int = 3,
     sp_model_path: str | None = None,
+    neuron_ids: Optional[list] = None,
 ) -> tuple[Any, Optional[Any]]:
     """创建 Cortex（运行时认知主体）+ tokenizer。
 
@@ -75,6 +76,7 @@ def create_cortex(
         device: 计算设备
         max_rounds: 共振最大轮数
         sp_model_path: SentencePiece 模型路径（若为 None 自动查找）
+        neuron_ids: 只装配指定 ID 集合（如对话综合体）；None = 扫描全部
 
     Returns:
         (cortex, tokenizer)
@@ -104,6 +106,7 @@ def create_cortex(
         neurons_dir=neurons_dir,
         device=device,
         max_rounds=max_rounds,
+        neuron_ids=neuron_ids,
     )
     if tokenizer is not None:
         cortex.set_tokenizer(tokenizer)
@@ -200,6 +203,7 @@ def assemble_cortex(
     max_rounds: int = 3,
     sp_model_path: str | None = None,
     wire_bio_modules: bool = True,
+    neuron_ids: Optional[list] = None,
 ) -> tuple[Any, Optional[Any], dict]:
     """统一装配 Cortex，接线所有 bio-inspired 模块。
 
@@ -210,6 +214,7 @@ def assemble_cortex(
     3. NeuromodulatorState 注入 cortex + ensemble（P1-2，调质驱动 lr/不应期/写入强度）
     4. GammaOscillator / WorkingMemory 注入 cortex（P1-4，feature binding + 上下文维持）
     5. LifecycleManager / SleepConsolidator 创建并返回（供 sleep_engine 使用）
+    6. 协作层权重加载（side_channels + 跨规格投影层，从 cross_spec_dialogue.pt）
 
     所有可选模块加载失败时退化为默认行为（向后兼容），并记录 warning。
 
@@ -219,6 +224,7 @@ def assemble_cortex(
         max_rounds: 共振最大轮数
         sp_model_path: SentencePiece 模型路径
         wire_bio_modules: 是否接线 bio-inspired 模块（False=只创建基础 cortex）
+        neuron_ids: 只装配指定 ID 集合（如对话综合体）；None = 扫描全部
 
     Returns:
         (cortex, tokenizer, modules) —
@@ -230,6 +236,7 @@ def assemble_cortex(
         device=device,
         max_rounds=max_rounds,
         sp_model_path=sp_model_path,
+        neuron_ids=neuron_ids,
     )
 
     modules: dict[str, Any] = {}
@@ -253,9 +260,10 @@ def assemble_cortex(
     # Step 1.6: P7 shared_embedding + general tokenizer
     # generate() 走 _generate_p7 路径需要 _shared_embedding 和 _general_sp：
     #   1. general_sp.encode(prompt) → general_ids
-    #   2. shared_embedding(general_ids) → shared_emb [1, L, hidden_size]
+    #   2. shared_embedding(general_ids) → shared_emb [1, L, base_embed_dim]
     #   3. ensemble.forward(shared_emb) → neuron_logits（domain vocab）
-    # hidden_size 从已加载的 neurons 获取（fallback 模式下 COMPACT=512），
+    # 维度用 base_embed_dim（512，所有 neuron 的 embed_adapter 输入维度），
+    # 不是 hidden_size——不同规格 neuron 通过 embed_adapter 投影到各自 hidden_size。
     # general vocab 从 sp_general.model 获取（256K）。
     try:
         import sentencepiece as spm
@@ -268,17 +276,51 @@ def assemble_cortex(
             general_sp.Load(general_sp_path)
             cortex.set_general_tokenizer(general_sp)
 
-            # hidden_size 必须与 neurons 的 hidden_size 一致，否则
-            # ensemble.forward 维度不匹配
+            # base_embed_dim 必须与 neurons 的 embed_adapter 输入一致（512）
             if cortex.neurons:
-                hidden_size = next(iter(cortex.neurons.values())).config.hidden_size
+                base_embed_dim = next(iter(cortex.neurons.values())).config.base_embed_dim
             else:
-                hidden_size = 512  # COMPACT 默认
+                base_embed_dim = 512  # NeuronConfig 默认
 
             general_vocab = general_sp.GetPieceSize()  # 256000
-            shared_emb = torch.nn.Embedding(general_vocab, hidden_size)
-            # 随机初始化（后续可通过蒸馏/训练对齐教师 embedding）
-            torch.nn.init.normal_(shared_emb.weight, mean=0.0, std=0.02)
+            shared_emb = torch.nn.Embedding(general_vocab, base_embed_dim)
+            # 优先加载训练好的 shared_embedding（data/shared_embedding.pt，
+            # 由 train_compact_parallel --shared_emb_mode train 保存）；
+            # 否则随机初始化（向后兼容，蒸馏路径）
+            shared_emb_path = os.path.join(neurons_dir, "..", "shared_embedding.pt")
+            if not os.path.exists(shared_emb_path):
+                shared_emb_path = os.path.join("data", "shared_embedding.pt")
+            loaded_shared = False
+            if os.path.exists(shared_emb_path):
+                try:
+                    state = torch.load(shared_emb_path, map_location="cpu", weights_only=True)
+                    if isinstance(state, dict) and "weight" in state:
+                        weight = state["weight"]
+                    else:
+                        weight = state
+                    if weight.shape == (general_vocab, base_embed_dim):
+                        shared_emb.weight.data.copy_(weight)
+                        loaded_shared = True
+                        logger.info(
+                            "[assemble_cortex] Shared embedding 加载训练权重: %s (%d×%d)",
+                            shared_emb_path, general_vocab, base_embed_dim,
+                        )
+                    else:
+                        logger.warning(
+                            "[assemble_cortex] shared_embedding 维度不匹配 "
+                            "(%s vs %s)，使用随机初始化",
+                            tuple(weight.shape), (general_vocab, base_embed_dim),
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "[assemble_cortex] shared_embedding 加载失败（回退随机初始化）: %s", e,
+                    )
+            if not loaded_shared:
+                torch.nn.init.normal_(shared_emb.weight, mean=0.0, std=0.02)
+                logger.info(
+                    "[assemble_cortex] Shared embedding 随机初始化 (vocab=%d, dim=%d)",
+                    general_vocab, base_embed_dim,
+                )
             shared_emb.to(device)
             cortex.set_shared_embedding(shared_emb)
 
@@ -287,7 +329,7 @@ def assemble_cortex(
             logger.info(
                 "[assemble_cortex] Shared embedding + general tokenizer wired "
                 "(vocab=%d, dim=%d)",
-                general_vocab, hidden_size,
+                general_vocab, base_embed_dim,
             )
         else:
             logger.warning(
@@ -299,6 +341,15 @@ def assemble_cortex(
         logger.warning(
             "[assemble_cortex] shared_embedding/general tokenizer 加载失败（非致命）: %s", e,
         )
+
+    # Step 1.7: 协作层权重加载（side_channels + 跨规格投影层）— 推理核心，非可选 bio 模块
+    # 训练产物 cross_spec_dialogue.pt（finetune_cross_spec --data dialogue 保存）
+    # 含 side_channels（excite/inhibit）+ cross_spec 投影层（forward/backward）。
+    # 加载后 ensemble 的协作能力在运行时生效（断裂 B 修复）。
+    try:
+        _load_collab_weights_into_cortex(cortex, neurons_dir, device)
+    except Exception as e:
+        logger.warning("[assemble_cortex] 协作层权重加载失败（非致命）: %s", e)
 
     if not wire_bio_modules:
         return cortex, tokenizer, modules
@@ -403,13 +454,13 @@ def assemble_cortex(
     except Exception as e:
         logger.warning("[assemble_cortex] LifeScheduler 接线失败（非致命）: %s", e)
 
-    # Step 9.2: 接线玩耍引擎（PlayEngine → cortex + coactivation）
-    # 修复：play_engine.set_brain_interfaces 全库零调用，
-    # 导致 play→CoactivationTracker 强化链路完全断开。
+    # Step 9.2: 接线玩耍引擎（PlayEngine → cortex + coaction）
+    # 断裂 G 修复：
+    #   1. 使用 cortex.coaction 实例（而非新建），确保 play→coaction 数据共享
+    #   2. play_engine 调用 coaction.update(ids)（而非不存在的 record_coactivation）
     try:
         from taiji.life.play_engine import get_play_engine
-        from taiji.resonance.tribal import CoactivationTracker
-        coactivation = CoactivationTracker()
+        coactivation = cortex.coaction  # 使用 cortex 已有的实例
         play_engine = get_play_engine()
         play_engine.set_brain_interfaces(
             cortex=cortex,
@@ -629,3 +680,90 @@ def assemble_cortex(
         ", ".join(modules.keys()) if modules else "(none)",
     )
     return cortex, tokenizer, modules
+
+
+# ======================== 协作层权重加载（训练产物 → 运行时） ========================
+
+
+def _load_collab_weights_into_cortex(
+    cortex,
+    neurons_dir: str,
+    device: str,
+    collab_name: str = "cross_spec_dialogue.pt",
+) -> bool:
+    """把训练好的协作层权重（side_channels + 跨规格投影层）加载进 cortex.ensemble。
+
+    训练产物（finetune_cross_spec.py --data dialogue 保存）结构：
+    {
+        "side_channels": {nid: {"excite": {pid: state_dict}, "inhibit": {...}}},
+        "cross_spec": {"forward": {nid: state_dict}, "backward": {nid: state_dict}},
+        ...
+    }
+
+    Args:
+        cortex: Cortex 实例（含 neurons + ensemble）
+        neurons_dir: 神经元 ckpt 目录（跨规格投影层在 ensemble 中已按需创建）
+        device: 计算设备
+        collab_name: 协作层权重文件名
+
+    Returns:
+        是否成功加载（False = 文件不存在或加载失败，调用方按非致命处理）
+    """
+    collab_path = os.path.join(neurons_dir, collab_name)
+    if not os.path.exists(collab_path):
+        logger.info("[assemble_cortex] 协作层权重未找到: %s（跳过）", collab_path)
+        return False
+
+    ckpt = torch.load(collab_path, map_location=device, weights_only=False)
+    if not isinstance(ckpt, dict):
+        logger.warning("[assemble_cortex] 协作层权重格式异常（非 dict），跳过")
+        return False
+
+    n_side = 0
+    # 1. side_channels：先确保通道存在（ensemble 创建时不自动建 per-pair 通道），再加载权重
+    side_state = ckpt.get("side_channels", None)
+    if side_state is not None:
+        for nid, neuron in cortex.neurons.items():
+            if nid not in side_state:
+                continue
+            for ch_type, peers in side_state[nid].items():
+                if ch_type not in ("excite", "inhibit"):
+                    continue
+                channels = neuron.excite_channels if ch_type == "excite" else neuron.inhibit_channels
+                for pid, ch_state in peers.items():
+                    if pid not in cortex.neurons:
+                        continue
+                    if pid not in channels:
+                        neuron.establish_side_channel(
+                            pid, cortex.neurons[pid], channel_type=ch_type,
+                        )
+                    channels[pid].load_state_dict(ch_state)
+                    n_side += 1
+        # 完全无匹配 → 权重 ID 与当前装配集合不一致（如旧版 base 权重 vs 新版 dialogue 集合）
+        if n_side == 0:
+            ckpt_ids = set(side_state.keys())
+            current_ids = set(cortex.neurons.keys())
+            logger.warning(
+                "[assemble_cortex] 协作层权重 ID 与当前装配集合不匹配: "
+                "ckpt=%s, current=%s（可能是旧版权重，等待新训练产物覆盖）",
+                sorted(ckpt_ids)[:5], sorted(current_ids)[:5],
+            )
+
+    # 2. 跨规格投影层（forward/backward）
+    n_proj = 0
+    cross_spec = ckpt.get("cross_spec", None)
+    if cross_spec is not None:
+        for nid, sd in (cross_spec.get("forward") or {}).items():
+            if nid in cortex.ensemble._cross_spec_projectors:
+                cortex.ensemble._cross_spec_projectors[nid].load_state_dict(sd)
+                n_proj += 1
+        for nid, sd in (cross_spec.get("backward") or {}).items():
+            if nid in cortex.ensemble._cross_spec_back_projectors:
+                cortex.ensemble._cross_spec_back_projectors[nid].load_state_dict(sd)
+                n_proj += 1
+
+    logger.info(
+        "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d)",
+        collab_path, n_side, n_proj,
+    )
+    return True

@@ -53,6 +53,7 @@ class Cortex:
         max_rounds: int = 3,
         shared_embedding: Optional[torch.nn.Embedding] = None,
         general_tokenizer = None,
+        neuron_ids: Optional[List[str]] = None,
     ):
         self.device = device
         self.neurons_dir = neurons_dir
@@ -60,29 +61,21 @@ class Cortex:
         self.is_loaded = False
 
         # ── Load neurons ──
+        # neuron_ids 指定装配集合（如对话综合体 ENSEMBLE_DIALOGUE_IDS）；
+        # None = 扫描全部 neuron_*.pt（向后兼容）
         self.neurons: Dict[str, ResonanceNeuron] = {}
-        self._load_neurons()
+        self._load_neurons(neuron_ids=neuron_ids)
 
         # ── Create field and ensemble ──
         if self.neurons:
-            # 突触投影：检查 effective_field_dim（unified_field_dim or field_dim）
-            # 不同规格神经元可通过 field_projector 投影到统一场空间
+            # 混合规格协作：不同 field_dim 通过 ensemble 的跨规格投影层统一
+            # （embed_adapter 已处理 hidden_size 差异，无需校验 hidden_size）
+            # field_dim 取最大值，ensemble 自动为其他规格创建正/反向投影层
             effective_dims = {
                 n.config.unified_field_dim if n.config.unified_field_dim is not None else n.config.field_dim
                 for n in self.neurons.values()
             }
-            if len(effective_dims) > 1:
-                raise ValueError(
-                    f"[Cortex] neurons disagree on effective_field_dim: {effective_dims}. "
-                    f"Set unified_field_dim to a common value (e.g. 4096) to enable cross-spec mixing via Field Projector."
-                )
-            hidden_sizes = {n.config.hidden_size for n in self.neurons.values()}
-            if len(hidden_sizes) > 1:
-                raise ValueError(
-                    f"[Cortex] neurons disagree on hidden_size: {hidden_sizes}. "
-                    f"All neurons must share the same hidden_size."
-                )
-            field_dim = effective_dims.pop()
+            field_dim = max(effective_dims)
         else:
             field_dim = 4096
         self.field = ResonanceField(dim=field_dim)
@@ -132,12 +125,18 @@ class Cortex:
         if self._shared_embedding is not None:
             print(f"[Cortex] Shared embedding: {self._shared_embedding.num_embeddings} × {self._shared_embedding.embedding_dim}")
 
-    def _load_neurons(self):
+    def _load_neurons(self, neuron_ids: Optional[List[str]] = None):
         """Load all distilled neurons from disk.
 
         H3 修复：原来硬编码 5 域 ['zh','en','code','math','general']，
         新生 neuron（如 neuron_physics_1.pt）被静默忽略。
         现改为扫描 neurons_dir 下所有 neuron_*.pt 文件动态加载。
+
+        Args:
+            neuron_ids: 只装配指定 ID 集合（如对话综合体）；
+                None = 扫描全部（向后兼容）。
+                注意：跨规格协作时，不同 hidden_size / field_dim 的 neuron
+                通过 embed_adapter + ensemble 跨规格投影层兼容，无需同规格。
         """
         import glob
         # 扫描所有 neuron_*.pt（排除 _fieldcond.pt 等非 neuron 文件）
@@ -149,6 +148,10 @@ class Cortex:
                 continue
             # 从文件名提取 domain：neuron_{domain}.pt → {domain}
             domain = name[len("neuron_"):-len(".pt")]
+
+            # 只装配指定集合（对话综合体场景：排除 base 版避免污染）
+            if neuron_ids is not None and domain not in neuron_ids:
+                continue
 
             # 优先 fieldcond 版本，回退到 base 版本
             fc_path = os.path.join(self.neurons_dir, f"neuron_{domain}_fieldcond.pt")
@@ -532,8 +535,21 @@ class Cortex:
             n += 1
         nid = f"{domain}_{n}"
 
-        # 2. 创建 NeuronConfig（COMPACT 规格，与现有神经元一致）
-        cfg = get_domain_neuron_config(domain)
+        # 2. 创建 NeuronConfig
+        # 断裂 E 修复：接入 SpecSelector，根据错误率自动选择规格
+        # - from_split 分裂模式：继承父 neuron 规格（保持同域同规格分化）
+        # - 新建模式 + lifecycle：neurogenesis.select_spec(domain) 按错误率选 compact/standard/expert
+        # - 新建模式 + 无 lifecycle：默认 compact（向后兼容）
+        if from_split is not None:
+            parent_spec = self.neurons[from_split].config.spec
+            cfg = get_domain_neuron_config(domain, spec=parent_spec)
+            logger.info(f"[Cortex] split 模式: {nid} 继承父 spec={parent_spec}")
+        elif lifecycle is not None and hasattr(lifecycle, "neurogenesis"):
+            selected_spec = lifecycle.neurogenesis.select_spec(domain)
+            cfg = get_domain_neuron_config(domain, spec=selected_spec)
+            logger.info(f"[Cortex] neurogenesis spec 选择: {domain} → {selected_spec}")
+        else:
+            cfg = get_domain_neuron_config(domain)
         cfg.neuron_id = nid
 
         # BioOSS: 按 ~20% 比例生成 inhibitory 神经元（人脑启发：兴奋/抑制分化）
@@ -763,6 +779,7 @@ class Cortex:
                     prompt, max_tokens, temperature, top_k, domain,
                     repetition_penalty, routing_level=routing_level,
                     active_nids=active_nids, collab_mode=collab_mode,
+                    fusion_mode=fusion_mode,
                 )
             # SMCS EPE: 生成多条候选，混合后验评分选最优
             candidates = []
@@ -772,6 +789,7 @@ class Cortex:
                         prompt, max_tokens, temperature, top_k, domain,
                         repetition_penalty, routing_level=routing_level,
                         active_nids=active_nids, collab_mode=collab_mode,
+                        fusion_mode=fusion_mode,
                     )
                     if text:
                         candidates.append(text)
@@ -886,6 +904,15 @@ class Cortex:
         if not neuron_domains:
             return "general"
 
+        # 从 neuron key 提取纯域前缀（支持同域多神经元：zh_aug0_dialogue → zh）
+        def _has_domain(prefix: str) -> bool:
+            return any(k == prefix or k.startswith(prefix + "_") for k in neuron_domains)
+
+        def _first_domain() -> str:
+            """返回第一个 neuron 的纯域前缀（fallback）。"""
+            first_key = next(iter(neuron_domains))
+            return first_key.split("_")[0]
+
         # 1. 代码检测：强信号关键字（1 个即判定）+ 结构特征
         strong_code = [
             'def ', 'class ', 'function ', 'async ',
@@ -900,7 +927,7 @@ class Cortex:
         ]
         code_patterns = ['{', '};', '=>', 'self.', 'std::',
                          'def __init__', 'class ']
-        if 'code' in neuron_domains:
+        if _has_domain('code'):
             strong_score = sum(1 for kw in strong_code if kw in text)
             weak_score = sum(1 for kw in code_keywords if kw in text)
             pattern_score = sum(1 for p in code_patterns if p in text)
@@ -920,7 +947,7 @@ class Cortex:
                 return 'code'
 
         # 2. 数学检测：多路信号融合（符号 + 关键词 + 公式特征 + 上下标）
-        if 'math' in neuron_domains:
+        if _has_domain('math'):
             # 2a. 数学符号（Unicode 数学字符 + 基础运算符）
             math_symbols = set('=+-*/^∑∫∏√∞∂∇∈⊂∪∩∀∃≤≥≠≈±→←↑↓⇒⇐')
             math_sym_count = sum(1 for c in text if c in math_symbols)
@@ -964,14 +991,14 @@ class Cortex:
         # 3. 中文检测（CJK 统一汉字区块）
         cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
         if cjk_count > len(text.replace(' ', '')) * 0.3:
-            return 'zh' if 'zh' in neuron_domains else next(iter(neuron_domains))
+            return 'zh' if _has_domain('zh') else _first_domain()
 
         # 4. 默认：en 或 general
-        if 'en' in neuron_domains:
+        if _has_domain('en'):
             return 'en'
-        if 'general' in neuron_domains:
+        if _has_domain('general'):
             return 'general'
-        return next(iter(neuron_domains))
+        return _first_domain()
 
     @torch.no_grad()
     def _fingerprint_route(
@@ -1106,6 +1133,7 @@ class Cortex:
         routing_level: int = 1,
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
+        fusion_mode: str = "per_position",
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1212,10 +1240,20 @@ class Cortex:
                 # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
                 active_nids = self._fingerprint_route(general_ids, top_k=2)
             else:
-                # Level 1 域路由：仅激活 domain neuron + general neuron
-                active_nids = [domain]
-                if "general" in self.neurons and domain != "general":
-                    active_nids.append("general")
+                # Level 1 域路由：激活 domain 前缀的全部神经元（同域多神经元协作）
+                # 如 domain="zh" → 激活 zh_aug0_dialogue / zh_std0_dialogue 等
+                domain_neurons = [
+                    k for k in self.neurons
+                    if k == domain or k.startswith(domain + "_")
+                ]
+                active_nids = domain_neurons
+                # general 神经元 always-active（基础语言能力）
+                general_neurons = [
+                    k for k in self.neurons
+                    if (k == "general" or k.startswith("general_"))
+                ]
+                if general_neurons and domain not in general_neurons:
+                    active_nids.extend(general_neurons)
 
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
