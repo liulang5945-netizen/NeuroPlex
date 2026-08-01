@@ -373,6 +373,56 @@ class NeurogenesisTrigger:
 
         return False
 
+    # ── SpecSelector：规格选择器（2026-08-01 落地）──
+    # 触发 neurogenesis 后，根据任务难度选择新建神经元的规格
+    # 生物学对应：海马新生神经元虽大小相似，但会根据环境信号分化为不同亚型
+    #
+    # 判别信号：
+    #   斜率 → 决定"是否需要新神经元"（数据不足 vs 容量不足）
+    #   错误率绝对值 → 决定"需要多大的神经元"（任务难度）
+    #
+    # 阈值设计（可调）：
+    #   错误率 < 0.3  → 简单任务 → compact（36M，成本低）
+    #   0.3 ≤ 错误率 < 0.6 → 中等任务 → standard（116M，中等容量）
+    #   错误率 ≥ 0.6 → 复杂任务 → expert（285M，最大容量）
+    simple_task_threshold: float = 0.3   # < 此值 → compact
+    complex_task_threshold: float = 0.6  # ≥ 此值 → expert
+    # 中间区间 → standard
+
+    def select_spec(self, domain: str) -> str:
+        """根据 domain 当前错误率水平选择新神经元的规格。
+
+        必须在 record_domain_error 之后调用，基于该 domain 的历史错误率判定。
+        如果该 domain 错误率低（healthy）或历史不足，不应当调用此方法
+        （调用方应先用 diagnose_domain 确认 capacity_limited）。
+
+        Returns:
+            "compact" / "standard" / "expert"
+        """
+        history = self._domain_error_history.get(domain, [])
+        if not history:
+            # 无历史数据，保守用 compact（最小成本试错）
+            logger.info(
+                "spec 选择: domain %s 无历史数据，默认 compact（最小成本试错）",
+                domain,
+            )
+            return "compact"
+
+        latest_error = history[-1]
+        if latest_error < self.simple_task_threshold:
+            spec = "compact"
+            reason = f"错误率 {latest_error:.3f} < {self.simple_task_threshold}（简单任务）"
+        elif latest_error < self.complex_task_threshold:
+            spec = "standard"
+            reason = (f"错误率 {latest_error:.3f} ∈ "
+                      f"[{self.simple_task_threshold}, {self.complex_task_threshold})（中等任务）")
+        else:
+            spec = "expert"
+            reason = f"错误率 {latest_error:.3f} ≥ {self.complex_task_threshold}（复杂任务）"
+
+        logger.info("spec 选择: domain %s → %s，原因: %s", domain, spec, reason)
+        return spec
+
     def detect_isolated_patterns(
         self,
         coactivation_tracker: Any,
