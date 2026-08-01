@@ -76,10 +76,12 @@ class TeeLogger:
 
 
 def save_checkpoint(path, epoch, total_steps, optimizer, neurons, ensemble,
-                    loss_history, adamw_optimizer=None, scheduler=None):
-    """保存训练 checkpoint，含 side_channels + 跨规格投影层。"""
+                    loss_history, adamw_optimizer=None, scheduler=None,
+                    body_optimizer=None, body_scheduler=None, shared_embeddings=None):
+    """保存训练 checkpoint，含 side_channels + 跨规格投影层 + (S8) body + emb。"""
     side_state = {}
     scale_bias_state = {}
+    body_state = {}  # S8: unfrozen neuron body params
     for nid, neuron in neurons.items():
         side_state[nid] = {
             "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
@@ -93,6 +95,18 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, ensemble,
             if "bias_" in name:
                 sb[name] = buf.clone()
         scale_bias_state[nid] = sb
+        # S8: 保存 body 参数（非 side_channels，非 scale，requires_grad=True）
+        bp = {}
+        for name, p in neuron.named_parameters():
+            if not p.requires_grad:
+                continue
+            if any(name.startswith(prefix) for prefix in ["excite_", "inhibit_"]):
+                continue
+            if "scale_" in name or "bias_" in name:
+                continue
+            bp[name] = p.data.clone()
+        if bp:
+            body_state[nid] = bp
 
     # 保存跨规格投影层
     cross_spec_state = {
@@ -110,18 +124,34 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, ensemble,
         "loss_history": loss_history,
         "saved_at": datetime.now().isoformat(),
     }
+    if body_state:
+        ckpt["body_state"] = body_state
     if adamw_optimizer is not None:
         ckpt["adamw_optimizer_state"] = adamw_optimizer.state_dict()
     if scheduler is not None:
         ckpt["scheduler_state"] = scheduler.state_dict()
+    if body_optimizer is not None:
+        ckpt["body_optimizer_state"] = body_optimizer.state_dict()
+    if body_scheduler is not None:
+        ckpt["body_scheduler_state"] = body_scheduler.state_dict()
+    # S8: 保存 shared_embedding（如果训练）
+    if shared_embeddings is not None:
+        emb_state = {}
+        for nid, emb in shared_embeddings.items():
+            if any(p.requires_grad for p in emb.parameters()):
+                emb_state[nid] = {k: v.detach().clone() for k, v in emb.state_dict().items()}
+        if emb_state:
+            ckpt["shared_embedding_state"] = emb_state
     torch.save(ckpt, path)
 
 
-def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, scheduler=None):
-    """加载 checkpoint。"""
+def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, scheduler=None,
+                    body_optimizer=None, body_scheduler=None, shared_embeddings=None):
+    """加载 checkpoint，恢复 side_channels + 跨规格投影层 + (S8) body + emb。"""
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
     side_state = ckpt["side_channels_state"]
     scale_bias_state = ckpt.get("scale_bias_state", {})
+    body_state = ckpt.get("body_state", {})  # S8: 可能不存在（旧 ckpt）
     for nid, neuron in neurons.items():
         if nid not in side_state:
             continue
@@ -139,6 +169,11 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
             for name, buf in neuron.named_buffers():
                 if name in sb and "bias_" in name:
                     buf.copy_(sb[name])
+        # S8: 恢复 body 参数
+        if nid in body_state:
+            for name, p in neuron.named_parameters():
+                if name in body_state[nid]:
+                    p.data.copy_(body_state[nid][name])
 
     # 恢复跨规格投影层
     cross_spec_state = ckpt.get("cross_spec_state", {})
@@ -154,6 +189,16 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
         adamw_optimizer.load_state_dict(ckpt["adamw_optimizer_state"])
     if scheduler is not None and "scheduler_state" in ckpt:
         scheduler.load_state_dict(ckpt["scheduler_state"])
+    if body_optimizer is not None and "body_optimizer_state" in ckpt:
+        body_optimizer.load_state_dict(ckpt["body_optimizer_state"])
+    if body_scheduler is not None and "body_scheduler_state" in ckpt:
+        body_scheduler.load_state_dict(ckpt["body_scheduler_state"])
+    # S8: 恢复 shared_embedding
+    if shared_embeddings is not None and "shared_embedding_state" in ckpt:
+        emb_state = ckpt["shared_embedding_state"]
+        for nid, emb in shared_embeddings.items():
+            if nid in emb_state:
+                emb.load_state_dict(emb_state[nid])
     return ckpt["epoch"], ckpt["total_steps"], ckpt.get("loss_history", [])
 
 
@@ -197,6 +242,48 @@ def load_dialogue_texts(jsonl_path: str, max_texts: int = 10000) -> list:
     return texts
 
 
+def build_final_artifact(neurons, ensemble, shared_embeddings) -> dict:
+    """S8: 构建最终交付产物，含 side_channels + cross_spec + body + emb。
+
+    下游 eval 脚本加载此产物后，应用全部微调结果（不再丢失 body/emb）。
+    """
+    side_state = {}
+    body_state = {}
+    for nid, neuron in neurons.items():
+        side_state[nid] = {
+            "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
+            "inhibit": {pid: ch.state_dict() for pid, ch in neuron.inhibit_channels.items()},
+        }
+        # S8: 保存 body 参数（非 side_channels，非 scale，requires_grad=True）
+        bp = {}
+        for name, p in neuron.named_parameters():
+            if not p.requires_grad:
+                continue
+            if any(name.startswith(prefix) for prefix in ["excite_", "inhibit_"]):
+                continue
+            if "scale_" in name or "bias_" in name:
+                continue
+            bp[name] = p.data.clone()
+        if bp:
+            body_state[nid] = bp
+    cross_spec_state = {
+        "forward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_projectors.items()},
+        "backward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_back_projectors.items()},
+    }
+    artifact = {"side_channels": side_state, "cross_spec": cross_spec_state}
+    if body_state:
+        artifact["body_state"] = body_state
+    # S8: 保存 shared_embedding（如果训练）
+    if shared_embeddings is not None:
+        emb_state = {}
+        for nid, emb in shared_embeddings.items():
+            if any(p.requires_grad for p in emb.parameters()):
+                emb_state[nid] = {k: v.detach().clone() for k, v in emb.state_dict().items()}
+        if emb_state:
+            artifact["shared_embedding_state"] = emb_state
+    return artifact
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true")
@@ -213,6 +300,12 @@ def main():
                         help="S7: side_channels 拓扑模式 (default: hybrid)")
     parser.add_argument("--topology_k", type=int, default=3,
                         help="k-NN 拓扑的 k 值 (仅 knn 模式)")
+    parser.add_argument("--unfreeze_layers", type=int, default=2,
+                        help="S8: 解冻最后 N 层 transformer + norm + lm_head + field_write (0=全冻结)")
+    parser.add_argument("--train_embedding", action="store_true",
+                        help="S8: 训练 shared_embedding（默认冻结）")
+    parser.add_argument("--body_lr_ratio", type=float, default=0.1,
+                        help="S8: body 参数学习率比例 (相对 args.lr)")
     args = parser.parse_args()
 
     global DEVICE
@@ -253,26 +346,51 @@ def main():
     for nid, n_ch in stats.items():
         print(f"  [{nid}] {n_ch} excite channels", flush=True)
 
-    # 3. 冻结核心参数，仅 side_channels + scale 可训练
-    print("\n[3] 冻结核心参数...", flush=True)
+    # 3. 冻结核心参数，仅 side_channels + scale + (S8: 最后N层) 可训练
+    print(f"\n[3] 冻结核心参数 (unfreeze_layers={args.unfreeze_layers})...", flush=True)
     for nid, neuron in neurons.items():
         for p in neuron.parameters():
             p.requires_grad = False
+        # side_channels 可训练
         for ch in neuron.excite_channels.values():
             for p in ch.parameters():
                 p.requires_grad = True
         for ch in neuron.inhibit_channels.values():
             for p in ch.parameters():
                 p.requires_grad = True
+        # scale 参数可训练
         for name, p in neuron.named_parameters():
             if "scale_" in name:
                 p.requires_grad = True
+        # S8: 解冻最后 N 层 transformer + norm + lm_head + field_write
+        if args.unfreeze_layers > 0:
+            n_layers = len(neuron.layers)
+            unfreeze_from = max(0, n_layers - args.unfreeze_layers)
+            for i in range(unfreeze_from, n_layers):
+                for p in neuron.layers[i].parameters():
+                    p.requires_grad = True
+            # final norm
+            for p in neuron.norm.parameters():
+                p.requires_grad = True
+            # lm_head（如果存在）
+            if hasattr(neuron, 'lm_head') and neuron.lm_head is not None:
+                for p in neuron.lm_head.parameters():
+                    p.requires_grad = True
+            # field_write（让场写入适配协作动态）
+            for p in neuron.field_write.parameters():
+                p.requires_grad = True
         neuron.train()
 
+    # S8: shared_embedding 可选训练
     for emb in shared_embeddings.values():
-        for p in emb.parameters():
-            p.requires_grad = False
-        emb.eval()
+        if args.train_embedding:
+            for p in emb.parameters():
+                p.requires_grad = True
+            emb.train()
+        else:
+            for p in emb.parameters():
+                p.requires_grad = False
+            emb.eval()
 
     # 4. 创建 ensemble（用最大 field_dim，自动创建跨规格投影层）
     max_field_dim = max(n.config.field_dim for n in neurons.values())
@@ -292,9 +410,18 @@ def main():
 
     # 统计可训练参数
     trainable_side = 0
+    trainable_body = 0
+    trainable_emb = 0
     for nid, neuron in neurons.items():
-        for ch in neuron.excite_channels.values():
-            trainable_side += sum(p.numel() for p in ch.parameters() if p.requires_grad)
+        for name, p in neuron.named_parameters():
+            if not p.requires_grad:
+                continue
+            if any(name.startswith(prefix) for prefix in ["excite_", "inhibit_"]) or "scale_" in name:
+                trainable_side += p.numel()
+            else:
+                trainable_body += p.numel()
+    for emb in shared_embeddings.values():
+        trainable_emb += sum(p.numel() for p in emb.parameters() if p.requires_grad)
     trainable_proj = sum(
         sum(p.numel() for p in proj.parameters() if p.requires_grad)
         for proj in ensemble._cross_spec_projectors.values()
@@ -302,7 +429,8 @@ def main():
         sum(p.numel() for p in proj.parameters() if p.requires_grad)
         for proj in ensemble._cross_spec_back_projectors.values()
     )
-    print(f"  可训练参数: side_channels={trainable_side:,}, 跨规格投影={trainable_proj:,}", flush=True)
+    print(f"  可训练: side_channels={trainable_side:,}, 跨规格投影={trainable_proj:,}, "
+          f"body={trainable_body:,}, emb={trainable_emb:,}", flush=True)
 
     # 5. 加载训练数据（S5: 多文件合并扩充）
     print("\n[4] 加载训练数据...", flush=True)
@@ -321,8 +449,10 @@ def main():
 
     # 6. 训练循环
     print("\n[5] 开始训练...", flush=True)
-    muon_params = []
-    adamw_params = []
+    # S8: 参数分离 — side_channels+投影层走 Muon/AdamW，body+emb 走低 lr AdamW
+    muon_params = []   # 2D weight (side_channels + 跨规格投影层)
+    adamw_params = []  # 1D bias/norm + 0D scale (side_channels only)
+    body_params = []   # S8: unfrozen neuron body params
     for nid, neuron in neurons.items():
         for ch in neuron.excite_channels.values():
             for p in ch.parameters():
@@ -340,11 +470,21 @@ def main():
                     muon_params.append(p)
                 else:
                     adamw_params.append(p)
+        # scale 参数（0D scalar，可学习）
         for name, p in neuron.named_parameters():
             if not p.requires_grad:
                 continue
             if "scale_" in name and p.ndim == 0:
                 adamw_params.append(p)
+        # S8: body 参数（非 side_channels，非 scale）
+        for name, p in neuron.named_parameters():
+            if not p.requires_grad:
+                continue
+            if any(name.startswith(prefix) for prefix in ["excite_", "inhibit_"]):
+                continue
+            if "scale_" in name or "bias_" in name:
+                continue
+            body_params.append(p)
 
     # 跨规格投影层（2D weight → Muon）
     for proj in ensemble._cross_spec_projectors.values():
@@ -356,6 +496,12 @@ def main():
             if p.requires_grad and p.ndim == 2:
                 muon_params.append(p)
 
+    # S8: shared_embedding 参数（如果训练）
+    emb_params = []
+    if args.train_embedding:
+        for emb in shared_embeddings.values():
+            emb_params.extend([p for p in emb.parameters() if p.requires_grad])
+
     # Muon + AdamW 混合优化器（配置抽取到 utils.build_muon_adamw_optimizers）
     muon_lr = args.lr
     optimizer, adamw_optimizer = build_muon_adamw_optimizers(
@@ -364,6 +510,17 @@ def main():
     print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
     if adamw_optimizer is not None:
         print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/scale, lr={muon_lr})", flush=True)
+    else:
+        print(f"  AdamW 参数: 0 (无 1D 参数)", flush=True)
+
+    # S8: body + emb 优化器（低 lr 温柔微调，避免破坏预训练表示）
+    body_optimizer = None
+    body_scheduler = None
+    all_body_params = body_params + emb_params
+    if all_body_params:
+        body_lr = args.lr * args.body_lr_ratio
+        body_optimizer = torch.optim.AdamW(all_body_params, lr=body_lr, weight_decay=0.1)
+        print(f"  Body+Emb 参数: {sum(p.numel() for p in all_body_params):,} (lr={body_lr}, ratio={args.body_lr_ratio})", flush=True)
 
     NUM_EPOCHS = args.epochs
     BATCH_SIZE = args.batch_size
@@ -374,6 +531,12 @@ def main():
         optimizer, num_steps=total_est_steps,
         warmup_steps=warmup_steps, decay_ratio=decay_ratio,
     )
+    # S8: body scheduler（与主调度同步）
+    if body_optimizer is not None:
+        body_scheduler = make_wsd_scheduler(
+            body_optimizer, num_steps=total_est_steps,
+            warmup_steps=warmup_steps, decay_ratio=decay_ratio,
+        )
     decay_start = max(warmup_steps + 1, int(total_est_steps * decay_ratio))
     print(f"  LR 调度: warmup={warmup_steps}步, decay 从 {decay_start}/{total_est_steps} 步开始", flush=True)
 
@@ -389,6 +552,7 @@ def main():
         print(f"\n[resume] 加载 checkpoint: {CKPT_PATH}", flush=True)
         start_epoch, total_steps, loss_history = load_checkpoint(
             CKPT_PATH, optimizer, neurons, ensemble, adamw_optimizer, scheduler,
+            body_optimizer, body_scheduler, shared_embeddings,
         )
         print(f"  已恢复: epoch={start_epoch}, total_steps={total_steps}, "
               f"loss_history={len(loss_history)} 条", flush=True)
@@ -427,6 +591,9 @@ def main():
             optimizer.zero_grad()
             if adamw_optimizer is not None:
                 adamw_optimizer.zero_grad()
+            # S8: body_optimizer 也要 zero_grad（否则 body 参数梯度会无限累积）
+            if body_optimizer is not None:
+                body_optimizer.zero_grad()
 
             # S1: 改用 forward_train（全可微多轮共振路径）
             # 让 side_channels + 跨规格投影层 + field_state + 调质在训练中真正生效
@@ -467,7 +634,12 @@ def main():
             optimizer.step()
             if adamw_optimizer is not None:
                 adamw_optimizer.step()
+            # S8: body 参数低 lr 微调（之前漏调 step，body 永不更新且梯度无限累积）
+            if body_optimizer is not None:
+                body_optimizer.step()
             scheduler.step()
+            if body_scheduler is not None:
+                body_scheduler.step()
 
             epoch_loss += ce_loss.item() * n_tokens
             epoch_tokens += n_tokens
@@ -498,7 +670,8 @@ def main():
 
             if total_steps % 500 == 0:
                 save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons,
-                                ensemble, loss_history, adamw_optimizer, scheduler)
+                                ensemble, loss_history, adamw_optimizer, scheduler,
+                                body_optimizer, body_scheduler, shared_embeddings)
                 print(f"  [中途 checkpoint] step {total_steps} 已保存", flush=True)
 
         avg_epoch_loss = epoch_loss / max(epoch_tokens, 1)
@@ -508,21 +681,12 @@ def main():
               f"耗时 {epoch_elapsed/60:.1f} min", flush=True)
 
         save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons,
-                        ensemble, loss_history, adamw_optimizer, scheduler)
+                        ensemble, loss_history, adamw_optimizer, scheduler,
+                        body_optimizer, body_scheduler, shared_embeddings)
         print(f"  [checkpoint 已保存] {CKPT_PATH}", flush=True)
 
-        # 保存最终产物
-        side_state = {}
-        for nid, neuron in neurons.items():
-            side_state[nid] = {
-                "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
-                "inhibit": {pid: ch.state_dict() for pid, ch in neuron.inhibit_channels.items()},
-            }
-        cross_spec_state = {
-            "forward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_projectors.items()},
-            "backward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_back_projectors.items()},
-        }
-        torch.save({"side_channels": side_state, "cross_spec": cross_spec_state}, FINAL_PATH)
+        # 保存最终产物（含 S8 body + emb，下游 eval 直接加载）
+        torch.save(build_final_artifact(neurons, ensemble, shared_embeddings), FINAL_PATH)
         print(f"  [final 已保存] {FINAL_PATH}", flush=True)
 
         recent = loss_history[-5:]
@@ -534,17 +698,7 @@ def main():
                   f"(Δ={delta:+.1f}, {'下降' if delta < 0 else '上升/停滞'})", flush=True)
 
     print("\n[6] 训练完成，最终保存...", flush=True)
-    side_state = {}
-    for nid, neuron in neurons.items():
-        side_state[nid] = {
-            "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
-            "inhibit": {pid: ch.state_dict() for pid, ch in neuron.inhibit_channels.items()},
-        }
-    cross_spec_state = {
-        "forward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_projectors.items()},
-        "backward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_back_projectors.items()},
-    }
-    torch.save({"side_channels": side_state, "cross_spec": cross_spec_state}, FINAL_PATH)
+    torch.save(build_final_artifact(neurons, ensemble, shared_embeddings), FINAL_PATH)
     print(f"  已保存: {FINAL_PATH}", flush=True)
 
     history_path = os.path.join(LOG_DIR, "finetune_cross_spec_history.json")

@@ -109,16 +109,23 @@ def load_aug_neurons(include_shared_expert=False, include_std=False, topology_mo
     finetuned_path = os.path.join(OUTPUT_DIR, "side_channels_finetuned.pt")
 
     loaded_side_state = None
+    loaded_ckpt_data = None  # S8: 保留完整 ckpt 用于加载 body/emb
     if os.path.exists(cross_spec_path):
         ckpt_data = torch.load(cross_spec_path, map_location=DEVICE, weights_only=False)
         if isinstance(ckpt_data, dict) and "side_channels" in ckpt_data:
             loaded_side_state = ckpt_data["side_channels"]
+            loaded_ckpt_data = ckpt_data
             print(f"  [side_channels] 已加载跨规格微调权重: {cross_spec_path}", flush=True)
         else:
             loaded_side_state = ckpt_data
             print(f"  [side_channels] 已加载微调权重: {cross_spec_path}", flush=True)
     elif os.path.exists(finetuned_path):
-        loaded_side_state = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
+        ckpt_data = torch.load(finetuned_path, map_location=DEVICE, weights_only=False)
+        if isinstance(ckpt_data, dict) and "side_channels" in ckpt_data:
+            loaded_side_state = ckpt_data["side_channels"]
+            loaded_ckpt_data = ckpt_data
+        else:
+            loaded_side_state = ckpt_data
         print(f"  [side_channels] 已加载微调权重: {finetuned_path}", flush=True)
     else:
         print(f"  [side_channels] 未找到微调权重，使用随机初始化", flush=True)
@@ -144,6 +151,23 @@ def load_aug_neurons(include_shared_expert=False, include_std=False, topology_mo
                 for pid, ch_state in loaded_side_state[nid].get("excite", {}).items():
                     if pid in neuron.excite_channels:
                         neuron.excite_channels[pid].load_state_dict(ch_state)
+
+    # S8: 加载 body + shared_embedding（如果 ckpt 中存在）
+    if loaded_ckpt_data is not None:
+        body_state = loaded_ckpt_data.get("body_state", {})
+        if body_state:
+            for nid, neuron in neurons.items():
+                if nid in body_state:
+                    for name, p in neuron.named_parameters():
+                        if name in body_state[nid]:
+                            p.data.copy_(body_state[nid][name])
+            print(f"  [body] 已加载 S8 body 微调结果", flush=True)
+        emb_state = loaded_ckpt_data.get("shared_embedding_state", {})
+        if emb_state:
+            for nid, emb in shared_embeddings.items():
+                if nid in emb_state:
+                    emb.load_state_dict(emb_state[nid])
+            print(f"  [shared_embedding] 已加载 S8 emb 微调结果", flush=True)
 
     return neurons, shared_embeddings, cfg
 

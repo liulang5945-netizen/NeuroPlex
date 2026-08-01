@@ -100,6 +100,24 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
                     if pid in neuron.excite_channels:
                         neuron.excite_channels[pid].load_state_dict(ch_state)
         print(f"  [side_channels] 已加载: {weights_path}", flush=True)
+
+        # S8: 加载 body 参数（最后N层微调结果，缺失则跳过=旧 ckpt 兼容）
+        body_state = ckpt_data.get("body_state", {})
+        if body_state:
+            for nid, neuron in neurons.items():
+                if nid in body_state:
+                    for name, p in neuron.named_parameters():
+                        if name in body_state[nid]:
+                            p.data.copy_(body_state[nid][name])
+            print(f"  [body] 已加载 S8 body 微调结果: {weights_path}", flush=True)
+
+        # S8: 加载 shared_embedding（如果训练过）
+        emb_state = ckpt_data.get("shared_embedding_state", {})
+        if emb_state:
+            for nid, emb in shared_embeddings.items():
+                if nid in emb_state:
+                    emb.load_state_dict(emb_state[nid])
+            print(f"  [shared_embedding] 已加载 S8 emb 微调结果: {weights_path}", flush=True)
     else:
         print(f"  [side_channels] 未找到权重 ({weights_type})，使用随机初始化", flush=True)
 

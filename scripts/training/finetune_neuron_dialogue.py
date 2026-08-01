@@ -158,8 +158,10 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--grad_accum", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--train_embedding", action="store_true",
-                        help="训练 shared_embedding（默认冻结，防止 token 映射被破坏）")
+    parser.add_argument("--train_embedding", action="store_true", default=True,
+                        help="S8: 训练 shared_embedding（默认 True，适配对话格式 token）")
+    parser.add_argument("--freeze_embedding", action="store_true",
+                        help="S8: 冻结 shared_embedding（恢复旧行为，不推荐）")
     parser.add_argument("--eval_every", type=int, default=1000)
     parser.add_argument("--log_every", type=int, default=200)
     parser.add_argument("--warmup_steps", type=int, default=100)
@@ -214,8 +216,10 @@ def main():
     sampler = SequentialSampler(train_texts, args.batch_size, seed=42)
 
     # 6. 优化器 + 调度器
-    # fine-tune: 默认冻结 shared_embedding 防止 token 映射被破坏
-    if not args.train_embedding:
+    # S8: shared_embedding 默认可训练（适配对话格式 token 分布）
+    # --freeze_embedding 恢复旧行为（不推荐，emb 不适配对话 token 会导致 PPL 虚高）
+    train_embedding = args.train_embedding and not args.freeze_embedding
+    if not train_embedding:
         for p in shared_emb.parameters():
             p.requires_grad = False
         optimizer = torch.optim.AdamW(neuron.parameters(), lr=args.lr, weight_decay=0.1)
@@ -223,7 +227,7 @@ def main():
     else:
         all_params = list(neuron.parameters()) + list(shared_emb.parameters())
         optimizer = torch.optim.AdamW(all_params, lr=args.lr, weight_decay=0.1)
-        print(f"  shared_embedding: TRAINABLE", flush=True)
+        print(f"  shared_embedding: TRAINABLE（S8 默认，适配对话 token 分布）", flush=True)
 
     # WSD 调度（公式抽取到 utils.make_wsd_scheduler）
     scheduler = make_wsd_scheduler(

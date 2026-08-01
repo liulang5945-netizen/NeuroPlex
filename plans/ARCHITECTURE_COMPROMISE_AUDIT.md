@@ -160,16 +160,32 @@
   - [analyze_side_channels.py](file:///e:/taiji-neuron/scripts/training/analyze_side_channels.py)：同上
 - **向后兼容**：评估脚本自动从 checkpoint 推断拓扑，旧 checkpoint（全连接）自动匹配全连接拓扑
 
-### S8. 冻结策略过保守 ★★
+### S8. 冻结策略过保守 ★★ ✅ 已修复
 
-| 阶段 | 冻结 | 可训练 | 问题 |
-|------|------|--------|------|
-| base | - | neuron + (可选)emb | emb 默认 frozen（首训误用会卡随机） |
-| dialogue finetune | shared_emb | neuron | emb 不适配对话格式 token |
-| side_channels | neuron + emb | side_channels + scale | 核心表示锁死 |
-| cross_spec | neuron + emb | side_channels + scale + proj | 同上 |
+| 阶段 | 修复前 | 修复后 |
+|------|--------|---------|
+| dialogue finetune | shared_emb frozen | **shared_emb 默认 trainable（--freeze_embedding 恢复旧行为）** |
+| side_channels | neuron + emb 全冻结 | **解冻最后 N 层 transformer + norm + lm_head + field_write（默认 N=2）+ 可选 emb** |
+| cross_spec | neuron + emb 全冻结 | **同 side_channels：解冻最后 N 层 + 可选 emb** |
+| 优化器 | 单一 Muon+AdamW（side_channels only） | **body + emb 走独立 AdamW，lr = args.lr × body_lr_ratio（默认 0.1，温柔微调）** |
+| checkpoint | 仅 side_channels + scale | **+ body_state + shared_embedding_state + body_optimizer_state + body_scheduler_state** |
+| 交付产物 | 仅 side_channels + cross_spec | **+ body_state + shared_embedding_state（eval 脚本自动加载）** |
 
-**从未联合训练过 neuron + side_channels + embedding**，三阶段割裂导致表示空间无法协同适配。
+**核心问题**：从未联合训练过 neuron + side_channels + embedding，三阶段割裂导致表示空间无法协同适配。
+
+**修复详情**（2026-08-01）：
+- [finetune_neuron_dialogue.py](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py)：`--train_embedding` 默认 True，`--freeze_embedding` 恢复旧行为；shared_emb 默认参与训练以适配对话 token 分布
+- [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：
+  - 新增 `--unfreeze_layers`(默认2) / `--train_embedding` / `--body_lr_ratio`(默认0.1) 参数
+  - 解冻最后 N 层 transformer + norm + lm_head + field_write，让核心表示适配协作动态
+  - 优化器分离：side_channels 走 Muon+AdamW，body+emb 走独立 AdamW（低 lr 温柔微调）
+  - **修复关键 bug**：body_optimizer 之前创建了但训练循环未调用 zero_grad/step/scheduler.step，body 参数梯度无限累积且永不更新；现已修复
+  - `build_final_artifact()`：交付产物含 side_channels + body + emb
+- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：同 side_channels 的 S8 改造（解冻最后 N 层 + 可选 emb + body 优化器 + checkpoint 扩展 + build_final_artifact）
+- [eval_dialogue.py](file:///e:/taiji-neuron/scripts/training/eval_dialogue.py)：加载 side_channels 后自动应用 body_state + shared_embedding_state（缺失则跳过，兼容旧 ckpt）
+- [eval_aug_joint.py](file:///e:/taiji-neuron/scripts/training/eval_aug_joint.py)：同上，加载 body + emb 微调结果
+- [_smoke_s8_checkpoint.py](file:///e:/taiji-neuron/scripts/training/_smoke_s8_checkpoint.py)：checkpoint round-trip smoke test 全部通过（body/emb/optimizer_state 完整恢复，0 mismatch）
+- **向后兼容**：旧 checkpoint（无 body_state/emb_state）自动跳过加载，不影响现有训练产物
 
 ### S9. 生物学机制是推理期占位，非训练一等公民 ★★
 
