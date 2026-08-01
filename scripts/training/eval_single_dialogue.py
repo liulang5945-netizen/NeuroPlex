@@ -17,7 +17,11 @@ import torch.nn.functional as F
 
 from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
 from scripts.training.utils import load_general_tokenizer, OUTPUT_DIR, create_shared_embedding
-from scripts.training.experiment_config import DEFAULT_DOMAIN
+from scripts.training.experiment_config import (
+    DEFAULT_DOMAIN,
+    SAMPLING_TEMPERATURE, SAMPLING_TOP_K, SAMPLING_REPETITION_PENALTY, SAMPLING_MAX_TOKENS,
+    DIALOGUE_PROMPTS,
+)
 
 DEVICE = "cpu"
 
@@ -46,8 +50,7 @@ def load_neuron(neuron_id: str):
     return neuron, shared_emb, cfg
 
 
-def generate(neuron, shared_emb, domain_sp, general_sp, prompt, max_tokens=100,
-             temperature=0.8, top_k=40, repetition_penalty=1.2):
+def generate(neuron, shared_emb, domain_sp, general_sp, prompt, max_tokens=SAMPLING_MAX_TOKENS, temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K, repetition_penalty=SAMPLING_REPETITION_PENALTY):
     """生成对话回复。
 
     关键修复：neuron 的 lm_head 输出是 domain token ID（不是 general token ID）。
@@ -112,7 +115,11 @@ def generate(neuron, shared_emb, domain_sp, general_sp, prompt, max_tokens=100,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--neuron_id", required=True)
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     print("=" * 70, flush=True)
     print(f"单神经元对话评估: {args.neuron_id}", flush=True)
@@ -123,14 +130,7 @@ def main():
     from scripts.training.utils import load_domain_tokenizer
     domain_sp = load_domain_tokenizer("zh")
 
-    PROMPTS = [
-        "问：你好，请介绍一下自己\n答：",
-        "问：什么是人工智能？\n答：",
-        "问：如何学习编程？\n答：",
-        "问：请解释神经网络的工作原理\n答：",
-        "问：你最喜欢的颜色是什么？\n答：",
-        "问：今天天气怎么样？\n答：",
-    ]
+    PROMPTS = DIALOGUE_PROMPTS
 
     for prompt in PROMPTS:
         print(f"\n  {prompt}", flush=True)

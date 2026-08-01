@@ -36,6 +36,8 @@ from scripts.training.experiment_config import (
     SHARED_EXPERT_ID,
     ZH_STD_NEURON_ID as STD_NEURON_ID,
     DEFAULT_DOMAIN as DOMAIN,
+    SAMPLING_TEMPERATURE, SAMPLING_TOP_K, SAMPLING_REPETITION_PENALTY, SAMPLING_MAX_TOKENS,
+    BASE_PROMPTS,
 )
 
 DEVICE = "cpu"
@@ -311,15 +313,9 @@ def eval_generation(neurons, shared_embeddings, domain_sp, general_sp, cfg,
     # 加载跨规格投影层微调权重（如果存在）
     _load_cross_spec_weights(ensemble)
 
-    PROMPTS = [
-        "你好，请介绍一下自己",
-        "什么是人工智能？",
-        "深度学习在自然语言处理中的应用",
-        "请解释神经网络的工作原理",
-        "在公园里，阳光透过",
-    ]
+    PROMPTS = BASE_PROMPTS
 
-    def generate_individual(prompt, nid, max_tokens=80, temperature=0.8, top_k=40, repetition_penalty=1.2):
+    def generate_individual(prompt, nid, max_tokens=SAMPLING_MAX_TOKENS, temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K, repetition_penalty=SAMPLING_REPETITION_PENALTY):
         neuron = neurons[nid]
         shared_emb = shared_embeddings[nid]
         general_ids = general_sp.EncodeAsIds(prompt)
@@ -463,7 +459,11 @@ def main():
                         help="加载 standard 神经元 zh_std0（混合规格协作）")
     parser.add_argument("--n_eval", type=int, default=100,
                         help="PPL 评估文本数（默认 100）")
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     mode_label = " + Shared Expert" if args.shared_expert else ""
     std_label = " + Standard (zh_std0)" if args.include_std else ""

@@ -47,6 +47,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
+    make_wsd_scheduler, build_muon_adamw_optimizers,
 )
 from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
 
@@ -284,40 +285,31 @@ def main():
             if "scale_" in name and p.ndim == 0:
                 adamw_params.append(p)
 
-    from torch.optim import Muon
+    # Muon + AdamW 混合优化器（配置抽取到 utils.build_muon_adamw_optimizers）
     # Muon 学习率：side_channels 是 12.58M 小参数，lr 不宜过大。
     # 之前 lr=0.01 (args.lr*10) 导致 step 150 后 PPL 反弹震荡，降为 args.lr=1e-3。
     muon_lr = args.lr
-    optimizer = Muon(
-        muon_params, lr=muon_lr, momentum=0.95,
-        nesterov=True, ns_steps=5,
+    optimizer, adamw_optimizer = build_muon_adamw_optimizers(
+        muon_params, adamw_params, lr=muon_lr,
     )
-    # 1D/0D 参数用 AdamW（scale 参数需要 AdamW 优化）
-    adamw_lr = args.lr
-    if len(adamw_params) > 0:
-        adamw_optimizer = torch.optim.AdamW(adamw_params, lr=adamw_lr, weight_decay=0.01)
-        print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
-        print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/scale, lr={adamw_lr})", flush=True)
+    print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
+    if adamw_optimizer is not None:
+        print(f"  AdamW 参数: {sum(p.numel() for p in adamw_params):,} (1D bias/scale, lr={muon_lr})", flush=True)
     else:
-        adamw_optimizer = None
-        print(f"  Muon 参数: {sum(p.numel() for p in muon_params):,} (2D weight, lr={muon_lr})", flush=True)
         print(f"  AdamW 参数: 0 (无 1D 参数)", flush=True)
 
-    # 学习率调度：warmup(100步线性) + cosine decay(最后20%衰减到 lr*0.1)
-    # 修复 Playbook #4(warmup) 和 #5(decay) 合规项
+    # 学习率调度：WSD（warmup + stable + cosine decay）
+    # 修复 Playbook #4(warmup) 和 #5(decay) 合规项，公式抽取到 utils.make_wsd_scheduler
     NUM_EPOCHS = args.epochs
     BATCH_SIZE = args.batch_size
     total_est_steps = NUM_EPOCHS * ((len(texts) - BATCH_SIZE) // BATCH_SIZE)
     warmup_steps = 100
-    decay_start = int(total_est_steps * 0.8)
-    def lr_lambda(step):
-        if step < warmup_steps:
-            return (step + 1) / warmup_steps  # 线性 warmup
-        if step >= decay_start:
-            progress = (step - decay_start) / max(total_est_steps - decay_start, 1)
-            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))  # cosine 到 0.1
-        return 1.0
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    decay_ratio = 0.8
+    scheduler = make_wsd_scheduler(
+        optimizer, num_steps=total_est_steps,
+        warmup_steps=warmup_steps, decay_ratio=decay_ratio,
+    )
+    decay_start = max(warmup_steps + 1, int(total_est_steps * decay_ratio))
     print(f"  LR 调度: warmup={warmup_steps}步, decay 从 {decay_start}/{total_est_steps} 步开始", flush=True)
 
     LOG_EVERY = 50

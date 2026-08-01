@@ -67,6 +67,33 @@ ENSEMBLE_BASE_IDS = ZH_COMPACT_NEURON_IDS + [ZH_STD_NEURON_ID]
 # Shared Expert（如有）
 SHARED_EXPERT_ID = "zh_general"
 
+# ── 采样参数（生成阶段统一配置）──────────────────────────────────────────
+# 散落在 eval_single_dialogue / eval_aug_joint / eval_dialogue / finetune generate_sample
+# 统一默认值，函数签名保留参数可覆盖
+SAMPLING_TEMPERATURE = 0.8
+SAMPLING_TOP_K = 40
+SAMPLING_REPETITION_PENALTY = 1.2
+SAMPLING_MAX_TOKENS = 100  # 折中默认值（原 single=100, aug_joint=80, dialogue=120）
+
+# ── 评估 prompt（按神经元类型分组）──────────────────────────────────────
+# 对话神经元（fine-tune 过对话数据）：用 "问：...答：" 格式匹配训练数据
+DIALOGUE_PROMPTS = [
+    "问：你好，请介绍一下自己\n答：",
+    "问：什么是人工智能？\n答：",
+    "问：如何学习编程？\n答：",
+    "问：请解释神经网络的工作原理\n答：",
+    "问：你最喜欢的颜色是什么？\n答：",
+]
+
+# Base 神经元（仅百科/作文训练，无对话能力）：纯问题/续写
+BASE_PROMPTS = [
+    "你好，请介绍一下自己",
+    "什么是人工智能？",
+    "深度学习在自然语言处理中的应用",
+    "请解释神经网络的工作原理",
+    "在公园里，阳光透过",
+]
+
 
 def get_neuron_path(neuron_id: str) -> str:
     """获取神经元 checkpoint 路径。

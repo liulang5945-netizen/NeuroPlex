@@ -44,7 +44,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR, SequentialSampler,
+    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler,
 )
 from scripts.training.experiment_config import (
     ZH_COMPACT_NEURON_IDS,
@@ -196,17 +196,11 @@ def train_parallel(
         trainable_params = neuron_params + embed_params
         print(f"  shared_embedding: TRAINABLE（第一个神经元训练）", flush=True)
 
-    # WSD 调度
-    decay_start = max(warmup_steps + 1, int(num_steps * 0.85))
-    def _wsd_lr(step):
-        if step < warmup_steps:
-            return (step + 1) / warmup_steps
-        elif step < decay_start:
-            return 1.0
-        else:
-            progress = (step - decay_start) / max(1, num_steps - decay_start)
-            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _wsd_lr)
+    # WSD 调度（公式抽取到 utils.make_wsd_scheduler）
+    scheduler = make_wsd_scheduler(
+        optimizer, num_steps=num_steps,
+        warmup_steps=warmup_steps, decay_ratio=0.85,
+    )
 
     neuron.train()
     if shared_emb_mode == "train":

@@ -36,8 +36,9 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, SequentialSampler, create_shared_embedding,
+    make_wsd_scheduler,
 )
-from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN
+from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K
 
 DEVICE = "cpu"
 
@@ -126,8 +127,8 @@ def generate_sample(neuron, domain_sp, general_sp, shared_emb, prompt="问：你
             emb_input = shared_emb(ids)
             result = neuron.forward(emb_input, return_logits=True)
             logits = result["logits"][:, -1, :].float()
-            # 简单 top-k sampling
-            top_k = min(40, logits.size(-1))
+            # 简单 top-k sampling（SAMPLING_TOP_K 从 experiment_config 导入）
+            top_k = min(SAMPLING_TOP_K, logits.size(-1))
             topk_vals, _ = torch.topk(logits[0], top_k)
             logits[0][logits[0] < topk_vals[-1]] = float('-inf')
             probs = F.softmax(logits, dim=-1)
@@ -220,16 +221,11 @@ def main():
         optimizer = torch.optim.AdamW(all_params, lr=args.lr, weight_decay=0.1)
         print(f"  shared_embedding: TRAINABLE", flush=True)
 
-    # WSD 调度
-    decay_start = max(args.warmup_steps + 1, int(args.steps * 0.85))
-    def lr_lambda(step):
-        if step < args.warmup_steps:
-            return (step + 1) / args.warmup_steps
-        if step >= decay_start:
-            progress = (step - decay_start) / max(1, args.steps - decay_start)
-            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))
-        return 1.0
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    # WSD 调度（公式抽取到 utils.make_wsd_scheduler）
+    scheduler = make_wsd_scheduler(
+        optimizer, num_steps=args.steps,
+        warmup_steps=args.warmup_steps, decay_ratio=0.85,
+    )
 
     # 7. 断点续训
     save_path = os.path.join(OUTPUT_DIR, f"neuron_{args.target_id}.pt")

@@ -38,11 +38,17 @@ class ApoptosisTracker:
     宽限期给它们时间通过 feed+sleep 积累经验后再评估凋亡。
     """
 
+    # 阈值依据：
+    # - ppl_threshold=200：compact 神经元训练良好时 PPL 10-50，>200 说明严重退化
+    #   （对下一个 token 置信度 < 1/200，接近随机猜）
+    # - failure_threshold=3：连续 3 次而非 1 次，避免单次评估抖动误杀
+    # - activation_ratio=0.05：4 神经元均匀激活应 25%，<5%（均值 1/5）视为孤立
+    # - min_rounds_observed=20：至少观察 20 轮，初期激活波动大需足够样本
     ppl_threshold: float = 200.0
     failure_threshold: int = 3
     activation_ratio: float = 0.05
     min_rounds_observed: int = 20
-    grace_evals: int = 10  # 宽限期：前 N 次评估不触发凋亡
+    grace_evals: int = 10  # 宽限期：前 N 次评估不触发凋亡（幼稚态 PPL 天然高）
 
     # nid -> 连续失败计数
     _failure_counts: dict = field(default_factory=dict)
@@ -259,6 +265,7 @@ class NeurogenesisTrigger:
 
     # domain -> 连续高错误率计数
     _domain_error_counts: dict = field(default_factory=dict)
+    # 错误率 = 1 - accuracy；> 0.5 意味着预测错误多于正确，明显能力不足
     error_rate_threshold: float = 0.5
     error_count_for_trigger: int = 8  # 需要连续 8 次高错误率才触发（避免过快扩张）
 

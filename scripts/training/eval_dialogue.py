@@ -32,7 +32,11 @@ from scripts.training.utils import (
     OUTPUT_DIR, load_simple_zh_texts,
 )
 from scripts.training.finetune_cross_spec import load_dialogue_texts, load_neuron_with_embedding
-from scripts.training.experiment_config import ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
+from scripts.training.experiment_config import (
+    ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN,
+    SAMPLING_TEMPERATURE, SAMPLING_TOP_K, SAMPLING_REPETITION_PENALTY, SAMPLING_MAX_TOKENS,
+    DIALOGUE_PROMPTS,
+)
 
 DEVICE = "cpu"
 
@@ -243,16 +247,10 @@ def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
     load_cross_spec_weights(ensemble, weights_type)
 
-    # 对话 prompt（模拟用户提问）
-    PROMPTS = [
-        "问：你好，请介绍一下自己\n答：",
-        "问：什么是人工智能？\n答：",
-        "问：如何学习编程？\n答：",
-        "问：请解释神经网络的工作原理\n答：",
-        "问：你最喜欢的颜色是什么？\n答：",
-    ]
+    # 对话 prompt（从 experiment_config.DIALOGUE_PROMPTS 导入，匹配训练数据格式）
+    PROMPTS = DIALOGUE_PROMPTS
 
-    def generate_collab(prompt, max_tokens=120, temperature=0.8, top_k=40, repetition_penalty=1.2):
+    def generate_collab(prompt, max_tokens=SAMPLING_MAX_TOKENS, temperature=SAMPLING_TEMPERATURE, top_k=SAMPLING_TOP_K, repetition_penalty=SAMPLING_REPETITION_PENALTY):
         """协作生成。
 
         关键修复：ensemble 输出的 weighted_logits 维度 = zh domain vocab_size，
@@ -343,7 +341,11 @@ def main():
     parser.add_argument("--n_eval", type=int, default=50)
     parser.add_argument("--skip_ppl", action="store_true", help="跳过 PPL 评估")
     parser.add_argument("--skip_gen", action="store_true", help="跳过生成评估")
+    parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
+
+    global DEVICE
+    DEVICE = args.device
 
     print("=" * 70, flush=True)
     print(f"态极综合体交流能力评估 (weights={args.weights})", flush=True)

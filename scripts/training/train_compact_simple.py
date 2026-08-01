@@ -36,7 +36,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR, SequentialSampler,
+    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler,
 )
 
 DATA_PATH = "data/simple_zh/simple_zh_texts.jsonl"
@@ -91,17 +91,11 @@ def train_compact_simple(
         {"params": embed_params, "weight_decay": 0.0},         # embedding 不衰减
     ], lr=lr, betas=(0.9, 0.99))
 
-    # WSD 学习率调度
-    decay_start = max(warmup_steps + 1, int(num_steps * 0.85))
-    def _wsd_lr(step):
-        if step < warmup_steps:
-            return (step + 1) / warmup_steps
-        elif step < decay_start:
-            return 1.0
-        else:
-            progress = (step - decay_start) / max(1, num_steps - decay_start)
-            return 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * progress))
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _wsd_lr)
+    # WSD 学习率调度（公式抽取到 utils.make_wsd_scheduler）
+    scheduler = make_wsd_scheduler(
+        optimizer, num_steps=num_steps,
+        warmup_steps=warmup_steps, decay_ratio=0.85,
+    )
 
     neuron.train()
     shared_embedding.train()

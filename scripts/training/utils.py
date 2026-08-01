@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import json
@@ -315,3 +316,75 @@ class SequentialSampler:
     def unique_seen(self) -> int:
         """已看到的唯一文本数（当前 epoch 内）。"""
         return min(self.cursor, self.n_texts)
+
+
+# ── WSD 学习率调度（P1 硬编码修复：从 5 个文件抽取）─────────────────────
+def make_wsd_scheduler(
+    optimizer: torch.optim.Optimizer,
+    num_steps: int,
+    warmup_steps: int = 200,
+    decay_ratio: float = 0.85,
+    min_lr_ratio: float = 0.1,
+) -> torch.optim.lr_scheduler.LambdaLR:
+    """WSD（Warmup-Stable-Decay）学习率调度。
+
+    三个阶段：
+    1. Warmup: 线性从 0 升到 1.0（前 warmup_steps 步）
+    2. Stable: 保持 1.0（warmup_steps 到 decay_start）
+    3. Decay:  cosine 衰减到 min_lr_ratio（decay_start 到 num_steps）
+
+    Args:
+        optimizer: 优化器
+        num_steps: 总训练步数
+        warmup_steps: warmup 步数
+        decay_ratio: decay 开始位置（占总步数的比例，默认 0.85）
+        min_lr_ratio: decay 最低 lr 比例（默认 0.1，即衰减到 10%）
+
+    Returns:
+        LambdaLR 调度器
+    """
+    decay_start = max(warmup_steps + 1, int(num_steps * decay_ratio))
+
+    def lr_lambda(step: int) -> float:
+        if step < warmup_steps:
+            return (step + 1) / warmup_steps
+        elif step < decay_start:
+            return 1.0
+        else:
+            progress = (step - decay_start) / max(1, num_steps - decay_start)
+            return min_lr_ratio + (1.0 - min_lr_ratio) * 0.5 * (1 + math.cos(math.pi * progress))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+# ── Muon + AdamW 混合优化器（P1 硬编码修复：从 2 个文件抽取）─────────────
+def build_muon_adamw_optimizers(
+    params_2d: list,
+    params_1d: list,
+    lr: float,
+    adamw_weight_decay: float = 0.01,
+) -> tuple:
+    """构建 Muon + AdamW 混合优化器（借鉴 DeepSeek V4 / GLM-5.2）。
+
+    - 2D 权重矩阵（Linear weight）用 Muon：Newton-Schulz 正交化突破 Adam 局部最小值
+    - 1D 参数（bias/LayerNorm/scale）用 AdamW：Muon 仅适用于 2D
+
+    Args:
+        params_2d: 2D 权重参数列表（Muon 优化）
+        params_1d: 1D/0D 参数列表（AdamW 优化）
+        lr: 学习率（Muon 和 AdamW 共用）
+        adamw_weight_decay: AdamW weight decay
+
+    Returns:
+        (muon_optimizer, adamw_optimizer): adamw_optimizer 可能为 None（无 1D 参数时）
+    """
+    from torch.optim import Muon
+    muon_optimizer = Muon(
+        params_2d, lr=lr, momentum=0.95,
+        nesterov=True, ns_steps=5,
+    )
+    if len(params_1d) > 0:
+        adamw_optimizer = torch.optim.AdamW(params_1d, lr=lr, weight_decay=adamw_weight_decay)
+    else:
+        adamw_optimizer = None
+    return muon_optimizer, adamw_optimizer

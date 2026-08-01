@@ -43,16 +43,16 @@ class ResonanceEnsemble:
         self,
         neurons: Dict[str, ResonanceNeuron],
         field: ResonanceField,
-        max_rounds: int = 3,
-        diversity_lambda: float = 0.01,
-        logits_top_k: int = 64,
+        max_rounds: int = 3,  # 协作轮数：2 轮让 side_signals 生效，3 轮充分收敛（>3 收益递减）
+        diversity_lambda: float = 0.01,  # 多样性正则化系数：防止神经元退化相同，0.01 为弱约束
+        logits_top_k: int = 64,  # 融合时每神经元保留 top-64 logits，降低通信成本
         stdp_tracker: Optional[Any] = None,
         coaction: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
         maturity: Optional[Any] = None,
         gamma_oscillator: Optional[Any] = None,
         shared_expert_id: Optional[str] = None,
-        shared_expert_weight: float = 0.3,
+        shared_expert_weight: float = 0.3,  # 共享专家基础权重 0.3，域神经元分配剩余 0.7（借鉴 DeepSeek V3）
     ):
         self.neurons = neurons
         self.field = field
@@ -193,15 +193,16 @@ class ResonanceEnsemble:
                 post_id, pre_id = key.split("->")
                 post_neuron = self.neurons[post_id]
                 # 低利用率 → 正 bias（增强），高利用率 → bias 衰减
+                # 阈值依据（Auxiliary-loss-free balancing，借鉴 DeepSeek V3）：
+                # - ratio<0.5（使用率<均值一半）→ 增强该通道，防止死通道
+                # - ratio>1.5（使用率>均值 1.5 倍）→ 衰减，防止过载
+                # - bias_delta 0.1/-0.05：增强幅度大于衰减，偏向"复活死通道"
                 ratio = usage / avg_usage  # <1 说明低利用率
                 if ratio < 0.5:
-                    # 严重低利用率，增加 bias
                     bias_delta = 0.1 * (1.0 - ratio)
                 elif ratio > 1.5:
-                    # 高利用率，衰减 bias
                     bias_delta = -0.05
                 else:
-                    # 正常范围，轻微调整
                     bias_delta = 0.0
 
                 # 更新 excite bias
