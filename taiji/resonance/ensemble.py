@@ -771,132 +771,272 @@ class ResonanceEnsemble:
 
     def forward_train(
         self,
-        shared_embeddings: torch.Tensor,
+        shared_embeddings: Optional[torch.Tensor] = None,
+        neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
+        n_rounds: int = 2,
         temperature: float = 1.0,
-        gamma_oscillator=None,
-        fusion_mode: str = "residual",
+        fusion_mode: str = "soft",
+        gamma_oscillator: Optional[Any] = None,
+        neuromodulator: Optional[Any] = None,
+        return_individual_logits: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """单轮全可微前向，用于联合训练。
+        """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
-        与 forward()（推理）的区别：
-        - 单轮（无多轮共振）
-        - 全可微（无 .item()、无 argmax、无 hard top-K）
-        - 内联计算共振分（绕过 field.score() 的 detach）
-        - 返回 fused_logits + 负载均衡 loss
-        - 支持振荡同步门控（gamma_oscillator）
+        与 forward()（推理路径）的核心区别：
+        - 全可微：无 hard top-K、无 refractory/active_filter、不使用 field.update/score（含 detach）
+        - 多轮共振：round 1 独立前向，round 2+ 注入 side_signals + field_state
+          → side_channels 在训练中真正生效，neuron 学习"如何写入场、如何协同"
+        - 跨规格投影接入：round_vecs 经正向投影到 unified，field_state 经反向投影回 neuron.field_dim
+        - 调质接入：norepinephrine 影响 field_write scale（可微乘法）
+        - Gamma 振荡接入：相位推进 + Kuramoto 耦合 + gate_factors 调制 scores
+        - 新增 diversity_loss：field_vector 间余弦相似度，防退化相同
+        - STDP/Coaction 记录但不影响梯度（局部 Hebbian 规则，反向已处理）
 
-        前向传播时所有神经元参与，共振场聚合，反向传播流经聚合权重
-        → 神经元学习如何写入场、如何协同输出。
-
-        振荡同步（可选）：
-          gamma_oscillator 提供 per-neuron gate_factor ∈ [0.2, 1.0]
-          同相位的神经元 gate≈1.0（增强），反相位的 gate≈0.2（衰减）
-          模拟人脑 Gamma 振荡的 feature binding 机制
-
-        融合模式（方向③ 残差预测编码）：
-          - "residual"（默认，人脑层级预测）：
-              族长(共振分最高)给出完整预测 logits
-              其他神经元预测族长的残差（纠正族长预测错误的部分）
-              fused = leader_logits + Σ(w_i × other_logits_i)
-              族长获得完整梯度（快速成强），其他神经元获得加权梯度（专精修正）
-          - "soft"（旧版软加权融合，A/B 对照）：
-              fused = Σ(w_i × logits_i)
+        融合模式：
+          - "soft"（默认，全可微）：fused = Σ softmax(score/temp) × logits
+          - "residual"（残差预测编码）：族长用 straight-through estimator
+            （argmax 在 no_grad 内选 leader，但权重 softmax 可微，梯度流经 other_weights）
 
         Args:
-            shared_embeddings: [B, L, base_embed_dim] 共享嵌入
+            shared_embeddings: [B, L, base_embed_dim] 共享嵌入（所有 neuron 共用）
+            neuron_embeddings: {nid: [B, L, base_embed_dim]} P7 路径，per-neuron 嵌入
+            n_rounds: 共振轮数（默认 2，round 1 独立 + round 2 注入 side_signals）
             temperature: softmax 温度（低=更尖锐选择）
-            gamma_oscillator: GammaOscillator 实例（可选，None=不门控）
-            fusion_mode: "residual"（默认，残差预测编码）| "soft"（软加权融合）
+            fusion_mode: "soft"（默认，全可微）/ "residual"（残差预测编码）
+            gamma_oscillator: GammaOscillator 实例（None 时回退到 self.gamma_oscillator）
+            neuromodulator: NeuromodulatorState 实例（None 时回退到 self.neuromodulator）
+            return_individual_logits: 是否返回 individual_logits（节省内存，默认 False）
 
         Returns:
             dict with:
-            - fused_logits: [B, L, V] 聚合 logits
-            - weights: [N] 或 [N-1] 软路由权重（residual 模式下不含族长）
-            - scores: [N] 共振分
+            - fused_logits: [B, L, V] 融合 logits
+            - weights: [N] 或 [N-1] softmax 融合权重
+            - scores: [N] 共振分（含 gamma 门控）
             - balance_loss: scalar 负载均衡 loss（负熵，越小越均匀）
-            - leader_idx: int 族长索引（仅 residual 模式）
-            - leader_logits: [B, L, V] 族长完整预测（仅 residual 模式）
-            - individual_logits: {nid: [B, L, V]} 个体 logits（分析用）
+            - diversity_loss: scalar field_vector 多样性 loss（越小越多样）
+            - field_state: [B, D] 最终场状态（unified 维度）
+            - n_rounds: int 实际共振轮数
+            - individual_logits: {nid: [B, L, V]}（仅 return_individual_logits=True）
         """
+        if shared_embeddings is None and neuron_embeddings is None:
+            raise ValueError(
+                "[forward_train] 必须提供 shared_embeddings 或 neuron_embeddings"
+            )
+
         active_ids = list(self.neurons.keys())
         N = len(active_ids)
 
-        # 1. 所有神经元前向（return_logits=True，梯度贯穿全程）
-        all_vecs = []
-        all_logits = []
-        for nid in active_ids:
-            result = self.neurons[nid].forward(shared_embeddings, return_logits=True)
-            all_vecs.append(result["field_vector"])   # [B, D]
-            all_logits.append(result["logits"])        # [B, L, V]
+        if gamma_oscillator is None:
+            gamma_oscillator = self.gamma_oscillator
+        if neuromodulator is None:
+            neuromodulator = self.neuromodulator
 
-        all_vecs = torch.stack(all_vecs)      # [N, B, D]
-        all_logits = torch.stack(all_logits)  # [N, B, L, V]
+        # 调质影响（norepinephrine 驱动）：
+        # 不直接乘 vec_unified（会被 F.normalize 抵消），
+        # 而是影响共振分 scores → 影响融合权重 softmax(scores)
+        # 高 norepinephrine → 高 scores → 高融合权重（警觉 → 强贡献）
+        write_scale = 1.0
+        if neuromodulator is not None:
+            try:
+                write_scale = float(neuromodulator.get_field_write_scale())
+            except Exception:
+                write_scale = 1.0
 
-        # 2. 场状态 = 所有 field_vector 归一化后求和（可微加法）
-        all_vecs_norm = F.normalize(all_vecs, dim=-1)  # [N, B, D]
-        field_state = all_vecs_norm.sum(dim=0)         # [B, D]
+        def _get_emb(nid: str) -> torch.Tensor:
+            if neuron_embeddings is not None and nid in neuron_embeddings:
+                return neuron_embeddings[nid]
+            return shared_embeddings
 
-        # 3. Leave-one-out 共振分（可微 cosine similarity）
-        # loo_state[i] = field_state - all_vecs_norm[i]（去掉自己的贡献）
-        loo_state = field_state.unsqueeze(0) - all_vecs_norm  # [N, B, D]
-        loo_norm = F.normalize(loo_state, dim=-1)             # [N, B, D]
-        scores = (all_vecs_norm * loo_norm).sum(dim=-1)       # [N, B] cosine sim
-        scores = scores.mean(dim=1)                           # [N] batch 平均
+        # 重置 STDP firing history（一次训练步内的发放时序）
+        if self.stdp_tracker is not None:
+            try:
+                self.stdp_tracker._firing_history.clear()
+            except Exception:
+                pass
 
-        # 振荡同步门控：相位对齐的神经元获得更高权重（feature binding）
+        # ── 多轮可微前向 ──
+        # 不使用 self.field（含 detach 副作用），直接维护 field_state tensor
+        # 维护两套 vecs：
+        #   - round_vecs_raw: 原始 neuron.field_dim 维度（用于 side_signals，因为
+        #     excite/inhibit_channels 在建立时按 pre neuron.field_dim 注册）
+        #   - round_vecs_unified: 投影到 unified 维度（用于维护 field_state）
+        field_state: Optional[torch.Tensor] = None  # round 1 时为 None
+        round_vecs_raw: Dict[str, torch.Tensor] = {}      # 原始 field_dim 维度
+        round_vecs_unified: Dict[str, torch.Tensor] = {}  # unified 维度
+        final_logits: Dict[str, torch.Tensor] = {}        # 最后一轮每个 neuron 的 logits
+
+        for round_num in range(1, n_rounds + 1):
+            round_vecs_raw_new: Dict[str, torch.Tensor] = {}
+            round_vecs_unified_new: Dict[str, torch.Tensor] = {}
+
+            # 构建 side_signals（round 2+ 才有，per-pair synaptic 投影）
+            # 用原始 field_dim 维度的 vecs（excite_channels 在建立时按 pre.field_dim 注册）
+            side_signals_per_neuron: Optional[Dict[str, Dict[str, torch.Tensor]]] = None
+            if round_num > 1 and round_vecs_raw:
+                side_signals_per_neuron = {nid: {} for nid in active_ids}
+                for post_id in active_ids:
+                    post_neuron = self.neurons[post_id]
+                    for pre_id in active_ids:
+                        if post_id == pre_id:
+                            continue
+                        if (pre_id in post_neuron.excite_channels or
+                                pre_id in post_neuron.inhibit_channels):
+                            side_signals_per_neuron[post_id][pre_id] = round_vecs_raw[pre_id]
+
+            # 全可微前向（串行：batch 内已并行，neuron.forward 全可微）
+            for nid in active_ids:
+                emb = _get_emb(nid)
+
+                # 跨规格反投影：field_state(unified) → neuron.field_dim
+                fs = field_state
+                if fs is not None and nid in self._cross_spec_back_projectors:
+                    fs = self._cross_spec_back_projectors[nid](fs)
+
+                kwargs: Dict[str, Any] = dict(
+                    field_state=fs,
+                    round_num=round_num,
+                    return_logits=True,
+                )
+                if side_signals_per_neuron is not None:
+                    kwargs["side_signals"] = side_signals_per_neuron[nid]
+
+                result = self.neurons[nid].forward(emb, **kwargs)
+
+                # 原始 field_vector（neuron.field_dim，用于 side_signals）
+                vec_raw = result["field_vector"]  # [B, neuron.field_dim]
+                # 跨规格正向投影：neuron.field_dim → unified（用于维护 field_state）
+                vec_unified = self._project_vec(nid, vec_raw)  # [B, field.dim]
+                # 注：write_scale 不在此处乘（F.normalize 会抵消），
+                # 而是在 scores 计算后乘，影响融合权重
+
+                round_vecs_raw_new[nid] = vec_raw
+                round_vecs_unified_new[nid] = vec_unified
+                if round_num == n_rounds:
+                    final_logits[nid] = result["logits"]
+
+            # 更新 field_state（可微加法，无 detach）
+            # field_state = sum of L2-normalized vecs (unified 维度)
+            all_vecs_norm = F.normalize(
+                torch.stack([round_vecs_unified_new[nid] for nid in active_ids]),
+                dim=-1,
+            )  # [N, B, D]
+            field_state = all_vecs_norm.sum(dim=0)  # [B, D]
+
+            round_vecs_raw = round_vecs_raw_new
+            round_vecs_unified = round_vecs_unified_new
+
+            # STDP 记录（不影响梯度，本地 Hebbian 规则；用 unified 维度保持一致）
+            if self.stdp_tracker is not None:
+                for nid in active_ids:
+                    try:
+                        self.stdp_tracker.record_firing(nid, round_num, round_vecs_unified[nid])
+                    except Exception:
+                        pass
+
+            # Coactivation 记录（不影响梯度）
+            if self.coaction is not None:
+                try:
+                    self.coaction.update(active_ids, round_num=round_num)
+                except Exception:
+                    pass
+
+            # Gamma 振荡：推进相位 + Kuramoto 耦合
+            if gamma_oscillator is not None:
+                try:
+                    gamma_oscillator.tick()
+                    if hasattr(gamma_oscillator, "kuramoto_step"):
+                        gamma_oscillator.kuramoto_step(
+                            coupling_strength=0.05,
+                            active_ids=active_ids,
+                            coactivation=self.coaction,
+                        )
+                except Exception:
+                    pass  # 振荡失败不影响训练主流程
+
+        # ── 计算共振分（Leave-one-out cosine similarity，全可微）──
+        # 用 unified 维度的 vecs（保证不同 field_dim 的 neuron 在同一空间比较）
+        all_vecs_norm = F.normalize(
+            torch.stack([round_vecs_unified[nid] for nid in active_ids]),
+            dim=-1,
+        )  # [N, B, D]
+        field_state_full = all_vecs_norm.sum(dim=0)  # [B, D]
+        loo_state = field_state_full.unsqueeze(0) - all_vecs_norm  # [N, B, D]
+        loo_norm = F.normalize(loo_state, dim=-1)
+        scores = (all_vecs_norm * loo_norm).sum(dim=-1)  # [N, B]
+        scores = scores.mean(dim=1)                      # [N] batch 平均
+
+        # 调质影响：norepinephrine 高 → scores 增强 → 融合权重增大（警觉 → 强贡献）
+        # write_scale 是 Python float（不可微，但调质本身是外部状态，非可学习参数）
+        if neuromodulator is not None and write_scale != 1.0:
+            scores = scores * write_scale
+
+        # Gamma 门控：相位对齐的神经元获得更高权重（feature binding）
         if gamma_oscillator is not None:
-            gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
-            scores = scores * gate_factors.to(scores.device)
+            try:
+                gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
+                scores = scores * gate_factors.to(scores.device)
+            except Exception:
+                pass
 
-        # 4. 融合聚合
+        # ── 融合聚合 ──
+        # 检查 vocab 大小一致（跨 vocab 联合训练路径未实现，缺口 M）
+        vocab_sizes = [final_logits[nid].shape[-1] for nid in active_ids]
+        if len(set(vocab_sizes)) != 1:
+            raise RuntimeError(
+                f"[forward_train] 要求所有 neuron vocab 大小一致（跨 vocab 联合训练"
+                f"路径未实现，见缺口 M）。当前 vocab_sizes: "
+                f"{dict(zip(active_ids, vocab_sizes))}"
+            )
+
+        all_logits = torch.stack([final_logits[nid] for nid in active_ids])  # [N, B, L, V]
+
         if fusion_mode == "residual" and N >= 2:
-            # ── 方向③：残差预测编码（人脑层级预测）──
-            # 族长(共振分最高)给完整预测，其他神经元预测残差修正
-            leader_idx = int(scores.argmax().item())  # 硬选族长（选择不可微，权重可微）
-            leader_logits = all_logits[leader_idx]     # [B, L, V]
-
-            # 其他神经元的索引与 logits
+            # 残差预测编码：straight-through estimator（选择不可微，权重可微）
+            with torch.no_grad():
+                leader_idx = int(scores.argmax().item())
+            leader_logits = all_logits[leader_idx]  # [B, L, V]
             other_indices = [i for i in range(N) if i != leader_idx]
-            other_scores = scores[other_indices]                     # [N-1]
-            other_logits = all_logits[other_indices]                 # [N-1, B, L, V]
-
-            # 其他神经元的权重（softmax，族长不参与权重分配）
-            weights = F.softmax(other_scores / temperature, dim=0)   # [N-1]
-
-            # 残差聚合：fused = 族长完整预测 + Σ(w_i × 其他神经元修正)
-            # 梯度分析：∂CE/∂leader = ∂CE/∂fused（完整梯度，族长快速成强）
-            #          ∂CE/∂other_i = w_i × ∂CE/∂fused（加权梯度，专精修正）
-            residual = torch.einsum('n,nblv->blv', weights, other_logits)  # [B, L, V]
+            other_scores = scores[other_indices]
+            other_logits = all_logits[other_indices]
+            other_weights = F.softmax(other_scores / temperature, dim=0)  # [N-1]
+            residual = torch.einsum('n,nblv->blv', other_weights, other_logits)
             fused_logits = leader_logits + residual
-
-            # 负载均衡 loss（负熵：鼓励其他神经元均衡贡献，防止单一修正者垄断）
-            balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
-
-            return {
-                "fused_logits": fused_logits,
-                "weights": weights,
-                "scores": scores,
-                "balance_loss": balance_loss,
-                "leader_idx": leader_idx,
-                "leader_logits": leader_logits,
-                "residual": residual,
-                "individual_logits": {nid: all_logits[i]
-                                       for i, nid in enumerate(active_ids)},
-            }
+            balance_loss = -(other_weights * torch.log(other_weights + 1e-8)).sum()
+            weights = other_weights
         else:
-            # ── 旧版软加权融合（A/B 对照 & N=1 退化）──
-            weights = F.softmax(scores / temperature, dim=0)      # [N]
-            fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)  # [B, L, V]
+            # soft 软加权融合（默认，全可微）
+            weights = F.softmax(scores / temperature, dim=0)  # [N]
+            fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
             balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
 
-            return {
-                "fused_logits": fused_logits,
-                "weights": weights,
-                "scores": scores,
-                "balance_loss": balance_loss,
-                "individual_logits": {nid: all_logits[i]
-                                       for i, nid in enumerate(active_ids)},
-            }
+        # ── 多样性 loss（field_vector 间余弦相似度，防退化相同）──
+        if N >= 2:
+            # all_vecs_norm: [N, B, D] → batch 平均后 [N, D]
+            vecs_batch = all_vecs_norm.mean(dim=1)  # [N, D]
+            vecs_norm = F.normalize(vecs_batch, dim=-1)
+            sim_matrix = torch.einsum('nd,md->nm', vecs_norm, vecs_norm)  # [N, N]
+            mask = torch.triu(
+                torch.ones(N, N, device=sim_matrix.device, dtype=torch.bool),
+                diagonal=1,
+            )
+            diversity_loss = sim_matrix[mask].mean()  # 越小越好
+        else:
+            diversity_loss = torch.tensor(0.0, device=weights.device)
+
+        result: Dict[str, torch.Tensor] = {
+            "fused_logits": fused_logits,
+            "weights": weights,
+            "scores": scores,
+            "balance_loss": balance_loss,
+            "diversity_loss": diversity_loss,
+            "field_state": field_state_full,
+            "n_rounds": n_rounds,
+        }
+
+        if return_individual_logits:
+            result["individual_logits"] = {nid: final_logits[nid] for nid in active_ids}
+
+        return result
 
     def _average_logits(
         self, logits_dict: Dict[str, torch.Tensor]

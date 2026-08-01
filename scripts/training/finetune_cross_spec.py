@@ -413,29 +413,38 @@ def main():
             if adamw_optimizer is not None:
                 adamw_optimizer.zero_grad()
 
-            result = ensemble.forward(
+            # S1: 改用 forward_train（全可微多轮共振路径）
+            # 让 side_channels + 跨规格投影层 + field_state + 调质在训练中真正生效
+            result = ensemble.forward_train(
                 neuron_embeddings=neuron_embeddings,
-                return_logits=True,
+                n_rounds=2,
                 fusion_mode="soft",
+                return_individual_logits=False,
             )
 
-            if "weighted_logits" not in result:
-                continue
-
-            fused_logits = result["weighted_logits"]
+            fused_logits = result["fused_logits"]
             shift_logits = fused_logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
             shift_mask = mask[:, 1:].contiguous()
             shift_targets = shift_targets.clone()
             shift_targets[~shift_mask] = -100
-            loss = F.cross_entropy(
+            ce_loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_targets.view(-1),
                 ignore_index=-100,
                 reduction="sum",
             )
             n_tokens = shift_mask.sum().item()
-            loss = loss / max(n_tokens, 1)
+            ce_loss = ce_loss / max(n_tokens, 1)
+
+            # 多任务 loss：CE + 负载均衡 + 多样性
+            # balance_loss 鼓励神经元均衡贡献（防死通道）
+            # diversity_loss 鼓励 field_vector 差异化（防退化相同）
+            balance_loss = result["balance_loss"]
+            diversity_loss = result["diversity_loss"]
+            balance_weight = 0.01   # 弱约束，避免压制主任务
+            diversity_weight = 0.05  # 弱约束，鼓励差异但不强制正交
+            loss = ce_loss + balance_weight * balance_loss + diversity_weight * diversity_loss
 
             loss.backward()
             optimizer.step()
@@ -443,7 +452,7 @@ def main():
                 adamw_optimizer.step()
             scheduler.step()
 
-            epoch_loss += loss.item() * n_tokens
+            epoch_loss += ce_loss.item() * n_tokens
             epoch_tokens += n_tokens
             total_steps += 1
 

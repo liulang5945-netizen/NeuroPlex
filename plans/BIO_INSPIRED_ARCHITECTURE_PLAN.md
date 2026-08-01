@@ -76,6 +76,13 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 | I | 缺失 | `api/` | 综合体未接入聊天接口，无发布/导出脚本 |
 | J | ✅ 已清理 | ~~cognitive_enhancements.py~~ | 已删除：CorticalColumn/ColumnRegistry/AttentionBeam/ThresholdPlasticity 全库零调用，从 __init__.py 移除导入 |
 | K | ✅ 已修复 | translator.py TokenTranslator | 删除死代码类 + build_translator + translators 字段；同时修复 `_get_token_spans` 空格对齐 bug（独立 `▁` token 零长度 span 导致缩进丢失，代码文本对齐率 38%→100%） |
+| L | ⚠️ 架构缺失 | ensemble.py 跨域语义对齐 | 当前 EMERGE 靠同 vocab logits 融合（非 field 对齐）；跨域（zh/code）field_vector 语义不对齐，加入 code neuron 会互相噪声污染。详见 [HUB_NEURON_DESIGN.md](file:///e:/taiji-neuron/plans/HUB_NEURON_DESIGN.md) |
+| M | ⚠️ 代码缺口 | ensemble.py `forward_train` | `torch.stack(all_logits)` 要求同形状，跨 vocab 联合训练直接崩溃；跨域联合训练路径未实现 |
+| N | ⚠️ 系统性妥协 | ensemble.py `forward_train` 共振从未训练 | 训练路径不传 field_state/side_signals/neuromodulator，"共振"是推理期技巧，neuron 从未学过协同。详见 [ARCHITECTURE_COMPROMISE_AUDIT.md](file:///e:/taiji-neuron/plans/ARCHITECTURE_COMPROMISE_AUDIT.md) S1 |
+| O | ⚠️ 系统性妥协 | utils.py:111-117 256K emb 配 16K tokenizer | 14.6 万 embedding 行是死参数；所有 PPL 数字被 tokenizer 噪声掩盖。详见审查报告 S2 |
+| P | ⚠️ 系统性妥协 | 全训练脚本 Loss 单一化 | 5 个脚本全用纯 CE，无 SFT masking / margin ranking / diversity / 对比 loss。详见审查报告 S3 |
+| Q | ⚠️ 系统性妥协 | cortex.py:1350-1358 域 token re-encode 往返 | 每步 domain→text→general→emb，信息丢失 + 无 KV cache + 训练-推理分布偏移。详见审查报告 S6 |
+| R | ⚠️ 系统性妥协 | 生物学机制是推理期占位 | STDP/调质/Gamma/睡眠/新生均 Optional 注入，forward_train 不引用，是"装饰"非"骨架"。详见审查报告 S9 |
 
 ---
 
@@ -98,18 +105,22 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 **生成质量**：语法错误较多，有无关内容——训练数据仅 4000 步，需扩充。
 
 ### 2.3 下一步建议
-1. **综合体接入 API/聊天接口**（缺口 I）：让真实用户能与之对话测试，从离线评估走向实际使用
-2. 扩充对话训练数据（提升生成质量）
-3. 清理缺口 K（TokenTranslator，需谨慎评估）
+1. **修复隐性天花板**（缺口 O + 训练步数）：训 256K general tokenizer + 步数提到 12000-16000。不解决这两个，后续所有优化都被掩盖。详见 [ARCHITECTURE_COMPROMISE_AUDIT.md](file:///e:/taiji-neuron/plans/ARCHITECTURE_COMPROMISE_AUDIT.md)
+2. **让共振可训练**（缺口 N）：可微多轮共振，让 forward_train 接入场+侧通道+调质
 
-### 2.4 中期
-- 扩充对话训练数据（提升生成质量）
-- 清理缺口 K（TokenTranslator，需谨慎评估）
+### 2.4 中期：跨域协作（hub neuron，上限优先版）
+- **hub neuron 设计与实现**（缺口 L）：参考人脑联合皮层，引入 hub neuron 作为跨域语义对齐枢纽。**上限优先设计**：expert 规格 + 256K lm_head + hub-and-spoke 拓扑 + 跨域对比 loss。详见 [HUB_NEURON_DESIGN.md](file:///e:/taiji-neuron/plans/HUB_NEURON_DESIGN.md)
+- 修复 `forward_train` 跨 vocab 崩溃（缺口 M）
+- 多任务 loss（缺口 P）：SFT masking + margin ranking + diversity + 对比 loss
+- 推理路径优化（缺口 Q）：域 token 对齐表 + 长上下文 + 多轮对话状态
 
-### 2.5 远期
+### 2.5 远期：生物学机制深化（缺口 R）
+- STDP 影响注意力/FFN 权重（非仅 side_channels）
+- 多频段振荡（theta-gamma 嵌套）+ 跨频耦合
+- 真正睡眠重放（forward 重放 + 经验回放训练）
+- 自组织新生（从经验生长，非 teacher 蒸馏）
 - 多 standard 神经元协作验证
 - 更长训练（8000→16000 步）
-- expert 规格
 
 ---
 

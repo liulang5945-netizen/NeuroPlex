@@ -366,21 +366,28 @@ def main():
             if adamw_optimizer is not None:
                 adamw_optimizer.zero_grad()
 
-            result = ensemble.forward(
+            # S1: 改用 forward_train（全可微多轮共振路径）
+            # 让 side_channels + field_state 在训练中真正生效
+            # 注：field_conditioning=False 是推理路径选项，forward_train 中
+            # round 2+ 默认传 field_state，但 field_read_layers 是否被使用
+            # 取决于 neuron.forward 内 round_num>1 的判断
+            result = ensemble.forward_train(
                 neuron_embeddings=neuron_embeddings,
-                return_logits=True,
+                n_rounds=2,
                 fusion_mode="soft",
-                field_conditioning=False,  # 跳过 field_read_layers（独立训练时未训练，引入噪声）
+                return_individual_logits=(total_steps == 0),  # 首步返回用于 debug
             )
 
             # Debug: 首次 forward 打印 fusion 权重和各神经元单独 PPL
-            if total_steps == 0 and "neuron_logits" in result:
+            if total_steps == 0 and "individual_logits" in result:
                 print("\n  [debug] Fusion 权重和各神经元单独 PPL:", flush=True)
-                if "final_weights" in result:
-                    for nid, w in result["final_weights"].items():
-                        print(f"    {nid}: fusion_weight={w:.4f}", flush=True)
+                weights = result.get("weights")
+                if weights is not None:
+                    for i, nid in enumerate(NEURON_IDS):
+                        w_val = weights[i].item() if weights.dim() == 1 else weights[i]
+                        print(f"    {nid}: fusion_weight={w_val:.4f}", flush=True)
                 # 计算各神经元单独 PPL
-                for nid, logits in result["neuron_logits"].items():
+                for nid, logits in result["individual_logits"].items():
                     shift_l = logits[:, :-1, :].contiguous()
                     shift_t = targets[:, 1:].contiguous()
                     shift_m = mask[:, 1:].contiguous()
@@ -396,9 +403,14 @@ def main():
                         ) / n_tok
                         print(f"    {nid}: solo_ppl={math.exp(min(loss_nid.item(), 20)):.1f}", flush=True)
                 # 协作 PPL
-                if "weighted_logits" in result:
-                    fused = result["weighted_logits"]
-                    shift_l = fused[:, :-1, :].contiguous()
+                fused = result["fused_logits"]
+                shift_l = fused[:, :-1, :].contiguous()
+                shift_t = targets[:, 1:].contiguous()
+                shift_m = mask[:, 1:].contiguous()
+                shift_t = shift_t.clone()
+                shift_t[~shift_m] = -100
+                n_tok = shift_m.sum().item()
+                if n_tok > 0:
                     loss_fused = F.cross_entropy(
                         shift_l.view(-1, shift_l.size(-1)),
                         shift_t.view(-1),
@@ -409,24 +421,30 @@ def main():
                 print(f"    n_rounds={result.get('n_rounds', '?')}", flush=True)
                 print()
 
-            if "weighted_logits" not in result:
-                valid = False
+            valid = "fused_logits" in result
 
             if valid:
-                fused_logits = result["weighted_logits"]
+                fused_logits = result["fused_logits"]
                 shift_logits = fused_logits[:, :-1, :].contiguous()
                 shift_targets = targets[:, 1:].contiguous()
                 shift_mask = mask[:, 1:].contiguous()
                 shift_targets = shift_targets.clone()
                 shift_targets[~shift_mask] = -100
-                loss = F.cross_entropy(
+                ce_loss = F.cross_entropy(
                     shift_logits.view(-1, shift_logits.size(-1)),
                     shift_targets.view(-1),
                     ignore_index=-100,
                     reduction="sum",
                 )
                 n_tokens = shift_mask.sum().item()
-                loss = loss / max(n_tokens, 1)
+                ce_loss = ce_loss / max(n_tokens, 1)
+
+                # 多任务 loss：CE + 负载均衡 + 多样性
+                balance_loss = result["balance_loss"]
+                diversity_loss = result["diversity_loss"]
+                balance_weight = 0.01
+                diversity_weight = 0.05
+                loss = ce_loss + balance_weight * balance_loss + diversity_weight * diversity_loss
 
                 loss.backward()
                 optimizer.step()
@@ -434,7 +452,7 @@ def main():
                     adamw_optimizer.step()
                 scheduler.step()
 
-                epoch_loss += loss.item() * n_tokens
+                epoch_loss += ce_loss.item() * n_tokens
                 epoch_tokens += n_tokens
                 total_steps += 1
 
