@@ -1,0 +1,100 @@
+"""实验配置集中管理（2026-08-01 P0 硬编码修复）。
+
+将散落在 8+ 文件中的硬编码集中到单一真相源：
+- 路径常量（PROJECT_ROOT 派生，不依赖 cwd）
+- 神经元 ID 列表（NEURON_IDS 单一真相源）
+- shared_embedding 维度（GENERAL_VOCAB_SIZE / SHARED_EMBED_DIM）
+- 域配置（DOMAIN）
+
+所有训练/评估脚本应 import 此模块，而非各自定义常量。
+
+设计原则：
+1. 路径用 PROJECT_ROOT 派生，从任何 cwd 启动都正确
+2. 神经元 ID 按实验阶段组织（base / dialogue / cross_spec）
+3. 保持向后兼容：utils.py 的旧常量仍可使用（通过 re-export）
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# ── 项目根目录（不依赖 cwd）──────────────────────────────────────────────
+# experiment_config.py 位于 scripts/training/，项目根在上两级
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# ── 路径常量（PROJECT_ROOT 派生）─────────────────────────────────────────
+DATA_DIR = PROJECT_ROOT / "data" / "distill"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "neurons"
+DOMAIN_TOKENIZER_DIR = PROJECT_ROOT / "taiji" / "domains"
+SHARED_EMBEDDING_PATH = PROJECT_ROOT / "data" / "shared_embedding.pt"
+SIMPLE_ZH_DIR = PROJECT_ROOT / "data" / "simple_zh"
+LOG_DIR = PROJECT_ROOT / "logs"
+
+# 向后兼容：utils.py 旧代码期望 str 路径，这里提供 str 版本
+DATA_DIR_STR = str(DATA_DIR)
+OUTPUT_DIR_STR = str(OUTPUT_DIR)
+DOMAIN_TOKENIZER_DIR_STR = str(DOMAIN_TOKENIZER_DIR)
+SHARED_EMBEDDING_PATH_STR = str(SHARED_EMBEDDING_PATH)
+SIMPLE_ZH_DIR_STR = str(SIMPLE_ZH_DIR)
+
+# ── shared_embedding 维度（单一真相源）───────────────────────────────────
+GENERAL_VOCAB_SIZE = 256000
+SHARED_EMBED_DIM = 512
+
+# ── 域配置 ───────────────────────────────────────────────────────────────
+DEFAULT_DOMAIN = "zh"
+
+# ── 神经元 ID（单一真相源）──────────────────────────────────────────────
+# 按实验阶段组织，避免散落在 8+ 文件中复制粘贴
+
+# 基础神经元（百科/作文训练，无对话能力）
+ZH_COMPACT_NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
+ZH_STD_NEURON_ID = "zh_std0"
+
+# 对话版本（已 fine-tune 对话能力）
+ZH_COMPACT_DIALOGUE_IDS = [
+    "zh_aug0_dialogue", "zh_aug1_dialogue",
+    "zh_aug2_dialogue", "zh_aug3_dialogue",
+]
+ZH_STD_DIALOGUE_ID = "zh_std0_dialogue"
+
+# 综合体完整阵容（对话版本：4 compact + 1 standard）
+ENSEMBLE_DIALOGUE_IDS = ZH_COMPACT_DIALOGUE_IDS + [ZH_STD_DIALOGUE_ID]
+
+# 综合体基础版本（无对话能力，用于对照实验）
+ENSEMBLE_BASE_IDS = ZH_COMPACT_NEURON_IDS + [ZH_STD_NEURON_ID]
+
+# Shared Expert（如有）
+SHARED_EXPERT_ID = "zh_general"
+
+
+def get_neuron_path(neuron_id: str) -> str:
+    """获取神经元 checkpoint 路径。
+
+    Args:
+        neuron_id: 神经元 ID（如 "zh_aug0_dialogue"）
+
+    Returns:
+        checkpoint 文件绝对路径
+    """
+    return str(OUTPUT_DIR / f"neuron_{neuron_id}.pt")
+
+
+def get_cross_spec_weights_path(stage: str = "dialogue") -> str:
+    """获取跨规格投影层权重路径。
+
+    Args:
+        stage: "dialogue"=对话训练权重, "cross_spec"=simple_zh训练权重
+    """
+    if stage == "dialogue":
+        return str(OUTPUT_DIR / "cross_spec_dialogue.pt")
+    elif stage == "cross_spec":
+        return str(OUTPUT_DIR / "cross_spec_finetuned.pt")
+    else:
+        raise ValueError(f"Unknown stage: {stage}")
+
+
+def ensure_dirs() -> None:
+    """确保关键目录存在。"""
+    for d in [OUTPUT_DIR, LOG_DIR, SIMPLE_ZH_DIR, DATA_DIR]:
+        d.mkdir(parents=True, exist_ok=True)

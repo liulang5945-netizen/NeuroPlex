@@ -46,11 +46,10 @@ from taiji.resonance import (
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR, load_simple_zh_texts,
+    OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
 )
+from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
 
-DOMAIN = "zh"
-NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
 DEVICE = "cpu"
 
 # 日志与 checkpoint 路径
@@ -158,7 +157,7 @@ def load_neuron_with_embedding(nid, cfg, debug=False):
         print(f"  [{nid}] missing keys: {missing[:5]}{'...' if len(missing)>5 else ''}", flush=True)
         print(f"  [{nid}] unexpected keys: {unexpected[:5]}{'...' if len(unexpected)>5 else ''}", flush=True)
 
-    shared_emb = nn.Embedding(256000, 512)
+    shared_emb = create_shared_embedding(DEVICE)
     if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
         shared_emb.load_state_dict(ckpt["shared_embedding_state"])
     shared_emb.to(DEVICE)

@@ -35,10 +35,10 @@ from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR, SequentialSampler,
+    OUTPUT_DIR, SequentialSampler, create_shared_embedding,
 )
+from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN
 
-DOMAIN = "zh"
 DEVICE = "cpu"
 
 LOG_DIR = os.path.join(
@@ -92,7 +92,7 @@ def load_base_neuron(base_id: str):
     neuron = ResonanceNeuron(cfg).to(DEVICE)
     neuron.load_state_dict(ckpt["state_dict"], strict=False)
 
-    shared_emb = nn.Embedding(256000, 512)
+    shared_emb = create_shared_embedding(DEVICE)
     if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
         shared_emb.load_state_dict(ckpt["shared_embedding_state"])
     shared_emb.to(DEVICE)

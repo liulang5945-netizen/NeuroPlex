@@ -22,18 +22,16 @@ import torch
 import torch.nn as nn
 
 from taiji.resonance.config import DOMAIN_VOCAB_SIZES, GENERAL_TOKENIZER_DOMAIN
-
-
-# ── 路径常量 ──────────────────────────────────────────────────────────────
-DATA_DIR = "data/distill"
-OUTPUT_DIR = "data/neurons"
-DOMAIN_TOKENIZER_DIR = "taiji/domains"
-SHARED_EMBEDDING_PATH = "data/shared_embedding.pt"
-SIMPLE_ZH_DIR = "data/simple_zh"
-
-# ── 模型常量 ──────────────────────────────────────────────────────────────
-GENERAL_VOCAB_SIZE = 256000
-SHARED_EMBED_DIM = 512
+# P0 硬编码修复：路径/维度/ID 集中管理，从 experiment_config 导入
+from scripts.training.experiment_config import (
+    DATA_DIR_STR as DATA_DIR,
+    OUTPUT_DIR_STR as OUTPUT_DIR,
+    DOMAIN_TOKENIZER_DIR_STR as DOMAIN_TOKENIZER_DIR,
+    SHARED_EMBEDDING_PATH_STR as SHARED_EMBEDDING_PATH,
+    SIMPLE_ZH_DIR_STR as SIMPLE_ZH_DIR,
+    GENERAL_VOCAB_SIZE,
+    SHARED_EMBED_DIM,
+)
 
 
 # ── HuggingFace 数据源映射（供 load_domain_texts 使用）──────────────────────

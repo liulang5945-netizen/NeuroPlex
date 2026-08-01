@@ -46,11 +46,12 @@ from scripts.training.utils import (
     load_or_create_shared_embedding,
     OUTPUT_DIR, SequentialSampler,
 )
+from scripts.training.experiment_config import (
+    ZH_COMPACT_NEURON_IDS,
+    SIMPLE_ZH_DIR_STR as DATA_DIR,
+)
 
-DATA_DIR = "data/simple_zh"
-
-# 同域 compact 神经元列表（用于 side_channels 预建立）
-ZH_COMPACT_NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
+# 同域 compact 神经元列表（用于 side_channels 预建立，从 experiment_config 导入）
 
 
 def load_multi_texts(data_files: list[str], max_texts: int = 10000000) -> list[str]:

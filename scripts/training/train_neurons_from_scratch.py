@@ -29,6 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from taiji.resonance.config import get_domain_neuron_config, NeuronConfig, DOMAIN_VOCAB_SIZES
 from taiji.resonance.neuron import ResonanceNeuron
+from scripts.training.experiment_config import OUTPUT_DIR_STR as OUTPUT_DIR
+from scripts.training.utils import create_shared_embedding
 
 # ── 默认超参数 ──
 BATCH_SIZE = 4
@@ -46,7 +48,7 @@ DOMAINS = ["zh", "en", "code", "math", "general"]
 # general 复用 en tokenizer
 GENERAL_TOKENIZER_DOMAIN = "en"
 
-OUTPUT_DIR = "data/neurons"
+# OUTPUT_DIR 从 experiment_config 导入（见文件顶部 import）
 
 
 def load_domain_data(domain: str, data_dir: str = "data/sft") -> Optional[Dict[str, torch.Tensor]]:
@@ -105,7 +107,7 @@ def train_one_domain(
     n_samples = input_ids.shape[0]
 
     # 共享嵌入表（256K general vocab → 512-dim）
-    shared_embedding = torch.nn.Embedding(256000, 512).to(device)
+    shared_embedding = create_shared_embedding(device)
 
     # Optimizer: 训练全部参数（embedding + body + lm_head）
     optimizer = torch.optim.AdamW(neuron.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)

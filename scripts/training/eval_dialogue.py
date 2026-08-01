@@ -32,10 +32,8 @@ from scripts.training.utils import (
     OUTPUT_DIR, load_simple_zh_texts,
 )
 from scripts.training.finetune_cross_spec import load_dialogue_texts, load_neuron_with_embedding
+from scripts.training.experiment_config import ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
 
-DOMAIN = "zh"
-# 所有神经元都已 fine-tune 对话能力
-NEURON_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue", "zh_aug3_dialogue", "zh_std0_dialogue"]
 DEVICE = "cpu"
 
 

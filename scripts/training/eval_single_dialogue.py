@@ -16,7 +16,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
-from scripts.training.utils import load_general_tokenizer, OUTPUT_DIR
+from scripts.training.utils import load_general_tokenizer, OUTPUT_DIR, create_shared_embedding
+from scripts.training.experiment_config import DEFAULT_DOMAIN
 
 DEVICE = "cpu"
 
@@ -29,7 +30,7 @@ def load_neuron(neuron_id: str):
     if "neuron_config" in ckpt and ckpt["neuron_config"] is not None:
         cfg = ckpt["neuron_config"]
     else:
-        cfg = get_domain_neuron_config("zh", spec="compact")
+        cfg = get_domain_neuron_config(DEFAULT_DOMAIN, spec="compact")
 
     neuron = ResonanceNeuron(cfg).to(DEVICE)
     neuron.load_state_dict(ckpt["state_dict"], strict=False)

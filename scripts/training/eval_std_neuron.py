@@ -34,12 +34,14 @@ from taiji.resonance import (
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR, load_simple_zh_texts,
+    OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
+)
+from scripts.training.experiment_config import (
+    ZH_COMPACT_NEURON_IDS as COMPACT_NEURON_IDS,
+    ZH_STD_NEURON_ID as STD_NEURON_ID,
+    DEFAULT_DOMAIN as DOMAIN,
 )
 
-DOMAIN = "zh"
-STD_NEURON_ID = "zh_std0"
-COMPACT_NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
 DEVICE = "cpu"
 
 
@@ -69,7 +71,7 @@ def load_neuron(nid, spec):
     neuron.eval()
 
     # 加载该神经元自己的 shared_embedding
-    shared_emb = nn.Embedding(256000, 512)
+    shared_emb = create_shared_embedding(DEVICE)
     if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
         shared_emb.load_state_dict(ckpt["shared_embedding_state"])
     shared_emb.to(DEVICE).eval()

@@ -29,9 +29,8 @@ from scripts.training.utils import (
     OUTPUT_DIR, load_simple_zh_texts,
 )
 from scripts.training.finetune_side_channels import load_neuron_with_embedding
+from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
 
-DOMAIN = "zh"
-NEURON_IDS = ["zh_aug0", "zh_aug1", "zh_aug2", "zh_aug3"]
 DEVICE = "cpu"
 
 

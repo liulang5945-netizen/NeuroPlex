@@ -36,12 +36,11 @@ from taiji.resonance import (
 from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
-    OUTPUT_DIR, load_simple_zh_texts,
+    OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
 )
 
-DOMAIN = "zh"
-# 使用已 fine-tune 对话能力的神经元
-NEURON_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue", "zh_aug3_dialogue", "zh_std0_dialogue"]
+from scripts.training.experiment_config import ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
+
 DEVICE = "cpu"
 
 LOG_DIR = os.path.join(
@@ -168,7 +167,7 @@ def load_neuron_with_embedding(nid):
     neuron = ResonanceNeuron(cfg).to(DEVICE)
     neuron.load_state_dict(ckpt["state_dict"], strict=False)
 
-    shared_emb = nn.Embedding(256000, 512)
+    shared_emb = create_shared_embedding(DEVICE)
     if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"] is not None:
         shared_emb.load_state_dict(ckpt["shared_embedding_state"])
     shared_emb.to(DEVICE)
