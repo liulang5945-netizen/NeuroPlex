@@ -187,17 +187,31 @@
 - [_smoke_s8_checkpoint.py](file:///e:/taiji-neuron/scripts/training/_smoke_s8_checkpoint.py)：checkpoint round-trip smoke test 全部通过（body/emb/optimizer_state 完整恢复，0 mismatch）
 - **向后兼容**：旧 checkpoint（无 body_state/emb_state）自动跳过加载，不影响现有训练产物
 
-### S9. 生物学机制是推理期占位，非训练一等公民 ★★
+### S9. 生物学机制是推理期占位，非训练一等公民 ★★（核心已修复：调质门控 attention/FFN）
 
-| 机制 | 训练时 | 推理时 | 上限更高 |
-|------|--------|--------|---------|
-| STDP | 只更新 side_channels，不影响 body；轮次级分辨率 | forward 内记录 | 影响 attention/FFN 权重；亚轮次分辨率 |
-| 神经调质 | 3 个全局标量，只调 lr/写入强度/不应期 | forward 内调用 | per-region 调质；门控注意力/可塑性 |
-| Gamma | 仅单频段 40Hz | monkey-patch field | 多频段（theta-gamma 嵌套）+ 跨频耦合 |
-| 睡眠 | 重放只是计数，不真正 forward | save_state | 真正重放 + 经验回放训练 |
-| 新生 | 依赖外部 teacher 蒸馏 | - | 自组织新生（从经验生长） |
+> **状态更新**（2026-08-01）：
+> - S1 修复已让 neuromodulator/gamma/STDP/coaction 进入 `forward_train` 梯度流：
+>   - neuromodulator `get_field_write_scale()` → 乘 scores → 影响融合权重（[ensemble.py:848,977-978](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L848)）
+>   - gamma `tick()` + `kuramoto_step()` + `batch_gate_factors()` → 乘 scores（[ensemble.py:951-986](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L951)）
+>   - STDP `record_firing()` + coaction `update()` 记录时序（不影响梯度）
+> - **S9 修复（2026-08-01）：调质从"融合层 scores 缩放器"升级为"Transformer 内部门控"**：
+>   - norepinephrine → `get_attention_temp_gain()` → 缩放 query → 门控注意力温度（聚焦/泛化）
+>   - dopamine → `get_ffn_gain()` → 缩放 SwiGLU 输出 → 门控 FFN 强度（强化/衰减）
+>   - 注入路径：`ensemble.forward` / `forward_train` → `_parallel_forward` → `neuron.forward` → `TransformerBlock` → `GroupedQueryAttention` + `SwiGLU`
+>   - 全程可微（gain 是 Python float，但调质本身是外部状态；attention/FFN 权重通过 gain 进入梯度流）
+>   - 4/4 smoke test 通过（[_smoke_s9_neuromod_gain.py](file:///e:/taiji-neuron/scripts/training/_smoke_s9_neuromod_gain.py)）
+>
+> 审计原文"forward_train 内完全不引用 self.neuromodulator"已**过时**。剩余真实缺口见下表。
 
-**核心问题**：所有生物学机制均以 `Optional[Any]` 注入，`forward_train` 内**完全不引用** `self.neuromodulator`。
+| 机制 | S1+S9 后现状 | 剩余缺口（上限更高） |
+|------|--------|---------|
+| STDP | 记录发放时序，不影响梯度 | **影响 attention/FFN 权重**（Hebbian 可塑性进入 body） |
+| 神经调质 | ✅ 门控 attention 温度 + FFN 强度 + 融合 scores | **per-region 调质**（当前全局共享，未来按域/区差异化） |
+| Gamma | 单 40Hz 频段，门控 scores | **多频段（theta-gamma 嵌套）+ 跨频耦合** |
+| 睡眠 | 重放只是计数（[neuro_modulation.py:210-212](file:///e:/taiji-neuron/taiji/resonance/neuro_modulation.py#L210)） | **真正 forward 重放 + 经验回放训练** |
+| 新生 | `should_trigger_neurogenesis()` 存在但依赖外部 teacher | **自组织新生（从经验生长）** |
+
+**核心问题（已修复）**：调质已从"融合层 scores 缩放器"升级为"Transformer 内部门控"，进入 attention/FFN 计算并参与梯度流。剩余 STDP/睡眠/新生是独立子项，不阻塞主训练路径。
 
 ### S10. Transformer 层零生物学修改 ★
 

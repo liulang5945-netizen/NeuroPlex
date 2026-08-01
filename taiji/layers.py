@@ -109,12 +109,23 @@ class GroupedQueryAttention(nn.Module):
         mask: Optional[torch.Tensor] = None,
         kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
+        temp_gain: float = 1.0,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        """S9: temp_gain 门控注意力温度（norepinephrine 驱动）。
+
+        temp_gain > 1 → xq 放大 → logits 放大 → softmax 更尖锐（高警觉，聚焦）
+        temp_gain < 1 → xq 缩小 → logits 缩小 → softmax 更分散（低警觉，泛化）
+        temp_gain = 1 → 标准注意力（向后兼容）
+        """
         bsz, seqlen, _ = x.shape
 
         xq = self.wq(x).view(bsz, seqlen, self.num_heads, self.head_dim)
         xk = self.wk(x).view(bsz, seqlen, self.num_kv_heads, self.head_dim)
         xv = self.wv(x).view(bsz, seqlen, self.num_kv_heads, self.head_dim)
+
+        # S9: norepinephrine 门控注意力温度（缩放 query 等价于缩放 logits）
+        if temp_gain != 1.0:
+            xq = xq * temp_gain
 
         # RoPE
         start_pos = kv_cache[0].shape[1] if kv_cache is not None else 0
@@ -169,8 +180,19 @@ class SwiGLU(nn.Module):
         self.w_gate = nn.Linear(hidden_size, intermediate_size, bias=False)
         self.w2 = nn.Linear(intermediate_size, hidden_size, bias=False)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w2(F.silu(self.w_gate(x)) * self.w1(x))
+    def forward(self, x: torch.Tensor, gain: float = 1.0) -> torch.Tensor:
+        """S9: gain 门控 FFN 输出强度（dopamine 驱动）。
+
+        gain > 1 → FFN 输出增强（奖励信号，强化重要特征通过）
+        gain < 1 → FFN 输出衰减（惩罚信号，弱化非重要特征）
+        gain = 1 → 标准 FFN（向后兼容）
+
+        gain 作用于残差路径（FFN 输出），不影响 Pre-Norm 的输入。
+        """
+        out = self.w2(F.silu(self.w_gate(x)) * self.w1(x))
+        if gain != 1.0:
+            out = out * gain
+        return out
 
 
 class TransformerBlock(nn.Module):
@@ -193,10 +215,20 @@ class TransformerBlock(nn.Module):
         mask: Optional[torch.Tensor] = None,
         kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
+        temp_gain: float = 1.0,
+        ffn_gain: float = 1.0,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        """S9: temp_gain / ffn_gain 接收神经调质信号，注入 Transformer 内部计算。
+
+        - temp_gain: 传给 GroupedQueryAttention（norepinephrine 驱动注意力温度）
+        - ffn_gain: 传给 SwiGLU（dopamine 驱动 FFN 输出强度）
+        - 两者默认 1.0，向后兼容标准 Transformer
+        """
         # Attention + Residual (Pre-Norm)
-        h, new_kv_cache = self.attention(self.attention_norm(x), mask, kv_cache, use_cache)
+        h, new_kv_cache = self.attention(
+            self.attention_norm(x), mask, kv_cache, use_cache, temp_gain=temp_gain,
+        )
         x = x + self.resid_dropout(h)
         # FFN + Residual (Pre-Norm)
-        x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x)))
+        x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x), gain=ffn_gain))
         return x, new_kv_cache

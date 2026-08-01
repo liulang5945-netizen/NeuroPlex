@@ -97,6 +97,30 @@ class NeuromodulatorState:
         """
         return 0.5 + self.norepinephrine * 1.0
 
+    def get_attention_temp_gain(self) -> float:
+        """S9: 获取注意力温度增益（norepinephrine 驱动）。
+
+        作用于 Transformer 内部 attention 的 query 缩放：
+        - 高 NE → temp_gain > 1 → logits 放大 → softmax 更尖锐（高警觉，聚焦）
+        - 低 NE → temp_gain < 1 → logits 缩小 → softmax 更分散（低警觉，泛化）
+        - NE = 0.5 → temp_gain = 1.0（中性，标准注意力）
+
+        与 get_field_write_scale 使用相同映射，保持调质语义一致。
+        """
+        return 0.5 + self.norepinephrine * 1.0
+
+    def get_ffn_gain(self) -> float:
+        """S9: 获取 FFN 增益（dopamine 驱动）。
+
+        作用于 Transformer 内部 SwiGLU FFN 的输出缩放：
+        - 高 DA → ffn_gain > 1 → FFN 输出增强（奖励信号，强化重要特征通过）
+        - 低 DA → ffn_gain < 1 → FFN 输出衰减（惩罚信号，弱化非重要特征）
+        - DA = 0.5 → ffn_gain = 1.0（中性，标准 FFN）
+
+        与 get_lr_multiplier 使用相同映射范围 [0.5, 2.0]。
+        """
+        return 0.5 + self.dopamine * 1.5
+
     def should_trigger_neurogenesis(self) -> bool:
         """是否应该触发神经元新生（低多巴胺持续）。"""
         return self.dopamine < 0.2

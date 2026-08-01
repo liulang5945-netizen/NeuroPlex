@@ -409,6 +409,8 @@ class ResonanceNeuron(nn.Module):
         return_logits: bool = False,
         side_signals: Optional[Dict[int, torch.Tensor]] = None,
         mm_logits_modality: Optional[str] = None,
+        temp_gain: float = 1.0,
+        ffn_gain: float = 1.0,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass through the neuron.
 
@@ -421,6 +423,10 @@ class ResonanceNeuron(nn.Module):
             side_signals: optional {neuron_id: vector} for side-channel communication
             mm_logits_modality: if set, 返回该模态的 lm_head logits（而非文本 lm_head）。
                                 优先级高于 return_logits（return_logits 文本，mm_logits_modality 多模态）。
+            temp_gain: S9 注意力温度增益（norepinephrine 驱动）。
+                       >1 聚焦（logits 尖锐），<1 泛化（logits 分散），1.0 标准。
+            ffn_gain: S9 FFN 输出增益（dopamine 驱动）。
+                      >1 强化（奖励），<1 衰减（惩罚），1.0 标准。
 
         Returns:
             dict with keys:
@@ -449,11 +455,11 @@ class ResonanceNeuron(nn.Module):
             causal_mask = None
 
         for i, block in enumerate(self.layers):
-            # Standard transformer block (layers.py, zero changes)
+            # S9: temp_gain/ffn_gain 注入 Transformer 内部（神经调质门控 attention/FFN）
             h_normed = block.attention_norm(h)
-            attn_out, _ = block.attention(h_normed, mask=causal_mask)
+            attn_out, _ = block.attention(h_normed, mask=causal_mask, temp_gain=temp_gain)
             h = h + attn_out
-            h = h + block.feed_forward(block.ffn_norm(h))
+            h = h + block.feed_forward(block.ffn_norm(h), gain=ffn_gain)
 
             # Field conditioning (round 2+ only)
             if field_state is not None and round_num > 1:

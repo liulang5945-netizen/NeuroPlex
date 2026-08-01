@@ -293,6 +293,8 @@ class ResonanceEnsemble:
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         mm_logits_modality: Optional[str] = None,
         side_signals: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
+        temp_gain: float = 1.0,
+        ffn_gain: float = 1.0,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """并行 forward 多个神经元（人脑启发：神经元并行工作）。
 
@@ -311,6 +313,8 @@ class ResonanceEnsemble:
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
             mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
             side_signals: {post_nid: {pre_nid: field_vector}} per-pair 突触信号
+            temp_gain: S9 注意力温度增益（norepinephrine 驱动，所有 neuron 共享）
+            ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
             (round_vecs, round_logits)
@@ -338,6 +342,8 @@ class ResonanceEnsemble:
                 field_state=fs,
                 round_num=round_num,
                 return_logits=need_logits,
+                temp_gain=temp_gain,
+                ffn_gain=ffn_gain,
             )
             if side_signals is not None and nid in side_signals:
                 kwargs["side_signals"] = side_signals[nid]
@@ -461,6 +467,17 @@ class ResonanceEnsemble:
         all_logits: Dict[str, torch.Tensor] = {}
         logits_history: List[torch.Tensor] = []
 
+        # S9: 从神经调质计算 Transformer 内部 gain（所有 neuron 共享全局调质水平）
+        # - temp_gain: norepinephrine 驱动注意力温度（高 NE → 聚焦）
+        # - ffn_gain: dopamine 驱动 FFN 输出强度（高 DA → 强化）
+        # 调质为 None 时 gain=1.0（标准 Transformer，向后兼容）
+        if self.neuromodulator is not None:
+            temp_gain = float(self.neuromodulator.get_attention_temp_gain())
+            ffn_gain = float(self.neuromodulator.get_ffn_gain())
+        else:
+            temp_gain = 1.0
+            ffn_gain = 1.0
+
         # ── Round 1: all neurons run independently ──
         # 大规模内存优化（B2 peak fix）：
         # N > top_K 时，round 1 不为所有 neuron 请求 logits（避免 O(N) 峰值内存）
@@ -481,6 +498,8 @@ class ResonanceEnsemble:
             return_logits_filter=round1_logits_filter,
             neuron_embeddings=neuron_embeddings,
             mm_logits_modality=mm_logits_modality,
+            temp_gain=temp_gain,
+            ffn_gain=ffn_gain,
         )
 
         # Write round 1 to field
@@ -554,6 +573,8 @@ class ResonanceEnsemble:
                     field_state=None,
                     round_num=1,
                     return_logits=True,
+                    temp_gain=temp_gain,
+                    ffn_gain=ffn_gain,
                 )
                 if mm_logits_modality is not None:
                     best_kwargs["mm_logits_modality"] = mm_logits_modality
@@ -616,6 +637,8 @@ class ResonanceEnsemble:
                 neuron_embeddings=neuron_embeddings,
                 mm_logits_modality=mm_logits_modality,
                 side_signals=side_signals_per_neuron,
+                temp_gain=temp_gain,
+                ffn_gain=ffn_gain,
             )
 
             # 人脑启发：不应期调度（错峰写入）
@@ -849,6 +872,23 @@ class ResonanceEnsemble:
             except Exception:
                 write_scale = 1.0
 
+        # S9: 神经调质门控 Transformer 内部计算（注入 attention/FFN，进入梯度流）
+        # - temp_gain: norepinephrine → 注意力温度（高 NE → 聚焦，低 NE → 泛化）
+        # - ffn_gain: dopamine → FFN 输出强度（高 DA → 强化，低 DA → 衰减）
+        # 这让调质从"融合层 scores 缩放器"升级为"Transformer 内部门控"，
+        # 真正进入梯度流，成为可学习的生物学一等公民。
+        temp_gain = 1.0
+        ffn_gain = 1.0
+        if neuromodulator is not None:
+            try:
+                temp_gain = float(neuromodulator.get_attention_temp_gain())
+            except Exception:
+                temp_gain = 1.0
+            try:
+                ffn_gain = float(neuromodulator.get_ffn_gain())
+            except Exception:
+                ffn_gain = 1.0
+
         def _get_emb(nid: str) -> torch.Tensor:
             if neuron_embeddings is not None and nid in neuron_embeddings:
                 return neuron_embeddings[nid]
@@ -903,6 +943,8 @@ class ResonanceEnsemble:
                     field_state=fs,
                     round_num=round_num,
                     return_logits=True,
+                    temp_gain=temp_gain,
+                    ffn_gain=ffn_gain,
                 )
                 if side_signals_per_neuron is not None:
                     kwargs["side_signals"] = side_signals_per_neuron[nid]
