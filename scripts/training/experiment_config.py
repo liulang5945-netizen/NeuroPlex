@@ -75,6 +75,11 @@ SAMPLING_TOP_K = 40
 SAMPLING_REPETITION_PENALTY = 1.2
 SAMPLING_MAX_TOKENS = 100  # 折中默认值（原 single=100, aug_joint=80, dialogue=120）
 
+# ── SFT 对话分隔符（S3: answer masking）─────────────────────────────────
+# 对话数据格式："问：{instruction}\n答：{output}"
+# 训练时只对 "答：" 之后的 token 计算 loss（answer masking）
+SFT_ANSWER_MARKER = "答："
+
 # ── 评估 prompt（按神经元类型分组）──────────────────────────────────────
 # 对话神经元（fine-tune 过对话数据）：用 "问：...答：" 格式匹配训练数据
 DIALOGUE_PROMPTS = [

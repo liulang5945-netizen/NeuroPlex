@@ -49,7 +49,7 @@ from scripts.training.utils import (
     OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,
     make_wsd_scheduler, build_muon_adamw_optimizers,
 )
-from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN
+from scripts.training.experiment_config import ZH_COMPACT_NEURON_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN, SFT_ANSWER_MARKER
 
 DEVICE = "cpu"
 
@@ -352,15 +352,19 @@ def main():
             neuron_embeddings = {}
             targets = None
             mask = None
+            sft_mask = None
             valid = True
             for nid, shared_emb in shared_embeddings.items():
-                emb_out, tgt, msk = batch_align_and_embed(
+                # S3: 传入 answer_marker，获取 sft_mask（只对 answer 部分计算 loss）
+                emb_out, tgt, msk, sft = batch_align_and_embed(
                     batch_texts, domain_sp, general_sp, shared_emb,
+                    answer_marker=SFT_ANSWER_MARKER,
                 )
                 neuron_embeddings[nid] = emb_out.to(DEVICE)
                 if targets is None:
                     targets = tgt.to(DEVICE)
                     mask = msk.to(DEVICE)
+                    sft_mask = sft.to(DEVICE)
 
             optimizer.zero_grad()
             if adamw_optimizer is not None:
@@ -428,15 +432,17 @@ def main():
                 shift_logits = fused_logits[:, :-1, :].contiguous()
                 shift_targets = targets[:, 1:].contiguous()
                 shift_mask = mask[:, 1:].contiguous()
+                # S3: SFT answer masking — 只对 answer 部分计算 loss
+                shift_sft_mask = sft_mask[:, 1:].contiguous()
                 shift_targets = shift_targets.clone()
-                shift_targets[~shift_mask] = -100
+                shift_targets[~(shift_mask & shift_sft_mask)] = -100
                 ce_loss = F.cross_entropy(
                     shift_logits.view(-1, shift_logits.size(-1)),
                     shift_targets.view(-1),
                     ignore_index=-100,
                     reduction="sum",
                 )
-                n_tokens = shift_mask.sum().item()
+                n_tokens = (shift_mask & shift_sft_mask).sum().item()
                 ce_loss = ce_loss / max(n_tokens, 1)
 
                 # 多任务 loss：CE + 负载均衡 + 多样性

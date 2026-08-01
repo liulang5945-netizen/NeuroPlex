@@ -38,7 +38,7 @@ from scripts.training.utils import (
     OUTPUT_DIR, SequentialSampler, create_shared_embedding,
     make_wsd_scheduler,
 )
-from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K, DIALOGUE_PROMPTS
+from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K, DIALOGUE_PROMPTS, SFT_ANSWER_MARKER
 
 DEVICE = "cpu"
 
@@ -267,8 +267,10 @@ def main():
         accum_loss = 0.0
         for _ in range(args.grad_accum):
             try:
-                shared_emb_out, targets, mask = batch_align_and_embed(
+                # S3: 传入 answer_marker，获取 sft_mask（只对 answer 部分计算 loss）
+                shared_emb_out, targets, mask, sft_mask = batch_align_and_embed(
                     batch_texts, domain_sp, general_sp, shared_emb,
+                    answer_marker=SFT_ANSWER_MARKER,
                 )
             except Exception:
                 accum_loss = 0
@@ -279,8 +281,11 @@ def main():
             shift_logits = logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
             shift_mask = mask[:, 1:].contiguous()
+            # S3: SFT answer masking — 只对 answer 部分计算 loss
+            shift_sft_mask = sft_mask[:, 1:].contiguous()
             shift_targets_flat = shift_targets.clone()
-            shift_targets_flat[~shift_mask] = -100
+            # attention_mask & sft_mask 的交集：valid 且 answer 部分
+            shift_targets_flat[~(shift_mask & shift_sft_mask)] = -100
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_targets_flat.view(-1),
@@ -305,27 +310,37 @@ def main():
         if step % args.eval_every == 0 or step == args.steps:
             neuron.eval()
             total_ce = 0.0
+            total_tokens = 0
             n_eval = 0
             with torch.no_grad():
                 for text in eval_texts:
-                    shared_emb_out, targets, mask = batch_align_and_embed(
+                    # S3: eval 也用 SFT masking，只评估 answer 部分的 PPL
+                    shared_emb_out, targets, mask, sft_mask = batch_align_and_embed(
                         [text], domain_sp, general_sp, shared_emb,
+                        answer_marker=SFT_ANSWER_MARKER,
                     )
                     result = neuron.forward(shared_emb_out, return_logits=True)
                     logits = result["logits"]
                     shift_logits = logits[:, :-1, :].contiguous()
                     shift_targets = targets[:, 1:].contiguous()
                     shift_mask = mask[:, 1:].contiguous()
+                    shift_sft_mask = sft_mask[:, 1:].contiguous()
                     shift_targets_flat = shift_targets.clone()
-                    shift_targets_flat[~shift_mask] = -100
+                    shift_targets_flat[~(shift_mask & shift_sft_mask)] = -100
+                    # S3: 用 sum + 手动除 token 数（防止 answer 部分为空时 NaN）
+                    n_ans = (shift_mask & shift_sft_mask).sum().item()
+                    if n_ans == 0:
+                        continue  # 该样本无 answer token，跳过
                     ce = F.cross_entropy(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_targets_flat.view(-1),
                         ignore_index=-100,
+                        reduction="sum",
                     )
                     total_ce += ce.item()
+                    total_tokens += n_ans
                     n_eval += 1
-            val_ppl = math.exp(min(total_ce / max(n_eval, 1), 20))
+            val_ppl = math.exp(min(total_ce / max(total_tokens, 1), 20))
             print(f"\n  [{args.target_id}] [EVAL] step {step}: val PPL={val_ppl:.2f}", flush=True)
 
             if val_ppl < best_val_loss:

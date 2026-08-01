@@ -456,6 +456,7 @@ def batch_align_and_embed(
     shared_embedding: torch.nn.Embedding,
     pad_token_id: int = 0,
     max_seq_len: int = 128,
+    answer_marker: Optional[str] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batch-align domain texts to general tokens and produce padded embeddings + targets.
 
@@ -469,15 +470,25 @@ def batch_align_and_embed(
         general_sp: general 256K SentencePieceProcessor.
         shared_embedding: nn.Embedding(256000, 512) shared across all neurons.
         pad_token_id: padding token ID for both tokenizers.
+        max_seq_len: 最大序列长度（截断）。
+        answer_marker: SFT 分隔符（如 "答："）。传入时额外返回 sft_mask，
+            只保留 marker 之后的 token（answer 部分）计入 loss。
+            不传时保持原行为（返回 3 元组），向后兼容。
 
     Returns:
-        (shared_emb, domain_targets, attention_mask) where:
+        不传 answer_marker:
+            (shared_emb, domain_targets, attention_mask)
+        传 answer_marker:
+            (shared_emb, domain_targets, attention_mask, sft_mask)
         - shared_emb: [B, L_max, base_embed_dim] from shared embedding table
         - domain_targets: [B, L_max] domain token IDs (aligned), -100 for pad/unaligned
         - attention_mask: [B, L_max] bool (True=valid, False=pad)
+        - sft_mask: [B, L_max] bool (True=answer token, False=question/pad)
     """
     all_general_ids = []
     all_targets = []
+    # S3: SFT answer 起始 token index（general token 维度），None 表示无分隔符
+    answer_starts: List[Optional[int]] = []
 
     for text in texts:
         g_ids, d_targets = build_position_alignment(text, domain_sp, general_sp)
@@ -488,6 +499,22 @@ def batch_align_and_embed(
         all_general_ids.append(g_ids)
         all_targets.append(d_targets)
 
+        # S3: 计算 answer 起始 token index
+        if answer_marker is not None:
+            marker_idx = text.find(answer_marker)
+            if marker_idx == -1:
+                # 无分隔符，整个文本视为 answer（mask 全 True）
+                answer_starts.append(0)
+            else:
+                # prefix 含分隔符本身（分隔符属于 question，不计入 loss）
+                prefix_with_marker = text[:marker_idx + len(answer_marker)]
+                prefix_ids = general_sp.encode(prefix_with_marker)
+                # 截断到 max_seq_len
+                start = min(len(prefix_ids), max_seq_len) if max_seq_len > 0 else len(prefix_ids)
+                answer_starts.append(start)
+        else:
+            answer_starts.append(None)
+
     # Pad to max length (capped by max_seq_len)
     max_len = max(len(ids) for ids in all_general_ids)
     B = len(texts)
@@ -496,13 +523,26 @@ def batch_align_and_embed(
     padded_targets = torch.full((B, max_len), -100, dtype=torch.long)
     mask = torch.zeros(B, max_len, dtype=torch.bool)
 
+    # S3: SFT mask
+    sft_mask = None
+    if answer_marker is not None:
+        sft_mask = torch.zeros(B, max_len, dtype=torch.bool)
+
     for b in range(B):
         L = len(all_general_ids[b])
         padded_ids[b, :L] = all_general_ids[b]
         padded_targets[b, :L] = all_targets[b]
         mask[b, :L] = True
 
+        # S3: answer 部分 mask 为 True
+        if sft_mask is not None and answer_starts[b] is not None:
+            start = answer_starts[b]
+            if start < L:
+                sft_mask[b, start:L] = True
+
     # Embed
     shared_emb = shared_embedding(padded_ids)  # [B, L_max, base_embed_dim]
 
+    if sft_mask is not None:
+        return shared_emb, padded_targets, mask, sft_mask
     return shared_emb, padded_targets, mask

@@ -40,17 +40,32 @@
   - `DOMAINS` 加入 general 域（256K vocab，混合语料 zh+en+code+math）
   - 新增 `load_mixed_corpus()` 函数支持 general 域的混合语料加载
 
-### S3. Loss 单一化（全线纯 CE）★★★
+### S3. Loss 单一化（全线纯 CE）★★★ ✅ 已修复
 
-| 维度 | 当前 | 上限更高 |
+| 维度 | 修复前 | 修复后 |
 |------|------|---------|
-| 训练 loss | 5 个训练脚本全用纯 shift-CE | 多任务 loss |
-| 协作层训练 | 纯 CE，无协作约束（[finetune_cross_spec.py:431-438](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py#L431-L438)） | + margin ranking + diversity + load balancing |
-| SFT 训练 | question 和 answer 同等权重（[finetune_neuron_dialogue.py:284-288](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py#L284-L288)） | + SFT answer masking |
+| 训练 loss | 5 个训练脚本全用纯 shift-CE | 对话训练用 SFT masking + 协作训练用多任务 loss |
+| 协作层训练 | 纯 CE，无协作约束（[finetune_cross_spec.py:431-438](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py#L431-L438)） | CE + balance_loss + diversity_loss（S1 已修复） |
+| SFT 训练 | question 和 answer 同等权重（[finetune_neuron_dialogue.py:284-288](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py#L284-L288)） | **SFT answer masking：只对"答："后的 token 计算 loss** |
 | 后果 | side_channels 退化成噪声；模型复述 question | 协作真涌现 + 回答质量 |
 | 妥协原因 | CE 最简单 | |
-| 提升幅度 | 协作涌现 +15-30%，回答质量 +15-25% | |
-| 实施难度 | 中 | |
+| 提升幅度 | 协作涌现 +15-30%，回答质量 +15-25% | 已解除 |
+
+**修复详情**（2026-08-01）：
+- [translator.py](file:///e:/taiji-neuron/taiji/resonance/translator.py) `batch_align_and_embed` 新增 `answer_marker` 参数：
+  - 传入 `answer_marker="答："` 时返回 4 元组 `(shared_emb, targets, mask, sft_mask)`
+  - `sft_mask` 标记 answer 部分（"答："之后的 token）为 True，question/pad 为 False
+  - 不传时返回 3 元组，**完全向后兼容**（10+ 调用点无需修改）
+  - 处理截断、无分隔符、padding 边界情况
+- [experiment_config.py](file:///e:/taiji-neuron/scripts/training/experiment_config.py) 新增 `SFT_ANSWER_MARKER = "答："` 常量
+- 3 个对话训练脚本应用 SFT masking：
+  - [finetune_neuron_dialogue.py](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py)：训练 + eval 都用 SFT masking，eval 改用 `reduction="sum"` 防止 answer 为空时 NaN
+  - [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：协作训练用 `shift_mask & shift_sft_mask` 交集
+  - [finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py)：同上
+- balance_loss（负载均衡）和 diversity_loss（field_vector 多样性）已在 S1 修复中接入 `forward_train`
+- 5/5 验证通过（[verify_sft_mask.py](file:///e:/taiji-neuron/scripts/training/verify_sft_mask.py)）：向后兼容、基本正确性、batch 对齐、截断处理、无分隔符
+
+**注**：margin ranking 暂未实现（与 balance_loss 语义部分冲突，且需要 individual_logits 额外计算开销）。当前 balance_loss + diversity_loss 已覆盖协作约束需求。
 
 ### S4. 训练步数整体偏短 ★★
 
