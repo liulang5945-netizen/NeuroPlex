@@ -339,61 +339,88 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ## 二、局部妥协（按组件分类，精简列表）
 
+> **梳理更新**（2026-08-01）：S1-S12 系统性修复已解决部分局部妥协，下表标注修复状态。
+> 剩余真实缺口按上限提升潜力分级：★★★ 高 / ★★ 中 / ★ 低。
+
 ### 共振场核心
 
-| # | 妥协点 | 当前 | 上限更高 |
-|---|--------|------|---------|
-| C1 | 神经元类型仅 2 种 | excitatory/inhibitory | PV+/SOM+/VIP+ 多亚型 |
-| C2 | 不应期是整数计数器 | 二值状态 | 4 相恢复曲线 |
-| C3 | 单体 Transformer 无树突分叉 | 单前向通路 | basal/apical 树突分离 + 预测编码 |
-| C4 | 场读入是加性残差 | gate*conditioning | 乘性门控 / 预测编码 |
-| C5 | domain_prototype 单 EMA 向量 | 单质心 | 原型混合 + 在线聚类 |
-| C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 |
-| C7 | 场是单一 D 维向量 | 无空间结构 | 空间场 + 扩散动力学 |
-| C8 | 场写入丢弃幅度 | L2 归一化 | 保留幅度作置信度 |
-| C9 | 共振轮数固定 3 | 固定开销 | 自适应停止 + 连续吸引子 |
-| C10 | side_signals 仅 round 1 后构建 | rounds 2+ 复用 | 每轮动态更新 |
-| C11 | 跨 vocab 用零填充融合 | 语义错误 | 跨域 token 对齐 / 共享语义空间 |
-| C12 | 共振分数加权被禁用 | field.score() 不可比 | 对比学习投影到统一空间 |
-| C13 | max 规格 EXPERT 仅 ~285M | CPU 可训 | 十亿-百亿级 |
-| C14 | shared_expert_weight 固定 0.3 | 仿 DeepSeek | 任务相关可学习动态权重 |
-| C15 | v1_compat 保留旧 ckpt 行为 | 向后兼容 | 迁移后移除技术债 |
+| # | 妥协点 | 当前 | 上限更高 | 状态 | 分级 |
+|---|--------|------|---------|------|------|
+| C1 | 神经元类型仅 2 种 | excitatory/inhibitory | PV+/SOM+/VIP+ 多亚型 | 未修复 | ★★ |
+| C2 | 不应期是整数计数器 | 二值状态 | 4 相恢复曲线 | 未修复 | ★ |
+| C3 | 单体 Transformer 无树突分叉 | 单前向通路 | basal/apical 树突分离 + 预测编码 | ✅ **S10 已修复** | — |
+| C4 | 场读入是加性残差 | gate*conditioning | 乘性门控 / 预测编码 | 未修复 | ★★★ |
+| C5 | domain_prototype 单 EMA 向量 | 单质心 | 原型混合 + 在线聚类 | 未修复 | ★★ |
+| C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 | 未修复 | ★★ |
+| C7 | 场是单一 D 维向量 | 无空间结构 | 空间场 + 扩散动力学 | 未修复 | ★★★ |
+| C8 | 场写入丢弃幅度 | L2 归一化 | 保留幅度作置信度 | 未修复 | ★★ |
+| C9 | 共振轮数固定 3 | 固定开销 | 自适应停止 + 连续吸引子 | 未修复 | ★★ |
+| C10 | side_signals 仅 round 1 后构建 | rounds 2+ 复用 | 每轮动态更新 | 未修复 | ★★★ |
+| C11 | 跨 vocab 用零填充融合 | 语义错误 | 跨域 token 对齐 / 共享语义空间 | ✅ **S6 已修复** | — |
+| C12 | 共振分数加权被禁用 | field.score() 不可比 | 对比学习投影到统一空间 | 未修复 | ★★ |
+| C13 | max 规格 EXPERT 仅 ~285M | CPU 可训 | 十亿-百亿级 | 硬件约束 | — |
+| C14 | shared_expert_weight 固定 0.3 | 仿 DeepSeek | 任务相关可学习动态权重 | 未修复 | ★★ |
+| C15 | v1_compat 保留旧 ckpt 行为 | 向后兼容 | 迁移后移除技术债 | 未修复 | ★ |
 
 ### 训练流水线
 
-| # | 妥协点 | 当前 | 上限更高 |
-|---|--------|------|---------|
-| T1 | 评估集用训练集尾部 | 无 held-out | 5% hash 分桶 held-out |
-| T2 | shared_emb_mode 默认 frozen | 首训误用卡随机 | 默认 auto 检测 |
-| T3 | base 阶段 side_channels 死权重 | 随机 peer 占内存 | frozen peer 特征提取 |
-| T4 | 无数据增强 | 固定模板 | 回译 + prompt 改写 + 多轮拼接 |
-| T5 | dialogue finetune 未用 Muon | 纯 AdamW | Muon+AdamW 混合 |
-| T6 | cross_spec 投影层单 Linear | 无 MLP | 2 层 MLP + GELU + 残差 |
-| T7 | side_channels 仅 excite 无 inhibit | 单向调制 | excite + inhibit 平衡 |
-| T8 | side_channels 用 simple_zh 训 | 分布外 | 改用 alpaca-zh |
-| T9 | field_conditioning 训练时关闭 | 怕噪声 | warm-up 后启用 |
-| T10 | 阵容仅 5 神经元 | CPU 限制 | 扩到 11 个（含 shared_expert） |
-| T11 | SAMPLING_MAX_TOKENS=100 | 折中 | 按场景分（200/128/512） |
-| T12 | tokenizer 训练语料 30K 行 | 覆盖率 ~70% | 500K-1M 行 |
-| T13 | build/load 路径不一致 | 手动拷贝 | 统一路径 |
-| T14 | 无 ablation 评估 | 无法定位收益来源 | 4 组 ablation |
+| # | 妥协点 | 当前 | 上限更高 | 状态 | 分级 |
+|---|--------|------|---------|------|------|
+| T1 | 评估集用训练集尾部 | 无 held-out | 5% hash 分桶 held-out | 未修复 | ★★★ |
+| T2 | shared_emb_mode 默认 frozen | 首训误用卡随机 | 默认 auto 检测 | ✅ **S8 已修复**（默认 trainable） | — |
+| T3 | base 阶段 side_channels 死权重 | 随机 peer 占内存 | frozen peer 特征提取 | 未修复 | ★ |
+| T4 | 无数据增强 | 固定模板 | 回译 + prompt 改写 + 多轮拼接 | 未修复 | ★★ |
+| T5 | dialogue finetune 未用 Muon | 纯 AdamW | Muon+AdamW 混合 | 未修复 | ★ |
+| T6 | cross_spec 投影层单 Linear | 无 MLP | 2 层 MLP + GELU + 残差 | 未修复 | ★★ |
+| T7 | side_channels 仅 excite 无 inhibit | 单向调制 | excite + inhibit 平衡 | ✅ **已实现**（代码支持双通道，默认拓扑用 excite） | — |
+| T8 | side_channels 用 simple_zh 训 | 分布外 | 改用 alpaca-zh | 未修复 | ★★ |
+| T9 | field_conditioning 训练时关闭 | 怕噪声 | warm-up 后启用 | 未修复 | ★★ |
+| T10 | 阵容仅 5 神经元 | CPU 限制 | 扩到 11 个（含 shared_expert） | 硬件约束 | — |
+| T11 | SAMPLING_MAX_TOKENS=100 | 折中 | 按场景分（200/128/512） | 未修复 | ★ |
+| T12 | tokenizer 训练语料 30K 行 | 覆盖率 ~70% | 500K-1M 行 | 未修复 | ★★ |
+| T13 | build/load 路径不一致 | 手动拷贝 | 统一路径 | 未修复 | ★ |
+| T14 | 无 ablation 评估 | 无法定位收益来源 | 4 组 ablation | 未修复 | ★★ |
 
 ### 推理运行时
 
-| # | 妥协点 | 当前 | 上限更高 |
-|---|--------|------|---------|
-| R1 | 域路由用关键词计数 | 启发式 | 可学习路由器 / 共振分数路由 |
-| R2 | feed_engine 域检测硬编码 general | 简化 | 复用 cortex._infer_domain |
-| R3 | 融合模式三套并存未分化 | 兼容遗留 | speculative decoding / consensus / MoE gate |
-| R4 | 采样策略固定 | top-k=50 | min-p / typical / ETD |
-| R5 | 睡眠训练规模过小 | max_samples=64 | 异步 GPU worker + curriculum |
-| R6 | 调质只驱动 lr 倍数 | 标量 | 驱动结构可塑性 / 兴奋阈值 |
-| R7 | 代际迁移被禁用 | NotImplementedError | teacher→student 蒸馏 pipeline |
-| R8 | spec 选择只看错误率绝对值 | 单维度 | + 任务复杂度 + 资源约束 |
-| R9 | 凋亡用固定阈值 | PPL>200 | 种群 PPL 分布相对阈值 |
-| R10 | play 话题池硬编码 15 条 | 探索窄 | 动态话题生成 |
-| R11 | SMCS EPE 候选评分用 n-gram | 无模型 | 用 ensemble final_scores / reward model |
-| R12 | 无 KV cache | 每步全长度 forward | 启用 KV cache |
+| # | 妥协点 | 当前 | 上限更高 | 状态 | 分级 |
+|---|--------|------|---------|------|------|
+| R1 | 域路由用关键词计数 | 启发式 | 可学习路由器 / 共振分数路由 | 未修复 | ★★ |
+| R2 | feed_engine 域检测硬编码 general | 简化 | 复用 cortex._infer_domain | 未修复 | ★ |
+| R3 | 融合模式三套并存未分化 | 兼容遗留 | speculative decoding / consensus / MoE gate | 未修复 | ★★ |
+| R4 | 采样策略固定 | top-k=50 | min-p / typical / ETD | 未修复 | ★ |
+| R5 | 睡眠训练规模过小 | max_samples=64 | 异步 GPU worker + curriculum | 未修复 | ★ |
+| R6 | 调质只驱动 lr 倍数 | 标量 | 驱动结构可塑性 / 兴奋阈值 | ✅ **S9 已修复**（调质门控 attention/FFN） | — |
+| R7 | 代际迁移被禁用 | NotImplementedError | teacher→student 蒸馏 pipeline | 未修复 | ★★ |
+| R8 | spec 选择只看错误率绝对值 | 单维度 | + 任务复杂度 + 资源约束 | 未修复 | ★ |
+| R9 | 凋亡用固定阈值 | PPL>200 | 种群 PPL 分布相对阈值 | 未修复 | ★ |
+| R10 | play 话题池硬编码 15 条 | 探索窄 | 动态话题生成 | 未修复 | ★ |
+| R11 | SMCS EPE 候选评分用 n-gram | 无模型 | 用 ensemble final_scores / reward model | 未修复 | ★ |
+| R12 | 无 KV cache | 每步全长度 forward | 启用 KV cache | ✅ **已实现**（layers.py 有 kv_cache，S11 增强 attention sink） | — |
+
+### 梳理总结
+
+**已被 S1-S12 修复的局部妥协（6 项）**：
+- C3（树突分叉）← S10
+- C11（跨 vocab 零填充）← S6
+- T2（shared_emb 默认 frozen）← S8
+- T7（side_channels 仅 excite）← 代码已实现双通道
+- R6（调质只驱动 lr）← S9
+- R12（无 KV cache）← 已实现 + S11 增强
+
+**真实剩余缺口（按上限分级）**：
+
+★★★ 高上限（3 项）：
+- **C4** 场读入是加性残差 → 乘性门控/预测编码（共振场核心，与 S10 模式一致）
+- **C7** 场是单一 D 维向量 → 空间场 + 扩散动力学（上限最高，大架构改动）
+- **C10** side_signals 仅 round 1 后构建 → 每轮动态更新（影响多轮共振质量）
+- **T1** 评估集用训练集尾部 → held-out（影响评估准确性，阻塞可信实验）
+
+★★ 中上限（12 项）：
+C1/C5/C6/C8/C9/C12/C14, T4/T6/T8/T9/T12/T14, R1/R3/R7
+
+★ 低上限（13 项）：
+C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11
 
 ---
 
