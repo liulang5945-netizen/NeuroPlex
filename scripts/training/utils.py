@@ -15,8 +15,9 @@ from __future__ import annotations
 import math
 import os
 import random
+import hashlib
 import json
-from typing import List
+from typing import List, Tuple
 
 import sentencepiece as spm
 import torch
@@ -126,6 +127,40 @@ def load_general_tokenizer(general_model_path: str = None) -> spm.SentencePieceP
 
 
 # ── 数据加载 ──────────────────────────────────────────────────────────────
+
+def split_train_eval(
+    texts: List[str], eval_ratio: float = 0.05, seed: int = 42,
+) -> Tuple[List[str], List[str]]:
+    """T1: 用 hash 分桶将数据分为训练集和 held-out 评估集。
+
+    使用 hashlib 确定性 hash（不依赖 PYTHONHASHSEED），确保：
+    - 同一文本始终分到同一桶（跨运行一致性）
+    - 训练集和评估集无交集（无数据泄漏）
+    - 评估集占比约 eval_ratio
+
+    Args:
+        texts: 原始文本列表
+        eval_ratio: 评估集比例（默认 0.05 = 5%）
+        seed: hash 种子（改变 seed 会改变分桶结果）
+
+    Returns:
+        (train_texts, eval_texts): 互斥的训练集和评估集
+    """
+    train_texts: List[str] = []
+    eval_texts: List[str] = []
+    threshold = int(eval_ratio * 1000)  # 用 1000 级粒度提高精度
+
+    for text in texts:
+        # 确定性 hash：不依赖 PYTHONHASHSEED
+        h = int(hashlib.md5(f"{seed}:{text}".encode()).hexdigest(), 16) % 1000
+        if h < threshold:
+            eval_texts.append(text)
+        else:
+            train_texts.append(text)
+
+    return train_texts, eval_texts
+
+
 def load_domain_texts(domain: str, max_texts: int = 5000) -> List[str]:
     """Load raw text data for a domain from multiple HuggingFace datasets.
 

@@ -44,7 +44,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler,
+    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler, split_train_eval,
 )
 from scripts.training.experiment_config import (
     ZH_COMPACT_NEURON_IDS,
@@ -214,7 +214,9 @@ def train_parallel(
     best_embed_state = None
     recent_losses = []
 
-    eval_texts = texts[-100:]
+    # T1: held-out 评估集（5% hash 分桶，无数据泄漏）
+    texts, eval_texts = split_train_eval(texts, eval_ratio=0.05)
+    eval_texts = eval_texts[:100]
     effective_batch = batch_size * grad_accum
 
     print(f"\n  [{neuron_id}] 并行训练开始:", flush=True)

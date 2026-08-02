@@ -36,7 +36,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,
-    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler,
+    OUTPUT_DIR, SequentialSampler, make_wsd_scheduler, split_train_eval,
 )
 
 DATA_PATH = "data/simple_zh/simple_zh_texts.jsonl"
@@ -107,8 +107,9 @@ def train_compact_simple(
     best_state = None
     recent_losses = []
 
-    # 评估文本（最后 100 条作为验证集）
-    eval_texts = texts[-100:]
+    # T1: held-out 评估集（5% hash 分桶，无数据泄漏）
+    texts, eval_texts = split_train_eval(texts, eval_ratio=0.05)
+    eval_texts = eval_texts[:100]
 
     effective_batch = batch_size * grad_accum
     print(f"\n  [{neuron_id}] 正规配置训练:", flush=True)

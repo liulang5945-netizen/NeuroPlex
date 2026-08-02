@@ -36,7 +36,7 @@ from taiji.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, SequentialSampler, create_shared_embedding,
-    make_wsd_scheduler, load_dialogue_texts_multi,
+    make_wsd_scheduler, load_dialogue_texts_multi, split_train_eval,
 )
 from scripts.training.experiment_config import DEFAULT_DOMAIN as DOMAIN, SAMPLING_TOP_K, DIALOGUE_PROMPTS, SFT_ANSWER_MARKER
 
@@ -209,8 +209,11 @@ def main():
     general_sp = load_general_tokenizer()
 
     # 4. 评估数据（S5: 扩充到 100 条 val，从训练数据末尾取）
-    eval_texts = texts[-100:]
-    train_texts = texts[:-100]
+    # T1: held-out 评估集（5% hash 分桶，无数据泄漏）
+    texts, eval_texts = split_train_eval(texts, eval_ratio=0.05)
+    eval_texts = eval_texts[:100]
+    print(f"  T1 held-out: train={len(texts)}, eval={len(eval_texts)}", flush=True)
+    train_texts = texts  # texts 已是 held-out 后的训练集
 
     # 5. sampler
     sampler = SequentialSampler(train_texts, args.batch_size, seed=42)
