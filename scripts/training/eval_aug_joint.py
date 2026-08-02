@@ -183,10 +183,20 @@ def _load_cross_spec_weights(ensemble):
     cross_spec_state = ckpt_data["cross_spec"]
     for nid, sd in cross_spec_state.get("forward", {}).items():
         if nid in ensemble._cross_spec_projectors:
-            ensemble._cross_spec_projectors[nid].load_state_dict(sd)
+            proj = ensemble._cross_spec_projectors[nid]
+            # T6: 旧格式 {"weight": tensor} 兼容加载
+            if "weight" in sd and "linear1.weight" not in sd:
+                proj.load_legacy_linear_state(sd["weight"])
+            else:
+                proj.load_state_dict(sd)
     for nid, sd in cross_spec_state.get("backward", {}).items():
         if nid in ensemble._cross_spec_back_projectors:
-            ensemble._cross_spec_back_projectors[nid].load_state_dict(sd)
+            proj = ensemble._cross_spec_back_projectors[nid]
+            # T6: 旧格式 {"weight": tensor} 兼容加载
+            if "weight" in sd and "linear1.weight" not in sd:
+                proj.load_legacy_linear_state(sd["weight"])
+            else:
+                proj.load_state_dict(sd)
     print(f"  [cross_spec] 已加载跨规格投影层权重: {cross_spec_path}", flush=True)
 
 
