@@ -44,8 +44,8 @@ def test_block_backward_compat():
     block_dend.eval()
     x = torch.randn(2, 16, 256)
     with torch.no_grad():
-        out_std, _ = block_std(x)
-        out_dend, _ = block_dend(x)
+        out_std, _, _ = block_std(x)
+        out_dend, _, _ = block_dend(x)
     diff = (out_std - out_dend).abs().max().item()
     assert diff < 1e-6, f"dendritic=False 应与标准块一致, diff={diff}"
     print(f"  PASS: dendritic=False 与标准块一致 (diff={diff:.2e})")
@@ -65,9 +65,9 @@ def test_dendritic_changes_output():
 
     with torch.no_grad():
         # field_state=None: 退化为基础行为（仅 basal）
-        out_no_field, _ = block(x)
+        out_no_field, _, _ = block(x)
         # field_state 非 None: apical 路径激活
-        out_with_field, _ = block(x, field_state=field_state)
+        out_with_field, _, _ = block(x, field_state=field_state)
 
     diff = (out_no_field - out_with_field).abs().max().item()
     assert diff > 1e-4, f"apical 路径应改变输出, diff={diff}"
@@ -99,9 +99,9 @@ def test_dendritic_field_none_safe():
     block_dend.eval()
     x = torch.randn(2, 16, 256)
     with torch.no_grad():
-        out_std, _ = block_std(x)
+        out_std, _, _ = block_std(x)
         # field_state=None: 树突化块应退化为 basal-only
-        out_dend, _ = block_dend(x, field_state=None)
+        out_dend, _, _ = block_dend(x, field_state=None)
 
     diff = (out_std - out_dend).abs().max().item()
     assert diff < 1e-6, f"field_state=None 时应与标准块一致, diff={diff}"

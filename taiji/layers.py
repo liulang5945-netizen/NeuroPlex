@@ -153,7 +153,8 @@ class GroupedQueryAttention(nn.Module):
         kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
         temp_gain: float = 1.0,
-    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        return_attn_weights: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]], Optional[torch.Tensor]]:
         """S9: temp_gain 门控注意力温度（norepinephrine 驱动）。
 
         temp_gain > 1 → xq 放大 → logits 放大 → softmax 更尖锐（高警觉，聚焦）
@@ -162,6 +163,9 @@ class GroupedQueryAttention(nn.Module):
 
         S11: kv_cache 启用时，若配置了 attention_sink_size + sliding_window_size，
         会自动驱逐旧 token 保持 KV cache 长度上限 = sink_size + window_size。
+
+        R7: return_attn_weights=True 时返回 attention 权重 [B, num_heads, L, L]，
+        用于代际迁移蒸馏的注意力转移。默认 False（向后兼容）。
         """
         bsz, seqlen, _ = x.shape
 
@@ -210,14 +214,9 @@ class GroupedQueryAttention(nn.Module):
         # Flash Attention（PyTorch 2.0+ 自动调度到 FlashAttention-2/3 或 Memory-Efficient）
         # 比手动 matmul 快 2-4x，内存减少 50-70%
         is_causal = (mask is not None) and (seqlen > 1)
-        try:
-            output = F.scaled_dot_product_attention(
-                xq, xk, xv,
-                is_causal=is_causal,
-                dropout_p=self.attn_dropout.p if self.training else 0.0,
-            )
-        except Exception:
-            # 回退到手动 attention（兼容旧版 PyTorch）
+        attn_weights = None  # R7: 仅 return_attn_weights=True 时填充
+        if return_attn_weights:
+            # R7: 必须走手动路径才能拿到 attention 权重（SDPA 不返回 weights）
             scores = torch.matmul(xq, xk.transpose(-2, -1)) * self.scale
             if mask is not None:
                 scores = scores + mask
@@ -225,9 +224,26 @@ class GroupedQueryAttention(nn.Module):
             if self.training:
                 scores = self.attn_dropout(scores)
             output = torch.matmul(scores, xv)
+            attn_weights = scores  # [B, num_heads, L, L]
+        else:
+            try:
+                output = F.scaled_dot_product_attention(
+                    xq, xk, xv,
+                    is_causal=is_causal,
+                    dropout_p=self.attn_dropout.p if self.training else 0.0,
+                )
+            except Exception:
+                # 回退到手动 attention（兼容旧版 PyTorch）
+                scores = torch.matmul(xq, xk.transpose(-2, -1)) * self.scale
+                if mask is not None:
+                    scores = scores + mask
+                scores = F.softmax(scores, dim=-1, dtype=torch.float32).type_as(xq)
+                if self.training:
+                    scores = self.attn_dropout(scores)
+                output = torch.matmul(scores, xv)
 
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
-        return self.wo(output), new_kv_cache
+        return self.wo(output), new_kv_cache, attn_weights
 
 
 class SwiGLU(nn.Module):
@@ -383,17 +399,20 @@ class TransformerBlock(nn.Module):
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
         field_state: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        return_attn_weights: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]], Optional[torch.Tensor]]:
         """S9+S10: 神经调质门控 + 树突化扩展。
 
         - temp_gain/ffn_gain: S9 神经调质信号（norepinephrine/dopamine）
         - field_state: S10 树突化 apical 路径的 KV 来源（全局场状态）
           - None 或 dendritic=False: 走标准 basal 路径（向后兼容）
           - 非 None 且 dendritic=True: basal + apical + 预测编码整合
+        - return_attn_weights: R7 返回 basal attention 权重（用于蒸馏）
         """
         # ── Basal 路径: 标准 attention + FFN ──
-        h, new_kv_cache = self.attention(
-            self.attention_norm(x), mask, kv_cache, use_cache, temp_gain=temp_gain,
+        h, new_kv_cache, attn_weights = self.attention(
+            self.attention_norm(x), mask, kv_cache, use_cache,
+            temp_gain=temp_gain, return_attn_weights=return_attn_weights,
         )
         x = x + self.resid_dropout(h)
         x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x), gain=ffn_gain))
@@ -416,4 +435,4 @@ class TransformerBlock(nn.Module):
             # gate→0: 不校正（信任 basal）；gate→1: 强校正（信任 apical）
             x = x - self.error_scale * gate * error
 
-        return x, new_kv_cache
+        return x, new_kv_cache, attn_weights

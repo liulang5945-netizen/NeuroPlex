@@ -508,6 +508,7 @@ class ResonanceNeuron(nn.Module):
         mm_logits_modality: Optional[str] = None,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
+        return_intermediate: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass through the neuron.
 
@@ -524,18 +525,26 @@ class ResonanceNeuron(nn.Module):
                        >1 聚焦（logits 尖锐），<1 泛化（logits 分散），1.0 标准。
             ffn_gain: S9 FFN 输出增益（dopamine 驱动）。
                       >1 强化（奖励），<1 衰减（惩罚），1.0 标准。
+            return_intermediate: R7 若 True，返回每层 hidden 和 attention 权重
+                                 （用于代际迁移蒸馏）。默认 False（向后兼容）。
 
         Returns:
             dict with keys:
             - field_vector: [B, D] L2-normalised write vector
             - hidden_before_write: [B, hidden] for diversity loss
             - logits: [B, L, vocab] (only if return_logits=True or mm_logits_modality set)
+            - intermediate_hidden: [B, num_layers, L, hidden] (only if return_intermediate=True)
+            - attn_weights: [B, num_layers, num_heads, L, L] (only if return_intermediate=True)
         """
         # ── Step 1: Embedding adapter (shared base → neuron concept space) ──
         h = self.embed_adapter(shared_embeddings)  # [B, L, hidden]
 
         # ── Step 2: Transformer layers + field conditioning ──
         bsz, seqlen, _ = h.shape
+
+        # R7: 收集中间表示（蒸馏用）
+        layer_hiddens = []
+        layer_attns = []
 
         # Causal mask（修复双向注意力 bug）:
         # GQA.is_causal = (mask is not None) and (seqlen > 1)
@@ -558,14 +567,17 @@ class ResonanceNeuron(nn.Module):
             #   - dendritic=True: field_state 作为 apical KV，参与 cross-attention
             if self.dendritic_enabled and field_state is not None:
                 # 树突化：直接调用 block.forward，内部处理 basal + apical
-                h, _ = block(
+                h, _, attn_w = block(
                     h, mask=causal_mask, temp_gain=temp_gain, ffn_gain=ffn_gain,
-                    field_state=field_state,
+                    field_state=field_state, return_attn_weights=return_intermediate,
                 )
             else:
                 # 标准路径（向后兼容）
                 h_normed = block.attention_norm(h)
-                attn_out, _ = block.attention(h_normed, mask=causal_mask, temp_gain=temp_gain)
+                attn_out, _, attn_w = block.attention(
+                    h_normed, mask=causal_mask, temp_gain=temp_gain,
+                    return_attn_weights=return_intermediate,
+                )
                 h = h + attn_out
                 h = h + block.feed_forward(block.ffn_norm(h), gain=ffn_gain)
 
@@ -601,6 +613,11 @@ class ResonanceNeuron(nn.Module):
                     else:  # "additive"（默认，向后兼容）
                         # 加性门控：h = h + gate * conditioning
                         h = h + gate * conditioning
+
+            # R7: 收集该层输出（蒸馏用）
+            if return_intermediate:
+                layer_hiddens.append(h)
+                layer_attns.append(attn_w)
 
         # ── Step 3: Final norm ──
         # side_channels 移到 norm 之后，避免 RMSNorm 抵消乘性调制
@@ -753,6 +770,16 @@ class ResonanceNeuron(nn.Module):
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
         if mm_logits_modality is not None:
             result["logits"] = self.compute_mm_logits(h, mm_logits_modality)  # [B, L, mm_vocab]
+
+        # ── R7: 中间表示（蒸馏用）──
+        if return_intermediate:
+            result["intermediate_hidden"] = torch.stack(layer_hiddens, dim=1)  # [B, n_layers, L, hidden]
+            # attn_w: [B, num_heads, L, L] per layer；None（如 seqlen<=1）时跳过
+            valid_attns = [a for a in layer_attns if a is not None]
+            if valid_attns:
+                result["attn_weights"] = torch.stack(valid_attns, dim=1)  # [B, n_layers, num_heads, L, L]
+            else:
+                result["attn_weights"] = None
 
         return result
 

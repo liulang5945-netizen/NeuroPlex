@@ -104,7 +104,7 @@ class PureTransformerLM(nn.Module):
         mask = (1.0 - mask) * float('-inf')
 
         for block in self.blocks:
-            x, _ = block(x, mask=mask)
+            x, _, _ = block(x, mask=mask)
 
         x = self.norm_f(x)
         logits = self.lm_head(x)

@@ -41,7 +41,7 @@ def test_backward_compat_no_sink():
     # 模拟 5 步推理，每步 1 个 token，KV cache 持续增长
     for step in range(5):
         with torch.no_grad():
-            out, kv_cache = attn_legacy(x, kv_cache=kv_cache, use_cache=True)
+            out, kv_cache, _ = attn_legacy(x, kv_cache=kv_cache, use_cache=True)
         # KV cache 长度应等于 (step+1) * seqlen，无驱逐
         expected_len = (step + 1) * 4
         actual_len = kv_cache[0].shape[1]
@@ -70,27 +70,27 @@ def test_kv_cache_eviction():
 
     # step 0: +2 token → KV=2 (未超限)
     with torch.no_grad():
-        out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+        out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
     assert kv_cache[0].shape[1] == 2, f"step 0: KV 应为 2, 实际 {kv_cache[0].shape[1]}"
 
     # step 1: +2 token → KV=4 (未超限)
     with torch.no_grad():
-        out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+        out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
     assert kv_cache[0].shape[1] == 4, f"step 1: KV 应为 4, 实际 {kv_cache[0].shape[1]}"
 
     # step 2: +2 token → KV=6 (达到 max_len，未超限)
     with torch.no_grad():
-        out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+        out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
     assert kv_cache[0].shape[1] == 6, f"step 2: KV 应为 6, 实际 {kv_cache[0].shape[1]}"
 
     # step 3: +2 token → KV=8 > 6，驱逐到 max_len=6
     with torch.no_grad():
-        out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+        out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
     assert kv_cache[0].shape[1] == max_len, f"step 3: 驱逐后 KV 应为 {max_len}, 实际 {kv_cache[0].shape[1]}"
 
     # step 4: +2 token → 持续驱逐
     with torch.no_grad():
-        out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+        out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
     assert kv_cache[0].shape[1] == max_len, f"step 4: 持续驱逐后 KV 应为 {max_len}, 实际 {kv_cache[0].shape[1]}"
 
     print(f"  PASS: KV cache 驱逐生效（max_len={max_len}，多步后稳定）")
@@ -118,7 +118,7 @@ def test_sink_preserved():
         # 每步 2 个 token，用 step 标识便于追踪
         x = torch.randn(1, 2, 256)
         with torch.no_grad():
-            out, kv_cache = attn(x, kv_cache=kv_cache, use_cache=True)
+            out, kv_cache, _ = attn(x, kv_cache=kv_cache, use_cache=True)
 
     # step 3 后：驱逐发生，KV 应为 [token0, token1, token5, token6, token7]
     # 验证：检查驱逐前后 sink 部分是否保持不变
@@ -163,8 +163,8 @@ def test_training_unaffected():
     x = torch.randn(2, 16, 256)
     mask = torch.zeros(1, 1, 16, 16)
     with torch.no_grad():
-        out_std, _ = attn_std(x, mask=mask)
-        out_sink, _ = attn_sink(x, mask=mask)
+        out_std, _, _ = attn_std(x, mask=mask)
+        out_sink, _, _ = attn_sink(x, mask=mask)
 
     diff = (out_std - out_sink).abs().max().item()
     assert diff < 1e-6, f"训练模式（无 kv_cache）输出应一致, diff={diff}"

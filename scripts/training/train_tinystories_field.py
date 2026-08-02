@@ -119,7 +119,7 @@ class FieldAugmentedLM(nn.Module):
         for i, block in enumerate(self.blocks):
             # 标准 transformer block
             h_normed = block.attention_norm(x)
-            attn_out, _ = block.attention(h_normed, mask=mask)
+            attn_out, _, _ = block.attention(h_normed, mask=mask)
             x = x + attn_out
             x = x + block.feed_forward(block.ffn_norm(x))
 

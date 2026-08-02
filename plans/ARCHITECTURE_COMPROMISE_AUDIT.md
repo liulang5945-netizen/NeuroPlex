@@ -391,7 +391,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | R4 | 采样策略固定 | top-k=50 | min-p / typical / ETD | 未修复 | ★ |
 | R5 | 睡眠训练规模过小 | max_samples=64 | 异步 GPU worker + curriculum | 未修复 | ★ |
 | R6 | 调质只驱动 lr 倍数 | 标量 | 驱动结构可塑性 / 兴奋阈值 | ✅ **S9 已修复**（调质门控 attention/FFN） | — |
-| R7 | 代际迁移被禁用 | NotImplementedError | teacher→student 蒸馏 pipeline | 未修复 | ★★ |
+| R7 | 代际迁移被禁用 | NotImplementedError | teacher→student 蒸馏 pipeline | ✅ **已修复**（三联蒸馏: KL logits + hidden 投影对齐 + attention 转移, 支持混合规格/vocab 对齐, train_distillation.py） | — |
 | R8 | spec 选择只看错误率绝对值 | 单维度 | + 任务复杂度 + 资源约束 | 未修复 | ★ |
 | R9 | 凋亡用固定阈值 | PPL>200 | 种群 PPL 分布相对阈值 | 未修复 | ★ |
 | R10 | play 话题池硬编码 15 条 | 探索窄 | 动态话题生成 | 未修复 | ★ |
@@ -400,7 +400,7 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（22 项）**：
+**已被 S1-S12 修复的局部妥协（23 项）**：
 - C1（神经元类型仅 2 种）← 已修复（5 亚型: excitatory/pv/som/vip/inhibitory, 不同 write_gain + refractory_multiplier）
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
@@ -422,15 +422,16 @@ cortex.clear_dialogue_state()  # 清空状态
 - R1（域路由用关键词计数）← 已修复（resonance 软路由模式：probe→final_scores→top-k 跨域激活）
 - R3（融合模式三套并存未分化）← 已修复（consensus 投票融合模式：top-k 共识度加成，集体智慧浮现）
 - R6（调质只驱动 lr）← S9
+- R7（代际迁移被禁用）← 已修复（三联蒸馏: KL logits + hidden 投影对齐 + attention 转移, 支持混合规格/vocab 对齐, train_distillation.py）
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 19 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 18 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（4 项）：
-T4/T12/T14, R7
+★★ 中上限（3 项）：
+T4/T12/T14
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11
