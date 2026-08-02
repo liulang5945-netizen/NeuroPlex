@@ -1192,7 +1192,13 @@ class Cortex:
         vocab_size = domain_sp.GetPieceSize() if hasattr(domain_sp, 'GetPieceSize') else 0
         for domain_id in range(vocab_size):
             piece = domain_sp.id_to_piece(domain_id)
-            general_ids = self._general_sp.encode(piece)
+            if piece.startswith("<0x") and piece.endswith(">"):
+                # byte fallback piece（如 <0x0A>）：必须 decode 成真实字节再 encode，
+                # 否则 "<0x0A>" 会被当作 6 个字符编码，换行语义丢失
+                text = domain_sp.decode([domain_id])
+            else:
+                text = piece
+            general_ids = self._general_sp.encode(text)
             if general_ids:
                 alignment[domain_id] = general_ids
             else:

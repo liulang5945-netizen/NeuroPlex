@@ -762,6 +762,41 @@ def _load_collab_weights_into_cortex(
                 cortex.ensemble._cross_spec_back_projectors[nid].load_state_dict(sd)
                 n_proj += 1
 
+    # 3. body_state（S8/T12: 微调后的 body 参数——lm_head + 最后 N 层 + field_write）
+    # 训练产物 body_state 含增量微调结果；不应用则推理用未微调的 lm_head（新 token 乱码）。
+    # 注意：跨规格投影层旧格式兼容（T6）由上面的 load_state_dict 处理失败时降级，
+    # body_state 的 shape 不匹配（如词表再次升级）时跳过。
+    n_body = 0
+    body_state = ckpt.get("body_state", None)
+    if body_state:
+        for nid, sd in body_state.items():
+            if nid not in cortex.neurons:
+                continue
+            neuron = cortex.neurons[nid]
+            for name, p in neuron.named_parameters():
+                if name in sd and sd[name].shape == p.shape:
+                    p.data.copy_(sd[name])
+                    n_body += 1
+        logger.info("[assemble_cortex] body_state 已应用: %d 个参数（微调后的 lm_head/body）", n_body)
+
+    # 4. scale_bias_state（S8: 可学习 scale 标量 + 通道 bias 缓冲）
+    n_sb = 0
+    sb_state = ckpt.get("scale_bias_state", None)
+    if sb_state:
+        for nid, sb in sb_state.items():
+            if nid not in cortex.neurons:
+                continue
+            neuron = cortex.neurons[nid]
+            for name, p in neuron.named_parameters():
+                if name in sb and "scale_" in name:
+                    p.data.copy_(sb[name])
+                    n_sb += 1
+            for name, buf in neuron.named_buffers():
+                if name in sb and "bias_" in name:
+                    buf.copy_(sb[name])
+                    n_sb += 1
+        logger.info("[assemble_cortex] scale_bias_state 已应用: %d 个参数", n_sb)
+
     logger.info(
         "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d)",
         collab_path, n_side, n_proj,
