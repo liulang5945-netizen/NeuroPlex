@@ -57,6 +57,16 @@ class ResonanceEnsemble:
         geometry: Optional[Any] = None,  # S7: 外部传入 NeuronGeometry（拓扑构建时已创建）
         spatial_diffusion_enabled: bool = False,  # C7: 空间场扩散（图拉普拉斯）
         spatial_diffusion_alpha: float = 0.1,  # C7: 扩散强度（0=关闭，0.1=温和，可由调质驱动）
+        # ── C9: 自适应停止（推理路径）──
+        # 固定 max_rounds 在多数输入下浪费算力（2 轮即收敛），
+        # 自适应停止基于两个信号提前 break：
+        # 1. 分数收敛：轮间 scores 变化 < convergence_threshold（共振已稳定）
+        # 2. 主导明确：top1 分数 / top2 分数 > dominance_ratio（胜出者明确，继续轮无意义）
+        # min_rounds 保证 side_signals 至少生效一次（默认 2）
+        adaptive_stop: bool = False,  # C9: 默认关闭（向后兼容，固定 max_rounds）
+        convergence_threshold: float = 0.01,  # C9: 轮间分数平均绝对变化 < 此值视为收敛
+        dominance_ratio: float = 2.0,  # C9: top1/top2 > 此值视为主导明确
+        min_rounds: int = 2,  # C9: 最少轮数（保证 side_signals 生效）
     ):
         self.neurons = neurons
         self.field = field
@@ -105,6 +115,12 @@ class ResonanceEnsemble:
             )
         else:
             self.spatial_diffuser = None
+
+        # ── C9: 自适应停止配置 ──
+        self.adaptive_stop = adaptive_stop
+        self.convergence_threshold = convergence_threshold
+        self.dominance_ratio = dominance_ratio
+        self.min_rounds = max(2, min(min_rounds, max_rounds))  # 至少 2 轮，不超过 max_rounds
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
@@ -166,6 +182,54 @@ class ResonanceEnsemble:
         if nid in self._cross_spec_projectors:
             return self._cross_spec_projectors[nid](vec)
         return vec
+
+    def _check_adaptive_stop(
+        self,
+        current_scores: Dict[str, float],
+        prev_scores: Optional[Dict[str, float]],
+        round_num: int,
+    ) -> tuple:
+        """C9: 检查是否应提前停止共振。
+
+        两个停止信号（任一满足即停止）：
+        1. 分数收敛：轮间 scores 平均绝对变化 < convergence_threshold
+        2. 主导明确：top1/top2 > dominance_ratio（胜出者明确）
+
+        Args:
+            current_scores: 当前轮 scores {nid: float}
+            prev_scores: 上一轮 scores（None 时只检查主导信号）
+            round_num: 当前轮次
+
+        Returns:
+            (should_stop: bool, reason: str)
+        """
+        if not self.adaptive_stop:
+            return False, ""
+        # min_rounds 以下不停止（保证 side_signals 生效）
+        if round_num < self.min_rounds:
+            return False, ""
+        # 已到 max_rounds 自然停止（不需要提前 break）
+        if round_num >= self.max_rounds:
+            return False, ""
+
+        # 信号 1: 分数收敛
+        if prev_scores is not None and len(current_scores) > 0:
+            common = set(current_scores.keys()) & set(prev_scores.keys())
+            if len(common) >= 2:
+                diffs = [abs(current_scores[n] - prev_scores[n]) for n in common]
+                avg_diff = sum(diffs) / len(diffs)
+                if avg_diff < self.convergence_threshold:
+                    return True, f"converged(avg_diff={avg_diff:.4f}<{self.convergence_threshold})"
+
+        # 信号 2: 主导明确（top1 / top2）
+        if len(current_scores) >= 2:
+            sorted_scores = sorted(current_scores.values(), reverse=True)
+            top1, top2 = sorted_scores[0], sorted_scores[1]
+            # top2 接近 0 时跳过（避免除零），只看 top1 是否显著
+            if top2 > 1e-6 and (top1 / top2) > self.dominance_ratio:
+                return True, f"dominant(top1/top2={top1/top2:.2f}>{self.dominance_ratio})"
+
+        return False, ""
 
     def _init_geometry(self) -> None:
         """初始化 NeuronGeometry：按域分组分配坐标，注册到 coaction。"""
@@ -677,6 +741,8 @@ class ResonanceEnsemble:
                 self._update_channel_biases()
 
         # ── Rounds 2+: conditioned resonance ──
+        prev_round_scores: Optional[Dict[str, float]] = self.round_scores[-1] if self.round_scores else None
+        adaptive_stop_reason: Optional[str] = None
         for round_num in range(2, self.max_rounds + 1):
             # P0-2 fix: round 2+ 也基于当前 _logits_keep_ids 过滤，但每轮会重新计算
             def round2_logits_filter(nid):
@@ -759,6 +825,19 @@ class ResonanceEnsemble:
                 ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
                 self._logits_keep_ids = {nid for nid, _ in ranked[:self.logits_top_k]}
 
+            # C9: 自适应停止检查（在 active_filter 之前，用完整 scores 判断）
+            should_stop, reason = self._check_adaptive_stop(
+                current_scores=scores,
+                prev_scores=prev_round_scores,
+                round_num=round_num,
+            )
+            if should_stop:
+                adaptive_stop_reason = reason
+                self.n_active_history.append(len(active_ids))
+                vectors = round_vecs
+                all_logits = round_logits
+                break
+
             if active_filter and len(active_ids) > 1:
                 # P0-2 fix: directional_congestion 排除自身（原 bug：自指导致小 N 时 threshold 过高）
                 filtered = set()
@@ -817,6 +896,8 @@ class ResonanceEnsemble:
             self.n_active_history.append(len(active_ids))
             vectors = round_vecs
             all_logits = round_logits
+            # C9: 更新 prev_round_scores 供下一轮收敛检查
+            prev_round_scores = scores
 
         # ── Final output ──
         result = {
@@ -826,6 +907,8 @@ class ResonanceEnsemble:
             "n_active_history": self.n_active_history,
             "skipped_resonance": False,
             "skip_reason": None,
+            "adaptive_stopped": adaptive_stop_reason is not None,  # C9
+            "adaptive_stop_reason": adaptive_stop_reason,  # C9
         }
 
         if return_logits and all_logits:

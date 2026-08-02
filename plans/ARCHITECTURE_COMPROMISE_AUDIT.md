@@ -354,7 +354,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 | ✅ **已修复**（多头 attention pooling + 门控聚合） | — |
 | C7 | 场是单一 D 维向量 | 无空间结构 | 空间场 + 扩散动力学 | ✅ **已修复**（图拉普拉斯扩散，forward_train 接入） | — |
 | C8 | 场写入丢弃幅度 | L2 归一化 | 保留幅度作置信度 | ✅ **已修复**（attention entropy 置信度，per-sample scale 调制） | — |
-| C9 | 共振轮数固定 3 | 固定开销 | 自适应停止 + 连续吸引子 | 未修复 | ★★ |
+| C9 | 共振轮数固定 3 | 固定开销 | 自适应停止 + 连续吸引子 | ✅ **已修复**（收敛 + 主导双信号自适应停止，min_rounds/max_rounds 双约束） | — |
 | C10 | side_signals 仅 round 1 后构建 | rounds 2+ 复用 | 每轮动态更新 | ✅ **已修复**（推理路径每轮重建） | — |
 | C11 | 跨 vocab 用零填充融合 | 语义错误 | 跨域 token 对齐 / 共享语义空间 | ✅ **S6 已修复** | — |
 | C12 | 共振分数加权被禁用 | field.score() 不可比 | 对比学习投影到统一空间 | ✅ **已修复**（评分投影 + contrastive_loss NLL 排序对齐） | — |
@@ -400,12 +400,13 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（13 项）**：
+**已被 S1-S12 修复的局部妥协（14 项）**：
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
 - C6（field_write 单 query pooling）← 已修复（多头 attention pooling + 门控聚合）
 - C7（场是单一 D 维向量）← 已修复（图拉普拉斯扩散，forward_train 接入）
 - C8（场写入丢弃幅度）← 已修复（attention entropy 置信度，per-sample scale 调制）
+- C9（共振轮数固定 3）← 已修复（收敛 + 主导双信号自适应停止，min_rounds/max_rounds 双约束）
 - C10（side_signals 仅 round 1 后构建）← 已修复（推理路径每轮重建）
 - C11（跨 vocab 零填充）← S6
 - C12（共振分数不可比）← 已修复（评分投影 score_dim + contrastive_loss NLL 排序对齐）
@@ -415,13 +416,13 @@ cortex.clear_dialogue_state()  # 清空状态
 - R6（调质只驱动 lr）← S9
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 28 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 27 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（13 项）：
-C1/C5/C9/C14, T4/T6/T8/T9/T12/T14, R1/R3/R7
+★★ 中上限（12 项）：
+C1/C5/C14, T4/T6/T8/T9/T12/T14, R1/R3/R7
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11
