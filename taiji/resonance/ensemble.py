@@ -1029,6 +1029,11 @@ class ResonanceEnsemble:
         neuromodulator: Optional[Any] = None,
         return_individual_logits: bool = False,
         targets: Optional[torch.Tensor] = None,  # C12: per-neuron NLL 排序对比信号
+        # ── T9: field_conditioning warm-up ──
+        # True（默认）= round 2+ 注入 field_state（向后兼容）
+        # False = round 2+ 也不注入（warm-up 阶段，neuron 独立学习）
+        # field_state 仍会维护（累积），启用后注入的是学习到的场状态
+        field_conditioning: bool = True,
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -1157,7 +1162,8 @@ class ResonanceEnsemble:
                 emb = _get_emb(nid)
 
                 # 跨规格反投影：field_state(unified) → neuron.field_dim
-                fs = field_state
+                # T9: field_conditioning=False 时（warm-up 阶段）不注入 field_state
+                fs = field_state if field_conditioning else None
                 if fs is not None and nid in self._cross_spec_back_projectors:
                     fs = self._cross_spec_back_projectors[nid](fs)
 

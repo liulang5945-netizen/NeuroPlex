@@ -306,6 +306,8 @@ def main():
                         help="S8: 训练 shared_embedding（默认冻结）")
     parser.add_argument("--body_lr_ratio", type=float, default=0.1,
                         help="S8: body 参数学习率比例 (相对 args.lr)")
+    parser.add_argument("--field_warmup_ratio", type=float, default=0.1,
+                        help="T9: field_conditioning warm-up 比例 (前 N% 步关闭场注入, 0=全程启用)")
     args = parser.parse_args()
 
     global DEVICE
@@ -548,6 +550,14 @@ def main():
     start_epoch = 0
     loss_history = []
 
+    # T9: field_conditioning warm-up
+    # 前 warm_up_steps 步关闭场注入（neuron 独立学习），之后启用（neuron 开始协作）
+    # 原理：训练初期 field_state 是随机的，注入会引入噪声；warm-up 后 field_state 有意义再启用
+    field_warmup_steps = int(total_est_steps * args.field_warmup_ratio)
+    if args.field_warmup_ratio > 0:
+        print(f"  T9: field_conditioning warm-up {field_warmup_steps} 步 "
+              f"(ratio={args.field_warmup_ratio}, 总预估 {total_est_steps} 步)", flush=True)
+
     if args.resume and os.path.exists(CKPT_PATH):
         print(f"\n[resume] 加载 checkpoint: {CKPT_PATH}", flush=True)
         start_epoch, total_steps, loss_history = load_checkpoint(
@@ -598,12 +608,15 @@ def main():
             # S1: 改用 forward_train（全可微多轮共振路径）
             # 让 side_channels + 跨规格投影层 + field_state + 调质在训练中真正生效
             # C12: 传入 targets 启用 contrastive_loss（共振分与 NLL 排序对齐）
+            # T9: warm-up 阶段关闭 field_conditioning（前 field_warmup_steps 步）
+            field_cond = total_steps >= field_warmup_steps
             result = ensemble.forward_train(
                 neuron_embeddings=neuron_embeddings,
                 n_rounds=2,
                 fusion_mode="soft",
                 return_individual_logits=False,
                 targets=targets,
+                field_conditioning=field_cond,  # T9: warm-up 控制
             )
 
             fused_logits = result["fused_logits"]
