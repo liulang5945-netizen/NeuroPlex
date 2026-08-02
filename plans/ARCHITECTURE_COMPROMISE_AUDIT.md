@@ -387,7 +387,7 @@ cortex.clear_dialogue_state()  # 清空状态
 |---|--------|------|---------|------|------|
 | R1 | 域路由用关键词计数 | 启发式 | 可学习路由器 / 共振分数路由 | ✅ **已修复**（resonance 软路由模式：probe→final_scores→top-k 跨域激活） | — |
 | R2 | feed_engine 域检测硬编码 general | 简化 | 复用 cortex._infer_domain | 未修复 | ★ |
-| R3 | 融合模式三套并存未分化 | 兼容遗留 | speculative decoding / consensus / MoE gate | 未修复 | ★★ |
+| R3 | 融合模式三套并存未分化 | 兼容遗留 | speculative decoding / consensus / MoE gate | ✅ **已修复**（consensus 投票融合模式：top-k 共识度加成，集体智慧浮现） | — |
 | R4 | 采样策略固定 | top-k=50 | min-p / typical / ETD | 未修复 | ★ |
 | R5 | 睡眠训练规模过小 | max_samples=64 | 异步 GPU worker + curriculum | 未修复 | ★ |
 | R6 | 调质只驱动 lr 倍数 | 标量 | 驱动结构可塑性 / 兴奋阈值 | ✅ **S9 已修复**（调质门控 attention/FFN） | — |
@@ -400,7 +400,7 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（18 项）**：
+**已被 S1-S12 修复的局部妥协（19 项）**：
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
 - C6（field_write 单 query pooling）← 已修复（多头 attention pooling + 门控聚合）
@@ -417,16 +417,17 @@ cortex.clear_dialogue_state()  # 清空状态
 - T7（side_channels 仅 excite）← 代码已实现双通道
 - T9（field_conditioning 训练时关闭）← 已修复（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制）
 - R1（域路由用关键词计数）← 已修复（resonance 软路由模式：probe→final_scores→top-k 跨域激活）
+- R3（融合模式三套并存未分化）← 已修复（consensus 投票融合模式：top-k 共识度加成，集体智慧浮现）
 - R6（调质只驱动 lr）← S9
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 23 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 22 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（8 项）：
-C1/C5, T4/T8/T12/T14, R3/R7
+★★ 中上限（7 项）：
+C1/C5, T4/T8/T12/T14, R7
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11

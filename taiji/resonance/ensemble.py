@@ -178,6 +178,9 @@ class ResonanceEnsemble:
         # 初始化偏置使初始 sw ≈ shared_expert_weight（向后兼容起点）
         # dynamic=False（默认）时退化为固定 shared_expert_weight（完全向后兼容）
         self.shared_weight_dynamic = shared_weight_dynamic
+        # R3: consensus 融合参数（默认值，可被 __init__ 参数覆盖）
+        self.consensus_k = 5       # 每神经元投票的 top-k token 数
+        self.consensus_alpha = 0.5  # 共识加成强度（0=关闭，1=全员同意时权重翻倍）
         if (shared_weight_dynamic
                 and shared_expert_id is not None
                 and shared_expert_id in self.neurons):
@@ -997,6 +1000,10 @@ class ResonanceEnsemble:
                 # 方向③：残差预测编码（推理路径）
                 # 族长(共振分最高)完整预测 + 其他神经元残差修正
                 self._residual_logit_fusion(all_logits, scores, result, ref)
+            elif fusion_mode == "consensus" and same_vocab and len(all_logits) >= 2:
+                # R3: 共识投票融合（推理路径）
+                # 多神经元 top-k 预测一致性加权（集体智慧）
+                self._consensus_logit_fusion(all_logits, scores, result, ref)
             elif same_vocab:
                 self._compute_per_position_weights(
                     all_logits, vectors, scores, result, ref,
@@ -1667,6 +1674,98 @@ class ResonanceEnsemble:
         for i, nid in enumerate(other_nids):
             result["final_weights"][nid] = float(weights[i].item())
         result["leader_nid"] = leader_nid
+
+    def _consensus_logit_fusion(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        scores: Dict[str, float],
+        result: dict,
+        ref: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> None:
+        """R3: 共识投票融合（consensus voting fusion）。
+
+        三种融合模式的精神：
+        - per_position: 每位置独立选最自信神经元（熵路由，局部决策）
+        - residual: 族长主导 + 其他修正（层级预测，强领导）
+        - consensus: 多神经元 top-k 预测一致性加权（投票共识，集体智慧）
+
+        机制：
+        1. 每个神经元独立预测 top-k token（k=consensus_k，默认 5）
+        2. 计算每位置的共识度：多少神经元的 top-k 包含同一 token
+        3. 高共识 token 获得权重加成（多神经元同意 → 更可信）
+        4. 低共识 token 回退到共振分加权平均（无共识时用传统融合）
+
+        上限提升：
+        - 传统加权平均受大神经元主导（即使错误也会被选中）
+        - 共识投票让"多神经元都认同的 token"获得优先权
+        - 即使小神经元权重低，只要它与其他神经元在某个 token 上达成共识
+          就能提升该 token 的最终权重（小神经元的话语权提升）
+
+        与 C12（评分投影）+ R1（共振分数软路由）协同：
+        - C12 让分数可比 → 共识投票的权重分配更公平
+        - R1 让 top-k 神经元激活 → 共识投票的参与者都是相关神经元
+        - R3 让共识 token 获得加成 → 集体智慧浮现
+
+        Args:
+            all_logits: {nid: [B, L, V]} 所有激活神经元的 logits（同 vocab）
+            scores: {nid: float} 最终共振分
+            result: forward() 的 result dict，写入 weighted_logits 和 final_weights
+            ref: 参考 tensor（device 信息）
+            temperature: softmax 温度
+            consensus_k: 每个神经元投票的 top-k token 数（默认 5）
+        """
+        neuron_ids = list(all_logits.keys())
+        n_neurons = len(neuron_ids)
+        if n_neurons < 2:
+            result["weighted_logits"] = all_logits[neuron_ids[0]]
+            result["final_weights"] = {neuron_ids[0]: 1.0}
+            return
+
+        # 堆叠 logits: [N, B, L, V]
+        logits_stack = torch.stack([all_logits[nid] for nid in neuron_ids], dim=0)
+        N, B, L, V = logits_stack.shape
+
+        # 1. 共振分 softmax 权重（基础权重）
+        score_tensor = torch.tensor(
+            [float(scores.get(nid, 0.0)) for nid in neuron_ids],
+            device=ref.device, dtype=logits_stack.dtype,
+        )  # [N]
+        base_weights = F.softmax(score_tensor / temperature, dim=0)  # [N]
+
+        # 2. 每神经元 top-k 预测（投票）
+        consensus_k = getattr(self, "consensus_k", 5)
+        consensus_k = min(consensus_k, V)
+        # top_k_indices: [N, B, L, k]
+        _, top_k_indices = logits_stack.topk(consensus_k, dim=-1)
+
+        # 3. 计算共识度：对每个位置 (B,L)，统计每个 token 被多少神经元的 top-k 包含
+        # 用 one-hot 编码: [N, B, L, k] → scatter 到 [N, B, L, V]
+        # 然后按 N 维求和得到共识票数 [B, L, V]
+        one_hot = torch.zeros(N, B, L, V, device=ref.device, dtype=logits_stack.dtype)
+        one_hot.scatter_(-1, top_k_indices, 1.0)
+        consensus_votes = one_hot.sum(dim=0)  # [B, L, V]，值域 [0, N]
+
+        # 4. 共识加成因子：共识度高 → 权重提升
+        # consensus_factor = 1 + α × (votes / N)，α=0.5（温和加成）
+        # - 全员同意（votes=N）→ factor=1.5（权重提升 50%）
+        # - 无共识（votes=1）→ factor=1.0（无加成，回退到基础权重）
+        # - votes=0（不在任何 top-k）→ factor=1.0（无加成，但不会被完全压制）
+        consensus_alpha = getattr(self, "consensus_alpha", 0.5)
+        consensus_factor = 1.0 + consensus_alpha * (consensus_votes / N)  # [B, L, V]
+
+        # 5. 基础加权 logits: [B, L, V] = Σ_n w_n × logits_n
+        base_fused = torch.einsum('n,nblv->blv', base_weights, logits_stack)
+
+        # 6. 应用共识加成：fused = base_fused × consensus_factor
+        # 注意：这是乘性加成（高共识 token 的 logit 被放大）
+        # 而非加性（避免低共识 token 被完全压制，保留多样性）
+        fused_logits = base_fused * consensus_factor
+
+        result["weighted_logits"] = fused_logits
+        result["final_weights"] = {nid: float(w.item()) for nid, w in zip(neuron_ids, base_weights)}
+        result["consensus_votes"] = consensus_votes  # [B, L, V]，供调试/可视化
+        result["fusion_mode"] = "consensus"
 
     def evaluate_ppl(
         self,
