@@ -488,5 +488,51 @@ class ResonanceField(nn.Module):
     def clear_history(self) -> None:
         self._write_history.clear()
 
+    def save_round_state(self) -> Dict[str, torch.Tensor]:
+        """S12: 保存当前轮次的场状态快照（用于多轮对话持久化）。
+
+        保存内容：
+        - state: 当前场状态（含累积写入）
+        - inhibitory_mask: 抑制掩码
+        - contributions: 各神经元贡献（用于 leave-one-out 恢复）
+
+        Returns:
+            state_dict: 可直接传给 load_round_state 恢复
+        """
+        return {
+            "state": self.state.detach().clone(),
+            "inhibitory_mask": self.inhibitory_mask.detach().clone(),
+            "contributions": {
+                nid: contrib.detach().clone()
+                for nid, contrib in self._contributions.items()
+            },
+            "inhibit_contributions": {
+                nid: contrib.detach().clone()
+                for nid, contrib in self._inhibit_contributions.items()
+            },
+            "batch_size": self._batch_size,
+        }
+
+    def load_round_state(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        """S12: 加载之前保存的场状态（多轮对话恢复上一轮上下文）。
+
+        Args:
+            state_dict: save_round_state() 的返回值
+        """
+        self.state = state_dict["state"].clone()
+        self.inhibitory_mask = state_dict["inhibitory_mask"].clone()
+        self._contributions = {
+            nid: contrib.clone()
+            for nid, contrib in state_dict.get("contributions", {}).items()
+        }
+        self._inhibit_contributions = {
+            nid: contrib.clone()
+            for nid, contrib in state_dict.get("inhibit_contributions", {}).items()
+        }
+        self._batch_size = state_dict.get("batch_size", 1)
+        # 清空 write_history，避免历史污染（新轮次重新累积）
+        self._write_history.clear()
+        self.n_active = len(self._contributions)
+
     def extra_repr(self) -> str:
         return f"dim={self.dim}, n_writes={self.n_active}"

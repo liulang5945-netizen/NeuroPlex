@@ -283,15 +283,57 @@
 
 **使用建议**：生产配置推荐 `attention_sink_size=4, sliding_window_size=2048`（KV cache 上限 2052，支持 ~2000 token 上下文）。CPU 推理可降至 `sliding_window_size=512`（上限 516）。
 
-### S12. 多轮对话靠前缀拼接 ★
+### S12. 多轮对话靠前缀拼接 ★ ✅ 已修复（per-round field state + 对话轮次 token）
 
-| 维度 | 当前 | 上限更高 |
-|------|------|---------|
-| 多轮实现 | 前缀拼接（[cortex.py:435-449](file:///e:/taiji-neuron/taiji/brain/cortex.py#L435-L449)） | 对话状态 token + per-round field state |
-| 后果 | 无对话状态追踪，无角色标记 | 真多轮能力 |
-| 妥协原因 | 与训练时单文档自回归对齐 | |
-| 提升幅度 | 高（多轮连贯性） | |
-| 实施难度 | 高（需重训）/ 中（field state 注入） | |
+| 维度 | 修复前 | 修复后 |
+|------|--------|---------|
+| 多轮实现 | 前缀拼接 + 512 token 硬截断 | **per-round field_state 持久化 + 对话轮次 token** |
+| 后果 | 无对话状态追踪，无角色标记，长对话被截断 | 真多轮能力，field_state 隐式记忆上下文 |
+| 妥协原因 | 与训练时单文档自回归对齐 | **已解除：DialogueState 管理器替代前缀拼接** |
+| 提升幅度 | 高（多轮连贯性） | 已实现 |
+| 实施难度 | 高（需重训）/ 中（field state 注入） | 已完成（无需重训） |
+
+**修复详情**（2026-08-01）：
+- [field.py](file:///e:/taiji-neuron/taiji/resonance/field.py)：`ResonanceField` 新增 `save_round_state()` / `load_round_state()` 方法
+  - 保存/加载完整状态：state + inhibitory_mask + contributions + inhibit_contributions
+  - round-trip 完整恢复（测试验证 0 偏差）
+- [dialogue_state.py](file:///e:/taiji-neuron/taiji/resonance/dialogue_state.py)：新增 `DialogueState` 类
+  - **start_round(field)**：加载上一轮的 field_state（隐式记忆上下文）
+  - **end_round(field)**：保存当前轮次的 field_state 快照
+  - **prepend_round_token(ids)**：第 2 轮及以后在 prompt 前插入轮次标记 token
+  - **max_rounds 滑动窗口**：保留最近 N 轮的 field_state（默认 5）
+  - **add_dialogue_entry(role, content)**：记录对话历史（仅日志，不参与推理）
+  - **序列化/反序列化**：完整状态可持久化到 checkpoint
+- [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py)：
+  - 新增 `set_dialogue_state()` / `clear_dialogue_state()` 方法
+  - `_generate_p7` 集成：开始时 `start_round` + `prepend_round_token`，结束时 `end_round`
+  - 未注册时（默认）保持原前缀拼接行为（完全向后兼容）
+- **核心机制**：
+  - 人脑启发：海马体在对话间保持工作记忆，每轮对话更新海马状态
+  - 替代前缀拼接（把所有历史文本重新读一遍的低效做法）
+  - 模型通过 field_state 隐式记忆上一轮的上下文
+- **向后兼容**：
+  - `cortex._dialogue_state = None`（默认）：完全等同修复前的前缀拼接行为
+  - `DialogueState(max_rounds=0)`：不持久化（每轮独立）
+  - 6/6 smoke test 通过（[_smoke_s12_dialogue_state.py](file:///e:/taiji-neuron/scripts/training/_smoke_s12_dialogue_state.py)）：
+    1. field round-trip 完整恢复
+    2. 多轮 field_state 持久化
+    3. max_rounds 滑动窗口
+    4. round_token 前缀插入
+    5. reset 清空状态
+    6. 序列化/反序列化
+
+**使用方式**：
+```python
+dialogue = DialogueState(max_rounds=5, round_token_id=general_tokenizer.encode("<|round_start|>")[0])
+cortex.set_dialogue_state(dialogue)
+# 第 1 轮
+response1 = cortex.generate("你好")
+# 第 2 轮（自动加载第 1 轮的 field_state）
+response2 = cortex.generate("刚才我说了什么？")  # 模型通过 field_state 记忆
+# 新会话
+cortex.clear_dialogue_state()  # 清空状态
+```
 
 ---
 

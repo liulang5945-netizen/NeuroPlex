@@ -124,6 +124,11 @@ class Cortex:
         # ── P6-4: WorkingMemory ──
         self.working_memory = None
 
+        # ── S12: DialogueState（多轮对话状态管理）──
+        # 替代前缀拼接，用 field_state 持久化 + 对话轮次 token
+        # None 时 generate() 保持原前缀拼接行为（向后兼容）
+        self._dialogue_state = None
+
         # ── State ──
         self.is_loaded = len(self.neurons) > 0
         print(f"[Cortex] Loaded {len(self.neurons)} neurons, field_dim={field_dim}")
@@ -458,6 +463,32 @@ class Cortex:
         if hasattr(self, 'working_memory') and self.working_memory is not None:
             self.working_memory.reset()
             print(f"[Cortex] WorkingMemory cleared")
+
+    def set_dialogue_state(self, dialogue_state) -> None:
+        """S12: 注册多轮对话状态管理器。
+
+        注册后，generate() 会：
+        - 每轮开始时加载上一轮的 field_state（隐式记忆上下文）
+        - 每轮结束时保存 field_state 快照
+        - 在 prompt 前插入轮次标记 token（可选）
+
+        替代前缀拼接方案，让模型通过 field_state 记忆历史，
+        而非把所有历史对话文本重新读一遍。
+
+        未注册时（默认）完全无状态，保持原前缀拼接行为（向后兼容）。
+
+        Args:
+            dialogue_state: DialogueState 实例
+        """
+        self._dialogue_state = dialogue_state
+        max_rounds = dialogue_state.max_rounds if dialogue_state else 0
+        print(f"[Cortex] DialogueState enabled (max_rounds={max_rounds})")
+
+    def clear_dialogue_state(self) -> None:
+        """S12: 清空对话状态（新会话开始时调用）。"""
+        if self._dialogue_state is not None:
+            self._dialogue_state.reset()
+            print(f"[Cortex] DialogueState cleared")
 
     def set_neuromodulator(self, neuromodulator) -> None:
         """P1-2: 注册神经调质状态，注入到 ensemble。
@@ -1220,6 +1251,15 @@ class Cortex:
             prompt_general_ids = [0]
         general_ids = list(prompt_general_ids)
 
+        # S12: 多轮对话状态管理
+        # - start_round: 加载上一轮的 field_state（隐式记忆上下文）
+        # - prepend_round_token: 在 prompt 前插入轮次标记（第 2 轮及以后）
+        if self._dialogue_state is not None:
+            self._dialogue_state.start_round(self.field)
+            self._dialogue_state.add_dialogue_entry("user", prompt)
+            # 在 prompt 前插入轮次标记 token（第 2 轮及以后）
+            general_ids = self._dialogue_state.prepend_round_token(general_ids)
+
         # 2.5 SMCS-inspired instance-level routing: resonance-based domain verification
         # 关键词路由可能误判（如中文夹杂代码、数学符号）。用共振分数校验：
         # 如果选定域的共振分数显著低于最强域，切换到最强域。
@@ -1413,8 +1453,16 @@ class Cortex:
 
         # Decode with domain tokenizer
         if generated_pieces:
-            return "".join(generated_pieces).replace("▁", " ")
-        return ""
+            result_text = "".join(generated_pieces).replace("▁", " ")
+        else:
+            result_text = ""
+
+        # S12: 结束当前轮次，保存 field_state 快照（用于下一轮隐式记忆）
+        if self._dialogue_state is not None:
+            self._dialogue_state.add_dialogue_entry("assistant", result_text)
+            self._dialogue_state.end_round(self.field)
+
+        return result_text
 
     @torch.no_grad()
     def generate_multimodal(
