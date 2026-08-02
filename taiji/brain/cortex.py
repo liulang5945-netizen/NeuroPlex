@@ -1207,6 +1207,12 @@ class Cortex:
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
         fusion_mode: str = "per_position",
+        # ── R1: 共振分数软路由 ──
+        # "hybrid"（默认）= keyword 路由 + 共振校验（50% 阈值硬切换），向后兼容
+        # "resonance" = 共振分数软路由（probe forward → final_scores → top-k 激活）
+        # "keyword" = 纯关键词路由（无共振校验，最快）
+        routing_mode: str = "hybrid",
+        resonance_top_k: int = 3,  # R1: resonance 模式下激活的神经元数量
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1226,6 +1232,8 @@ class Cortex:
             domain: target domain.
             active_nids: 显式指定激活的神经元列表（实验用）。
                        None 时由 routing_level 自动决定。
+            routing_mode: 路由模式 ("hybrid"/"resonance"/"keyword")。
+            resonance_top_k: resonance 模式下按共振分数激活的神经元数量。
 
         Returns:
             generated text string.
@@ -1260,10 +1268,14 @@ class Cortex:
             # 在 prompt 前插入轮次标记 token（第 2 轮及以后）
             general_ids = self._dialogue_state.prepend_round_token(general_ids)
 
-        # 2.5 SMCS-inspired instance-level routing: resonance-based domain verification
-        # 关键词路由可能误判（如中文夹杂代码、数学符号）。用共振分数校验：
-        # 如果选定域的共振分数显著低于最强域，切换到最强域。
-        if len(self.neurons) > 1:
+        # 2.5 R1: 共振分数路由（三种模式）
+        # - "keyword": 纯关键词路由，跳过 probe forward（最快）
+        # - "hybrid"（默认）: keyword 路由 + 共振校验（50% 阈值硬切换 domain），向后兼容
+        # - "resonance": 共振分数软路由（probe → final_scores → top-k 激活，跨域协作）
+        # R1 上限提升：resonance 模式让共振分数直接驱动激活，神经元自发协作决定"谁发言"，
+        # 与 C12（可比分数）+ C9（自适应停止）+ C14（动态 shared 权重）形成完整闭环。
+        resonance_active_nids: Optional[List[str]] = None  # resonance 模式填充
+        if len(self.neurons) > 1 and routing_mode != "keyword":
             try:
                 probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
                 probe_emb = self._shared_embedding(probe_ids)
@@ -1273,21 +1285,41 @@ class Cortex:
                     )
                 probe_scores = probe_result.get("final_scores", {})
                 if probe_scores:
-                    # neurons 的 key 即为 domain（见 _infer_domain L709）
-                    best_nid = max(probe_scores, key=probe_scores.get)
-                    best_domain = best_nid
-                    chosen_score = max(
-                        (probe_scores.get(nid, 0.0)
-                         for nid in self.neurons
-                         if nid == domain),
-                        default=0.0,
-                    )
-                    # 切换条件：最强域分数比选定域高 50% 以上，且最强域已加载
-                    if (best_domain != domain
-                            and best_domain in hub.list_domains()
-                            and chosen_score > 0
-                            and probe_scores[best_nid] > chosen_score * 1.5):
-                        domain = best_domain
+                    if routing_mode == "resonance":
+                        # R1: 共振分数软路由 —— 按分数排序选 top-k 神经元
+                        # 跨域协作：不限定 domain，让共振分数自发决定激活集合
+                        # shared_expert（若存在）始终包含，保证基础语言能力
+                        sorted_nids = sorted(
+                            probe_scores.items(), key=lambda x: x[1], reverse=True
+                        )
+                        top_nids = [nid for nid, _ in sorted_nids[:resonance_top_k]]
+                        # 确保 shared_expert 在激活集中
+                        if self.ensemble.shared_expert_id:
+                            se_id = self.ensemble.shared_expert_id
+                            if se_id not in top_nids and se_id in self.neurons:
+                                top_nids.append(se_id)
+                        resonance_active_nids = top_nids
+                        # domain 仍用于 tokenizer 选择（取分数最高的 neuron 的 domain）
+                        best_nid = sorted_nids[0][0] if sorted_nids else domain
+                        best_domain = best_nid.split("_")[0] if "_" in best_nid else best_nid
+                        if best_domain in hub.list_domains():
+                            domain = best_domain
+                    else:  # hybrid 模式：保留现有共振校验逻辑
+                        # neurons 的 key 即为 domain（见 _infer_domain L709）
+                        best_nid = max(probe_scores, key=probe_scores.get)
+                        best_domain = best_nid
+                        chosen_score = max(
+                            (probe_scores.get(nid, 0.0)
+                             for nid in self.neurons
+                             if nid == domain),
+                            default=0.0,
+                        )
+                        # 切换条件：最强域分数比选定域高 50% 以上，且最强域已加载
+                        if (best_domain != domain
+                                and best_domain in hub.list_domains()
+                                and chosen_score > 0
+                                and probe_scores[best_nid] > chosen_score * 1.5):
+                            domain = best_domain
             except Exception:
                 pass  # 共振探测失败，保留关键词路由结果
 
@@ -1321,8 +1353,10 @@ class Cortex:
             else:
                 active_nids = list(self.neurons.keys())
         elif active_nids is None:
-            # 硬件受限路由：根据 routing_level 选择激活策略
-            if routing_level >= 2:
+            # R1: resonance 模式优先使用共振分数选的 active_nids
+            if resonance_active_nids is not None:
+                active_nids = resonance_active_nids
+            elif routing_level >= 2:
                 # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
                 active_nids = self._fingerprint_route(general_ids, top_k=2)
             else:
