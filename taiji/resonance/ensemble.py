@@ -26,6 +26,7 @@ import torch.nn.functional as F
 
 from .field import ResonanceField
 from .neuron import ResonanceNeuron
+from .spatial_diffusion import SpatialDiffuser
 
 
 class ResonanceEnsemble:
@@ -54,6 +55,8 @@ class ResonanceEnsemble:
         shared_expert_id: Optional[str] = None,
         shared_expert_weight: float = 0.3,  # 共享专家基础权重 0.3，域神经元分配剩余 0.7（借鉴 DeepSeek V3）
         geometry: Optional[Any] = None,  # S7: 外部传入 NeuronGeometry（拓扑构建时已创建）
+        spatial_diffusion_enabled: bool = False,  # C7: 空间场扩散（图拉普拉斯）
+        spatial_diffusion_alpha: float = 0.1,  # C7: 扩散强度（0=关闭，0.1=温和，可由调质驱动）
     ):
         self.neurons = neurons
         self.field = field
@@ -86,6 +89,22 @@ class ResonanceEnsemble:
             from .geometry import NeuronGeometry
             self.geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
             self._init_geometry()
+
+        # ── C7: 空间场扩散（图拉普拉斯）──
+        # 将"场是单一 D 维向量"升级为"空间场 + 扩散动力学"
+        # 信号在神经元空间中传播：V' = normalize(V + alpha * L @ V)
+        # L 是基于 NeuronGeometry 距离的对称归一化图拉普拉斯
+        # 向后兼容：spatial_diffusion_enabled=False（默认）或 alpha=0 时完全退化
+        self.spatial_diffusion_alpha = spatial_diffusion_alpha
+        if spatial_diffusion_enabled and spatial_diffusion_alpha > 0:
+            neuron_ids = list(self.neurons.keys())
+            self.spatial_diffuser: Optional[SpatialDiffuser] = SpatialDiffuser(
+                neuron_ids=neuron_ids,
+                geometry=self.geometry,
+                alpha=spatial_diffusion_alpha,
+            )
+        else:
+            self.spatial_diffuser = None
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
@@ -982,6 +1001,11 @@ class ResonanceEnsemble:
                 torch.stack([round_vecs_unified_new[nid] for nid in active_ids]),
                 dim=-1,
             )  # [N, B, D]
+            # C7: 空间场扩散（图拉普拉斯，近邻神经元信号互相扩散）
+            if self.spatial_diffuser is not None:
+                all_vecs_norm = self.spatial_diffuser.diffuse(
+                    all_vecs_norm, active_ids=active_ids
+                )
             field_state = all_vecs_norm.sum(dim=0)  # [B, D]
 
             round_vecs_raw = round_vecs_raw_new
@@ -1021,6 +1045,11 @@ class ResonanceEnsemble:
             torch.stack([round_vecs_unified[nid] for nid in active_ids]),
             dim=-1,
         )  # [N, B, D]
+        # C7: 空间场扩散（评分时也用扩散后的 vectors，保持训练一致性）
+        if self.spatial_diffuser is not None:
+            all_vecs_norm = self.spatial_diffuser.diffuse(
+                all_vecs_norm, active_ids=active_ids
+            )
         field_state_full = all_vecs_norm.sum(dim=0)  # [B, D]
         loo_state = field_state_full.unsqueeze(0) - all_vecs_norm  # [N, B, D]
         loo_norm = F.normalize(loo_state, dim=-1)
