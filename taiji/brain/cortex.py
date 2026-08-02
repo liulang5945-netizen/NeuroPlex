@@ -1065,6 +1065,7 @@ class Cortex:
             return list(self.neurons.keys())
 
         # 每个 neuron 用自己的 embed_adapter 投影 prompt，再与 prototype 比较
+        # C5: 多原型模式取 max cosine（与最近原型的相似度）
         sims = {}
         for nid, neuron in self.neurons.items():
             try:
@@ -1073,9 +1074,17 @@ class Cortex:
                     projected = neuron.embed_adapter(prompt_pooled)  # [1, 768]
                     proj_vec = projected.squeeze(0)  # [768]
                     proj_norm = proj_vec / (proj_vec.norm() + 1e-8)
-                    proto = neuron.domain_prototype  # [768]
-                    proto_norm = proto / (proto.norm() + 1e-8)
-                    sim = float((proj_norm * proto_norm).sum().item())
+                    # C5: 多原型取 max cosine
+                    if getattr(neuron, "num_prototypes", 1) > 1 and neuron.domain_prototypes is not None:
+                        # 多原型: [K, 768] → max cosine
+                        protos = neuron.domain_prototypes  # [K, 768]
+                        proto_norms = protos / (protos.norm(dim=-1, keepdim=True) + 1e-8)
+                        sim = float((proj_norm.unsqueeze(0) * proto_norms).sum(dim=-1).max().item())
+                    else:
+                        # 单原型（向后兼容）
+                        proto = neuron.domain_prototype  # [768]
+                        proto_norm = proto / (proto.norm() + 1e-8)
+                        sim = float((proj_norm * proto_norm).sum().item())
                 else:
                     # fallback: 无 embed_adapter 则跳过
                     continue

@@ -174,6 +174,21 @@ class ResonanceNeuron(nn.Module):
         self.register_buffer("domain_prototype", torch.zeros(c.hidden_size))
         self.register_buffer("proto_ema_decay", torch.tensor(0.99))
 
+        # ── C5: 多原型混合（K 个 EMA 原型 + 在线聚类）──
+        # num_prototypes=1 时退化为单 EMA 原型（向后兼容，使用 domain_prototype）
+        # num_prototypes=K>1 时启用 K 个原型，胜者 EMA 更新（在线 k-means）
+        # 路由时取 max cosine（与最近原型的相似度），覆盖多子分布
+        self.num_prototypes = max(1, c.num_prototypes)
+        if self.num_prototypes > 1:
+            # K 个原型，随机初始化（单位球面）
+            prototypes = torch.randn(self.num_prototypes, c.hidden_size)
+            prototypes = F.normalize(prototypes, dim=-1)
+            self.register_buffer("domain_prototypes", prototypes)
+            # 原型使用计数（用于初始化阶段强制分配，避免死原型）
+            self.register_buffer("proto_counts", torch.zeros(self.num_prototypes))
+        else:
+            self.domain_prototypes = None  # 单原型模式用 domain_prototype
+
         # ── Side channel interface（人脑启发：兴奋/抑制双通道）──
         # excite_channels: 正向调制（兴奋性突触，类比谷氨酸能）
         # inhibit_channels: 负向调制（抑制性突触，类比 GABA 能）
@@ -702,14 +717,44 @@ class ResonanceNeuron(nn.Module):
 
         Prototype 是数据驱动的典型响应向量，非权重统计量。
         训练时每轮调用，EMA 平滑跟踪 neuron 的典型响应模式。
+
+        C5: 多原型模式（num_prototypes>1）时，用在线 k-means：
+        - 找到与 target 最接近的原型（胜者）
+        - 仅更新胜者原型（EMA）
+        - 路由时取 max cosine（与最近原型的相似度）
         """
         with torch.no_grad():
             target = pooled.detach().mean(dim=0) if pooled.dim() == 2 else pooled.detach()
-            self.domain_prototype.mul_(self.proto_ema_decay.item()).add_(
-                target, alpha=(1.0 - self.proto_ema_decay.item())
-            )
-            # 归一化保持单位球面
-            self.domain_prototype.div_(self.domain_prototype.norm() + 1e-8)
+            target_norm = F.normalize(target.unsqueeze(0), dim=-1).squeeze(0)  # 单位球面
+
+            if self.num_prototypes > 1 and self.domain_prototypes is not None:
+                # C5: 多原型在线 k-means
+                # 计算与所有原型的相似度，选胜者
+                sims = F.cosine_similarity(
+                    target_norm.unsqueeze(0), self.domain_prototypes, dim=-1
+                )  # [K]
+                winner_idx = int(sims.argmax().item())
+
+                # 初始化阶段：若原型未被使用过，直接赋值（避免死原型）
+                if self.proto_counts[winner_idx] < 1.0:
+                    self.domain_prototypes[winner_idx] = target_norm
+                else:
+                    # EMA 更新胜者原型
+                    decay = self.proto_ema_decay.item()
+                    self.domain_prototypes[winner_idx].mul_(decay).add_(
+                        target_norm, alpha=(1.0 - decay)
+                    )
+                    self.domain_prototypes[winner_idx] = F.normalize(
+                        self.domain_prototypes[winner_idx], dim=-1
+                    )
+                self.proto_counts[winner_idx] += 1.0
+            else:
+                # 单原型模式（向后兼容）
+                self.domain_prototype.mul_(self.proto_ema_decay.item()).add_(
+                    target, alpha=(1.0 - self.proto_ema_decay.item())
+                )
+                # 归一化保持单位球面
+                self.domain_prototype.div_(self.domain_prototype.norm() + 1e-8)
 
     @torch.no_grad()
     def quick_probe(self, shared_embeddings: torch.Tensor) -> torch.Tensor:

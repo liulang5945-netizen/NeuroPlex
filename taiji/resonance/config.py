@@ -97,6 +97,14 @@ class NeuronConfig:
     # - int = 评分投影维度（推荐 256，参数量 5×4096×256≈5.2M + 1×4096×256≈1M）
     score_dim: Optional[int] = None
 
+    # ── C5: 多原型混合（num_prototypes）──
+    # 单 EMA 原型只能跟踪单一模式，多原型覆盖多子分布。
+    # - 1 = 单 EMA 原型（向后兼容，原 domain_prototype 行为）
+    # - K>1 = K 个原型 + 在线聚类（胜者 EMA 更新，路由取 max cosine）
+    # 上限提升：domain 内多主题/多风格数据时，单原型会"模糊"，
+    # 多原型让每个子模式有独立代表，路由更精确。
+    num_prototypes: int = 1
+
     # ── Domain extension (0 = disabled) ──
     num_domain_concepts: int = 0
 
