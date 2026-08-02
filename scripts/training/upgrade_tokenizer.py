@@ -35,6 +35,8 @@ import sentencepiece as spm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CORPUS_PATH = PROJECT_ROOT / "data" / "distill" / "zh_texts.jsonl"
+# T12-B: 混合对话语料，让 BPE 合并对话高频词（三原色/保持健康等）
+DIALOGUE_PATH = PROJECT_ROOT / "data" / "simple_zh" / "alpaca_zh_sft.jsonl"
 DOMAIN_DIR = PROJECT_ROOT / "taiji" / "domains" / "zh"
 MODEL_PATH = DOMAIN_DIR / "sp_zh.model"
 OLD_BACKUP = DOMAIN_DIR / "sp_zh_v20k.model"
@@ -61,9 +63,11 @@ TRAIN_KWARGS = dict(
 
 
 def sample_corpus(max_lines: int, min_len: int = 10) -> list[str]:
-    """从纯文本语料均匀采样，跳过空行/过短行。
+    """从百科语料均匀采样，叠加对话语料（T12-B）。
 
-    每行一条纯文本（无 JSON 包装）。均匀采样保证覆盖语料全局分布。
+    百科语料每行一条纯文本（无 JSON 包装），均匀采样保证覆盖全局分布；
+    对话语料（alpaca_zh_sft.jsonl）全量读入并重复 3 次，
+    使 BPE 合并对话高频词（"三原色""保持健康"等），服务对话场景。
     """
     texts: list[str] = []
     # step 6：1314 万行 → ~219 万行采样（略超目标 200 万）
@@ -78,6 +82,36 @@ def sample_corpus(max_lines: int, min_len: int = 10) -> list[str]:
             if len(text) < min_len:
                 continue
             texts.append(text)
+    if len(texts) < max_lines:
+        # 若百科采样未达上限，继续取更多行（step 降为 1）
+        with open(CORPUS_PATH, encoding="utf-8") as f:
+            for i, raw in enumerate(f):
+                if len(texts) >= max_lines:
+                    break
+                text = raw.replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
+                if len(text) < min_len:
+                    continue
+                texts.append(text)
+
+    # 对话语料：全量 + 重复 3 次（占比 ~15%）
+    if DIALOGUE_PATH.exists():
+        import json
+        n_dialog = 0
+        for _rep in range(3):
+            with open(DIALOGUE_PATH, encoding="utf-8") as f:
+                for raw in f:
+                    if len(texts) >= max_lines + 300_000:
+                        break
+                    try:
+                        obj = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    text = (obj.get("text") or "").strip()
+                    if len(text) < min_len:
+                        continue
+                    texts.append(text)
+                    n_dialog += 1
+        print(f"  对话语料: {n_dialog} 条（混合 {n_dialog/len(texts)*100:.1f}%）")
     return texts
 
 

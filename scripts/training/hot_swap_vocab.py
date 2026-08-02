@@ -26,11 +26,15 @@ import argparse
 import glob
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# ckpt 内 pickle 了 taiji.* 对象（如 NeuronConfig），必须能导入 taiji
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 DOMAIN_DIR = PROJECT_ROOT / "taiji" / "domains"
 OLD_BACKUP = DOMAIN_DIR / "zh" / "sp_zh_v20k.model"
 
