@@ -45,6 +45,7 @@ from scripts.training.utils import (
 )
 
 from scripts.training.experiment_config import ENSEMBLE_DIALOGUE_IDS as NEURON_IDS, DEFAULT_DOMAIN as DOMAIN, SFT_ANSWER_MARKER
+from scripts.training.data_augmentation import DialogueAugmenter
 
 DEVICE = "cpu"
 
@@ -317,6 +318,12 @@ def main():
                         help="S8: body 参数学习率比例 (相对 args.lr)")
     parser.add_argument("--field_warmup_ratio", type=float, default=0.1,
                         help="T9: field_conditioning warm-up 比例 (前 N% 步关闭场注入, 0=全程启用)")
+    parser.add_argument("--augment", action="store_true",
+                        help="T4: 启用数据增强（模板改写 + 多轮拼接）")
+    parser.add_argument("--aug_rewrite_prob", type=float, default=0.5,
+                        help="T4: 模板改写概率")
+    parser.add_argument("--aug_multi_turn_prob", type=float, default=0.4,
+                        help="T4: 多轮拼接概率")
     args = parser.parse_args()
 
     global DEVICE
@@ -458,6 +465,17 @@ def main():
         texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
         print(f"  训练集(simple_zh): {len(texts)} 条文本", flush=True)
 
+    # T4: 数据增强器（在线模板改写 + 多轮拼接）
+    augmenter = None
+    if args.augment:
+        augmenter = DialogueAugmenter(
+            rewrite_prob=args.aug_rewrite_prob,
+            multi_turn_prob=args.aug_multi_turn_prob,
+        )
+        augmenter.set_context_pool(texts)  # 多轮拼接的上下文池
+        print(f"  [T4] 数据增强启用: 改写={args.aug_rewrite_prob}, "
+              f"多轮拼接={args.aug_multi_turn_prob}", flush=True)
+
     # 6. 训练循环
     print("\n[5] 开始训练...", flush=True)
     # S8: 参数分离 — side_channels+投影层走 Muon/AdamW，body+emb 走低 lr AdamW
@@ -587,9 +605,16 @@ def main():
         epoch_loss = 0.0
         epoch_tokens = 0
         epoch_start_time = time.time()
+        # T4: 每 epoch 重置增强种子（epoch 间变体不同，epoch 内可复现）
+        if augmenter is not None:
+            augmenter.set_epoch(epoch)
 
         for i in range(0, len(texts) - BATCH_SIZE, BATCH_SIZE):
             batch_texts = texts[i:i + BATCH_SIZE]
+
+            # T4: 在线数据增强（模板改写 + 多轮拼接）
+            if augmenter is not None:
+                batch_texts = [augmenter.augment(t) for t in batch_texts]
 
             neuron_embeddings = {}
             targets = None
@@ -600,6 +625,7 @@ def main():
                 emb_out, tgt, msk, sft = batch_align_and_embed(
                     batch_texts, domain_sp, general_sp, shared_emb,
                     answer_marker=SFT_ANSWER_MARKER,
+                    answer_marker_mode="last",  # T4: 多轮精确 masking
                 )
                 neuron_embeddings[nid] = emb_out.to(DEVICE)
                 if targets is None:

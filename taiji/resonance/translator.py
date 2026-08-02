@@ -457,6 +457,7 @@ def batch_align_and_embed(
     pad_token_id: int = 0,
     max_seq_len: int = 128,
     answer_marker: Optional[str] = None,
+    answer_marker_mode: str = "first",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batch-align domain texts to general tokens and produce padded embeddings + targets.
 
@@ -474,6 +475,10 @@ def batch_align_and_embed(
         answer_marker: SFT 分隔符（如 "答："）。传入时额外返回 sft_mask，
             只保留 marker 之后的 token（answer 部分）计入 loss。
             不传时保持原行为（返回 3 元组），向后兼容。
+        answer_marker_mode: T4 answer 起点模式。
+            "first"（默认，向后兼容）：第一个 marker 之后全部为 answer
+            "last"（多轮精确 masking）：最后一个 marker 之后为 answer，
+                前序轮次的 question/answer 作为纯上下文（不计 loss）
 
     Returns:
         不传 answer_marker:
@@ -501,7 +506,11 @@ def batch_align_and_embed(
 
         # S3: 计算 answer 起始 token index
         if answer_marker is not None:
-            marker_idx = text.find(answer_marker)
+            if answer_marker_mode == "last":
+                # T4: 最后一个 marker（多轮精确 masking，前序轮次为纯上下文）
+                marker_idx = text.rfind(answer_marker)
+            else:
+                marker_idx = text.find(answer_marker)
             if marker_idx == -1:
                 # 无分隔符，整个文本视为 answer（mask 全 True）
                 answer_starts.append(0)

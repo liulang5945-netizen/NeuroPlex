@@ -56,6 +56,7 @@ from scripts.training.utils import (
 from scripts.training.experiment_config import (
     DEFAULT_DOMAIN as DOMAIN, SFT_ANSWER_MARKER,
 )
+from scripts.training.data_augmentation import DialogueAugmenter
 
 DEVICE = "cpu"
 LOG_DIR = os.path.join(
@@ -182,6 +183,12 @@ def main():
     parser.add_argument("--attn_align_mode", default="mean", choices=["mean", "proj"])
     parser.add_argument("--vocab_alignment", default=None,
                         help="跨域蒸馏对齐表 JSON（{student_id: teacher_id}），同域可省略")
+    parser.add_argument("--augment", action="store_true",
+                        help="T4: 启用数据增强（模板改写 + 多轮拼接）")
+    parser.add_argument("--aug_rewrite_prob", type=float, default=0.5,
+                        help="T4: 模板改写概率")
+    parser.add_argument("--aug_multi_turn_prob", type=float, default=0.4,
+                        help="T4: 多轮拼接概率")
     parser.add_argument("--device", default="cpu", help="计算设备 (cpu/cuda)")
     args = parser.parse_args()
 
@@ -276,6 +283,17 @@ def main():
     texts = load_dialogue_texts_multi(dialogue_dir, max_texts=args.max_texts)
     print(f"  训练集: {len(texts)} 条对话", flush=True)
 
+    # T4: 数据增强器（在线模板改写 + 多轮拼接）
+    augmenter = None
+    if args.augment:
+        augmenter = DialogueAugmenter(
+            rewrite_prob=args.aug_rewrite_prob,
+            multi_turn_prob=args.aug_multi_turn_prob,
+        )
+        augmenter.set_context_pool(texts)  # 多轮拼接的上下文池
+        print(f"  [T4] 数据增强启用: 改写={args.aug_rewrite_prob}, "
+              f"多轮拼接={args.aug_multi_turn_prob}", flush=True)
+
     # 6. 调度器
     total_est_steps = args.epochs * ((len(texts) - args.batch_size) // args.batch_size)
     warmup_steps = 50
@@ -310,15 +328,23 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         random.shuffle(texts)
         epoch_start_time = time.time()
+        # T4: 每 epoch 重置增强种子（epoch 间变体不同，epoch 内可复现）
+        if augmenter is not None:
+            augmenter.set_epoch(epoch)
 
         for i in range(0, len(texts) - args.batch_size, args.batch_size):
             batch_texts = texts[i:i + args.batch_size]
+
+            # T4: 在线数据增强（模板改写 + 多轮拼接）
+            if augmenter is not None:
+                batch_texts = [augmenter.augment(t) for t in batch_texts]
 
             # shared embedding（teacher/student 共享同一外部嵌入）
             shared_emb = create_shared_embedding(DEVICE)
             emb_out, targets, mask, sft_mask = batch_align_and_embed(
                 batch_texts, domain_sp, general_sp, shared_emb,
                 answer_marker=SFT_ANSWER_MARKER,
+                answer_marker_mode="last",  # T4: 多轮精确 masking（前序轮次为纯上下文）
             )
             emb = emb_out.to(DEVICE)
             mask = mask.to(DEVICE)
