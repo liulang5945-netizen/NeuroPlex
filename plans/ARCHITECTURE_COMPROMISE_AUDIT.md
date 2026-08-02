@@ -373,7 +373,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | T5 | dialogue finetune 未用 Muon | 纯 AdamW | Muon+AdamW 混合 | 未修复 | ★ |
 | T6 | cross_spec 投影层单 Linear | 无 MLP | 2 层 MLP + GELU + 残差 | ✅ **已修复**（CrossSpecProjector: Linear+GELU+Linear 残差+零初始化, 旧 ckpt 兼容加载） | — |
 | T7 | side_channels 仅 excite 无 inhibit | 单向调制 | excite + inhibit 平衡 | ✅ **已实现**（代码支持双通道，默认拓扑用 excite） | — |
-| T8 | side_channels 用 simple_zh 训 | 分布外 | 改用 alpaca-zh | 未修复 | ★★ |
+| T8 | side_channels 用 simple_zh 训 | 分布外 | 改用 alpaca-zh | ✅ **S5 已修复**（默认 --data=dialogue, load_dialogue_texts_multi 加载 alpaca_zh_sft.jsonl 等多文件, max_texts 10K→100K） | — |
 | T9 | field_conditioning 训练时关闭 | 怕噪声 | warm-up 后启用 | ✅ **已修复**（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制） | — |
 | T10 | 阵容仅 5 神经元 | CPU 限制 | 扩到 11 个（含 shared_expert） | 硬件约束 | — |
 | T11 | SAMPLING_MAX_TOKENS=100 | 折中 | 按场景分（200/128/512） | 未修复 | ★ |
@@ -400,7 +400,7 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（21 项）**：
+**已被 S1-S12 修复的局部妥协（22 项）**：
 - C1（神经元类型仅 2 种）← 已修复（5 亚型: excitatory/pv/som/vip/inhibitory, 不同 write_gain + refractory_multiplier）
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
@@ -417,19 +417,20 @@ cortex.clear_dialogue_state()  # 清空状态
 - T2（shared_emb 默认 frozen）← S8
 - T6（cross_spec 投影层单 Linear）← 已修复（CrossSpecProjector: Linear+GELU+Linear 残差+零初始化, 旧 ckpt 兼容加载）
 - T7（side_channels 仅 excite）← 代码已实现双通道
+- T8（side_channels 用 simple_zh 训）← S5 已修复（默认 --data=dialogue, load_dialogue_texts_multi 加载 alpaca_zh_sft 等多文件）
 - T9（field_conditioning 训练时关闭）← 已修复（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制）
 - R1（域路由用关键词计数）← 已修复（resonance 软路由模式：probe→final_scores→top-k 跨域激活）
 - R3（融合模式三套并存未分化）← 已修复（consensus 投票融合模式：top-k 共识度加成，集体智慧浮现）
 - R6（调质只驱动 lr）← S9
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 20 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 19 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（5 项）：
-T4/T8/T12/T14, R7
+★★ 中上限（4 项）：
+T4/T12/T14, R7
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11
