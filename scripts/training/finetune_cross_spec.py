@@ -170,11 +170,19 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
             for name, buf in neuron.named_buffers():
                 if name in sb and "bias_" in name:
                     buf.copy_(sb[name])
-        # S8: 恢复 body 参数
+        # S8: 恢复 body 参数（T12: shape 不匹配时跳过——词表升级后 lm_head 维度变化）
         if nid in body_state:
+            n_skip = 0
             for name, p in neuron.named_parameters():
                 if name in body_state[nid]:
-                    p.data.copy_(body_state[nid][name])
+                    saved = body_state[nid][name]
+                    if saved.shape == p.shape:
+                        p.data.copy_(saved)
+                    else:
+                        n_skip += 1
+            if n_skip:
+                print(f"  [resume-skip] [{nid}] {n_skip} 个 body 参数形状不匹配"
+                      f"（词表升级），保留当前值", flush=True)
 
     # 恢复跨规格投影层（T6: 兼容旧单层 Linear checkpoint）
     cross_spec_state = ckpt.get("cross_spec_state", {})
@@ -194,15 +202,20 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
             else:
                 proj.load_state_dict(sd)
 
-    optimizer.load_state_dict(ckpt["optimizer_state"])
-    if adamw_optimizer is not None and "adamw_optimizer_state" in ckpt:
-        adamw_optimizer.load_state_dict(ckpt["adamw_optimizer_state"])
-    if scheduler is not None and "scheduler_state" in ckpt:
-        scheduler.load_state_dict(ckpt["scheduler_state"])
-    if body_optimizer is not None and "body_optimizer_state" in ckpt:
-        body_optimizer.load_state_dict(ckpt["body_optimizer_state"])
-    if body_scheduler is not None and "body_scheduler_state" in ckpt:
-        body_scheduler.load_state_dict(ckpt["body_scheduler_state"])
+    # T12: 优化器/scheduler 状态恢复加防御——词表升级导致参数集变化时重建而非崩溃
+    for name, opt in [("optimizer", optimizer), ("adamw_optimizer", adamw_optimizer),
+                      ("body_optimizer", body_optimizer)]:
+        if opt is not None and f"{name}_state" in ckpt:
+            try:
+                opt.load_state_dict(ckpt[f"{name}_state"])
+            except (RuntimeError, ValueError) as e:
+                print(f"  [resume-warn] {name} 状态恢复失败（参数集变化），重建: {e}", flush=True)
+    for name, sch in [("scheduler", scheduler), ("body_scheduler", body_scheduler)]:
+        if sch is not None and f"{name}_state" in ckpt:
+            try:
+                sch.load_state_dict(ckpt[f"{name}_state"])
+            except (RuntimeError, ValueError) as e:
+                print(f"  [resume-warn] {name} 状态恢复失败（优化器重建），重建: {e}", flush=True)
     # S8: 恢复 shared_embedding
     if shared_embeddings is not None and "shared_embedding_state" in ckpt:
         emb_state = ckpt["shared_embedding_state"]
