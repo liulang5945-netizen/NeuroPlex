@@ -67,6 +67,10 @@ class ResonanceEnsemble:
         convergence_threshold: float = 0.01,  # C9: 轮间分数平均绝对变化 < 此值视为收敛
         dominance_ratio: float = 2.0,  # C9: top1/top2 > 此值视为主导明确
         min_rounds: int = 2,  # C9: 最少轮数（保证 side_signals 生效）
+        # ── C14: shared_expert_weight 动态化 ──
+        # False（默认）= 固定 shared_expert_weight（向后兼容）
+        # True = MLP([max_domain_score, field_state]) → sigmoid → per-sample sw
+        shared_weight_dynamic: bool = False,
     ):
         self.neurons = neurons
         self.field = field
@@ -121,6 +125,35 @@ class ResonanceEnsemble:
         self.convergence_threshold = convergence_threshold
         self.dominance_ratio = dominance_ratio
         self.min_rounds = max(2, min(min_rounds, max_rounds))  # 至少 2 轮，不超过 max_rounds
+
+        # ── C14: shared_expert_weight 动态化（方案 C: 共振分数 + 场状态联合）──
+        # 原 sw 固定 0.3，无法随任务难度/共振强度调整。
+        # 动态化后：共振强（域专精主导）→ sw 低；共振弱（无域主导）→ sw 高（shared 兜底）
+        # 输入：[max_domain_score (标量), field_state_pool (D 维)] → MLP → sigmoid → [B,1]
+        # - max_domain_score: 排除 shared_expert 的最高共振分（batch 级，反映"谁主导"）
+        # - field_state: per-sample 场状态（反映"协作质量"，场信号丰富→协作充分）
+        # 初始化偏置使初始 sw ≈ shared_expert_weight（向后兼容起点）
+        # dynamic=False（默认）时退化为固定 shared_expert_weight（完全向后兼容）
+        self.shared_weight_dynamic = shared_weight_dynamic
+        if (shared_weight_dynamic
+                and shared_expert_id is not None
+                and shared_expert_id in self.neurons):
+            field_dim = self.field.dim
+            # MLP: Linear(1 + field_dim, hidden) + GELU + Linear(hidden, 1)
+            hidden = max(64, field_dim // 4)
+            self.shared_weight_mlp = nn.Sequential(
+                nn.Linear(1 + field_dim, hidden),
+                nn.GELU(),
+                nn.Linear(hidden, 1),
+            )
+            # 初始化使初始输出 ≈ logit(shared_expert_weight)
+            # sigmoid(logit(0.3)) = 0.3，故最后一层 bias = logit(0.3)
+            import math as _math
+            with torch.no_grad():
+                nn.init.zeros_(self.shared_weight_mlp[2].weight)
+                self.shared_weight_mlp[2].bias.fill_(_math.log(shared_expert_weight / (1.0 - shared_expert_weight)))
+        else:
+            self.shared_weight_mlp = None
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
@@ -931,8 +964,11 @@ class ResonanceEnsemble:
             # else: neuron_logits already in result, _generate_p7 handles extraction
 
             # Shared Expert 重新加权（借鉴 Kimi K3 / DeepSeek V3）
-            # general 神经元获得固定基础权重，域特定神经元按原逻辑分配剩余权重
+            # general 神经元获得基础权重，域特定神经元按原逻辑分配剩余权重
             # final = shared_weight * shared_logits + (1-shared_weight) * original_fused
+            # C14: shared_weight 动态化（方案 C: 共振分数 + 场状态联合）
+            # - dynamic=False: 固定 shared_expert_weight（标量，向后兼容）
+            # - dynamic=True:  sw = sigmoid(MLP([max_domain_score, field_state]))  # per-sample [B,1]
             if (
                 self.shared_expert_id
                 and self.shared_expert_id in all_logits
@@ -940,16 +976,45 @@ class ResonanceEnsemble:
             ):
                 shared_logits = all_logits[self.shared_expert_id]
                 original_fused = result["weighted_logits"]
-                sw = self.shared_expert_weight
-                result["weighted_logits"] = sw * shared_logits + (1.0 - sw) * original_fused
-                # 更新 final_weights 反映 Shared Expert 的固定权重
+
+                # C14: 计算 shared_weight
+                if self.shared_weight_mlp is not None:
+                    # field_state: [B,D] 或 [D]
+                    field_state = self.field.get_state()
+                    if field_state.dim() == 1:
+                        field_state = field_state.unsqueeze(0)  # [1,D]
+                    B = field_state.shape[0]
+                    # max_domain_score: 排除 shared_expert 的最高共振分（batch 级）
+                    domain_scores = [s for nid, s in scores.items() if nid != self.shared_expert_id]
+                    max_domain_score = max(domain_scores) if domain_scores else 0.0
+                    max_score_tensor = torch.full(
+                        (B, 1), float(max_domain_score),
+                        device=field_state.device, dtype=field_state.dtype,
+                    )
+                    # 联合输入 [B, 1+D] → MLP → sigmoid → [B,1]
+                    mlp_input = torch.cat([max_score_tensor, field_state], dim=-1)
+                    sw = torch.sigmoid(self.shared_weight_mlp(mlp_input))  # [B,1]
+                    # 扩展到 [B,1,1] 与 [B,L,V] 广播
+                    sw_broadcast = sw.unsqueeze(-1)
+                    # 标量记录（final_weights 仍用标量，保持接口兼容）
+                    sw_scalar = float(sw.mean().item())
+                else:
+                    sw = self.shared_expert_weight  # 标量 float
+                    sw_broadcast = sw
+                    sw_scalar = sw
+
+                result["weighted_logits"] = sw_broadcast * shared_logits + (1.0 - sw_broadcast) * original_fused
+                # 更新 final_weights 反映 Shared Expert 的权重
                 if "final_weights" in result:
                     weights = result["final_weights"]
                     # 域特定神经元权重缩放到 (1-sw)
                     for nid in weights:
                         if nid != self.shared_expert_id:
-                            weights[nid] = weights[nid] * (1.0 - sw)
-                    weights[self.shared_expert_id] = sw
+                            weights[nid] = weights[nid] * (1.0 - sw_scalar)
+                    weights[self.shared_expert_id] = sw_scalar
+                # C14: 记录 per-sample sw（供调试/监控）
+                if self.shared_weight_mlp is not None:
+                    result["shared_weight_per_sample"] = sw.detach().squeeze(-1)  # [B]
 
         return result
 
