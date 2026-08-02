@@ -728,6 +728,19 @@ class ResonanceEnsemble:
                     break
                 active_ids = filtered
 
+            # C10: 每轮动态更新 side_signals（原 bug: round 1 后构建一次，rounds 2+ 复用）
+            # 让神经元间的信号传递随共振进行而演化，而非停留在 round 1 的快照
+            if round_num < self.max_rounds and side_signals_per_neuron is not None:
+                side_signals_per_neuron = {nid: {} for nid in active_ids}
+                for post_id in active_ids:
+                    post_neuron = self.neurons[post_id]
+                    for pre_id in active_ids:
+                        if post_id == pre_id:
+                            continue
+                        if (pre_id in post_neuron.excite_channels or
+                                pre_id in post_neuron.inhibit_channels):
+                            side_signals_per_neuron[post_id][pre_id] = round_vecs[pre_id]
+
             # 人脑启发：每轮结束递减所有神经元的不应期计数器
             for nid in self.neurons:
                 self.neurons[nid].tick_refractory()
