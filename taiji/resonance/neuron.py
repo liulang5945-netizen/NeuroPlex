@@ -311,8 +311,52 @@ class ResonanceNeuron(nn.Module):
 
     @property
     def is_inhibitory(self) -> bool:
-        """是否为抑制性神经元。"""
-        return self.neuron_type == "inhibitory"
+        """是否为抑制性神经元（标准 inhibitory 或 SOM+ 亚型）。"""
+        # C1: SOM+ 也有抑制效果（定向抑制树突）
+        return self.neuron_type in ("inhibitory", "excitatory_som")
+
+    @property
+    def is_excitatory(self) -> bool:
+        """是否为兴奋性神经元（含 PV+/VIP+ 亚型）。"""
+        return self.neuron_type in ("excitatory", "excitatory_pv", "excitatory_vip")
+
+    @property
+    def write_gain(self) -> float:
+        """C1: 场写入增益（不同亚型有不同增益）。
+
+        - excitatory: 1.0（标准）
+        - excitatory_pv (PV+): 1.5（快速放电，强写入）
+        - excitatory_som (SOM+): 0.8（弱写入，主要做抑制）
+        - excitatory_vip (VIP+): 1.2（增强写入，去抑制效果）
+        - inhibitory: 1.0（标准抑制）
+        """
+        gains = {
+            "excitatory": 1.0,
+            "excitatory_pv": 1.5,
+            "excitatory_som": 0.8,
+            "excitatory_vip": 1.2,
+            "inhibitory": 1.0,
+        }
+        return gains.get(self.neuron_type, 1.0)
+
+    @property
+    def refractory_multiplier(self) -> float:
+        """C1: 不应期长度乘数（不同亚型有不同不应期）。
+
+        - excitatory: 1.0（标准）
+        - excitatory_pv (PV+): 0.5（快速恢复，短不应期）
+        - excitatory_som (SOM+): 1.5（长不应期，持续调制）
+        - excitatory_vip (VIP+): 0.8（较快恢复）
+        - inhibitory: 2.0（最长不应期，强抑制后需长恢复）
+        """
+        mults = {
+            "excitatory": 1.0,
+            "excitatory_pv": 0.5,
+            "excitatory_som": 1.5,
+            "excitatory_vip": 0.8,
+            "inhibitory": 2.0,
+        }
+        return mults.get(self.neuron_type, 1.0)
 
     @property
     def in_refractory(self) -> bool:

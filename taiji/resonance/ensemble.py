@@ -708,6 +708,8 @@ class ResonanceEnsemble:
                           if self.maturity is not None else 1.0)
             # Cross-spec projection: 将不同 field_dim 的向量投影到 field.dim
             vec = self._project_vec(nid, round_vecs[nid])
+            # C1: 亚型写入增益（PV+ 强写入, SOM+ 弱写入等）
+            vec = vec * neuron.write_gain
             if neuron.is_inhibitory:
                 self.field.write_inhibit(nid, vec, weight=maturity_w)
             else:
@@ -749,12 +751,15 @@ class ResonanceEnsemble:
 
         # 按 score 降序排序，只让 top-K 进入不应期（K = min(half, logits_top_k)）
         # P1-2: refractory_multiplier 由 NeuromodulatorState 提供（血清素驱动）
-        refractory_mult = (self.neuromodulator.get_refractory_multiplier()
-                           if self.neuromodulator is not None else 1.0)
+        # C1: 再乘以亚型不应期乘数（PV+ 短不应期, SOM+ 长不应期等）
+        neuromod_mult = (self.neuromodulator.get_refractory_multiplier()
+                         if self.neuromodulator is not None else 1.0)
         ranked_round1 = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         refractory_k = max(1, min(len(ranked_round1) // 2, self.logits_top_k))
         for nid, _ in ranked_round1[:refractory_k]:
-            self.neurons[nid].enter_refractory(multiplier=refractory_mult)
+            # C1: 亚型不应期乘数 × 调质乘数
+            subtype_mult = self.neurons[nid].refractory_multiplier
+            self.neurons[nid].enter_refractory(multiplier=neuromod_mult * subtype_mult)
 
         # ── B2/B3 fix: round 1 后确定 top-K ──
         if return_logits:
@@ -855,6 +860,8 @@ class ResonanceEnsemble:
                 maturity_w = (self.maturity.get_resonance_weight(nid)
                               if self.maturity is not None else 1.0)
                 vec = self._project_vec(nid, round_vecs[nid])
+                # C1: 亚型写入增益（PV+ 强写入, SOM+ 弱写入等）
+                vec = vec * neuron.write_gain
                 if neuron.is_inhibitory:
                     self.field.write_inhibit(nid, vec, weight=maturity_w)
                 else:
@@ -862,7 +869,9 @@ class ResonanceEnsemble:
                     # C8: per-sample confidence 调制写入幅度
                     scale = write_scale * maturity_w * round_confidences[nid]
                     self.field.update(nid, vec, scale=scale)
-                self.neurons[nid].enter_refractory(multiplier=refractory_mult)
+                self.neurons[nid].enter_refractory(
+                    multiplier=neuromod_mult * self.neurons[nid].refractory_multiplier
+                )
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:
                     self.stdp_tracker.record_firing(nid, round_num, round_vecs[nid])
@@ -1143,6 +1152,13 @@ class ResonanceEnsemble:
                 write_scale = float(neuromodulator.get_field_write_scale())
             except Exception:
                 write_scale = 1.0
+        # C1: 调质不应期乘数（用于 round 2+ enter_refractory）
+        neuromod_mult = 1.0
+        if neuromodulator is not None:
+            try:
+                neuromod_mult = float(neuromodulator.get_refractory_multiplier())
+            except Exception:
+                neuromod_mult = 1.0
 
         # S9: 神经调质门控 Transformer 内部计算（注入 attention/FFN，进入梯度流）
         # - temp_gain: norepinephrine → 注意力温度（高 NE → 聚焦，低 NE → 泛化）

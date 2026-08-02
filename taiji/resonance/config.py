@@ -116,7 +116,16 @@ class NeuronConfig:
     # excitatory: 默认，对场做正向贡献（类比谷氨酸能）
     # inhibitory: 对场做负向贡献，抑制过度共振（类比 GABA 能）
     # 约 20% 神经元应为 inhibitory，由 CoactivationTracker 自动转化过度兴奋的神经元
-    neuron_type: Literal["excitatory", "inhibitory"] = "excitatory"
+    # C1: 扩展为多亚型（生物学启发）
+    # - "excitatory"（默认，向后兼容）: 标准兴奋性，正向场写入
+    # - "excitatory_pv": PV+ 快速放电，强但短促场写入（高 gain + 短不应期）
+    # - "excitatory_som": SOM+ 抑制树突，定向调制（写入 + 弱抑制近邻）
+    # - "excitatory_vip": VIP+ 去抑制，解除 SOM 抑制（写入 + 增强 VIP 目标）
+    # - "inhibitory": 标准抑制性，负向场写入（write_inhibit）
+    # 上限提升：不同亚型有不同场写入行为，更丰富的协作动态
+    neuron_type: Literal[
+        "excitatory", "excitatory_pv", "excitatory_som", "excitatory_vip", "inhibitory"
+    ] = "excitatory"
 
     # ── 不应期配置（人脑启发：refractory period）──
     # 写入场后进入不应期，rounds_cooldown 轮内只能读场不能写
