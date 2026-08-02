@@ -171,7 +171,9 @@ OLMo 3 删除了原始池约 **84.6%** 的文档，采用三级去重：
 **态极的教训**：
 - 域专用 vocab=20,000 太小 → 很多中文 token 变成 byte_fallback (<0xXX>)
 - byte_fallback token 准确率 88.5% 但占比 24%，拉低整体 argmax
-- **建议**：用 GPT-2 BPE (50,257) 或更大 vocab，避免 byte_fallback
+- **✅ T12 已修复**：词表库热插拔（百科 200 万行 + 对话 4.8 万条×3 混合训练，
+  50K zh tokenizer，unk 率 0%），token piece 映射 + lm_head 权重迁移无需重训神经元。
+  命令：`python scripts/training/upgrade_tokenizer.py` → `python scripts/training/hot_swap_vocab.py`
 
 ---
 
