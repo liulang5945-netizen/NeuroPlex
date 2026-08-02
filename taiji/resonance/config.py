@@ -254,8 +254,9 @@ DEFAULT_NEURON_SPEC = "compact"  # COMPACT: hidden=512, layers=6, ~85M/neuron
 # 每 neuron 用域专用 tokenizer，独立 embedding + 独立 lm_head
 # vocab 大小由域 tokenizer 决定（taiji/domains/{domain}/sp_{domain}.model）
 # general 域复用 en tokenizer（16k），避免重新训 tokenizer
+# T12: zh vocab 20K → 50K（词表库热插拔升级，upgrade_tokenizer.py 训练 + hot_swap_vocab.py 迁移 ckpt）
 DOMAIN_VOCAB_SIZES = {
-    "zh": 20000,
+    "zh": 50000,
     "en": 16000,
     "code": 12000,
     "math": 10000,

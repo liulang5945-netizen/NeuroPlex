@@ -377,7 +377,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | T9 | field_conditioning 训练时关闭 | 怕噪声 | warm-up 后启用 | ✅ **已修复**（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制） | — |
 | T10 | 阵容仅 5 神经元 | CPU 限制 | 扩到 11 个（含 shared_expert） | 硬件约束 | — |
 | T11 | SAMPLING_MAX_TOKENS=100 | 折中 | 按场景分（200/128/512） | 未修复 | ★ |
-| T12 | tokenizer 训练语料 30K 行 | 覆盖率 ~70% | 500K-1M 行 | 未修复 | ★★ |
+| T12 | tokenizer 训练语料 30K 行 | 覆盖率 ~70% | 500K-1M 行 | ✅ **已修复**（词表库热插拔: 1314 万行语料采样训练 50K zh tokenizer, token piece 映射 + lm_head 权重迁移, 无需重训神经元） | ★★ |
 | T13 | build/load 路径不一致 | 手动拷贝 | 统一路径 | 未修复 | ★ |
 | T14 | 无 ablation 评估 | 无法定位收益来源 | 4 组 ablation | ✅ **已修复**（evaluate_ablation.py: 共振协作/融合方式/side_channels/field_conditioning 4 组对照, T1 held-out 评估集, JSON 输出） | — |
 
@@ -421,19 +421,20 @@ cortex.clear_dialogue_state()  # 清空状态
 - T9（field_conditioning 训练时关闭）← 已修复（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制）
 - T4（无数据增强）← 已修复（data_augmentation.py: 模板改写+多轮拼接+神经元改写, translator answer_marker_mode=last 多轮精确 masking, 3 训练脚本 --augment）
 - T14（无 ablation 评估）← 已修复（evaluate_ablation.py: 4 组对照实验定位收益来源）
+- T12（tokenizer 训练语料 30K 行）← 已修复（词表库热插拔: upgrade_tokenizer.py 用 1314 万行纯文本采样 ~200 万行训练 50K zh tokenizer, hot_swap_vocab.py 旧→新 token piece 映射 + lm_head 权重迁移[精确匹配/子piece平均/随机兜底] + cfg.vocab_size 更新, 无需重训神经元, 原 ckpt 备份至 pre_t12_backup/）
 - R1（域路由用关键词计数）← 已修复（resonance 软路由模式：probe→final_scores→top-k 跨域激活）
 - R3（融合模式三套并存未分化）← 已修复（consensus 投票融合模式：top-k 共识度加成，集体智慧浮现）
 - R6（调质只驱动 lr）← S9
 - R7（代际迁移被禁用）← 已修复（三联蒸馏: KL logits + hidden 投影对齐 + attention 转移, 支持混合规格/vocab 对齐, train_distillation.py）
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 16 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 15 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（1 项）：
-T12
+★★ 中上限（0 项）：
+所有中上限缺口已修复！剩余缺口均为低上限。
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11
