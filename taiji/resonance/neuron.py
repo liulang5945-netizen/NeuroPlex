@@ -95,7 +95,30 @@ class ResonanceNeuron(nn.Module):
         self.field_read_mode = c.field_read_mode
 
         # ── Field write projection ──
-        self.field_write = nn.Linear(c.hidden_size, c.field_dim, bias=False)
+        # C6: 多头 field write（num_field_heads > 1 时启用）
+        # 单 query 只能写一个语义切面；多头让 neuron 同时表达"主题"+"情感"+"结构"等多个维度
+        self.num_field_heads = c.num_field_heads
+        self.field_pool_scale = c.hidden_size ** -0.5
+
+        if c.num_field_heads > 1:
+            # C6: 多头路径
+            # K 个独立 query 捕捉不同语义切面
+            self.field_pool_queries = nn.Parameter(
+                torch.randn(c.num_field_heads, c.hidden_size) * 0.02
+            )
+            # K 个独立 field_write 投影（每个 head 学不同写入方向，强制多样性）
+            self.field_write_heads = nn.ModuleList([
+                nn.Linear(c.hidden_size, c.field_dim, bias=False)
+                for _ in range(c.num_field_heads)
+            ])
+            # 门控聚合：从 pooled 特征动态选择每个 head 的权重
+            self.field_gate = nn.Linear(c.hidden_size, c.num_field_heads, bias=True)
+            # 保留 field_write=None 标记（兼容旧代码访问）
+            self.field_write = None
+        else:
+            # 向后兼容：单 query v2 路径
+            self.field_write = nn.Linear(c.hidden_size, c.field_dim, bias=False)
+            self.field_pool_query = nn.Parameter(torch.randn(c.hidden_size) * 0.02)
 
         # 突触投影（Field Projector）：不同规格 field_dim → 统一场空间
         # 模拟人脑突触可塑性（LTP/LTD）：不同类型神经元通过突触连接到统一网络
@@ -105,12 +128,6 @@ class ResonanceNeuron(nn.Module):
             self.field_projector = nn.Linear(c.field_dim, c.unified_field_dim, bias=False)
         else:
             self.field_projector = nn.Identity()
-
-        # Attention pooling for field write (v2)
-        # Learn a query that pools over all positions instead of only using the last token.
-        # This surfaces the most salient conceptual content for field communication.
-        self.field_pool_query = nn.Parameter(torch.randn(c.hidden_size) * 0.02)
-        self.field_pool_scale = c.hidden_size ** -0.5
 
         # ── Field read projections (one per layer, for conditioning) ──
         self.field_read_layers = nn.ModuleList([
@@ -565,6 +582,7 @@ class ResonanceNeuron(nn.Module):
         # 乘法掩码实现（divisive inhibition，GABA-like）。
         if self.v1_compat:
             # v1: last-token write (matches old checkpoint training distribution)
+            # v1_compat 与 num_field_heads>1 互斥（v1 是旧 ckpt 兼容模式）
             hidden_last = h[:, -1, :]  # [B, hidden]
             v_raw = self.field_write(hidden_last)  # [B, field_dim]
             v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
@@ -573,8 +591,36 @@ class ResonanceNeuron(nn.Module):
                 "field_vector": v,
                 "hidden_before_write": hidden_last,
             }
+        elif self.num_field_heads > 1:
+            # C6: 多头 attention pooling + 门控聚合
+            # K 个独立 query 各自 attention pooling，捕捉不同语义切面
+            attn_scores = torch.matmul(
+                h, self.field_pool_queries.T
+            ) * self.field_pool_scale  # [B, L, K]
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, L, K] softmax over L
+            pooled = torch.einsum('blk,blh->bkh', attn_weights, h)  # [B, K, hidden]
+
+            # K 个独立 field_write 投影（每个 head 学不同写入方向）
+            v_raw_k = torch.stack([
+                head(pooled[:, k]) for k, head in enumerate(self.field_write_heads)
+            ])  # [K, B, field_dim]
+
+            # 门控聚合：从 pooled 均值动态选择每个 head 的权重
+            gate = torch.softmax(
+                self.field_gate(pooled.mean(dim=1)), dim=-1
+            )  # [B, K]
+            v_raw = torch.einsum('bk,kbd->bd', gate, v_raw_k)  # [B, field_dim]
+
+            v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
+            v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
+            result: Dict[str, torch.Tensor] = {
+                "field_vector": v,
+                "hidden_before_write": pooled.mean(dim=1),  # 平均 pooling 用于 domain_prototype 更新
+                "field_attn_weights": attn_weights.mean(dim=-1),  # [B, L] 平均 attention（诊断用）
+                "field_gate": gate,  # [B, K] 门控权重（诊断用）
+            }
         else:
-            # v2: attention-pooled field write
+            # v2: attention-pooled field write（向后兼容，单 query）
             attn_scores = torch.matmul(h, self.field_pool_query) * self.field_pool_scale  # [B, L]
             attn_weights = torch.softmax(attn_scores, dim=-1)  # [B, L]
             pooled = (attn_weights.unsqueeze(-1) * h).sum(dim=1)  # [B, hidden]
@@ -619,6 +665,23 @@ class ResonanceNeuron(nn.Module):
         h = self.embed_adapter(shared_embeddings)
         # Use mean pooling over sequence as a rough representation
         h_pooled = h.mean(dim=1)  # [B, hidden]
-        v_raw = self.field_write(h_pooled)
+        if self.num_field_heads > 1:
+            # C6: 多头简化路径（用 head 0 做轻量预筛选，完整多头逻辑在 forward 中）
+            v_raw = self.field_write_heads[0](h_pooled)
+        else:
+            v_raw = self.field_write(h_pooled)
         v_raw = self.field_projector(v_raw)  # 突触投影
         return v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
+
+    def get_field_write_parameters(self):
+        """返回所有 field_write 相关参数（C6 多头兼容）。
+
+        单头模式：返回 self.field_write.parameters()
+        多头模式：返回 self.field_write_heads + self.field_gate + self.field_pool_queries
+        """
+        if self.num_field_heads > 1:
+            params = list(self.field_write_heads.parameters())
+            params += list(self.field_gate.parameters())
+            params.append(self.field_pool_queries)
+            return params
+        return list(self.field_write.parameters()) + [self.field_pool_query]

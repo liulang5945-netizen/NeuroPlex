@@ -376,8 +376,8 @@ def main():
             if hasattr(neuron, 'lm_head') and neuron.lm_head is not None:
                 for p in neuron.lm_head.parameters():
                     p.requires_grad = True
-            # field_write（让场写入适配协作动态）
-            for p in neuron.field_write.parameters():
+            # field_write（让场写入适配协作动态，C6 多头兼容）
+            for p in neuron.get_field_write_parameters():
                 p.requires_grad = True
         neuron.train()
 

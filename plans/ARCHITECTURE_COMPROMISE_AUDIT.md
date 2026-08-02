@@ -351,7 +351,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | C3 | 单体 Transformer 无树突分叉 | 单前向通路 | basal/apical 树突分离 + 预测编码 | ✅ **S10 已修复** | — |
 | C4 | 场读入是加性残差 | gate*conditioning | 乘性门控 / 预测编码 | ✅ **已修复**（三种模式可选） | — |
 | C5 | domain_prototype 单 EMA 向量 | 单质心 | 原型混合 + 在线聚类 | 未修复 | ★★ |
-| C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 | 未修复 | ★★ |
+| C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 | ✅ **已修复**（多头 attention pooling + 门控聚合） | — |
 | C7 | 场是单一 D 维向量 | 无空间结构 | 空间场 + 扩散动力学 | ✅ **已修复**（图拉普拉斯扩散，forward_train 接入） | — |
 | C8 | 场写入丢弃幅度 | L2 归一化 | 保留幅度作置信度 | 未修复 | ★★ |
 | C9 | 共振轮数固定 3 | 固定开销 | 自适应停止 + 连续吸引子 | 未修复 | ★★ |
@@ -400,9 +400,10 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（10 项）**：
+**已被 S1-S12 修复的局部妥协（11 项）**：
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
+- C6（field_write 单 query pooling）← 已修复（多头 attention pooling + 门控聚合）
 - C7（场是单一 D 维向量）← 已修复（图拉普拉斯扩散，forward_train 接入）
 - C10（side_signals 仅 round 1 后构建）← 已修复（推理路径每轮重建）
 - C11（跨 vocab 零填充）← S6
@@ -412,13 +413,13 @@ cortex.clear_dialogue_state()  # 清空状态
 - R6（调质只驱动 lr）← S9
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 31 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 30 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（16 项）：
-C1/C5/C6/C8/C9/C12/C14, T4/T6/T8/T9/T12/T14, R1/R3/R7
+★★ 中上限（15 项）：
+C1/C5/C8/C9/C12/C14, T4/T6/T8/T9/T12/T14, R1/R3/R7
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11

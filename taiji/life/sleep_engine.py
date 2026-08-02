@@ -1130,8 +1130,8 @@ class SleepEngine:
         for neuron in cortex.neurons.values():
             if hasattr(neuron, 'embed_adapter'):
                 trainable_params.extend(neuron.embed_adapter.parameters())
-            if hasattr(neuron, 'field_write'):
-                trainable_params.extend(neuron.field_write.parameters())
+            if hasattr(neuron, 'get_field_write_parameters'):
+                trainable_params.extend(neuron.get_field_write_parameters())
 
         if not trainable_params:
             return None

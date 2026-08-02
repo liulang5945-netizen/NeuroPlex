@@ -49,6 +49,22 @@ class NeuronConfig:
     # 预测编码与 S10 树突化 apical 路径模式一致（误差驱动校正）。
     field_read_mode: str = "additive"
 
+    # ── C6: 多头 field write（num_field_heads）──
+    # 场写入的语义切面数量。当前单 query 只能写入一个语义切面（如"主题"），
+    # 多头让每个 neuron 同时写入多个语义维度（"主题"+"情感"+"结构"）。
+    #
+    # - 1 = 单 query attention pooling（向后兼容默认，走原 v2 路径）
+    # - K>1 = K 个独立 query + K 个独立 field_write 投影 + 门控聚合
+    #
+    # 多头机制：
+    # 1. K 个 query 各自 attention pooling → K 个 pooled 向量（捕捉不同语义切面）
+    # 2. K 个独立 field_write 线性投影 → K 个 raw field 向量（每个 head 学不同写入方向）
+    # 3. softmax 门控聚合 → 单个 field 向量（模型动态选择每个切面权重）
+    #
+    # 参数量：K=1 时不变；K>1 时增加 (K-1)×hidden×field_dim + K×hidden（gate）
+    # 上限提升：场信息带宽 ×K，与 C7 空间扩散协同（更丰富的场写入→更有意义的扩散）
+    num_field_heads: int = 1
+
     # ── Embedding (per-neuron, domain-specific tokenizer) ──
     # P7: 每 neuron 独立 embedding + 独立 lm_head，域专用 vocab
     # vocab_size 由域 tokenizer 决定（zh=20k, en=16k, code=12k, math=10k）

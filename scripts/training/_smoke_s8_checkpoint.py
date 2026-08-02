@@ -52,6 +52,10 @@ class MockNeuron(nn.Module):
     def named_buffers(self, *args, **kwargs):
         return super().named_buffers(*args, **kwargs)
 
+    def get_field_write_parameters(self):
+        """C6 兼容：返回 field_write 参数（MockNeuron 仅单头）。"""
+        return list(self.field_write.parameters())
+
 
 class MockEnsemble:
     """模拟 ensemble 的 _cross_spec_projectors / _cross_spec_back_projectors。"""
@@ -101,7 +105,7 @@ def main():
             p.requires_grad = True
         for p in neuron.lm_head.parameters():
             p.requires_grad = True
-        for p in neuron.field_write.parameters():
+        for p in neuron.get_field_write_parameters():
             p.requires_grad = True
 
     # shared_embedding 可训练
@@ -245,7 +249,7 @@ def main():
             p.requires_grad = True
         for p in neuron.lm_head.parameters():
             p.requires_grad = True
-        for p in neuron.field_write.parameters():
+        for p in neuron.get_field_write_parameters():
             p.requires_grad = True
     for emb in shared_embeddings2.values():
         for p in emb.parameters():
