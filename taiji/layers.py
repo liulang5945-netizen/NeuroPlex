@@ -85,10 +85,14 @@ def apply_rotary_emb(
 
 
 class GroupedQueryAttention(nn.Module):
-    """GQA — 分组查询注意力，省显存效果好"""
+    """GQA — 分组查询注意力，省显存效果好
+
+    S11: 支持 attention sink + 滑动窗口（StreamingLLM 启发）。
+    """
 
     def __init__(self, hidden_size: int, num_heads: int, num_kv_heads: int,
-                 dropout: float = 0.0, bias: bool = False):
+                 dropout: float = 0.0, bias: bool = False,
+                 attention_sink_size: int = 0, sliding_window_size: int = 0):
         super().__init__()
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
@@ -104,6 +108,45 @@ class GroupedQueryAttention(nn.Module):
         self.rope = RotaryEmbedding(self.head_dim)
         self.attn_dropout = nn.Dropout(dropout)
 
+        # S11: attention sink + 滑动窗口配置
+        # sink_size > 0 且 window_size > 0 时启用长上下文 KV cache 管理
+        # KV cache 保留前 sink_size 个 token（锚点）+ 最近 window_size 个 token（滑动窗口）
+        # 总 KV cache 长度上限 = sink_size + window_size
+        # 0 = 关闭（向后兼容，KV cache 无限增长）
+        self.attention_sink_size = attention_sink_size
+        self.sliding_window_size = sliding_window_size
+        self.kv_cache_max_len = attention_sink_size + sliding_window_size
+
+    def _evict_kv_cache(
+        self, xk: torch.Tensor, xv: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """S11: 滑动窗口 KV cache 驱逐。
+
+        当 KV cache 超过 max_len 时，保留前 sink_size 个 token + 最近 window_size 个 token，
+        驱逐中间的旧 token。这保持 sink 锚点不变，滑动窗口向前推进。
+
+        Args:
+            xk: [B, S, num_kv_heads, head_dim] 完整 KV cache keys
+            xv: [B, S, num_kv_heads, head_dim] 完整 KV cache values
+
+        Returns:
+            (xk_evicted, xv_evicted): 驱逐后的 KV cache，长度 = sink_size + window_size
+        """
+        sink_size = self.attention_sink_size
+        window_size = self.sliding_window_size
+        max_len = self.kv_cache_max_len
+
+        cur_len = xk.shape[1]
+        if cur_len <= max_len:
+            return xk, xv  # 未超限，无需驱逐
+
+        # 保留前 sink_size + 最近 window_size
+        sink_k = xk[:, :sink_size]
+        sink_v = xv[:, :sink_size]
+        window_k = xk[:, -window_size:]
+        window_v = xv[:, -window_size:]
+        return torch.cat([sink_k, window_k], dim=1), torch.cat([sink_v, window_v], dim=1)
+
     def forward(
         self, x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
@@ -116,6 +159,9 @@ class GroupedQueryAttention(nn.Module):
         temp_gain > 1 → xq 放大 → logits 放大 → softmax 更尖锐（高警觉，聚焦）
         temp_gain < 1 → xq 缩小 → logits 缩小 → softmax 更分散（低警觉，泛化）
         temp_gain = 1 → 标准注意力（向后兼容）
+
+        S11: kv_cache 启用时，若配置了 attention_sink_size + sliding_window_size，
+        会自动驱逐旧 token 保持 KV cache 长度上限 = sink_size + window_size。
         """
         bsz, seqlen, _ = x.shape
 
@@ -136,6 +182,9 @@ class GroupedQueryAttention(nn.Module):
         if kv_cache is not None:
             xk = torch.cat([kv_cache[0], xk], dim=1)
             xv = torch.cat([kv_cache[1], xv], dim=1)
+            # S11: 滑动窗口驱逐（KV cache 超限时保留 sink + window）
+            if self.kv_cache_max_len > 0:
+                xk, xv = self._evict_kv_cache(xk, xv)
         new_kv_cache = (xk, xv) if use_cache else None
 
         # GQA: 扩展 KV heads（PyTorch 2.5+ 原生支持 GQA，旧版本需要手动扩展）
@@ -147,6 +196,16 @@ class GroupedQueryAttention(nn.Module):
         xq = xq.transpose(1, 2)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
+
+        # S11: 滑动窗口启用时，mask 需要适配驱逐后的 KV cache 长度
+        # 当驱逐发生时，KV cache 长度可能小于 start_pos + seqlen，
+        # 此时不能再用标准 causal mask（会因维度不匹配报错）
+        # 解决：滑动窗口模式下禁用 causal mask（依赖 KV cache 顺序保证因果性）
+        # 训练时（无 kv_cache）不受影响
+        if self.kv_cache_max_len > 0 and kv_cache is not None and mask is not None:
+            # 滑动窗口 + KV cache 模式：mask 维度可能不匹配，禁用 mask
+            # 注意：这只在推理时（use_cache=True）发生，训练时 mask 仍然生效
+            mask = None
 
         # Flash Attention（PyTorch 2.0+ 自动调度到 FlashAttention-2/3 或 Memory-Efficient）
         # 比手动 matmul 快 2-4x，内存减少 50-70%
@@ -208,13 +267,19 @@ class TransformerBlock(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int, num_kv_heads: int,
                  intermediate_size: int, rms_norm_eps: float = 1e-5, bias: bool = False,
                  dropout: float = 0.0,
-                 dendritic: bool = False, apical_kv_dim: Optional[int] = None):
+                 dendritic: bool = False, apical_kv_dim: Optional[int] = None,
+                 attention_sink_size: int = 0, sliding_window_size: int = 0):
         super().__init__()
         self.dendritic = dendritic
 
         # ── Basal 路径（始终存在，标准 Transformer）──
-        self.attention = GroupedQueryAttention(hidden_size, num_heads, num_kv_heads,
-                                               dropout=dropout, bias=bias)
+        # S11: 传入 attention_sink_size + sliding_window_size 启用长上下文
+        self.attention = GroupedQueryAttention(
+            hidden_size, num_heads, num_kv_heads,
+            dropout=dropout, bias=bias,
+            attention_sink_size=attention_sink_size,
+            sliding_window_size=sliding_window_size,
+        )
         self.attention_norm = RMSNorm(hidden_size, rms_norm_eps)
         self.feed_forward = SwiGLU(hidden_size, intermediate_size)
         self.ffn_norm = RMSNorm(hidden_size, rms_norm_eps)

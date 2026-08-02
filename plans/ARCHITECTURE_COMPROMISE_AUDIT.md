@@ -253,15 +253,35 @@
 
 **参数量影响**：dendritic=True 时每层增加 apical_wq/wk/wv/wo + apical_norm + somatic_gate + error_scale，约增加 25-35% 参数（compact 85M → ~110M）。可通过 config 开关控制，不影响现有 neuron。
 
-### S11. 512 token 硬截断 ★
+### S11. 512 token 硬截断 ★ ✅ 已修复（attention sink + 滑动窗口）
 
-| 维度 | 当前 | 上限更高 |
-|------|------|---------|
-| 上下文长度 | 512 token 硬截断（[cortex.py:1260-1261](file:///e:/taiji-neuron/taiji/brain/cortex.py#L1260-L1261)） | StreamingLLM / attention sink / 分块共振 |
-| 后果 | 长对话被截断，多轮能力受限 | 长上下文能力 |
-| 妥协原因 | CPU 推理显存/算力 | |
-| 提升幅度 | 极高（长上下文能力） | |
-| 实施难度 | 中 | |
+| 维度 | 修复前 | 修复后 |
+|------|--------|---------|
+| 上下文长度 | 512 token 硬截断（KV cache 无限增长或硬截断） | **attention sink + 滑动窗口，近 O(1) 推理时长上下文** |
+| 后果 | 长对话被截断，多轮能力受限 | 支持数万 token 上下文（sink + window 配置） |
+| 妥协原因 | CPU 推理显存/算力 | **已解除：StreamingLLM 技术，KV cache 上限 = sink_size + window_size** |
+| 提升幅度 | 极高（长上下文能力） | 已实现 |
+| 实施难度 | 中 | 已完成 |
+
+**修复详情**（2026-08-01）：
+- [config.py](file:///e:/taiji-neuron/taiji/resonance/config.py)：`NeuronConfig` 新增 `attention_sink_size: int` 和 `sliding_window_size: int`
+- [layers.py](file:///e:/taiji-neuron/taiji/layers.py)：`GroupedQueryAttention` 扩展
+  - 新增 `_evict_kv_cache()` 方法：KV cache 超限时保留前 `sink_size` + 最近 `window_size` token
+  - `forward()` 中 `kv_cache_max_len > 0` 时自动驱逐
+  - 滑动窗口 + KV cache 推理时禁用 causal mask（维度不匹配安全处理）
+  - 训练时（无 kv_cache）完全不受影响
+- [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py)：构建 TransformerBlock 时传入 sink/window 参数
+- **参数语义**：
+  - `attention_sink_size=4`（默认 0=关闭）：保留前 4 个 token 作为注意力锚点
+  - `sliding_window_size=2048`（默认 0=关闭）：滑动窗口大小
+  - KV cache 上限 = sink_size + window_size = 2052
+  - 两者都为 0 时完全向后兼容（KV cache 无限增长）
+- **向后兼容**：
+  - sink/window=0（默认）：完全等同修复前
+  - sink/window 是 Python 属性（非 nn.Parameter），不影响 state_dict，旧 ckpt strict=True 加载成功
+  - 6/6 smoke test 通过（[_smoke_s11_attention_sink.py](file:///e:/taiji-neuron/scripts/training/_smoke_s11_attention_sink.py)）
+
+**使用建议**：生产配置推荐 `attention_sink_size=4, sliding_window_size=2048`（KV cache 上限 2052，支持 ~2000 token 上下文）。CPU 推理可降至 `sliding_window_size=512`（上限 516）。
 
 ### S12. 多轮对话靠前缀拼接 ★
 

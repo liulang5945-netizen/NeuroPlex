@@ -29,6 +29,16 @@ class NeuronConfig:
     # 0.0 = 关闭（向后兼容旧 ckpt）
     dropout: float = 0.0
 
+    # ── S11: 长上下文（attention sink + 滑动窗口）──
+    # StreamingLLM 启发：保留前 K 个 token 的 KV 作为"注意力锚点"，
+    # 滑动窗口处理新 token，实现近 O(1) 推理时长上下文。
+    # - attention_sink_size: 保留的前 K 个 sink token（典型 4）
+    # - sliding_window_size: 滑动窗口大小（典型 1024-2048）
+    # - 两者之和为 KV cache 最大长度（sink_size + window_size）
+    # - 0 = 关闭（向后兼容，KV cache 无限增长直到显存溢出）
+    attention_sink_size: int = 0
+    sliding_window_size: int = 0
+
     # ── Embedding (per-neuron, domain-specific tokenizer) ──
     # P7: 每 neuron 独立 embedding + 独立 lm_head，域专用 vocab
     # vocab_size 由域 tokenizer 决定（zh=20k, en=16k, code=12k, math=10k）

@@ -83,6 +83,9 @@ class ResonanceNeuron(nn.Module):
                 dropout=c.dropout,
                 dendritic=c.dendritic_enabled,
                 apical_kv_dim=(c.apical_kv_dim or c.field_dim) if c.dendritic_enabled else None,
+                # S11: 长上下文 attention sink + 滑动窗口
+                attention_sink_size=c.attention_sink_size,
+                sliding_window_size=c.sliding_window_size,
             )
             for _ in range(c.num_hidden_layers)
         ])
