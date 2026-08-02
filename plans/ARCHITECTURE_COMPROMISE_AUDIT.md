@@ -349,7 +349,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | C1 | 神经元类型仅 2 种 | excitatory/inhibitory | PV+/SOM+/VIP+ 多亚型 | 未修复 | ★★ |
 | C2 | 不应期是整数计数器 | 二值状态 | 4 相恢复曲线 | 未修复 | ★ |
 | C3 | 单体 Transformer 无树突分叉 | 单前向通路 | basal/apical 树突分离 + 预测编码 | ✅ **S10 已修复** | — |
-| C4 | 场读入是加性残差 | gate*conditioning | 乘性门控 / 预测编码 | 未修复 | ★★★ |
+| C4 | 场读入是加性残差 | gate*conditioning | 乘性门控 / 预测编码 | ✅ **已修复**（三种模式可选） | — |
 | C5 | domain_prototype 单 EMA 向量 | 单质心 | 原型混合 + 在线聚类 | 未修复 | ★★ |
 | C6 | field_write 单 query pooling | 单语义切面 | 多 query 多头池化 | 未修复 | ★★ |
 | C7 | 场是单一 D 维向量 | 无空间结构 | 空间场 + 扩散动力学 | 未修复 | ★★★ |

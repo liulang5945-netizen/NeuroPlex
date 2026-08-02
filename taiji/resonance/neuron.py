@@ -91,6 +91,8 @@ class ResonanceNeuron(nn.Module):
         ])
         self.norm = RMSNorm(c.hidden_size, c.rms_norm_eps)
         self.dendritic_enabled = c.dendritic_enabled
+        # C4: 场读入模式
+        self.field_read_mode = c.field_read_mode
 
         # ── Field write projection ──
         self.field_write = nn.Linear(c.hidden_size, c.field_dim, bias=False)
@@ -485,13 +487,31 @@ class ResonanceNeuron(nn.Module):
                     conditioning = conditioning.unsqueeze(0).unsqueeze(0)  # [1,1,H] -> all B,L
                 else:
                     conditioning = conditioning.unsqueeze(1)  # [B,1,H] -> over seq
+
                 if self.v1_compat:
-                    # v1: broadcast same conditioning to all positions
+                    # v1: broadcast same conditioning to all positions (加性)
                     h = h + conditioning
                 else:
-                    # v2: per-position gated read
+                    # C4: 根据 field_read_mode 选择调制方式
                     gate = torch.sigmoid(self.field_read_gate(h))  # [B, L, 1]
-                    h = h + gate * conditioning
+
+                    if self.field_read_mode == "multiplicative":
+                        # 乘性门控：h = h * (1 + gate * tanh(conditioning))
+                        # 场状态调制表示的幅度/方向，而非仅加性偏移
+                        # tanh 限制 conditioning 在 [-1,1]，防止乘性爆炸
+                        modulation = torch.tanh(conditioning)  # [B, L, H]
+                        h = h * (1.0 + gate * modulation)
+
+                    elif self.field_read_mode == "predictive":
+                        # 预测编码：h = h - gate * (h - conditioning)
+                        # field_state 作为自上而下预测，误差驱动校正
+                        # 与 S10 树突化 apical 路径模式一致
+                        error = h - conditioning  # [B, L, H] 预测误差
+                        h = h - gate * error
+
+                    else:  # "additive"（默认，向后兼容）
+                        # 加性门控：h = h + gate * conditioning
+                        h = h + gate * conditioning
 
         # ── Step 3: Final norm ──
         # side_channels 移到 norm 之后，避免 RMSNorm 抵消乘性调制

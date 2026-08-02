@@ -39,6 +39,16 @@ class NeuronConfig:
     attention_sink_size: int = 0
     sliding_window_size: int = 0
 
+    # ── C4: 场读入模式（field_read_mode）──
+    # 控制 field_state 如何调制神经元内部表示：
+    # - "additive": h = h + gate * conditioning（加性残差，向后兼容默认）
+    # - "multiplicative": h = h * (1 + gate * tanh(conditioning))（乘性门控，场调制表示方向）
+    # - "predictive": h = h - gate * (h - conditioning)（预测编码，场作为自上而下预测）
+    #
+    # 乘性门控让 field_state 能真正调制表示的幅度/方向，而非仅加性偏移。
+    # 预测编码与 S10 树突化 apical 路径模式一致（误差驱动校正）。
+    field_read_mode: str = "additive"
+
     # ── Embedding (per-neuron, domain-specific tokenizer) ──
     # P7: 每 neuron 独立 embedding + 独立 lm_head，域专用 vocab
     # vocab_size 由域 tokenizer 决定（zh=20k, en=16k, code=12k, math=10k）
