@@ -15,6 +15,7 @@ general/domain token 映射，再查共享嵌入表。
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -580,6 +581,15 @@ class ResonanceNeuron(nn.Module):
         # P0#3: 不再对抑制性神经元取反（v=-v）。
         # field_vector 始终为正方向；抑制效果由 field.write_inhibit() 的
         # 乘法掩码实现（divisive inhibition，GABA-like）。
+        #
+        # C8: field_confidence — 保留幅度作置信度
+        # 当前 L2 归一化丢弃幅度，高置信度 neuron 和低置信度 neuron 写入幅度相同。
+        # C8 让 neuron 自身产生置信度（attention entropy 方案）：
+        # - entropy = -Σ(p·log p)，完全聚焦 entropy=0，均匀分布 entropy=log(L)
+        # - confidence = 1 - entropy/log(L) ∈ [0, 1]
+        # - 高聚焦（neuron 对输入有明确判断）→ 高 confidence → 写入幅度大
+        # - 低聚焦（neuron 不确定）→ 低 confidence → 写入幅度小
+        # 方向仍 L2 归一化（保持 cosine similarity 评分），幅度通过 scale 调制
         if self.v1_compat:
             # v1: last-token write (matches old checkpoint training distribution)
             # v1_compat 与 num_field_heads>1 互斥（v1 是旧 ckpt 兼容模式）
@@ -587,9 +597,14 @@ class ResonanceNeuron(nn.Module):
             v_raw = self.field_write(hidden_last)  # [B, field_dim]
             v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
+            # v1 无 attention pooling，用 hidden norm 作置信度（强激活=高置信度）
+            field_confidence = torch.sigmoid(
+                hidden_last.norm(dim=-1) / math.sqrt(self.config.hidden_size)
+            )  # [B] ∈ [0, 1]
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
                 "hidden_before_write": hidden_last,
+                "field_confidence": field_confidence,
             }
         elif self.num_field_heads > 1:
             # C6: 多头 attention pooling + 门控聚合
@@ -613,11 +628,23 @@ class ResonanceNeuron(nn.Module):
 
             v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
+
+            # C8: 多头 confidence — 每 head 独立 entropy，gate 加权聚合
+            L = h.shape[1]
+            max_entropy = math.log(L) if L > 1 else 1.0
+            # 每 head 的 attention entropy: -Σ(p·log p) over L
+            entropy_per_head = -(
+                attn_weights * (attn_weights + 1e-8).log()
+            ).sum(dim=1)  # [B, K]
+            confidence_per_head = 1.0 - entropy_per_head / max_entropy  # [B, K]
+            field_confidence = (gate * confidence_per_head).sum(dim=-1)  # [B]
+
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
                 "hidden_before_write": pooled.mean(dim=1),  # 平均 pooling 用于 domain_prototype 更新
                 "field_attn_weights": attn_weights.mean(dim=-1),  # [B, L] 平均 attention（诊断用）
                 "field_gate": gate,  # [B, K] 门控权重（诊断用）
+                "field_confidence": field_confidence,  # [B] 置信度（C8）
             }
         else:
             # v2: attention-pooled field write（向后兼容，单 query）
@@ -627,10 +654,19 @@ class ResonanceNeuron(nn.Module):
             v_raw = self.field_write(pooled)  # [B, field_dim]
             v_raw = self.field_projector(v_raw)  # [B, effective_field_dim] 突触投影
             v = v_raw / (v_raw.norm(dim=-1, keepdim=True) + 1e-8)
+
+            # C8: attention entropy → confidence
+            # 完全聚焦（entropy=0）→ confidence=1，均匀分布（entropy=log L）→ confidence=0
+            L = h.shape[1]
+            max_entropy = math.log(L) if L > 1 else 1.0
+            entropy = -(attn_weights * (attn_weights + 1e-8).log()).sum(dim=-1)  # [B]
+            field_confidence = 1.0 - entropy / max_entropy  # [B] ∈ [0, 1]
+
             result: Dict[str, torch.Tensor] = {
                 "field_vector": v,
                 "hidden_before_write": pooled,
                 "field_attn_weights": attn_weights,
+                "field_confidence": field_confidence,  # [B] 置信度（C8）
             }
 
         # ── Step 5: Optional logits (for PPL evaluation) ──

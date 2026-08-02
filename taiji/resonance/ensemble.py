@@ -336,10 +336,14 @@ class ResonanceEnsemble:
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
-            (round_vecs, round_logits)
+            (round_vecs, round_logits, round_confidences)
+            - round_vecs: {nid: [B, field_dim]} L2-normalized field vectors
+            - round_logits: {nid: [B, L, vocab]} optional logits
+            - round_confidences: {nid: [B]} C8 per-sample confidence ∈ [0, 1]
         """
         round_vecs: Dict[str, torch.Tensor] = {}
         round_logits: Dict[str, torch.Tensor] = {}
+        round_confidences: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
 
         # 确定参考 tensor（device 信息来源）
         ref_tensor = (neuron_embeddings[next(iter(neuron_embeddings))]
@@ -388,6 +392,10 @@ class ResonanceEnsemble:
 
             for nid in active_ids:
                 round_vecs[nid] = results[nid]["field_vector"]
+                # C8: 提取 per-sample confidence
+                round_confidences[nid] = results[nid].get(
+                    "field_confidence", torch.ones(results[nid]["field_vector"].shape[0])
+                )
                 if return_logits_filter(nid):
                     round_logits[nid] = results[nid]["logits"]
         else:
@@ -397,10 +405,14 @@ class ResonanceEnsemble:
                 emb = _get_emb(nid)
                 result = _forward_neuron(nid, emb, need_logits)
                 round_vecs[nid] = result["field_vector"]
+                # C8: 提取 per-sample confidence
+                round_confidences[nid] = result.get(
+                    "field_confidence", torch.ones(result["field_vector"].shape[0])
+                )
                 if need_logits:
                     round_logits[nid] = result["logits"]
 
-        return round_vecs, round_logits
+        return round_vecs, round_logits, round_confidences
 
     def forward(
         self,
@@ -509,7 +521,7 @@ class ResonanceEnsemble:
         def round1_logits_filter(nid):
             return round1_return_logits
 
-        round_vecs, round_logits = self._parallel_forward(
+        round_vecs, round_logits, round_confidences = self._parallel_forward(
             active_ids,
             shared_embeddings,
             field_state=None,
@@ -536,7 +548,9 @@ class ResonanceEnsemble:
             if neuron.is_inhibitory:
                 self.field.write_inhibit(nid, vec, weight=maturity_w)
             else:
-                self.field.write(nid, vec, scale=write_scale * maturity_w)
+                # C8: per-sample confidence 调制写入幅度（高置信度→大写入）
+                scale = write_scale * maturity_w * round_confidences[nid]
+                self.field.write(nid, vec, scale=scale)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
             if self.stdp_tracker is not None:
                 self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
@@ -647,7 +661,7 @@ class ResonanceEnsemble:
                     self._logits_keep_ids is None or nid in self._logits_keep_ids
                 )
 
-            round_vecs, round_logits = self._parallel_forward(
+            round_vecs, round_logits, round_confidences = self._parallel_forward(
                 active_ids,
                 shared_embeddings,
                 field_state=self.field.get_normalised_state() if field_conditioning else None,
@@ -680,7 +694,9 @@ class ResonanceEnsemble:
                     self.field.write_inhibit(nid, vec, weight=maturity_w)
                 else:
                     # P1-2: round 2+ 也应用 neuromodulator 调质
-                    self.field.update(nid, vec, scale=write_scale * maturity_w)
+                    # C8: per-sample confidence 调制写入幅度
+                    scale = write_scale * maturity_w * round_confidences[nid]
+                    self.field.update(nid, vec, scale=scale)
                 self.neurons[nid].enter_refractory(multiplier=refractory_mult)
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:
@@ -947,6 +963,7 @@ class ResonanceEnsemble:
         for round_num in range(1, n_rounds + 1):
             round_vecs_raw_new: Dict[str, torch.Tensor] = {}
             round_vecs_unified_new: Dict[str, torch.Tensor] = {}
+            round_confidences_new: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
 
             # 构建 side_signals（round 2+ 才有，per-pair synaptic 投影）
             # 用原始 field_dim 维度的 vecs（excite_channels 在建立时按 pre.field_dim 注册）
@@ -987,26 +1004,34 @@ class ResonanceEnsemble:
                 vec_raw = result["field_vector"]  # [B, neuron.field_dim]
                 # 跨规格正向投影：neuron.field_dim → unified（用于维护 field_state）
                 vec_unified = self._project_vec(nid, vec_raw)  # [B, field.dim]
-                # 注：write_scale 不在此处乘（F.normalize 会抵消），
-                # 而是在 scores 计算后乘，影响融合权重
+                # C8: 收集 per-sample confidence（attention entropy 驱动）
+                confidence = result.get(
+                    "field_confidence", torch.ones(vec_raw.shape[0], device=vec_raw.device)
+                )
 
                 round_vecs_raw_new[nid] = vec_raw
                 round_vecs_unified_new[nid] = vec_unified
+                round_confidences_new[nid] = confidence
                 if round_num == n_rounds:
                     final_logits[nid] = result["logits"]
 
             # 更新 field_state（可微加法，无 detach）
-            # field_state = sum of L2-normalized vecs (unified 维度)
+            # field_state = sum of (confidence * L2-normalized vecs) (unified 维度)
             all_vecs_norm = F.normalize(
                 torch.stack([round_vecs_unified_new[nid] for nid in active_ids]),
                 dim=-1,
             )  # [N, B, D]
+            # C8: per-sample confidence 加权（高置信度 neuron 贡献更大）
+            all_confidences = torch.stack([
+                round_confidences_new[nid] for nid in active_ids
+            ])  # [N, B]
+            all_vecs_weighted = all_vecs_norm * all_confidences.unsqueeze(-1)  # [N, B, D]
             # C7: 空间场扩散（图拉普拉斯，近邻神经元信号互相扩散）
             if self.spatial_diffuser is not None:
-                all_vecs_norm = self.spatial_diffuser.diffuse(
-                    all_vecs_norm, active_ids=active_ids
+                all_vecs_weighted = self.spatial_diffuser.diffuse(
+                    all_vecs_weighted, active_ids=active_ids
                 )
-            field_state = all_vecs_norm.sum(dim=0)  # [B, D]
+            field_state = all_vecs_weighted.sum(dim=0)  # [B, D]
 
             round_vecs_raw = round_vecs_raw_new
             round_vecs_unified = round_vecs_unified_new
@@ -1044,15 +1069,21 @@ class ResonanceEnsemble:
         all_vecs_norm = F.normalize(
             torch.stack([round_vecs_unified[nid] for nid in active_ids]),
             dim=-1,
-        )  # [N, B, D]
+        )  # [N, B, D] 单位向量（方向）
+        # C8: per-sample confidence 加权（高置信度 neuron 对场状态贡献更大）
+        all_confidences = torch.stack([
+            round_confidences_new[nid] for nid in active_ids
+        ])  # [N, B]
+        all_vecs_weighted = all_vecs_norm * all_confidences.unsqueeze(-1)  # [N, B, D]
         # C7: 空间场扩散（评分时也用扩散后的 vectors，保持训练一致性）
         if self.spatial_diffuser is not None:
-            all_vecs_norm = self.spatial_diffuser.diffuse(
-                all_vecs_norm, active_ids=active_ids
+            all_vecs_weighted = self.spatial_diffuser.diffuse(
+                all_vecs_weighted, active_ids=active_ids
             )
-        field_state_full = all_vecs_norm.sum(dim=0)  # [B, D]
-        loo_state = field_state_full.unsqueeze(0) - all_vecs_norm  # [N, B, D]
+        field_state_full = all_vecs_weighted.sum(dim=0)  # [B, D] 加权场状态
+        loo_state = field_state_full.unsqueeze(0) - all_vecs_weighted  # [N, B, D]
         loo_norm = F.normalize(loo_state, dim=-1)
+        # 评分用单位向量（方向对齐），loo_state 用加权向量（更准确）
         scores = (all_vecs_norm * loo_norm).sum(dim=-1)  # [N, B]
         scores = scores.mean(dim=1)                      # [N] batch 平均
 

@@ -95,17 +95,25 @@ class ResonanceField(nn.Module):
         return self._batch_size
 
     def write(self, neuron_id: str, vector: torch.Tensor,
-              scale: float = 1.0) -> torch.Tensor:
+              scale=1.0) -> torch.Tensor:
         """写入神经元的场向量（L2 归一化后累加到 state）。
 
         P1-2: scale 由 NeuromodulatorState.get_field_write_scale 提供，
         高去甲肾上腺素 → 写入强度↑（警觉状态），低 → 写入强度↓（放松）。
         scale 作用于归一化后的向量，保证方向不变只调幅度。
+
+        C8: scale 支持 per-sample tensor [B]，让 neuron 自身置信度调制写入幅度。
+        - float：所有 sample 相同 scale（向后兼容）
+        - [B] tensor：每个 sample 独立 scale（per-sample confidence）
         """
         if vector.dim() == 1:
             vector = vector.unsqueeze(0)
         v_norm = vector / (vector.norm(dim=-1, keepdim=True) + 1e-8)
-        v_scaled = v_norm * scale  # P1-2: neuromodulator field_write_scale
+        # C8: 支持 per-sample scale（[B] tensor）
+        if isinstance(scale, torch.Tensor) and scale.dim() == 1:
+            v_scaled = v_norm * scale.unsqueeze(-1)  # [B, D] * [B, 1]
+        else:
+            v_scaled = v_norm * scale  # float 或已广播的 tensor
         B = v_scaled.shape[0]
         if B == 1 and self._batch_size == 1:
             self.state = self.state + v_scaled.squeeze(0)
@@ -131,7 +139,7 @@ class ResonanceField(nn.Module):
         return v_scaled
 
     def update(self, neuron_id: str, vector: torch.Tensor,
-               scale: float = 1.0) -> torch.Tensor:
+               scale=1.0) -> torch.Tensor:
         """增量更新：减去该 neuron 的旧贡献，加上新贡献。
 
         用于多轮共振场景（如 TribeSuperNeuron.forward_tribe）：
@@ -142,11 +150,16 @@ class ResonanceField(nn.Module):
         - update: 替换（state = state - old + new），适合 round 2+ 更新
 
         P1-2: scale 同 write()，由 NeuromodulatorState.get_field_write_scale 提供。
+        C8: scale 支持 per-sample tensor [B]（同 write）。
         """
         if vector.dim() == 1:
             vector = vector.unsqueeze(0)
         v_norm = vector / (vector.norm(dim=-1, keepdim=True) + 1e-8)
-        v_scaled = v_norm * scale  # P1-2: neuromodulator field_write_scale
+        # C8: 支持 per-sample scale（[B] tensor）
+        if isinstance(scale, torch.Tensor) and scale.dim() == 1:
+            v_scaled = v_norm * scale.unsqueeze(-1)  # [B, D] * [B, 1]
+        else:
+            v_scaled = v_norm * scale  # float 或已广播的 tensor
 
         # 减去旧贡献（_contributions 已存 scaled 版本，减法一致）
         old_contrib = self._contributions.get(neuron_id)
