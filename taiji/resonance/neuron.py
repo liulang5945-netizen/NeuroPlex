@@ -81,10 +81,13 @@ class ResonanceNeuron(nn.Module):
                 rms_norm_eps=c.rms_norm_eps,
                 bias=c.attention_bias,
                 dropout=c.dropout,
+                dendritic=c.dendritic_enabled,
+                apical_kv_dim=(c.apical_kv_dim or c.field_dim) if c.dendritic_enabled else None,
             )
             for _ in range(c.num_hidden_layers)
         ])
         self.norm = RMSNorm(c.hidden_size, c.rms_norm_eps)
+        self.dendritic_enabled = c.dendritic_enabled
 
         # ── Field write projection ──
         self.field_write = nn.Linear(c.hidden_size, c.field_dim, bias=False)
@@ -456,10 +459,21 @@ class ResonanceNeuron(nn.Module):
 
         for i, block in enumerate(self.layers):
             # S9: temp_gain/ffn_gain 注入 Transformer 内部（神经调质门控 attention/FFN）
-            h_normed = block.attention_norm(h)
-            attn_out, _ = block.attention(h_normed, mask=causal_mask, temp_gain=temp_gain)
-            h = h + attn_out
-            h = h + block.feed_forward(block.ffn_norm(h), gain=ffn_gain)
+            # S10: dendritic=True 时，block.forward 内部完成 basal + apical + 预测编码整合
+            #   - dendritic=False: field_state 被忽略（走标准 basal 路径）
+            #   - dendritic=True: field_state 作为 apical KV，参与 cross-attention
+            if self.dendritic_enabled and field_state is not None:
+                # 树突化：直接调用 block.forward，内部处理 basal + apical
+                h, _ = block(
+                    h, mask=causal_mask, temp_gain=temp_gain, ffn_gain=ffn_gain,
+                    field_state=field_state,
+                )
+            else:
+                # 标准路径（向后兼容）
+                h_normed = block.attention_norm(h)
+                attn_out, _ = block.attention(h_normed, mask=causal_mask, temp_gain=temp_gain)
+                h = h + attn_out
+                h = h + block.feed_forward(block.ffn_norm(h), gain=ffn_gain)
 
             # Field conditioning (round 2+ only)
             if field_state is not None and round_num > 1:

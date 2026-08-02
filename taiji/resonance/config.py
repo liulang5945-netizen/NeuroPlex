@@ -69,6 +69,18 @@ class NeuronConfig:
     # lm_head_rank > 0 保留用于实验性低秩训练（非共享）
     lm_head_rank: int = 0
 
+    # ── S10: 树突化（Dendritic）配置 ──
+    # 人脑启发：锥体神经元 basal/apical 树突分离
+    # - basal: 标准 attention + FFN（自下而上，处理输入）
+    # - apical: cross-attention（Q=x, KV=field_state，自上而下反馈）
+    # - 胞体整合: 预测编码（error = basal - apical_prediction）
+    # False = 标准 Transformer 块（向后兼容，默认）
+    # True = 树突化块，apical 路径接收 field_state 做独立计算
+    dendritic_enabled: bool = False
+    # apical cross-attention 的 KV 来源维度（= field_dim，由 neuron 构建时传入）
+    # None 时用 field_dim（向后兼容）
+    apical_kv_dim: Optional[int] = None
+
     # ── Approximate parameter count (excluding shared embedding) ──
     @property
     def approx_params_m(self) -> float:

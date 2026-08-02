@@ -196,12 +196,23 @@ class SwiGLU(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Pre-Norm Transformer 块"""
+    """Pre-Norm Transformer 块（支持 S10 树突化扩展）。
+
+    dendritic=False（默认）: 标准 Transformer 块（向后兼容）
+    dendritic=True: 树突化块
+        - Basal 路径: 标准 attention + FFN（自下而上）
+        - Apical 路径: cross-attention（Q=x, KV=field_state，自上而下）
+        - 胞体整合: 预测编码（error = basal - apical_prediction，误差驱动校正）
+    """
 
     def __init__(self, hidden_size: int, num_heads: int, num_kv_heads: int,
                  intermediate_size: int, rms_norm_eps: float = 1e-5, bias: bool = False,
-                 dropout: float = 0.0):
+                 dropout: float = 0.0,
+                 dendritic: bool = False, apical_kv_dim: Optional[int] = None):
         super().__init__()
+        self.dendritic = dendritic
+
+        # ── Basal 路径（始终存在，标准 Transformer）──
         self.attention = GroupedQueryAttention(hidden_size, num_heads, num_kv_heads,
                                                dropout=dropout, bias=bias)
         self.attention_norm = RMSNorm(hidden_size, rms_norm_eps)
@@ -210,6 +221,95 @@ class TransformerBlock(nn.Module):
         # 残差 dropout：防止过拟合（社区规范 SmolLM/GPT-2 用 0.1）
         self.resid_dropout = nn.Dropout(dropout)
 
+        # ── Apical 路径（树突化时创建）──
+        # 人脑启发：顶树突接收皮层反馈（类比 field_state 集体意识场）
+        # Apical cross-attention: Q 来自当前层输入，KV 来自 field_state
+        if dendritic:
+            assert apical_kv_dim is not None, "dendritic=True 需要 apical_kv_dim（field_dim）"
+            self.apical_num_heads = num_heads
+            self.apical_head_dim = hidden_size // num_heads
+            self.apical_num_kv_heads = num_kv_heads
+            self.apical_num_queries_per_kv = num_heads // num_kv_heads
+            self.apical_scale = self.apical_head_dim ** -0.5
+
+            # Q 投影（来自 x，与 basal 共享输入但独立参数）
+            self.apical_wq = nn.Linear(hidden_size, num_heads * self.apical_head_dim, bias=bias)
+            # KV 投影（来自 field_state，跨空间投影）
+            self.apical_wk = nn.Linear(apical_kv_dim, num_kv_heads * self.apical_head_dim, bias=bias)
+            self.apical_wv = nn.Linear(apical_kv_dim, num_kv_heads * self.apical_head_dim, bias=bias)
+            # 输出投影
+            self.apical_wo = nn.Linear(num_heads * self.apical_head_dim, hidden_size, bias=False)
+
+            # Apical 的 Pre-Norm
+            self.apical_norm = RMSNorm(hidden_size, rms_norm_eps)
+            self.apical_attn_dropout = nn.Dropout(dropout)
+
+            # 胞体整合：预测编码门控
+            # gate 决定每位置信任 basal 还是 apical 预测
+            # gate → 0: 信任 basal（标准 Transformer 行为）
+            # gate → 1: 信任 apical 预测（强反馈驱动）
+            self.somatic_gate = nn.Linear(hidden_size, 1, bias=True)
+            # 预测误差缩放（可学习，初始小值保证训练稳定）
+            self.error_scale = nn.Parameter(torch.tensor(0.1))
+
+    def _apical_cross_attention(
+        self, x: torch.Tensor, field_state: torch.Tensor, temp_gain: float = 1.0,
+    ) -> torch.Tensor:
+        """Apical cross-attention: Q from x, KV from field_state.
+
+        Args:
+            x: [B, L, hidden] 当前层 basal 输入（已过 apical_norm）
+            field_state: [B, D] 或 [B, S, D] 全局场状态（自上而下反馈）
+            temp_gain: 注意力温度增益（与 basal 共享调质）
+
+        Returns:
+            apical_out: [B, L, hidden] apical 路径输出
+        """
+        bsz, seqlen, _ = x.shape
+
+        # field_state: [B, D] → [B, 1, D]（单 token KV，全局上下文）
+        if field_state.dim() == 2:
+            fs = field_state.unsqueeze(1)  # [B, 1, D]
+        else:
+            fs = field_state  # [B, S, D]
+        kv_len = fs.shape[1]
+
+        # Q from x, K/V from field_state
+        xq = self.apical_wq(x).view(bsz, seqlen, self.apical_num_heads, self.apical_head_dim)
+        xk = self.apical_wk(fs).view(bsz, kv_len, self.apical_num_kv_heads, self.apical_head_dim)
+        xv = self.apical_wv(fs).view(bsz, kv_len, self.apical_num_kv_heads, self.apical_head_dim)
+
+        # S9: temp_gain 门控注意力温度
+        if temp_gain != 1.0:
+            xq = xq * temp_gain
+
+        # GQA: 扩展 KV heads
+        if self.apical_num_queries_per_kv > 1:
+            xk = xk.repeat_interleave(self.apical_num_queries_per_kv, dim=2)
+            xv = xv.repeat_interleave(self.apical_num_queries_per_kv, dim=2)
+
+        # [B, heads, seq, dim]
+        xq = xq.transpose(1, 2)
+        xk = xk.transpose(1, 2)
+        xv = xv.transpose(1, 2)
+
+        # Cross-attention（无 causal mask，KV 是全局反馈）
+        try:
+            output = F.scaled_dot_product_attention(
+                xq, xk, xv,
+                is_causal=False,  # cross-attention 不需要 causal
+                dropout_p=self.apical_attn_dropout.p if self.training else 0.0,
+            )
+        except Exception:
+            scores = torch.matmul(xq, xk.transpose(-2, -1)) * self.apical_scale
+            scores = F.softmax(scores, dim=-1, dtype=torch.float32).type_as(xq)
+            if self.training:
+                scores = self.apical_attn_dropout(scores)
+            output = torch.matmul(scores, xv)
+
+        output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
+        return self.apical_wo(output)
+
     def forward(
         self, x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
@@ -217,18 +317,38 @@ class TransformerBlock(nn.Module):
         use_cache: bool = False,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
+        field_state: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
-        """S9: temp_gain / ffn_gain 接收神经调质信号，注入 Transformer 内部计算。
+        """S9+S10: 神经调质门控 + 树突化扩展。
 
-        - temp_gain: 传给 GroupedQueryAttention（norepinephrine 驱动注意力温度）
-        - ffn_gain: 传给 SwiGLU（dopamine 驱动 FFN 输出强度）
-        - 两者默认 1.0，向后兼容标准 Transformer
+        - temp_gain/ffn_gain: S9 神经调质信号（norepinephrine/dopamine）
+        - field_state: S10 树突化 apical 路径的 KV 来源（全局场状态）
+          - None 或 dendritic=False: 走标准 basal 路径（向后兼容）
+          - 非 None 且 dendritic=True: basal + apical + 预测编码整合
         """
-        # Attention + Residual (Pre-Norm)
+        # ── Basal 路径: 标准 attention + FFN ──
         h, new_kv_cache = self.attention(
             self.attention_norm(x), mask, kv_cache, use_cache, temp_gain=temp_gain,
         )
         x = x + self.resid_dropout(h)
-        # FFN + Residual (Pre-Norm)
         x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x), gain=ffn_gain))
+
+        # ── Apical 路径: 树突化 cross-attention + 预测编码整合 ──
+        if self.dendritic and field_state is not None:
+            # Apical cross-attention（Q=x, KV=field_state）
+            h_apical = self._apical_cross_attention(
+                self.apical_norm(x), field_state, temp_gain=temp_gain,
+            )
+
+            # 预测编码整合（胞体整合）
+            # apical_prediction = x + h_apical（apical 残差预测）
+            # error = basal_output - apical_prediction（预测误差）
+            # gate 决定误差校正强度
+            apical_prediction = x + h_apical
+            error = x - apical_prediction  # = -h_apical（简化形式）
+            gate = torch.sigmoid(self.somatic_gate(x))  # [B, L, 1]
+            # 误差校正：x = x - error_scale * gate * error
+            # gate→0: 不校正（信任 basal）；gate→1: 强校正（信任 apical）
+            x = x - self.error_scale * gate * error
+
         return x, new_kv_cache

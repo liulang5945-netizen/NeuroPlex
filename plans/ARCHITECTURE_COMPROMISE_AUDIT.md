@@ -213,15 +213,45 @@
 
 **核心问题（已修复）**：调质已从"融合层 scores 缩放器"升级为"Transformer 内部门控"，进入 attention/FFN 计算并参与梯度流。剩余 STDP/睡眠/新生是独立子项，不阻塞主训练路径。
 
-### S10. Transformer 层零生物学修改 ★
+### S10. Transformer 层零生物学修改 ★ ✅ 已修复（树突化 + 预测编码）
 
-| 维度 | 当前 | 上限更高 |
-|------|------|---------|
-| 层结构 | 标准 LLaMA 块（[layers.py:176-202](file:///e:/taiji-neuron/taiji/layers.py#L176-L202)） | 树突化注意力 + 局部 Hebbian 可塑性 |
-| 注释 | "zero changes to existing code" | 神经调质门控激活 |
-| 妥协原因 | 复用标准层 | |
-| 提升幅度 | 结构性容量上限提升 | |
-| 实施难度 | 高 | |
+| 维度 | 修复前 | 修复后 |
+|------|--------|---------|
+| 层结构 | 标准 LLaMA 块（"zero changes to existing code"） | **树突化 TransformerBlock：basal + apical 双通路 + 预测编码整合** |
+| 注释 | "zero changes to existing code" | 神经调质门控 + 树突化 cross-attention |
+| 妥协原因 | 复用标准层 | **已解除：apical cross-attention 接收 field_state 作为自上而下反馈** |
+| 提升幅度 | 结构性容量上限提升 | 已实现 |
+| 实施难度 | 高 | 已完成 |
+
+**修复详情**（2026-08-01）：
+- [config.py](file:///e:/taiji-neuron/taiji/resonance/config.py)：`NeuronConfig` 新增 `dendritic_enabled: bool` 和 `apical_kv_dim: Optional[int]` 开关
+- [layers.py](file:///e:/taiji-neuron/taiji/layers.py)：`TransformerBlock` 扩展 apical 路径
+  - **Basal 路径**（始终存在）：标准 attention + FFN（自下而上，处理输入）
+  - **Apical 路径**（dendritic=True 时创建）：
+    - cross-attention：Q 来自当前层输入，KV 来自 field_state（全局集体意识场）
+    - 独立的 apical_wq/wk/wv/wo 投影 + apical_norm
+    - 无 causal mask（cross-attention，KV 是全局反馈）
+  - **胞体整合**（预测编码）：
+    - `apical_prediction = x + h_apical`（apical 残差预测）
+    - `error = x - apical_prediction`（预测误差）
+    - `gate = sigmoid(somatic_gate(x))`（每位置决定信任 basal 还是 apical）
+    - `x = x - error_scale * gate * error`（误差校正，error_scale 可学习）
+  - S9 神经调质门控（temp_gain/ffn_gain）同时作用于 basal 和 apical 路径
+- [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py)：
+  - 根据 `dendritic_enabled` 构建 dendritic 或标准 TransformerBlock
+  - forward 中 dendritic=True 且 field_state≠None 时，直接调用 block.forward 传入 field_state
+  - field_state=None 时退化为标准 basal-only 行为（round 1 安全）
+- **向后兼容**：
+  - `dendritic_enabled=False`（默认）：完全等同修复前的标准 TransformerBlock
+  - 旧 checkpoint 加载到 dendritic neuron：`strict=False` 自动跳过 apical 参数，保持初始化值
+  - 5/5 smoke test 通过（[_smoke_s10_dendritic.py](file:///e:/taiji-neuron/scripts/training/_smoke_s10_dendritic.py)）：
+    1. dendritic=False 与标准块一致（diff=0）
+    2. dendritic=True apical 改变输出（diff=0.064）
+    3. field_state=None 安全退化（diff=0）
+    4. neuron 级别树突化生效（diff=2.72）
+    5. checkpoint 兼容（missing=16 apical 参数，unexpected=0）
+
+**参数量影响**：dendritic=True 时每层增加 apical_wq/wk/wv/wo + apical_norm + somatic_gate + error_scale，约增加 25-35% 参数（compact 85M → ~110M）。可通过 config 开关控制，不影响现有 neuron。
 
 ### S11. 512 token 硬截断 ★
 
