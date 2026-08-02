@@ -555,11 +555,13 @@ def main():
             # 注：field_conditioning=False 是推理路径选项，forward_train 中
             # round 2+ 默认传 field_state，但 field_read_layers 是否被使用
             # 取决于 neuron.forward 内 round_num>1 的判断
+            # C12: 传入 targets 启用 contrastive_loss（共振分与 NLL 排序对齐）
             result = ensemble.forward_train(
                 neuron_embeddings=neuron_embeddings,
                 n_rounds=2,
                 fusion_mode="soft",
                 return_individual_logits=(total_steps == 0),  # 首步返回用于 debug
+                targets=targets,
             )
 
             # Debug: 首次 forward 打印 fusion 权重和各神经元单独 PPL
@@ -625,12 +627,19 @@ def main():
                 n_tokens = (shift_mask & shift_sft_mask).sum().item()
                 ce_loss = ce_loss / max(n_tokens, 1)
 
-                # 多任务 loss：CE + 负载均衡 + 多样性
+                # 多任务 loss：CE + 负载均衡 + 多样性 + 对比约束
                 balance_loss = result["balance_loss"]
                 diversity_loss = result["diversity_loss"]
+                contrastive_loss = result.get("contrastive_loss", torch.tensor(0.0))
                 balance_weight = 0.01
                 diversity_weight = 0.05
-                loss = ce_loss + balance_weight * balance_loss + diversity_weight * diversity_loss
+                contrastive_weight = 0.1  # C12: 弱约束，让共振分学习公平性
+                loss = (
+                    ce_loss
+                    + balance_weight * balance_loss
+                    + diversity_weight * diversity_loss
+                    + contrastive_weight * contrastive_loss
+                )
 
                 loss.backward()
                 optimizer.step()

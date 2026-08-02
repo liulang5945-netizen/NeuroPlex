@@ -597,11 +597,13 @@ def main():
 
             # S1: 改用 forward_train（全可微多轮共振路径）
             # 让 side_channels + 跨规格投影层 + field_state + 调质在训练中真正生效
+            # C12: 传入 targets 启用 contrastive_loss（共振分与 NLL 排序对齐）
             result = ensemble.forward_train(
                 neuron_embeddings=neuron_embeddings,
                 n_rounds=2,
                 fusion_mode="soft",
                 return_individual_logits=False,
+                targets=targets,
             )
 
             fused_logits = result["fused_logits"]
@@ -621,14 +623,22 @@ def main():
             n_tokens = (shift_mask & shift_sft_mask).sum().item()
             ce_loss = ce_loss / max(n_tokens, 1)
 
-            # 多任务 loss：CE + 负载均衡 + 多样性
+            # 多任务 loss：CE + 负载均衡 + 多样性 + 对比约束
             # balance_loss 鼓励神经元均衡贡献（防死通道）
             # diversity_loss 鼓励 field_vector 差异化（防退化相同）
+            # C12 contrastive_loss 让共振分与 NLL 排序对齐（小神经元在擅长主题上获高权重）
             balance_loss = result["balance_loss"]
             diversity_loss = result["diversity_loss"]
+            contrastive_loss = result.get("contrastive_loss", torch.tensor(0.0))
             balance_weight = 0.01   # 弱约束，避免压制主任务
             diversity_weight = 0.05  # 弱约束，鼓励差异但不强制正交
-            loss = ce_loss + balance_weight * balance_loss + diversity_weight * diversity_loss
+            contrastive_weight = 0.1  # C12: 弱约束，让共振分学习公平性
+            loss = (
+                ce_loss
+                + balance_weight * balance_loss
+                + diversity_weight * diversity_loss
+                + contrastive_weight * contrastive_loss
+            )
 
             loss.backward()
             optimizer.step()

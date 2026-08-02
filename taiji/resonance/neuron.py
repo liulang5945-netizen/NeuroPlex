@@ -130,6 +130,18 @@ class ResonanceNeuron(nn.Module):
         else:
             self.field_projector = nn.Identity()
 
+        # ── C12: 评分投影头（score_dim）──
+        # 评分空间与写入空间分离：neuron 的 field_vector 经 score_proj 投影到共享评分空间，
+        # 与 field_score_proj(loo_state) 算 cosine。让大神经元对场状态方向的主导
+        # 被 field_score_proj 抵消，小神经元能获得公平的共振分。
+        # None = 不投影（向后兼容，评分用原始 field_vector）
+        self.score_dim = c.score_dim
+        if c.score_dim is not None:
+            self.score_proj = nn.Linear(effective_field_dim, c.score_dim, bias=False)
+            nn.init.normal_(self.score_proj.weight, std=effective_field_dim ** -0.5)
+        else:
+            self.score_proj = None
+
         # ── Field read projections (one per layer, for conditioning) ──
         self.field_read_layers = nn.ModuleList([
             nn.Linear(effective_field_dim, c.hidden_size, bias=False)
@@ -668,6 +680,14 @@ class ResonanceNeuron(nn.Module):
                 "field_attn_weights": attn_weights,
                 "field_confidence": field_confidence,  # [B] 置信度（C8）
             }
+
+        # ── C12: 评分投影向量 ──
+        # score_proj 将 field_vector 投影到共享评分空间，与 field_score_proj(loo_state) 算 cosine
+        # 让评分学习与写入学习解耦，大神经元对场方向的主导被 field_score_proj 抵消
+        if self.score_proj is not None:
+            score_vec = self.score_proj(v_raw)  # [B, score_dim]
+            score_vec = F.normalize(score_vec, dim=-1)
+            result["score_vec"] = score_vec
 
         # ── Step 5: Optional logits (for PPL evaluation) ──
         if return_logits:

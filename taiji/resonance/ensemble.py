@@ -143,6 +143,21 @@ class ResonanceEnsemble:
             print(f"  [ensemble] 检测到混合 field_dim，创建 {len(self._cross_spec_projectors)} 个跨规格投影层"
                   f"（含反向投影）", flush=True)
 
+        # ── C12: 评分投影（field_score_proj）──
+        # 场状态投影到共享评分空间，与 neuron.score_proj 配对。
+        # 让评分学习与写入学习解耦：大神经元对场状态方向的主导被 field_score_proj 抵消，
+        # 小神经元能获得公平的共振分。
+        # 启用条件：所有 neuron 的 score_dim 一致且不为 None。
+        all_score_dims = [n.config.score_dim for n in self.neurons.values()]
+        if all(sd is not None for sd in all_score_dims) and len(set(all_score_dims)) == 1:
+            sd = all_score_dims[0]
+            self.field_score_proj = nn.Linear(field_dim, sd, bias=False)
+            nn.init.normal_(self.field_score_proj.weight, std=field_dim ** -0.5)
+            self.score_dim = sd
+        else:
+            self.field_score_proj = None
+            self.score_dim = None
+
     def _project_vec(self, nid: str, vec: torch.Tensor) -> torch.Tensor:
         """Cross-spec projection: 将 neuron 的 field_vector 投影到 field.dim。
 
@@ -336,14 +351,16 @@ class ResonanceEnsemble:
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
-            (round_vecs, round_logits, round_confidences)
+            (round_vecs, round_logits, round_confidences, round_score_vecs)
             - round_vecs: {nid: [B, field_dim]} L2-normalized field vectors
             - round_logits: {nid: [B, L, vocab]} optional logits
             - round_confidences: {nid: [B]} C8 per-sample confidence ∈ [0, 1]
+            - round_score_vecs: {nid: [B, score_dim]} C12 评分投影向量（score_dim=None 时为空 dict）
         """
         round_vecs: Dict[str, torch.Tensor] = {}
         round_logits: Dict[str, torch.Tensor] = {}
         round_confidences: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
+        round_score_vecs: Dict[str, torch.Tensor] = {}  # C12: 评分投影向量
 
         # 确定参考 tensor（device 信息来源）
         ref_tensor = (neuron_embeddings[next(iter(neuron_embeddings))]
@@ -396,6 +413,9 @@ class ResonanceEnsemble:
                 round_confidences[nid] = results[nid].get(
                     "field_confidence", torch.ones(results[nid]["field_vector"].shape[0])
                 )
+                # C12: 提取评分投影向量
+                if "score_vec" in results[nid]:
+                    round_score_vecs[nid] = results[nid]["score_vec"]
                 if return_logits_filter(nid):
                     round_logits[nid] = results[nid]["logits"]
         else:
@@ -409,10 +429,13 @@ class ResonanceEnsemble:
                 round_confidences[nid] = result.get(
                     "field_confidence", torch.ones(result["field_vector"].shape[0])
                 )
+                # C12: 提取评分投影向量
+                if "score_vec" in result:
+                    round_score_vecs[nid] = result["score_vec"]
                 if need_logits:
                     round_logits[nid] = result["logits"]
 
-        return round_vecs, round_logits, round_confidences
+        return round_vecs, round_logits, round_confidences, round_score_vecs
 
     def forward(
         self,
@@ -521,7 +544,7 @@ class ResonanceEnsemble:
         def round1_logits_filter(nid):
             return round1_return_logits
 
-        round_vecs, round_logits, round_confidences = self._parallel_forward(
+        round_vecs, round_logits, round_confidences, _round_score_vecs = self._parallel_forward(
             active_ids,
             shared_embeddings,
             field_state=None,
@@ -661,7 +684,7 @@ class ResonanceEnsemble:
                     self._logits_keep_ids is None or nid in self._logits_keep_ids
                 )
 
-            round_vecs, round_logits, round_confidences = self._parallel_forward(
+            round_vecs, round_logits, round_confidences, _round_score_vecs = self._parallel_forward(
                 active_ids,
                 shared_embeddings,
                 field_state=self.field.get_normalised_state() if field_conditioning else None,
@@ -857,6 +880,7 @@ class ResonanceEnsemble:
         gamma_oscillator: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
         return_individual_logits: bool = False,
+        targets: Optional[torch.Tensor] = None,  # C12: per-neuron NLL 排序对比信号
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -964,6 +988,7 @@ class ResonanceEnsemble:
             round_vecs_raw_new: Dict[str, torch.Tensor] = {}
             round_vecs_unified_new: Dict[str, torch.Tensor] = {}
             round_confidences_new: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
+            round_score_vecs_new: Dict[str, torch.Tensor] = {}  # C12: 评分投影向量
 
             # 构建 side_signals（round 2+ 才有，per-pair synaptic 投影）
             # 用原始 field_dim 维度的 vecs（excite_channels 在建立时按 pre.field_dim 注册）
@@ -1012,6 +1037,9 @@ class ResonanceEnsemble:
                 round_vecs_raw_new[nid] = vec_raw
                 round_vecs_unified_new[nid] = vec_unified
                 round_confidences_new[nid] = confidence
+                # C12: 收集评分投影向量
+                if "score_vec" in result:
+                    round_score_vecs_new[nid] = result["score_vec"]
                 if round_num == n_rounds:
                     final_logits[nid] = result["logits"]
 
@@ -1082,9 +1110,24 @@ class ResonanceEnsemble:
             )
         field_state_full = all_vecs_weighted.sum(dim=0)  # [B, D] 加权场状态
         loo_state = field_state_full.unsqueeze(0) - all_vecs_weighted  # [N, B, D]
-        loo_norm = F.normalize(loo_state, dim=-1)
-        # 评分用单位向量（方向对齐），loo_state 用加权向量（更准确）
-        scores = (all_vecs_norm * loo_norm).sum(dim=-1)  # [N, B]
+
+        # C12: 评分投影（score_dim 空间，与写入空间分离）
+        # 让大神经元对场状态方向的主导被 field_score_proj 抵消，
+        # 小神经元能获得公平的共振分。
+        if self.field_score_proj is not None and round_score_vecs_new:
+            # neuron 评分向量 [N, B, score_dim]（已归一化）
+            all_score_vecs = torch.stack([
+                round_score_vecs_new[nid] for nid in active_ids
+            ])  # [N, B, score_dim]
+            # 场状态投影到评分空间 [N, B, score_dim]
+            loo_score = self.field_score_proj(loo_state)  # [N, B, score_dim]
+            loo_score_norm = F.normalize(loo_score, dim=-1)
+            # 评分 = cosine(score_vec, field_score_proj(loo_state))
+            scores = (all_score_vecs * loo_score_norm).sum(dim=-1)  # [N, B]
+        else:
+            # 向后兼容：直接用 field_vector cosine
+            loo_norm = F.normalize(loo_state, dim=-1)
+            scores = (all_vecs_norm * loo_norm).sum(dim=-1)  # [N, B]
         scores = scores.mean(dim=1)                      # [N] batch 平均
 
         # 调质影响：norepinephrine 高 → scores 增强 → 融合权重增大（警觉 → 强贡献）
@@ -1145,12 +1188,46 @@ class ResonanceEnsemble:
         else:
             diversity_loss = torch.tensor(0.0, device=weights.device)
 
+        # ── C12: 对比约束 loss（共振分与 per-neuron NLL 排序对齐）──
+        # 目标：让共振分预测"neuron 的实际贡献价值"，而非"对场状态的方向影响力"。
+        # 大神经元即使 NLL 高（答案错）也可能因主导场方向获高共振分；
+        # contrastive_loss 约束共振分与 NLL 排序对齐，让小神经元在它擅长的主题上获高权重。
+        # 机制：ideal_weights = softmax(-nll/tau)，actual_weights = softmax(scores/temp)，
+        # KL(actual || ideal) 让 actual 逼近 ideal。
+        # targets=None 时不计算（向后兼容）。
+        if (
+            targets is not None
+            and self.field_score_proj is not None
+            and N >= 2
+        ):
+            # per-neuron NLL: [N]
+            # all_logits: [N, B, L, V], targets: [B, L]
+            shift_logits = all_logits[:, :, :-1, :].contiguous()  # [N, B, L-1, V]
+            shift_targets = targets[:, 1:].contiguous()            # [B, L-1]
+            # 用 reshape 计算 per-neuron 平均 NLL
+            nll = F.cross_entropy(
+                shift_logits.reshape(-1, shift_logits.size(-1)),
+                shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
+                reduction="none",
+            ).view(N, -1).mean(dim=1)  # [N]
+            # ideal: NLL 低的 neuron 应获高权重
+            ideal_weights = F.softmax(-nll / 0.5, dim=0)  # tau=0.5 温度
+            # actual: 当前共振分驱动的权重
+            actual_weights = F.softmax(scores / temperature, dim=0)  # [N]
+            # KL(actual || ideal) = Σ actual * log(actual/ideal)
+            contrastive_loss = (
+                actual_weights * (actual_weights.clamp(min=1e-8).log() - ideal_weights.clamp(min=1e-8).log())
+            ).sum()
+        else:
+            contrastive_loss = torch.tensor(0.0, device=weights.device)
+
         result: Dict[str, torch.Tensor] = {
             "fused_logits": fused_logits,
             "weights": weights,
             "scores": scores,
             "balance_loss": balance_loss,
             "diversity_loss": diversity_loss,
+            "contrastive_loss": contrastive_loss,  # C12
             "field_state": field_state_full,
             "n_rounds": n_rounds,
         }

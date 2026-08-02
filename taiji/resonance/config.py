@@ -80,6 +80,23 @@ class NeuronConfig:
     # 设为统一值（如4096）时，field_projector: Linear(field_dim → unified_field_dim)
     unified_field_dim: Optional[int] = None
 
+    # ── C12: 评分投影（score_dim）──
+    # 共振分数可比性修复：大神经元（shared_expert）系统性主导场状态方向，
+    # 导致小神经元 cosine 评分偏低，共振退化成"大神经元主导"。
+    #
+    # 评分空间与写入空间分离：
+    # - neuron 加 score_proj: Linear(field_dim → score_dim)，输出 score_vec
+    # - ensemble 持有 field_score_proj: Linear(field_dim → score_dim)，投影场状态
+    # - 评分 = cosine(score_vec, field_score_proj(loo_state))
+    #
+    # 投影头通过 CE loss 学习（scores → weights → fused_logits → CE），
+    # balance_loss 约束公平性（防止投影头退化成大神经元偏向）。
+    # 可选 contrastive_loss（forward_train 传入 targets 时）：共振分与 NLL 排序对齐。
+    #
+    # - None = 不投影（向后兼容，评分用原始 field_vector cosine）
+    # - int = 评分投影维度（推荐 256，参数量 5×4096×256≈5.2M + 1×4096×256≈1M）
+    score_dim: Optional[int] = None
+
     # ── Domain extension (0 = disabled) ──
     num_domain_concepts: int = 0
 
