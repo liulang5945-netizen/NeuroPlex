@@ -371,7 +371,7 @@ cortex.clear_dialogue_state()  # 清空状态
 | T3 | base 阶段 side_channels 死权重 | 随机 peer 占内存 | frozen peer 特征提取 | 未修复 | ★ |
 | T4 | 无数据增强 | 固定模板 | 回译 + prompt 改写 + 多轮拼接 | 未修复 | ★★ |
 | T5 | dialogue finetune 未用 Muon | 纯 AdamW | Muon+AdamW 混合 | 未修复 | ★ |
-| T6 | cross_spec 投影层单 Linear | 无 MLP | 2 层 MLP + GELU + 残差 | 未修复 | ★★ |
+| T6 | cross_spec 投影层单 Linear | 无 MLP | 2 层 MLP + GELU + 残差 | ✅ **已修复**（CrossSpecProjector: Linear+GELU+Linear 残差+零初始化, 旧 ckpt 兼容加载） | — |
 | T7 | side_channels 仅 excite 无 inhibit | 单向调制 | excite + inhibit 平衡 | ✅ **已实现**（代码支持双通道，默认拓扑用 excite） | — |
 | T8 | side_channels 用 simple_zh 训 | 分布外 | 改用 alpaca-zh | 未修复 | ★★ |
 | T9 | field_conditioning 训练时关闭 | 怕噪声 | warm-up 后启用 | ✅ **已修复**（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制） | — |
@@ -400,7 +400,7 @@ cortex.clear_dialogue_state()  # 清空状态
 
 ### 梳理总结
 
-**已被 S1-S12 修复的局部妥协（17 项）**：
+**已被 S1-S12 修复的局部妥协（18 项）**：
 - C3（树突分叉）← S10
 - C4（场读入加性残差）← 已修复（additive/multiplicative/predictive 三模式可选）
 - C6（field_write 单 query pooling）← 已修复（多头 attention pooling + 门控聚合）
@@ -413,19 +413,20 @@ cortex.clear_dialogue_state()  # 清空状态
 - C14（shared_expert_weight 固定 0.3）← 已修复（方案C: 共振分数+场状态联合驱动 per-sample sw）
 - T1（评估集用训练集尾部）← 已修复（5% hash 分桶 held-out，4 个训练脚本接入）
 - T2（shared_emb 默认 frozen）← S8
+- T6（cross_spec 投影层单 Linear）← 已修复（CrossSpecProjector: Linear+GELU+Linear 残差+零初始化, 旧 ckpt 兼容加载）
 - T7（side_channels 仅 excite）← 代码已实现双通道
 - T9（field_conditioning 训练时关闭）← 已修复（forward_train 加 field_conditioning 参数 + finetune warm-up 比例控制）
 - R1（域路由用关键词计数）← 已修复（resonance 软路由模式：probe→final_scores→top-k 跨域激活）
 - R6（调质只驱动 lr）← S9
 - R12（无 KV cache）← 已实现 + S11 增强
 
-**真实剩余缺口（按上限分级，共 24 项，其中 2 项硬件约束）**：
+**真实剩余缺口（按上限分级，共 23 项，其中 2 项硬件约束）**：
 
 ★★★ 高上限（0 项）：
 所有高上限缺口已修复！剩余缺口均为中/低上限。
 
-★★ 中上限（9 项）：
-C1/C5, T4/T6/T8/T12/T14, R3/R7
+★★ 中上限（8 项）：
+C1/C5, T4/T8/T12/T14, R3/R7
 
 ★ 低上限（13 项）：
 C2/C15, T3/T5/T11/T13, R2/R4/R5/R8/R9/R10/R11

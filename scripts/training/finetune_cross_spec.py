@@ -175,14 +175,23 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
                 if name in body_state[nid]:
                     p.data.copy_(body_state[nid][name])
 
-    # 恢复跨规格投影层
+    # 恢复跨规格投影层（T6: 兼容旧单层 Linear checkpoint）
     cross_spec_state = ckpt.get("cross_spec_state", {})
     for nid, sd in cross_spec_state.get("forward", {}).items():
         if nid in ensemble._cross_spec_projectors:
-            ensemble._cross_spec_projectors[nid].load_state_dict(sd)
+            proj = ensemble._cross_spec_projectors[nid]
+            if "weight" in sd and "linear1.weight" not in sd:
+                # T6 兼容: 旧格式 {"weight": tensor} → 加载到 linear1, linear2 保持零初始化
+                proj.load_legacy_linear_state(sd["weight"])
+            else:
+                proj.load_state_dict(sd)
     for nid, sd in cross_spec_state.get("backward", {}).items():
         if nid in ensemble._cross_spec_back_projectors:
-            ensemble._cross_spec_back_projectors[nid].load_state_dict(sd)
+            proj = ensemble._cross_spec_back_projectors[nid]
+            if "weight" in sd and "linear1.weight" not in sd:
+                proj.load_legacy_linear_state(sd["weight"])
+            else:
+                proj.load_state_dict(sd)
 
     optimizer.load_state_dict(ckpt["optimizer_state"])
     if adamw_optimizer is not None and "adamw_optimizer_state" in ckpt:

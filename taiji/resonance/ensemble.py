@@ -29,6 +29,49 @@ from .neuron import ResonanceNeuron
 from .spatial_diffusion import SpatialDiffuser
 
 
+class CrossSpecProjector(nn.Module):
+    """T6: 跨规格投影 MLP（Linear + GELU + Linear, 残差 + 零初始化第二层）。
+
+    替代旧的单层 nn.Linear，提供非线性投影能力。
+
+    兼容性设计（零破坏升级）：
+    - linear1: Linear(in_dim, out_dim, bias=False)，权重初始化与旧 nn.Linear 一致
+    - linear2: Linear(out_dim, out_dim, bias=False)，权重零初始化
+    - forward: y = linear1(x) + linear2(gelu(linear1(x)))
+    - 初始时 linear2 输出 = 0，故 y = linear1(x)（与旧单层 Linear 完全一致）
+    - 训练后 linear2 学到非零权重，引入非线性变换能力
+
+    旧 checkpoint 兼容加载：
+    - 旧格式 state_dict: {"weight": tensor}  → 映射到 linear1.weight, linear2 保持零初始化
+    - 新格式 state_dict: {"linear1.weight": ..., "linear2.weight": ...}  → 直接加载
+    """
+
+    def __init__(self, in_dim: int, out_dim: int):
+        super().__init__()
+        self.linear1 = nn.Linear(in_dim, out_dim, bias=False)
+        nn.init.normal_(self.linear1.weight, std=out_dim ** -0.5)
+        self.gelu = nn.GELU()
+        self.linear2 = nn.Linear(out_dim, out_dim, bias=False)
+        nn.init.zeros_(self.linear2.weight)  # 零初始化：初始时 linear2 输出=0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.linear1(x)
+        return h + self.linear2(self.gelu(h))
+
+    def load_legacy_linear_state(self, legacy_weight: torch.Tensor) -> None:
+        """从旧单层 Linear 的 state_dict 兼容加载。
+
+        旧 nn.Linear 的 weight 形状为 [out_dim, in_dim]，直接赋值给 linear1.weight。
+        linear2 保持零初始化（初始行为与旧 Linear 一致）。
+        """
+        assert self.linear1.weight.shape == legacy_weight.shape, (
+            f"legacy weight shape {legacy_weight.shape} != linear1.weight shape {self.linear1.weight.shape}"
+        )
+        with torch.no_grad():
+            self.linear1.weight.copy_(legacy_weight)
+            # linear2 保持零初始化（构造时已设置）
+
+
 class ResonanceEnsemble:
     """Orchestrates multi-round resonance inference across multiple neurons.
 
@@ -171,26 +214,23 @@ class ResonanceEnsemble:
         self._balancing_update_interval = 50  # 每 50 步更新一次 bias
         self._step_count = 0
 
-        # ── Cross-spec field projector ──
+        # ── Cross-spec field projector (T6: 升级为 2 层 MLP) ──
         # 混合规格协作：不同神经元 field_dim 不同时，投影到 field.dim 统一写入
-        # 投影层随机初始化（未训练），仅用于维度对齐使 side_channels 能跨规格工作
-        # 正式使用需要通过 side_channels 微调训练这些投影层
-        self._cross_spec_projectors: Dict[str, nn.Linear] = {}  # forward: field_dim -> unified
-        self._cross_spec_back_projectors: Dict[str, nn.Linear] = {}  # backward: unified -> field_dim
+        # T6 升级：从单层 Linear → CrossSpecProjector (Linear + GELU + Linear, 残差 + 零初始化)
+        # - 第一层保留旧 Linear 语义（旧 checkpoint 可直接加载到 linear1.weight）
+        # - 第二层零初始化，初始时 y = linear1(x)（与旧单层 Linear 完全一致，零破坏）
+        # - 训练后第二层学到非线性变换，上限提升（单层线性 → 2 层 MLP 有非线性能力）
+        self._cross_spec_projectors: Dict[str, "CrossSpecProjector"] = {}  # forward: field_dim -> unified
+        self._cross_spec_back_projectors: Dict[str, "CrossSpecProjector"] = {}  # backward: unified -> field_dim
         field_dim = self.field.dim
         for nid, neuron in self.neurons.items():
             nfd = neuron.config.field_dim
             if nfd != field_dim:
-                proj = nn.Linear(nfd, field_dim, bias=False)
-                nn.init.normal_(proj.weight, std=field_dim ** -0.5)
-                self._cross_spec_projectors[nid] = proj
-                # 反向投影：round 2 conditioning 时将 field.state 投影回 neuron.field_dim
-                back_proj = nn.Linear(field_dim, nfd, bias=False)
-                nn.init.normal_(back_proj.weight, std=nfd ** -0.5)
-                self._cross_spec_back_projectors[nid] = back_proj
+                self._cross_spec_projectors[nid] = CrossSpecProjector(nfd, field_dim)
+                self._cross_spec_back_projectors[nid] = CrossSpecProjector(field_dim, nfd)
         if self._cross_spec_projectors:
             print(f"  [ensemble] 检测到混合 field_dim，创建 {len(self._cross_spec_projectors)} 个跨规格投影层"
-                  f"（含反向投影）", flush=True)
+                  f"（T6: 2 层 MLP, 含反向投影）", flush=True)
 
         # ── C12: 评分投影（field_score_proj）──
         # 场状态投影到共享评分空间，与 neuron.score_proj 配对。
