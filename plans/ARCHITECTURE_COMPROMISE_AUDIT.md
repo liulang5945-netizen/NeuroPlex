@@ -8,26 +8,21 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-03）
+## 📌 当前执行状态（2026-08-04）
 
-**完整重训已完成 + 生成质量根因诊断（数据清洗中）**：
-- 完整重训（finetune_cross_spec --resume --augment --epochs 8 --max_texts 15000，共 29992 步）完成：
-  | 指标 | 增量微调(50K) | 完整重训(50K) |
-  |------|--------------|--------------|
-  | 最强个体 PPL | 108.8 | 86.7 |
-  | 协作 PPL | 56.2 | **29.7** |
-  | EMERGE 提升 | 48.4% | **65.7%** |
-- **PPL 指标大幅提升，但长回复生成崩溃**（英文/代码碎片如 "Artificial"/"Python"/π/数字）
-- **根因诊断（数据层）**：训练数据 alpaca 系 31.1% 样本含英文、5.2% 含代码（python×1962, print×1000, def×744）——模型学会采样英文 token，zh 50K 词表以中文为主 → 英文碎片化乱码
-- **修复动作**：
-  1. 新增 [clean_dialogue_data.py](file:///e:/taiji-neuron/scripts/training/clean_dialogue_data.py)：过滤代码块/编程关键字 + 英文词>8 样本 → 97.6K 条 → 88.7K 条（90.9%）
-  2. `DIALOGUE_DATA_FILES` 切换 `*_clean.jsonl`
-  3. 采样参数收紧：temp 0.8→0.55, top_k 40→15, rep_penalty 1.2→1.4, max 100→60（有改善非治本）
-  4. 增量微调进行中：`--resume --epochs 10 --field_warmup_ratio 0`（epoch 9-10 清洗数据，ETA ~12.7h）
-- 提交：c96aa2b（清洗脚本+参数）、c04fada（body 装配修复）
+**数据清洗增量微调完成 + API 路径三项修复（P7 推理乱码根因）**：
+- 清洗数据增量微调（--resume --epochs 10，epoch 9-10，clean 数据）：训练集 PPL 32.9，评估协作 PPL 30.2 / EMERGE 64.5%（与完整重训持平）
+- **API 等价实测发现 P7 路径生成完全乱码**，三项根因修复（commit e94ca1d）：
+  1. **训练/推理 embedding 错配**：训练每神经元用自己的 shared_embedding_state，推理 assemble_cortex 用单个 data/shared_embedding.pt（与训练不一致）→ 修复：per-neuron shared embeddings 注入 cortex，_generate_p7 构建 neuron_embeddings dict
+  2. **解码 byte fallback**："".join(pieces) 输出 <0x0A> 原文 → 修复：domain_sp.DecodeIds
+  3. **默认参数宽松**：256/0.8/50/per_position → 60/0.55/15/soft（CortexChatRequest + generate + _generate_p7）
+- **验证结果**（API 等价实测，fusion_mode=soft）：短问答可用——Q"你好"→"你好，我是。不过，我是一个客户服务"；Q"写诗"→"春天来，樱花盛开"；Q"幸福"→"幸福是一种个人，它是一件非常。"；Q"推荐一本好书"→"推荐，所以您喜欢这本书。"
+- **剩余上限**：长序列中段仍崩坏（符号/英文碎片）——小模型（compact×4+standard×1）长序列自由生成能力上限 + 数据残留噪音
 
-**下一步（唯一）**：增量微调完成后 eval_dialogue.py 验证生成质量是否消除英文/代码碎片 →
-若达标则接 API 日常对话实测（用户核心目标"正常对话"）。
+**下一步（唯一，待决策）**：长回复质量提升方向：
+A. 生成时约束（禁符号/英文 token 段，max_tokens 30）——治标，日常短问答已可用
+B. 提升模型规格/数据（更大神经元 or 更多纯净数据重训）——上限高但训练数小时-数十小时
+C. 接受短问答现状，优先跑通 API 服务（需装 fastapi/uvicorn）——直接服务"接入 API 日常对话"
 
 ---
 
