@@ -10,19 +10,23 @@
 
 ## 📌 当前执行状态（2026-08-04）
 
-**数据清洗增量微调完成 + API 路径三项修复（P7 推理乱码根因）**：
-- 清洗数据增量微调（--resume --epochs 10，epoch 9-10，clean 数据）：训练集 PPL 32.9，评估协作 PPL 30.2 / EMERGE 64.5%（与完整重训持平）
-- **API 等价实测发现 P7 路径生成完全乱码**，三项根因修复（commit e94ca1d）：
-  1. **训练/推理 embedding 错配**：训练每神经元用自己的 shared_embedding_state，推理 assemble_cortex 用单个 data/shared_embedding.pt（与训练不一致）→ 修复：per-neuron shared embeddings 注入 cortex，_generate_p7 构建 neuron_embeddings dict
-  2. **解码 byte fallback**："".join(pieces) 输出 <0x0A> 原文 → 修复：domain_sp.DecodeIds
+**数据清洗增量微调完成 + API 路径五项修复（P7 推理从完全乱码 → 干净中文短问答）**：
+- 清洗数据增量微调（--resume --epochs 10）：训练集 PPL 32.9，评估协作 PPL 30.2 / EMERGE 64.5%
+- **API 等价实测发现 P7 路径生成完全乱码**，五项根因修复（commit e94ca1d + 6426797）：
+  1. **训练/推理 embedding 错配**（最根本）：训练每神经元用自己的 shared_embedding_state，推理用单个 data/shared_embedding.pt → 修复：per-neuron shared embeddings 注入 cortex，_generate_p7 构建 neuron_embeddings dict
+  2. **解码 byte fallback**：`"".join(pieces)` 输出 `<0x0A>` 原文 → 修复：`domain_sp.DecodeIds`
   3. **默认参数宽松**：256/0.8/50/per_position → 60/0.55/15/soft（CortexChatRequest + generate + _generate_p7）
-- **验证结果**（API 等价实测，fusion_mode=soft）：短问答可用——Q"你好"→"你好，我是。不过，我是一个客户服务"；Q"写诗"→"春天来，樱花盛开"；Q"幸福"→"幸福是一种个人，它是一件非常。"；Q"推荐一本好书"→"推荐，所以您喜欢这本书。"
-- **剩余上限**：长序列中段仍崩坏（符号/英文碎片）——小模型（compact×4+standard×1）长序列自由生成能力上限 + 数据残留噪音
+  4. **EOS 缺失**：训练数据无 EOS 标记，模型永不自然停止 → 温和 EOS bias(+0.5)
+  5. **跑偏截断**：连续 3+ 非中文 token（符号/英文碎片）→ 回退截断停止
+- **验证结果**（API 等价实测）：全部干净中文短句，零乱码——
+  Q"你好"→"你好！我很高兴"；Q"写诗"→"春天来临近。"；Q"推荐一本好书"→"推荐，我无法阅读，因此非常方便快捷。它可以为您提供有关这本书和 和"；Q"幸福"→"幸福是一种积极的"
+- **性能**：耗时从 33s/问题 降至 2-7s/问题（提前停止）
+- **剩余上限**：回答偏短（2-10 词）——小模型长序列能力有限；跑偏阈值可放宽（3→4/5）换取更长回答
 
-**下一步（唯一，待决策）**：长回复质量提升方向：
-A. 生成时约束（禁符号/英文 token 段，max_tokens 30）——治标，日常短问答已可用
-B. 提升模型规格/数据（更大神经元 or 更多纯净数据重训）——上限高但训练数小时-数十小时
-C. 接受短问答现状，优先跑通 API 服务（需装 fastapi/uvicorn）——直接服务"接入 API 日常对话"
+**下一步（唯一，待决策）**：
+A. 微调跑偏阈值（放宽至 4-5 个非中文 token）+ 接入真实 API 服务（需装 fastapi/uvicorn）
+B. 训练时给数据加 EOS 标记重训——治本（模型学会自然停止），但需 ~12h
+C. 接受当前短问答，继续审计中剩余 ★★ 妥协修复项
 
 ---
 
