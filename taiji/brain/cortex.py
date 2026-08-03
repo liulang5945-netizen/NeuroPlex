@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -1500,6 +1501,20 @@ class Cortex:
                 for tid in banned_ids:
                     logits[0, tid] = float('-inf')
 
+            # P7-修复（2026-08-04）：EOS logit 增强 + 熵停止 + 跑偏截断
+            # 训练数据（alpaca clean）无 EOS 标记，模型从未学会输出 </s>，
+            # 生成永不自然停止 → 一直生成到 max_tokens 导致长序列崩坏。
+            # 1) 每步给 eos_id 加温和 bias，鼓励在自然结束点终止；
+            # 2) 连续 3+ 个非中文字符 token（英文/符号/数字碎片）视为跑偏 → 截断停止。
+            if eos_id is not None:
+                logits[0, eos_id] += 0.5  # 温和 EOS bias（top-k 后可能仍在候选）
+            else:
+                # 无 EOS：softmax 熵 > 阈值时视为跑偏，提前停止
+                probs_ent = F.softmax(logits / temperature, dim=-1)
+                ent = -(probs_ent * probs_ent.clamp_min(1e-9).log()).sum(-1)
+                if ent[0].item() > 8.0 and len(generated_ids_ordered) >= 8:
+                    break
+
             # Top-k sampling in domain vocab
             if top_k > 0:
                 actual_k = min(top_k, logits.shape[-1])
@@ -1521,6 +1536,20 @@ class Cortex:
             # EOS check
             if eos_id is not None and next_token == eos_id:
                 break
+
+            # P7-修复：跑偏截断——连续 3+ 个非中文 token（英文/符号/数字碎片）
+            # 视为模型长序列生成跑偏，回退到最后一个中文 token 后停止。
+            # （中文标点 .，！？ 等含全角形式，一并视为正常内容）
+            if len(generated_ids_ordered) >= 4:
+                _cjk_or_punct = re.compile(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2014\u2018\u2019\u201c\u201d\u2026]')
+                last_pieces = [domain_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
+                non_cjk = sum(1 for p in last_pieces if not _cjk_or_punct.search(p))
+                if non_cjk >= 3:
+                    while generated_ids_ordered and not _cjk_or_punct.search(
+                        domain_sp.id_to_piece(generated_ids_ordered[-1])
+                    ):
+                        generated_ids_ordered.pop()
+                    break
 
             # S6: 用对齐表替代 re-encode 往返（domain→text→general）
             # 消除信息丢失和 text 往返开销
