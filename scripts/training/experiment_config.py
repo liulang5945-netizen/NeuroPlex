@@ -70,10 +70,11 @@ SHARED_EXPERT_ID = "zh_general"
 # ── 采样参数（生成阶段统一配置）──────────────────────────────────────────
 # 散落在 eval_single_dialogue / eval_aug_joint / eval_dialogue / finetune generate_sample
 # 统一默认值，函数签名保留参数可覆盖
-SAMPLING_TEMPERATURE = 0.8
-SAMPLING_TOP_K = 40
-SAMPLING_REPETITION_PENALTY = 1.2
-SAMPLING_MAX_TOKENS = 100  # 折中默认值（原 single=100, aug_joint=80, dialogue=120）
+# 2026-08-03 完整重训后生成质量对比：temp 0.8→0.55, top_k 40→15, rep 1.2→1.4, max 100→60
+SAMPLING_TEMPERATURE = 0.55
+SAMPLING_TOP_K = 15
+SAMPLING_REPETITION_PENALTY = 1.4
+SAMPLING_MAX_TOKENS = 60  # 折中默认值（原 single=100, aug_joint=80, dialogue=120）
 
 # ── SFT 对话分隔符（S3: answer masking）─────────────────────────────────
 # 对话数据格式："问：{instruction}\n答：{output}"
@@ -82,15 +83,16 @@ SFT_ANSWER_MARKER = "答："
 
 # ── 对话训练数据文件列表（S5: 数据扩充）─────────────────────────────────
 # 本地已有的对话数据文件（均为 {"text": "问：...\n答：..."} 格式）
-# 合并后约 97K 条，是 alpaca_zh_sft 单文件的 2 倍
+# 2026-08-03 数据清洗（clean_dialogue_data.py）：过滤代码/英文密集样本后 *_clean.jsonl
+# 原始 *_clean 对应文件约 97.6K 条 → 清洗后 88.7K 条（90.9%）
 DIALOGUE_DATA_FILES = [
-    "alpaca_zh_sft.jsonl",    # 48818 条（alpaca-zh SFT 格式）
-    "sft_shared_core.jsonl",  # 14629 条（共享核心对话）
-    "sft_unique_0.jsonl",     # 6827 条（aug0 独有）
-    "sft_unique_1.jsonl",     # 6827 条（aug1 独有）
-    "sft_unique_2.jsonl",     # 6827 条（aug2 独有）
-    "sft_unique_3.jsonl",     # 6827 条（aug3 独有）
-    "sft_unique_4.jsonl",     # 6827 条（aug4 独有）
+    "alpaca_zh_sft_clean.jsonl",    # 44391 条（清洗后）
+    "sft_shared_core_clean.jsonl",  # 13305 条（清洗后）
+    "sft_unique_0_clean.jsonl",     # 6236 条（清洗后）
+    "sft_unique_1_clean.jsonl",     # 6168 条（清洗后）
+    "sft_unique_2_clean.jsonl",     # 6209 条（清洗后）
+    "sft_unique_3_clean.jsonl",     # 6215 条（清洗后）
+    "sft_unique_4_clean.jsonl",     # 6206 条（清洗后）
 ]
 
 # HuggingFace 对话数据源（S5: 可选扩充，需联网下载）
