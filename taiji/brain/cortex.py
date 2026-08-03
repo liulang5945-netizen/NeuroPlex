@@ -93,6 +93,13 @@ class Cortex:
         # Can be hot-swapped for larger vocabs.
         self._shared_embedding: Optional[torch.nn.Embedding] = shared_embedding
 
+        # ── Per-neuron shared embeddings（P7-修复 2026-08-04）──
+        # 训练（finetune_cross_spec）时每个神经元从各自 ckpt 加载独立的
+        # shared_embedding_state，推理若用单个 data/shared_embedding.pt 则与训练
+        # 不一致 → 生成垃圾。此 dict 保存 {nid: nn.Embedding}，_generate_p7 用它
+        # 构建 neuron_embeddings（与 eval 路径一致）。为空时回退 _shared_embedding。
+        self._neuron_shared_embeddings: Optional[Dict[str, torch.nn.Embedding]] = None
+
         # ── General tokenizer (256K, hot-swappable I/O protocol) ──
         self._general_sp = general_tokenizer
 
@@ -254,6 +261,20 @@ class Cortex:
     def set_shared_embedding(self, embedding: torch.nn.Embedding) -> None:
         """Set the shared embedding table (highest precedence source)."""
         self._shared_embedding = embedding
+
+    def set_neuron_shared_embeddings(
+        self, neuron_shared_embeddings: Dict[str, torch.nn.Embedding]
+    ) -> None:
+        """P7-修复：设置 per-neuron shared embeddings（与训练一致）。
+
+        训练时每个神经元用自己 ckpt 的 shared_embedding_state 编码输入；
+        _generate_p7 优先用此 dict 构建 neuron_embeddings，回退到 _shared_embedding。
+        """
+        self._neuron_shared_embeddings = neuron_shared_embeddings
+        logger.info(
+            "[Cortex] Per-neuron shared embeddings set: %d neurons",
+            len(neuron_shared_embeddings),
+        )
 
     def set_general_tokenizer(self, general_sp) -> None:
         """Set the general 256K tokenizer for I/O protocol.
@@ -732,14 +753,17 @@ class Cortex:
 
     def think(
         self,
-        shared_embeddings: torch.Tensor,
+        shared_embeddings: Optional[torch.Tensor] = None,
         active_nids: Optional[List[str]] = None,
         fusion_mode: str = "per_position",
+        neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict:
         """Run one round of resonance thinking.
 
         All neurons receive the same shared_embeddings (from shared embedding table).
         This ensures field vectors are comparable — cosine similarity is meaningful.
+
+        P7-修复：支持 neuron_embeddings dict（每神经元独立编码，与训练一致）。
 
         Args:
             shared_embeddings: [B, L, base_embed_dim] from shared_embedding(general_ids).
@@ -748,33 +772,36 @@ class Cortex:
             fusion_mode: 推理融合模式
                         - "per_position"（默认）：每位置按熵/置信度独立路由
                         - "residual"：族长完整预测 + 其他神经元残差修正（方向③）
+            neuron_embeddings: {nid: [B, L, base_embed_dim]} 每神经元预编码 embedding
+                              （优先级高于 shared_embeddings，与 ensemble.forward 一致）
 
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
         """
-        shared_embeddings = shared_embeddings.to(self.device)
-        result = self.ensemble.forward(
-            shared_embeddings=shared_embeddings,
-            return_logits=True,
-            active_nids=active_nids,
-            fusion_mode=fusion_mode,
-        )
+        kwargs = dict(return_logits=True, active_nids=active_nids, fusion_mode=fusion_mode)
+        if neuron_embeddings is not None:
+            kwargs["neuron_embeddings"] = {
+                k: v.to(self.device) for k, v in neuron_embeddings.items()
+            }
+        elif shared_embeddings is not None:
+            kwargs["shared_embeddings"] = shared_embeddings.to(self.device)
+        result = self.ensemble.forward(**kwargs)
         return result
 
     @torch.no_grad()
     def generate(
         self,
         prompt: str,
-        max_tokens: int = 256,
-        temperature: float = 0.8,
-        top_k: int = 50,
+        max_tokens: int = 60,
+        temperature: float = 0.55,
+        top_k: int = 15,
         domain: Optional[str] = None,
-        repetition_penalty: float = 1.2,
+        repetition_penalty: float = 1.4,
         n_candidates: int = 1,
         routing_level: int = 1,
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
-        fusion_mode: str = "per_position",
+        fusion_mode: str = "soft",
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -1217,11 +1244,11 @@ class Cortex:
         temperature: float,
         top_k: int,
         domain: Optional[str] = None,
-        repetition_penalty: float = 1.2,
+        repetition_penalty: float = 1.4,
         routing_level: int = 1,
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "fusion",
-        fusion_mode: str = "per_position",
+        fusion_mode: str = "soft",
         # ── R1: 共振分数软路由 ──
         # "hybrid"（默认）= keyword 路由 + 共振校验（50% 阈值硬切换），向后兼容
         # "resonance" = 共振分数软路由（probe forward → final_scores → top-k 激活）
@@ -1351,6 +1378,7 @@ class Cortex:
         generated_pieces = []
         generated_token_ids = set()
         generated_token_list = []  # 保持顺序，用于 no-repeat-ngram
+        generated_ids_ordered = []  # 保持顺序，用于 DecodeIds（正确处理 byte fallback）
         # 域自适应 no-repeat-ngram：中文 n=4（更宽松，避免短句过度抑制），其他 n=3
         # 中文短句字符数少，n=3 会误杀正常重复用字；n=4 给中文更多重复容忍度
         no_repeat_ngram_size = 4 if domain == "zh" else 3
@@ -1397,9 +1425,20 @@ class Cortex:
 
             # Embed general IDs → [1, L, 512]
             ids_tensor = torch.tensor([general_ids], dtype=torch.long, device=self.device)
-            shared_emb = self._shared_embedding(ids_tensor)
-
-            result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode)
+            # P7-修复：per-neuron shared embedding（与训练一致，避免单 shared_embedding 错配）
+            if self._neuron_shared_embeddings:
+                neuron_embeddings = {}
+                for nid, emb in self._neuron_shared_embeddings.items():
+                    if active_nids is not None and nid not in active_nids:
+                        continue
+                    neuron_embeddings[nid] = emb(ids_tensor)
+                result = self.think(
+                    active_nids=active_nids, fusion_mode=fusion_mode,
+                    neuron_embeddings=neuron_embeddings,
+                )
+            else:
+                shared_emb = self._shared_embedding(ids_tensor)
+                result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode)
 
             # Get logits: 协作模式选择
             neuron_logits = result.get("neuron_logits", {})
@@ -1474,6 +1513,7 @@ class Cortex:
 
             generated_token_ids.add(next_token)
             generated_token_list.append(next_token)
+            generated_ids_ordered.append(next_token)
 
             if self.gamma_oscillator is not None:
                 self.tick_gamma()
@@ -1501,7 +1541,11 @@ class Cortex:
                 general_ids.append(next_token)
 
         # Decode with domain tokenizer
-        if generated_pieces:
+        # P7-修复（2026-08-04）：用 DecodeIds 替代 "".join(pieces)
+        # 旧拼接会把 byte fallback piece（如 <0x0A>）原样输出，DecodeIds 正确处理字节 token。
+        if generated_ids_ordered and domain_sp is not None:
+            result_text = domain_sp.DecodeIds(generated_ids_ordered)
+        elif generated_pieces:
             result_text = "".join(generated_pieces).replace("▁", " ")
         else:
             result_text = ""

@@ -324,6 +324,37 @@ def assemble_cortex(
             shared_emb.to(device)
             cortex.set_shared_embedding(shared_emb)
 
+            # P7-修复（2026-08-04）：per-neuron shared embedding 与训练一致
+            # 训练（finetune_cross_spec）时每个神经元从各自 ckpt 的 shared_embedding_state
+            # 独立加载 embedding，推理若用单个 data/shared_embedding.pt 则与训练不一致
+            # → P7 generate 输出垃圾。这里从各 neuron ckpt 加载并注入 cortex。
+            neuron_shared_embeddings: dict = {}
+            for nid in cortex.neurons:
+                n_ckpt_path = os.path.join(neurons_dir, f"neuron_{nid}.pt")
+                if not os.path.exists(n_ckpt_path):
+                    continue
+                try:
+                    n_ckpt = torch.load(
+                        n_ckpt_path, map_location="cpu", weights_only=False,
+                    )
+                    n_emb_state = n_ckpt.get("shared_embedding_state")
+                    if n_emb_state is None:
+                        continue
+                    n_emb = torch.nn.Embedding(general_vocab, base_embed_dim)
+                    n_emb.load_state_dict(n_emb_state)
+                    n_emb.to(device)
+                    neuron_shared_embeddings[nid] = n_emb
+                except Exception as e:
+                    logger.warning(
+                        "[assemble_cortex] neuron %s shared_embedding 加载失败: %s", nid, e,
+                    )
+            if neuron_shared_embeddings:
+                cortex.set_neuron_shared_embeddings(neuron_shared_embeddings)
+                logger.info(
+                    "[assemble_cortex] per-neuron shared embedding 加载: %d 个神经元",
+                    len(neuron_shared_embeddings),
+                )
+
             modules["general_tokenizer"] = general_sp
             modules["shared_embedding"] = shared_emb
             logger.info(

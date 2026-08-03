@@ -474,9 +474,11 @@ def cortex_generate(req: CortexGenRequest):
 class CortexChatRequest(BaseModel):
     """Cortex 文本对话请求。"""
     prompt: str
-    max_tokens: Optional[int] = 256
-    temperature: Optional[float] = 0.8
-    top_k: Optional[int] = 50
+    # 2026-08-04：默认值改为保守参数（验证过短问答质量最佳）
+    # 原 256/0.8/50 在 5 神经元异构 ensemble 上长序列生成易崩坏
+    max_tokens: Optional[int] = 60
+    temperature: Optional[float] = 0.55
+    top_k: Optional[int] = 15
     domain: Optional[str] = None  # "zh"/"en"/"code"/"math"/"general"，None=自动推断
 
 
