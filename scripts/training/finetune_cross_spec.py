@@ -313,7 +313,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--max_texts", type=int, default=10000)
+    parser.add_argument("--max_texts", type=int, default=88730,
+                        help="最大加载条数（默认 88730=清洗后全量数据）")
+    parser.add_argument("--max_answer_chars", type=int, default=150,
+                        help="答案字符数上限（0=不筛选，150=只保留短答案，匹配生成 max_tokens=60）")
     parser.add_argument("--data", type=str, default="dialogue",
                         choices=["dialogue", "simple_zh"],
                         help="dialogue=alpaca-zh SFT, simple_zh=作文数据")
@@ -472,8 +475,13 @@ def main():
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             "data", "simple_zh",
         )
-        texts = load_dialogue_texts_multi(dialogue_dir, max_texts=args.max_texts)
-        print(f"  训练集(多文件合并对话): {len(texts)} 条对话", flush=True)
+        texts = load_dialogue_texts_multi(
+            dialogue_dir,
+            max_texts=args.max_texts,
+            max_answer_chars=args.max_answer_chars,
+        )
+        print(f"  训练集(多文件合并对话): {len(texts)} 条对话 "
+              f"(max_answer_chars={args.max_answer_chars})", flush=True)
     else:
         texts = load_simple_zh_texts(["simple_zh_texts.jsonl"], max_texts=args.max_texts)
         print(f"  训练集(simple_zh): {len(texts)} 条文本", flush=True)

@@ -495,12 +495,28 @@ def batch_align_and_embed(
     # S3: SFT answer 起始 token index（general token 维度），None 表示无分隔符
     answer_starts: List[Optional[int]] = []
 
+    # EOS 注入（2026-08-04）：训练时在序列末尾追加 EOS token，
+    # 让模型学会在 answer 结束时自然停止生成，而非依赖 max_tokens 强制截断。
+    # 不加 EOS 的后果：模型永不输出 EOS，生成时只能靠 max_tokens 截断 + 跑偏兜底，
+    # 导致长序列语义崩坏。
+    try:
+        general_eos = general_sp.eos_id()
+    except Exception:
+        general_eos = 1  # SentencePiece 默认 </s>=1
+    try:
+        domain_eos = domain_sp.eos_id()
+    except Exception:
+        domain_eos = 1
+
     for text in texts:
         g_ids, d_targets = build_position_alignment(text, domain_sp, general_sp)
-        # 截断到最大序列长度（防止长文本拖慢训练）
+        # 追加 EOS（让模型学会在 answer 末尾自然停止）
+        g_ids = torch.cat([g_ids, torch.tensor([general_eos])])
+        d_targets = torch.cat([d_targets, torch.tensor([domain_eos])])
+        # 截断到最大序列长度（保留末尾 EOS：截到 max_seq_len-1 + EOS）
         if max_seq_len > 0 and len(g_ids) > max_seq_len:
-            g_ids = g_ids[:max_seq_len]
-            d_targets = d_targets[:max_seq_len]
+            g_ids = torch.cat([g_ids[:max_seq_len-1], torch.tensor([general_eos])])
+            d_targets = torch.cat([d_targets[:max_seq_len-1], torch.tensor([domain_eos])])
         all_general_ids.append(g_ids)
         all_targets.append(d_targets)
 

@@ -285,6 +285,7 @@ def load_dialogue_texts_multi(
     filenames: List[str] = None,
     max_texts: int = 100000,
     answer_marker: str = SFT_ANSWER_MARKER,
+    max_answer_chars: int = 0,
 ) -> List[str]:
     """S5: 从多个 jsonl 文件加载对话数据（合并扩充）。
 
@@ -296,6 +297,10 @@ def load_dialogue_texts_multi(
         filenames: 文件名列表。None 时用 DIALOGUE_DATA_FILES 默认列表。
         max_texts: 最大加载条数
         answer_marker: SFT 分隔符（用于过滤无分隔符的脏数据）
+        max_answer_chars: 答案字符数上限（0=不筛选，>0=只保留答案≤此长度的样本）。
+            2026-08-04：训练/生成长度匹配——alpaca-zh 答案普遍 200-500 字，
+            而生成 max_tokens=60（约 80-100 字），训练任务实际学成了"长文本续写"。
+            筛选短答案让模型学会在合理长度内停止 + 输出简洁回答。
 
     Returns:
         对话文本列表
@@ -322,6 +327,11 @@ def load_dialogue_texts_multi(
                     text = d.get('text', '')
                     # S5: 过滤无 answer_marker 的脏数据（保证 SFT masking 有效）
                     if len(text) >= 20 and answer_marker in text:
+                        # 2026-08-04：筛选短答案（训练/生成长度匹配）
+                        if max_answer_chars > 0:
+                            ans = text.split(answer_marker)[-1]
+                            if len(ans) > max_answer_chars:
+                                continue
                         texts.append(text)
                         count += 1
                 except json.JSONDecodeError:

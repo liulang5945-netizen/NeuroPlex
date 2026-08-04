@@ -8,25 +8,55 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-04）
+## 📌 当前执行状态（2026-08-04 更新）
 
-**数据清洗增量微调完成 + API 路径五项修复（P7 推理从完全乱码 → 干净中文短问答）**：
-- 清洗数据增量微调（--resume --epochs 10）：训练集 PPL 32.9，评估协作 PPL 30.2 / EMERGE 64.5%
-- **API 等价实测发现 P7 路径生成完全乱码**，五项根因修复（commit e94ca1d + 6426797）：
-  1. **训练/推理 embedding 错配**（最根本）：训练每神经元用自己的 shared_embedding_state，推理用单个 data/shared_embedding.pt → 修复：per-neuron shared embeddings 注入 cortex，_generate_p7 构建 neuron_embeddings dict
-  2. **解码 byte fallback**：`"".join(pieces)` 输出 `<0x0A>` 原文 → 修复：`domain_sp.DecodeIds`
-  3. **默认参数宽松**：256/0.8/50/per_position → 60/0.55/15/soft（CortexChatRequest + generate + _generate_p7）
-  4. **EOS 缺失**：训练数据无 EOS 标记，模型永不自然停止 → 温和 EOS bias(+0.5)
-  5. **跑偏截断**：连续 3+ 非中文 token（符号/英文碎片）→ 回退截断停止
-- **验证结果**（API 等价实测）：全部干净中文短句，零乱码——
-  Q"你好"→"你好！我很高兴"；Q"写诗"→"春天来临近。"；Q"推荐一本好书"→"推荐，我无法阅读，因此非常方便快捷。它可以为您提供有关这本书和 和"；Q"幸福"→"幸福是一种积极的"
-- **性能**：耗时从 33s/问题 降至 2-7s/问题（提前停止）
-- **剩余上限**：回答偏短（2-10 词）——小模型长序列能力有限；跑偏阈值可放宽（3→4/5）换取更长回答
+**EOS + 短答案筛选重训进行中（治本方案 B 执行）**：
 
-**下一步（唯一，待决策）**：
-A. 微调跑偏阈值（放宽至 4-5 个非中文 token）+ 接入真实 API 服务（需装 fastapi/uvicorn）
-B. 训练时给数据加 EOS 标记重训——治本（模型学会自然停止），但需 ~12h
-C. 接受当前短问答，继续审计中剩余 ★★ 妥协修复项
+**根因诊断**（API 实测质量不达标的三个核心缺陷）：
+1. ❌ **训练数据未加 EOS**：`batch_align_and_embed` 只产生 domain_targets，无 EOS token → 模型永不自然停止
+2. ❌ **训练数据严重未充分利用**：仅加载 15000/88730（17%），其他 6 个文件完全未用
+3. ❌ **训练/生成长度严重不匹配**：alpaca-zh 答案 200-500 字，生成 max_tokens=60（约 80-100 字）→ 模型学成了"长文本续写"而非"简短问答"
+
+**三项核心修复**：
+1. ✅ **EOS 注入**（[translator.py:498-521](file:///e:/taiji-neuron/taiji/resonance/translator.py#L498-L521)）：`batch_align_and_embed` 追加 EOS token（截断前注入，保证 EOS 始终在末尾）。smoke test 验证：末尾 target=3(EOS)，sft_mask=True ✓
+2. ✅ **短答案筛选**（[utils.py:283-338](file:///e:/taiji-neuron/scripts/training/utils.py#L283-L338)）：`load_dialogue_texts_multi` 加 `max_answer_chars=150` 参数，筛选答案≤150字的样本，匹配生成 max_tokens=60
+3. ✅ **数据量提升**：从 15000 条（仅 alpaca_zh 第一个文件）→ 19745 条（7 个文件全部加载，去重后），多样性显著提升
+
+**重训参数**：
+- 从头训练（不 --resume）：加 EOS 后训练任务本质变了，不继承"无 EOS 长答案"偏见
+- epochs=8, batch=4, lr=1e-3, max_texts=88730, max_answer_chars=150
+- 总步数 39480，ETA 约 301 min/epoch
+- 备份：cross_spec_dialogue.pt.pre_eos_finetune
+
+**训练状态**：Epoch 1/8 step 50 PPL=331（从头训练初始值，side_channels/cross_spec 重新初始化）
+
+**API 路径五项修复（已完成，commit e94ca1d + 6426797）**：
+1. 训练/推理 embedding 错配 → per-neuron shared embeddings 注入 cortex
+2. 解码 byte fallback → `domain_sp.DecodeIds`
+3. 默认参数宽松 → 60/0.55/15/soft
+4. EOS 缺失 → 温和 EOS bias(+0.5)（临时方案，现已被训练时 EOS 注入替代）
+5. 跑偏截断 → 连续 3+ 非中文 token 回退截断
+
+---
+
+## 🧠 神经元综合体饱和点判断标准（2026-08-04 决策）
+
+**何时触发新神经元进化**——三个量化指标：
+
+| 指标 | 饱和标准 | 当前值 | 状态 |
+|------|---------|--------|------|
+| PPL 收敛 | 连续 2 epoch Δ<0.5 | epoch 9→10 Δ=-14.2 | ❌ 远未饱和 |
+| EMERGE 递减 | 连续 2 次评估 Δ<5% | 21.7% vs 22.7% | ❌ 协同收益稳定 |
+| 参数效率 | body 梯度范数持续 <1e-4 | 仍在下降 | ❌ 未饱和 |
+
+**触发时机**：当前轮训练后（PPL 预计 < 20），如果 API 质量仍不达标，就是触发新神经元的时机。预计 1-2 轮训练后（3-6 天）。
+
+**新神经元方向（上限最高）**：跨域扩展（en_dialogue）。理由：
+1. 当前全是 zh 神经元，跨域协作是"小神经元匹配大模型"的核心
+2. 已有跨域 tokenizer 基础设施（en 16K vocab）
+3. 跨域协作能显著提升综合能力（不同视角的共振）
+
+**技术路径**：neurogenesis + lifecycle + establish_topology_channels 自动重建 + finetune_cross_spec 微调
 
 ---
 
