@@ -125,6 +125,9 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, ensemble,
         "loss_history": loss_history,
         "saved_at": datetime.now().isoformat(),
     }
+    # §4.0c: 保存 Sparse Router 状态
+    if ensemble.sparse_router is not None:
+        ckpt["sparse_router_state"] = ensemble.sparse_router.state_dict()
     if body_state:
         ckpt["body_state"] = body_state
     if adamw_optimizer is not None:
@@ -201,6 +204,14 @@ def load_checkpoint(path, optimizer, neurons, ensemble, adamw_optimizer=None, sc
                 proj.load_legacy_linear_state(sd["weight"])
             else:
                 proj.load_state_dict(sd)
+
+    # §4.0c: 恢复 Sparse Router 状态
+    if ensemble.sparse_router is not None and "sparse_router_state" in ckpt:
+        try:
+            ensemble.sparse_router.load_state_dict(ckpt["sparse_router_state"])
+            print("  [resume] Sparse Router 状态已恢复", flush=True)
+        except (RuntimeError, ValueError) as e:
+            print(f"  [resume-warn] Sparse Router 状态恢复失败，重建: {e}", flush=True)
 
     # T12: 优化器/scheduler 状态恢复加防御——词表升级导致参数集变化时重建而非崩溃
     for name, opt in [("optimizer", optimizer), ("adamw_optimizer", adamw_optimizer),
@@ -304,6 +315,9 @@ def build_final_artifact(neurons, ensemble, shared_embeddings) -> dict:
                 emb_state[nid] = {k: v.detach().clone() for k, v in emb.state_dict().items()}
         if emb_state:
             artifact["shared_embedding_state"] = emb_state
+    # §4.0c: 保存 Sparse Router 状态
+    if ensemble.sparse_router is not None:
+        artifact["sparse_router_state"] = ensemble.sparse_router.state_dict()
     return artifact
 
 
@@ -340,6 +354,13 @@ def main():
                         help="T4: 模板改写概率")
     parser.add_argument("--aug_multi_turn_prob", type=float, default=0.4,
                         help="T4: 多轮拼接概率")
+    # ── §4.0c: Sparse Router ──
+    parser.add_argument("--use_sparse_router", action="store_true",
+                        help="§4.0c: 启用 Probe-based Sparse Router（自适应激活）")
+    parser.add_argument("--sparse_router_top_k", type=int, default=3,
+                        help="§4.0c: Sparse Router top-K 值（round 2+ 激活的神经元数）")
+    parser.add_argument("--sparse_router_warmup_steps", type=int, default=2000,
+                        help="§4.0c: Sparse Router warm-up 步数（前 N 步 K=全选）")
     args = parser.parse_args()
 
     global DEVICE
@@ -429,7 +450,13 @@ def main():
     # 4. 创建 ensemble（用最大 field_dim，自动创建跨规格投影层）
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=geometry)
+    ensemble = ResonanceEnsemble(
+        neurons, field, max_rounds=2, geometry=geometry,
+        # §4.0c: Sparse Router
+        use_sparse_router=args.use_sparse_router,
+        sparse_router_top_k=args.sparse_router_top_k,
+        sparse_router_warmup_steps=args.sparse_router_warmup_steps,
+    )
     print(f"\n  field.dim={max_field_dim}, 跨规格投影层: "
           f"{len(ensemble._cross_spec_projectors)} 正向 + "
           f"{len(ensemble._cross_spec_back_projectors)} 反向", flush=True)
@@ -536,7 +563,7 @@ def main():
                 continue
             body_params.append(p)
 
-    # 跨规格投影层（2D weight → Muon）
+    # 跨规格投影层（2D weight -> Muon）
     for proj in ensemble._cross_spec_projectors.values():
         for p in proj.parameters():
             if p.requires_grad and p.ndim == 2:
@@ -545,6 +572,18 @@ def main():
         for p in proj.parameters():
             if p.requires_grad and p.ndim == 2:
                 muon_params.append(p)
+
+    # §4.0c: Sparse Router 参数（2D weight -> Muon, 1D bias -> AdamW）
+    if ensemble.sparse_router is not None:
+        for p in ensemble.sparse_router.parameters():
+            if not p.requires_grad:
+                continue
+            if p.ndim == 2:
+                muon_params.append(p)
+            else:
+                adamw_params.append(p)
+        router_param_count = sum(p.numel() for p in ensemble.sparse_router.parameters())
+        print(f"  §4.0c Sparse Router 参数: {router_param_count:,} (top_k={args.sparse_router_top_k})", flush=True)
 
     # S8: shared_embedding 参数（如果训练）
     emb_params = []
@@ -673,6 +712,7 @@ def main():
                 return_individual_logits=False,
                 targets=targets,
                 field_conditioning=field_cond,  # T9: warm-up 控制
+                step=total_steps,  # §4.0c: Router warm-up
             )
 
             fused_logits = result["fused_logits"]

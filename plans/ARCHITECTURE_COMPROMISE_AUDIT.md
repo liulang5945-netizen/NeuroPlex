@@ -8,9 +8,15 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-04 更新）
+## 📌 当前执行状态（2026-08-05 更新）
 
 **EOS + 短答案筛选重训进行中（治本方案 B 执行）**：
+
+**训练进度**（2026-08-05 实时）：
+- 当前：Epoch 4/8 step 17900，PPL=15.5，进度 3142/4935（64%）
+- 收敛趋势：E1 PPL 331 → E2 42.7 → E4 15.5（正常收敛，相比上一轮 E6 PPL 32.9 显著提升）
+- checkpoint：step 17500 已保存
+- ETA：约 150 min 到 E5 结束，剩余 4 个 epoch 约 20 小时
 
 **根因诊断**（API 实测质量不达标的三个核心缺陷）：
 1. ❌ **训练数据未加 EOS**：`batch_align_and_embed` 只产生 domain_targets，无 EOS token → 模型永不自然停止
@@ -28,7 +34,7 @@
 - 总步数 39480，ETA 约 301 min/epoch
 - 备份：cross_spec_dialogue.pt.pre_eos_finetune
 
-**训练状态**：Epoch 1/8 step 50 PPL=331（从头训练初始值，side_channels/cross_spec 重新初始化）
+**自适应激活设计已完成**（2026-08-05）：详见 [§4.0c](#40c--自适应激活设计r1-软路由--top-k-稀疏路由2026-08-05-设计)。Probe-based Sparse Router 方案落地，待训练完成后实施。
 
 **API 路径五项修复（已完成，commit e94ca1d + 6426797）**：
 1. 训练/推理 embedding 错配 → per-neuron shared embeddings 注入 cortex
@@ -683,6 +689,193 @@ C13（max 规格 EXPERT 受 CPU 限制）, T10（阵容仅 5 神经元受 CPU �
 3. **关键认知**：早期跨域实验失败不是因为机制无效，而是因为**缺乏能对话的基底**。现在有了能对话的基底，跨域涌现值得重新验证
 4. **方向 B 的触发理由不变**：若跨域加入新神经元后涌现明显 → 当前架构可承载涌现，方向 B 暂不启动；若跨域加入后无涌现 → 才需要考虑方向 B（更小神经元 + 被迫协作）
 5. **中间路径**：当前架构 + 更难任务（多步推理数据）+ 稀疏路由（R1 强化），可能部分触发涌现
+
+### 4.0c ★★★ **自适应激活设计：R1 软路由 → top-K 稀疏路由**（2026-08-05 设计）
+
+> 本节是 §4.0 确定的"唯一核心缺陷"的**具体设计方案**。用户要求"梳理，同时可以着手设计"，此处完成梳理 + 设计落地，待训练完成后实施。
+
+#### 1. 自适应激活针对什么
+
+**明确：针对输入样本（样本驱动）**，不针对装载硬件。
+
+- **样本驱动**：不同输入（数学问题 vs 日常对话）应激活不同神经元子集 → 这是模型架构层面的自适应激活，本设计的核心。
+- **硬件调度**：根据可用显存/算力动态调整激活数量 → 工程层问题，与模型架构正交，不在本设计范围内。
+- **两者关系**：样本驱动的 top-K 选择是基础，硬件调度可在 top-K 基础上进一步调整 K 值（未来扩展）。
+
+#### 2. 现有自适应激活机制盘点（梳理）
+
+| 机制 | 路径 | 类型 | 局限 |
+|------|------|------|------|
+| C9 自适应停止 | 推理 `forward()` | 轮次级 | 只控制何时停止，不控制激活谁 |
+| R1 共振分软路由 | 训练 `forward_train()` | 软加权 | **稠密计算**，所有神经元都参与，权重≈0 也算 |
+| active_filter | 推理 `forward()` | 硬过滤 | 基于场方向拥挤度，非能力路由；H5 显示跨 embedding 空间不可比 |
+| per_position entropy融合 | 推理 `forward()` | per-token软加权 | 0.01 floor，没有真正关闭神经元 |
+| C14 动态shared_expert_weight | 推理 `forward()` | shared权重动态 | 只调整 shared vs domain，非神经元子集选择 |
+| active_nids参数 | 推理 `forward()` | 外部路由接口 | 没有路由器实现，需外部指定 |
+
+#### 3. 核心缺陷（三点）
+
+1. **训练路径完全稠密**：`forward_train` 中 `active_ids = list(self.neurons.keys())`（[ensemble.py:1137](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1137)），所有神经元参与每轮计算和融合。softmax 只是软加权（[ensemble.py:1390](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1390)），即使某神经元权重≈0，它的 forward 计算仍然进行，算力浪费。
+
+2. **训练-推理不一致**：训练用 soft softmax 全神经元融合；推理用 per_position entropy + active_filter 硬过滤。模型训练时从未见过"部分神经元被关闭"的情况，导致推理时分布偏移。
+
+3. **没有样本驱动的路由器**：当前 scores 基于 field_state cosine（场聚合状态），不是"输入样本特征 → 路由决策"。H5 注释明确（[ensemble.py:1590-1595](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1590-L1595)）：field.score() 跨 embedding 空间不可比，已被禁用。
+
+#### 4. 设计：Probe-based Sparse Router（基于探针的稀疏路由器）
+
+##### 4.1 核心思路
+
+引入可学习的 Router，基于 **round 1 probe**（每神经元独立前向，已在 `forward_train` 中执行）的响应，为每个神经元产生路由分，选择 top-K 神经元参与 round 2+ 的深度协作。
+
+##### 4.2 为什么选 Probe-based 而非 Input-based（上限优先）
+
+| 方案 | Router 输入 | 额外开销 | 上限 | 选择 |
+|------|------------|---------|------|------|
+| Input Router | shared_embedding mean-pool | 零 | 中（只看输入，不看响应）| 备选 |
+| **Probe Router** | round 1 field_vectors + confidence | 零（round 1 已存在）| **高**（看每神经元实际响应）| **推荐** |
+
+**Probe Router 上限更高的原因**：它能看到"每个神经元对当前输入的初步响应"，类似人脑"先瞥一眼再决定谁深入处理"。round 1 独立前向已在 `forward_train` line 1203+ 执行，**零额外开销**。
+
+##### 4.3 Router 结构
+
+```
+Router 输入（per-neuron）：
+  - field_vector: [B, D_field]    # round 1 每神经元的场写入向量（已投影到 unified 维度）
+  - confidence:   [B]              # round 1 per-sample 置信度（C8）
+  - score_vec:    [B, D_score]    # round 1 评分投影向量（C12，若存在）
+
+Router 输出：
+  - routing_scores: [B, N]        # 每样本对每神经元的路由分
+  - top_k_mask:     [B, N]        # hard top-K 选择（forward）
+  - soft_weights:   [B, N]        # soft softmax 权重（backward 梯度流）
+```
+
+Router 实现：per-neuron MLP(`D_field + 1 + D_score → hidden → 1`)，对每个神经元独立评分，然后 batch 级 softmax + top-K。
+
+##### 4.4 可微 top-K 选择（Straight-Through Estimator）
+
+借鉴 Switch Transformer / GShard：
+
+```python
+# Forward: hard top-K 选择
+top_k_indices = routing_scores.topk(K, dim=-1).indices
+hard_mask = zeros(B, N).scatter_(-1, top_k_indices, 1.0)
+# 被选中的神经元用 routing_scores 归一化后的权重
+selected_weights = (routing_scores * hard_mask).softmax(dim=-1)  # 只在选中神经元上归一化
+
+# Backward: 梯度通过 soft softmax 流回所有神经元
+soft_weights = routing_scores.softmax(dim=-1)
+# STE: forward 用 hard, backward 用 soft
+final_weights = hard_mask * selected_weights + (soft_weights - soft_weights.detach())
+```
+
+- **Forward**：只有 K 个神经元参与 round 2+ 计算（算力节省）
+- **Backward**：梯度通过 soft softmax 流回所有神经元（Router 可学习）
+
+##### 4.5 负载均衡 loss（防模式坍塌）
+
+升级当前 `balance_loss = -(weights * log(weights)).sum()`（负熵）为 Switch Transformer 风格：
+
+```python
+# f_i: 神经元 i 被选中的批次比例（hard, detach）
+f = hard_mask.mean(dim=0).detach()  # [N]
+# P_i: Router 对神经元 i 的平均概率（soft, detach）
+P = soft_weights.mean(dim=0).detach()  # [N]
+# 负载均衡 loss: N × Σ(f_i × P_i)，越小越均衡
+balance_loss = N * (f * P).sum()
+```
+
+##### 4.6 K 值确定
+
+- **起步**：固定 K=3（5 神经元中选3个 + shared_expert 始终激活 = 4 个参与 round 2+）
+- **升级**：动态 K（基于路由分分布的熵，高熵→多选，低熵→少选）
+- **shared_expert 处理**：general 神经元始终激活，不参与 top-K 选择（保证基础语言能力）
+
+##### 4.7 Warm-up 策略（防冷启动）
+
+Router 初始随机，可能选错神经元。Warm-up 分阶段：
+- **Phase 0（前 10% 步）**：K=N（全选），Router 只学习评分，不影响激活
+- **Phase 1（10%-30% 步）**：K 线性从 N 降到目标 K（如 5→3）
+- **Phase 2（30%+ 步）**：固定目标 K，Router 完全生效
+
+#### 5. 与现有机制的整合
+
+| 现有机制 | 整合方式 | 理由 |
+|---------|---------|------|
+| R1 共振分软路由 | **替换**为 Router soft weights | Router 学习路由，比场状态 cosine 更直接；H5 已证明 field.score() 跨 embedding 不可比 |
+| C9 自适应停止 | **保留**，与 Router 正交 | C9 控制轮次（何时停），Router 控制激活（谁参与）|
+| C14 动态shared_expert_weight | **保留** | shared_expert 始终激活，C14 调整其权重，与 Router 正交 |
+| active_filter | **替换**为 Router top-K | Router 是主动选择，active_filter 是被动过滤 |
+| per_position融合 | **保留**作为 fallback | 在选中的 K 个神经元内进行 per_position 融合 |
+| balance_loss | **升级**为 Switch 风格 | 负熵 → Switch 负载均衡，更稳定 |
+| C12 contrastive_loss | **保留** | 约束 Router 评分与 NLL 排序对齐，让 Router 学到"能力路由"|
+
+#### 6. 训练-推理一致性
+
+| 维度 | 训练（forward_train）| 推理（forward）| 一致性 |
+|------|---------------------|---------------|--------|
+| Router 选择 | STE（hard forward + soft backward）| hard top-K | ✅ 一致 |
+| 参与神经元 | round 2+ 只 K 个 | round 2+ 只 K 个 | ✅ 一致 |
+| 融合权重 | Router soft weights | Router soft weights | ✅ 一致 |
+| 负载均衡 | 训练时计算 balance_loss | 推理时不需 | ✅ 正常 |
+
+**消除当前的训练-推理不一致**（训练稠密 vs 推理过滤）。
+
+#### 7. 实施路径
+
+##### 阶段1：Router 实现（不破坏现有训练）
+- [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) 新增 `SparseRouter` 类
+- Router 输入：round 1 field_vectors + confidence + score_vec
+- Router 输出：top-K mask + soft weights（STE）
+- 负载均衡 loss（Switch 风格）
+- 向后兼容：`use_sparse_router=False` 时退化为当前稠密模式
+
+##### 阶段2：接入 forward_train
+- `forward_train` round 1 后计算 Router 输出
+- round 2+ 只对 top-K 神经元注入 side_signals + field_state
+- 融合用 Router soft weights
+- 新增 load_balance_loss 到总 loss
+
+##### 阶段3：接入推理 forward
+- 推理路径同样用 Router 选择 top-K
+- 保证训练-推理一致
+- active_nids 参数与 Router 协同（外部指定优先，否则用 Router）
+
+##### 阶段4：训练验证
+- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py) 新增 `--use_sparse_router` flag
+- 对比稠密 vs 稀疏的 EMERGE、PPL、推理速度
+- 验证 warm-up 策略有效性
+
+#### 8. 上限分析
+
+| 维度 | 当前稠密 | 稀疏路由 | 提升 |
+|------|---------|---------|------|
+| 算力效率 | O(N) 每轮 | O(K) round 2+ | N=20,K=5 时 75% 节省 |
+| 协作质量 | 所有神经元参与 | 最合适神经元深入 | 聚焦→质量↑ |
+| 可扩展性 | 算力线性增长 | 算力对数增长 | 支持更多神经元协作 |
+| 训练-推理一致 | ❌ 不一致 | ✅ 一致 | 消除分布偏移 |
+| 路由可学习 | ❌ 场状态 cosine | ✅ MLP 学习 | 适应任务分布 |
+
+#### 9. 风险与缓解
+
+| 风险 | 缓解 |
+|------|------|
+| Router 冷启动（选错神经元）| Warm-up 策略（Phase 0 全选，逐步降 K）|
+| 模式坍塌（总选同一组）| Switch 风格负载均衡 loss |
+| 与场共振冲突 | Router 选择后场更聚焦（正面效果，非冲突）|
+| shared_expert 惰性 | C14 动态权重已处理（共振弱→sw 高→shared 兜底）|
+| K 值选错 | 起步固定 K=3，后续升级动态 K |
+
+#### 10. 实施时机
+
+**当前训练完成后**（Epoch 8 预计 PPL < 20）：
+1. 先验证 zh 综合体能正常对话（test_api_dialogue.py）
+2. 若对话质量达标 → 实施 Sparse Router（Step 3）
+3. 若对话质量不达标 → 先排查训练问题，再考虑 Router
+
+**不提前实施的原因**：Router 需要在已能对话的基底上训练，否则无法验证 Router 是否提升协作质量。
+
+---
 
 ### 4.1 ~~"共振"是推理技巧，从未被训练~~（已过时，S1 修复后全可微）
 

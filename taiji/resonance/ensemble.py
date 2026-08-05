@@ -72,6 +72,170 @@ class CrossSpecProjector(nn.Module):
             # linear2 保持零初始化（构造时已设置）
 
 
+class SparseRouter(nn.Module):
+    """§4.0c: Probe-based Sparse Router（基于探针的稀疏路由器）。
+
+    基于 round 1 probe（每神经元独立前向）的响应，为每个神经元产生路由分，
+    选择 top-K 神经元参与 round 2+ 的深度协作。
+
+    核心思路：
+    - round 1 所有神经元独立前向（已在 forward_train 中执行，零额外开销）
+    - Router 基于 round 1 的 field_vector + confidence + score_vec 评分
+    - top-K 选择（forward: hard mask, backward: STE soft softmax）
+
+    向后兼容：
+    - use_sparse_router=False（默认）时完全不启用，退化为稠密模式
+    - Router 参数只在 use_sparse_router=True 时创建
+
+    详见 plans/ARCHITECTURE_COMPROMISE_AUDIT.md §4.0c
+    """
+
+    def __init__(
+        self,
+        field_dim: int,
+        score_dim: Optional[int],
+        hidden_dim: int = 128,
+        top_k: int = 3,
+        warmup_steps: int = 0,  # Phase 0/1 warm-up 步数
+        shared_expert_id: Optional[str] = None,  # shared_expert 始终激活，不参与 top-K
+    ):
+        super().__init__()
+        self.field_dim = field_dim
+        self.score_dim = score_dim
+        self.top_k = top_k
+        self.warmup_steps = warmup_steps
+        self.shared_expert_id = shared_expert_id
+
+        # per-neuron 特征维度：field_vector + confidence(1) + score_vec(if exists)
+        in_dim = field_dim + 1 + (score_dim if score_dim is not None else 0)
+        self.router_mlp = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
+        )
+        # 初始化：最后一层小权重，初始路由分接近均匀
+        nn.init.normal_(self.router_mlp[0].weight, std=in_dim ** -0.5)
+        nn.init.zeros_(self.router_mlp[0].bias)
+        nn.init.normal_(self.router_mlp[2].weight, std=hidden_dim ** -0.5)
+        nn.init.zeros_(self.router_mlp[2].bias)
+
+    def forward(
+        self,
+        active_ids: List[str],
+        round_vecs_unified: Dict[str, torch.Tensor],  # [N, B, D_field]
+        round_confidences: Dict[str, torch.Tensor],   # [N, B]
+        round_score_vecs: Optional[Dict[str, torch.Tensor]],  # [N, B, D_score] or None
+        step: int = 0,
+    ) -> Dict[str, torch.Tensor]:
+        """计算路由分和 top-K 选择。
+
+        Args:
+            active_ids: 当前激活的神经元 id 列表
+            round_vecs_unified: round 1 每神经元的场向量（unified 维度）
+            round_confidences: round 1 每神经元的置信度
+            round_score_vecs: round 1 每神经元的评分向量（None 时不用）
+            step: 当前训练步数（用于 warm-up）
+
+        Returns:
+            dict with:
+            - routing_scores: [B, N] 路由分
+            - hard_mask: [B, N] hard top-K 选择（forward）
+            - soft_weights: [B, N] soft softmax 权重（backward 梯度流）
+            - final_weights: [B, N] STE 融合权重（forward=hard, backward=soft）
+            - load_balance_loss: scalar 负载均衡 loss（Switch 风格）
+            - effective_k: int 实际 K 值（warm-up 期间可能 = N）
+        """
+        N = len(active_ids)
+        device = next(iter(round_vecs_unified.values())).device
+
+        # 构建 per-neuron 特征 [N, B, in_dim]
+        feats = []
+        for nid in active_ids:
+            vec = round_vecs_unified[nid]  # [B, D_field]
+            conf = round_confidences[nid].unsqueeze(-1)  # [B, 1]
+            parts = [vec, conf]
+            if self.score_dim is not None and round_score_vecs is not None:
+                parts.append(round_score_vecs[nid])  # [B, D_score]
+            feats.append(torch.cat(parts, dim=-1))  # [B, in_dim]
+        feat_stack = torch.stack(feats)  # [N, B, in_dim]
+
+        # Router 评分：per-neuron MLP -> [N, B, 1] -> [N, B] -> [B, N]
+        routing_scores = self.router_mlp(feat_stack).squeeze(-1)  # [N, B]
+        routing_scores = routing_scores.t()  # [B, N]
+
+        # Warm-up：前 warmup_steps 步 K=N（全选），Router 只学习评分
+        # Phase 0 (0-10%): K=N, Phase 1 (10-30%): K 线性降, Phase 2 (30%+): K=target
+        if step < self.warmup_steps:
+            # Phase 0: K=N
+            effective_k = N
+        elif step < self.warmup_steps * 3:
+            # Phase 1: 线性从 N 降到 top_k
+            progress = (step - self.warmup_steps) / max(1, self.warmup_steps * 2)
+            effective_k = max(self.top_k, int(N - progress * (N - self.top_k)))
+        else:
+            # Phase 2: 固定 top_k
+            effective_k = self.top_k
+        effective_k = min(effective_k, N)
+
+        # shared_expert 始终激活（不参与 top-K 选择）
+        # 策略：从非 shared 神经元中选 top-K，加上 shared
+        if self.shared_expert_id is not None and self.shared_expert_id in active_ids:
+            shared_idx = active_ids.index(self.shared_expert_id)
+            domain_indices = [i for i in range(N) if i != shared_idx]
+            domain_scores = routing_scores[:, domain_indices]  # [B, N-1]
+            k_domain = min(effective_k - 1, len(domain_indices))
+            if k_domain < 1:
+                k_domain = 1
+            # top-K domain neurons（向量化构建 mask）
+            _, top_indices = domain_scores.topk(k_domain, dim=-1)  # [B, k_domain]
+            hard_mask = torch.zeros_like(routing_scores)
+            hard_mask[:, shared_idx] = 1.0
+            # 用 scatter 向量化设置 domain top-K
+            domain_idx_tensor = torch.tensor(domain_indices, device=routing_scores.device)
+            top_domain_indices = domain_idx_tensor[top_indices]  # [B, k_domain] 全局索引
+            hard_mask.scatter_(-1, top_domain_indices, 1.0)
+            effective_k_total = k_domain + 1
+        else:
+            # 无 shared_expert，直接 top-K
+            k_domain = min(effective_k, N)
+            _, top_indices = routing_scores.topk(k_domain, dim=-1)
+            hard_mask = torch.zeros_like(routing_scores)
+            hard_mask.scatter_(-1, top_indices, 1.0)
+            effective_k_total = k_domain
+
+        # soft weights: softmax over all neurons（backward 梯度流）
+        soft_weights = F.softmax(routing_scores, dim=-1)  # [B, N]
+
+        # selected weights: 只在 hard_mask 选中神经元上归一化
+        # 用 routing_scores 在选中位置上 softmax
+        masked_scores = routing_scores.masked_fill(hard_mask == 0, float('-inf'))
+        selected_weights = F.softmax(masked_scores, dim=-1)  # [B, N]
+        # 处理全 -inf 行（不应发生，但防御）
+        selected_weights = torch.nan_to_num(selected_weights, nan=0.0)
+
+        # STE: forward=selected_weights(hard), backward=grad(soft_weights)
+        # final = soft + (selected - soft).detach()
+        # forward: soft + selected - soft = selected
+        # backward: grad(soft)
+        final_weights = soft_weights + (selected_weights - soft_weights).detach()
+
+        # 负载均衡 loss（Switch Transformer 风格）
+        # f_i: 神经元 i 被选中的批次比例（hard, detach）
+        f = hard_mask.mean(dim=0).detach()  # [N]
+        # P_i: Router 对神经元 i 的平均概率（soft, detach）
+        P = soft_weights.mean(dim=0).detach()  # [N]
+        load_balance_loss = N * (f * P).sum()
+
+        return {
+            "routing_scores": routing_scores,    # [B, N]
+            "hard_mask": hard_mask,              # [B, N]
+            "soft_weights": soft_weights,        # [B, N]
+            "final_weights": final_weights,      # [B, N] STE
+            "load_balance_loss": load_balance_loss,  # scalar
+            "effective_k": effective_k_total,    # int
+        }
+
+
 class ResonanceEnsemble:
     """Orchestrates multi-round resonance inference across multiple neurons.
 
@@ -114,6 +278,12 @@ class ResonanceEnsemble:
         # False（默认）= 固定 shared_expert_weight（向后兼容）
         # True = MLP([max_domain_score, field_state]) → sigmoid → per-sample sw
         shared_weight_dynamic: bool = False,
+        # ── §4.0c: Sparse Router（自适应激活）──
+        # False（默认）= 稠密模式（向后兼容，所有神经元参与 round 2+）
+        # True = Probe-based Sparse Router，round 1 后选 top-K 参与 round 2+
+        use_sparse_router: bool = False,
+        sparse_router_top_k: int = 3,
+        sparse_router_warmup_steps: int = 2000,  # Phase 0/1 warm-up 步数
     ):
         self.neurons = neurons
         self.field = field
@@ -249,6 +419,24 @@ class ResonanceEnsemble:
         else:
             self.field_score_proj = None
             self.score_dim = None
+
+        # ── §4.0c: Sparse Router 初始化 ──
+        # use_sparse_router=False（默认）时不创建 Router，完全向后兼容
+        # use_sparse_router=True 时创建 SparseRouter，round 1 后选 top-K
+        self.use_sparse_router = use_sparse_router
+        if use_sparse_router:
+            self.sparse_router = SparseRouter(
+                field_dim=self.field.dim,
+                score_dim=self.score_dim,
+                hidden_dim=128,
+                top_k=sparse_router_top_k,
+                warmup_steps=sparse_router_warmup_steps,
+                shared_expert_id=shared_expert_id,
+            )
+            print(f"  [ensemble] Sparse Router 已启用（top_k={sparse_router_top_k}, "
+                  f"warmup={sparse_router_warmup_steps}步, shared={shared_expert_id}）", flush=True)
+        else:
+            self.sparse_router = None
 
     def _project_vec(self, nid: str, vec: torch.Tensor) -> torch.Tensor:
         """Cross-spec projection: 将 neuron 的 field_vector 投影到 field.dim。
@@ -1090,6 +1278,9 @@ class ResonanceEnsemble:
         # False = round 2+ 也不注入（warm-up 阶段，neuron 独立学习）
         # field_state 仍会维护（累积），启用后注入的是学习到的场状态
         field_conditioning: bool = True,
+        # ── §4.0c: Sparse Router ──
+        # step: 当前训练步数（用于 Router warm-up），仅 use_sparse_router=True 时生效
+        step: int = 0,
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -1136,6 +1327,9 @@ class ResonanceEnsemble:
 
         active_ids = list(self.neurons.keys())
         N = len(active_ids)
+        # §4.0c: 初始化 Router 缓存（每步重置）
+        self._last_router_result = None
+        self._router_active_ids = None
 
         if gamma_oscillator is None:
             gamma_oscillator = self.gamma_oscillator
@@ -1309,6 +1503,35 @@ class ResonanceEnsemble:
                 except Exception:
                     pass  # 振荡失败不影响训练主流程
 
+            # ── §4.0c: Sparse Router 接入 ──
+            # round 1 结束后，用 Router 选 top-K，round 2+ 只处理 top-K
+            # use_sparse_router=False 时跳过（向后兼容）
+            if (
+                self.use_sparse_router
+                and self.sparse_router is not None
+                and round_num == 1
+                and n_rounds > 1
+            ):
+                router_result = self.sparse_router(
+                    active_ids=active_ids,
+                    round_vecs_unified=round_vecs_unified,
+                    round_confidences=round_confidences_new,
+                    round_score_vecs=round_score_vecs_new if round_score_vecs_new else None,
+                    step=step,
+                )
+                # 缓存 router_result 供融合阶段使用
+                self._last_router_result = router_result
+                # 保存 round 1 完整 active_ids（更新前），用于融合阶段映射 final_weights 列
+                self._router_active_ids = list(active_ids)
+                # 更新 active_ids：只保留 hard_mask 选中的神经元（per-sample 取并集）
+                hard_mask = router_result["hard_mask"]  # [B, N_round1]
+                selected_mask = hard_mask.sum(dim=0) > 0  # [N_round1]
+                new_active_ids = [nid for i, nid in enumerate(active_ids) if selected_mask[i].item()]
+                if len(new_active_ids) < len(active_ids):
+                    active_ids = new_active_ids
+            else:
+                self._last_router_result = None
+
         # ── 计算共振分（Leave-one-out cosine similarity，全可微）──
         # 用 unified 维度的 vecs（保证不同 field_dim 的 neuron 在同一空间比较）
         all_vecs_norm = F.normalize(
@@ -1372,7 +1595,28 @@ class ResonanceEnsemble:
 
         all_logits = torch.stack([final_logits[nid] for nid in active_ids])  # [N, B, L, V]
 
-        if fusion_mode == "residual" and N >= 2:
+        # ── §4.0c: Sparse Router 融合（per-sample，STE 可微）──
+        # use_sparse_router=True 且有 router_result 时，用 Router 的 final_weights 融合
+        # 否则退化为原 soft/residual 融合（向后兼容）
+        if self._last_router_result is not None and fusion_mode != "residual":
+            # 从 Router final_weights [B, N_round1] 中取当前 active_ids 对应列
+            router_final_weights = self._last_router_result["final_weights"]  # [B, N_round1]
+            router_load_balance_loss = self._last_router_result["load_balance_loss"]
+            # 当前 active_ids 是 round 1 后的并集，是 _router_active_ids 的子集
+            col_indices = torch.tensor(
+                [self._router_active_ids.index(nid) for nid in active_ids],
+                device=router_final_weights.device,
+            )
+            weights_per_sample = router_final_weights.index_select(-1, col_indices)  # [B, N_active]
+            # 重新归一化（取子集后和可能 < 1）
+            weights_per_sample = weights_per_sample / (weights_per_sample.sum(dim=-1, keepdim=True) + 1e-8)
+            # per-sample 融合：fused = Σ_bn weights[b,n] * logits[n]
+            fused_logits = torch.einsum('bn,nblv->blv', weights_per_sample, all_logits)
+            # batch 平均权重（用于返回和监控）
+            weights = weights_per_sample.mean(dim=0)  # [N_active]
+            # 负载均衡 loss 用 Router 的 Switch 风格 loss（替换原负熵）
+            balance_loss = router_load_balance_loss
+        elif fusion_mode == "residual" and N >= 2:
             # 残差预测编码：straight-through estimator（选择不可微，权重可微）
             with torch.no_grad():
                 leader_idx = int(scores.argmax().item())
