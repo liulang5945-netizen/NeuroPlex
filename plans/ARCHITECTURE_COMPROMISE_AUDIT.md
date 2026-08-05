@@ -720,10 +720,32 @@ C13（max 规格 EXPERT 受 CPU 限制）, T10（阵容仅 5 神经元受 CPU �
 **接入流程**：
 1. 训练 code/math neuron 本体（P8-1 `train_neurons_from_scratch.py --domain code`，混合域 SFT + en_sft）
 2. 加入综合体推理：forward 已支持（same_vocab 检查）
-3. 协作层训练：**前置依赖**——修缺口 M（forward_train 要求所有 neuron vocab 一致，[ensemble.py:1673-1680](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1673-L1680)），按 vocab 分组计算 loss
+3. 协作层训练：**缺口 M 已修复**（见下）——`forward_train` 跨 vocab 融合
 4. 跨域涌现评估：对话中测试代码/数学能力
 
-**状态**：混合数据策略已验证 ✅（2026-08-05）；训练 code/math neuron 待当前 zh 训练完成后执行；缺口 M 修复是协作层训练前置（见 HUB_NEURON_DESIGN 阶段 5）。
+**状态**：混合数据策略已验证 ✅（2026-08-05）；**缺口 M 已修复 ✅（2026-08-05）**；训练 code/math neuron 待当前 zh 训练完成后执行。
+
+### 缺口 M 修复：forward_train 跨 vocab 联合训练（2026-08-05 实施）
+
+**原问题**：`forward_train` 融合阶段要求所有 neuron vocab 一致（[ensemble.py:1673-1680](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1673-L1680) 原实现），否则 `torch.stack` 崩溃——跨域协作层训练的前置阻塞。
+
+**修复方案（词库转译矩阵投影）**：
+- [translator.py](file:///e:/taiji-neuron/taiji/resonance/translator.py) 新增通用词库转译工具：
+  - `tokenizer_fingerprint(sp)`：tokenizer 指纹（vocab_size + 首/中/尾 piece 抽样），用于缓存失效判断
+  - `build_domain_to_domain_alignment(source_sp, target_sp)`：source token → target token 对齐（byte fallback 正确处理）
+  - `build_logits_alignment_matrix(...)`：构建 [V_src, V_tgt] 稀疏投影矩阵（行归一化 1/N，logits 尺度守恒），带缓存 + 指纹失效
+- [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)：
+  - `set_tokenizer_hub(hub)`：注入 TokenizerHub（与 cortex 同源）
+  - `forward_train` 新增 `target_domain` 参数；vocab 不一致时用转译矩阵把各 neuron logits 投影到 target 域空间再融合
+  - 向后兼容：vocab 一致路径零开销（不传 target_domain 也可运行）
+- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py)：forward_train 传 `target_domain=DOMAIN`
+
+**词库热插拔（一并解决）**：
+- S6 对齐表缓存（`_domain_to_general_cache`）原为一次性构建永不失效；现缓存项携带 tokenizer 指纹，tokenizer 被替换（重训/热插拔注册）后自动失效重建
+- [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) 新增 `invalidate_alignment_cache(domain=None)` 手动失效接口
+- TokenizerHub.register_domain 本身已支持热插拔（新域注册不影响现有 neuron）
+
+**验证**：`_smoke_cross_vocab_gap_m.py` 5/5 通过（转译构建/矩阵归一化/缓存复用/热插拔失效/跨 vocab 融合梯度流/向后兼容）；真实 code→zh 转译验证：`def`→`['▁','▁def']`、换行语义保持 ✓，矩阵 [12000, 50000] 构建仅 0.1s。
 
 ### 4.0c ★★★ **自适应激活设计：R1 软路由 → top-K 稀疏路由**（2026-08-05 设计）
 

@@ -571,3 +571,121 @@ def batch_align_and_embed(
     if sft_mask is not None:
         return shared_emb, padded_targets, mask, sft_mask
     return shared_emb, padded_targets, mask
+
+
+# ============================================================================
+# 词库转译（跨 vocab 对齐）：domain token → target domain token
+# ============================================================================
+
+def tokenizer_fingerprint(sp) -> tuple:
+    """Tokenzier 指纹：用于对齐表缓存失效判断（词库热插拔后自动重建）。
+
+    用 (vocab_size, 首/中/尾 piece) 抽样，覆盖绝大多数 tokenizer 变更
+    （重训词表 / 增删 token / 换模型），成本 O(1)。
+
+    Args:
+        sp: SentencePieceProcessor（或任何提供 id_to_piece/GetPieceSize 的对象）。
+
+    Returns:
+        tuple 指纹。
+    """
+    size = sp.GetPieceSize() if hasattr(sp, "GetPieceSize") else 0
+    if size <= 0:
+        return (id(sp), 0, ())
+    try:
+        sample = (sp.id_to_piece(0), sp.id_to_piece(size // 2), sp.id_to_piece(size - 1))
+    except Exception:
+        return (id(sp), size, ())
+    return (size, sample)
+
+
+def build_domain_to_domain_alignment(
+    source_sp,
+    target_sp,
+) -> Tuple[List[List[int]], int]:
+    """词库转译：构建 source domain vocab → target domain vocab 的 token 对齐表。
+
+    对每个 source token，取其 piece 文本（byte fallback 的 <0x..> 先 decode 成
+    真实字节再转译，保留换行等语义），再用 target tokenizer 重新编码得到目标
+    token id 列表。空映射用 target pad_id 兜底。
+
+    用于跨 vocab logits 融合：把 source neuron 的 logits 投影到 target 域空间，
+    与 S6 词库转译（domain→general）同源，只是目标空间换为任意 target domain。
+
+    Args:
+        source_sp: 源域 tokenizer。
+        target_sp: 目标域 tokenizer。
+
+    Returns:
+        (alignment, source_vocab_size)
+        alignment[i] = [target_token_ids...]（空 → [pad_id]）
+    """
+    vocab_size = source_sp.GetPieceSize() if hasattr(source_sp, "GetPieceSize") else 0
+    pad_id = target_sp.pad_id() if hasattr(target_sp, "pad_id") else 0
+    alignment: List[List[int]] = []
+    for src_id in range(vocab_size):
+        piece = source_sp.id_to_piece(src_id)
+        if piece.startswith("<0x") and piece.endswith(">"):
+            # byte fallback piece（如 <0x0A>）：decode 成真实字节再 encode，
+            # 否则 "<0x0A>" 会被当作 6 个字符编码，换行语义丢失
+            text = source_sp.decode([src_id])
+        else:
+            text = piece
+        tgt_ids = target_sp.encode(text)
+        alignment.append(tgt_ids if tgt_ids else [pad_id])
+    return alignment, vocab_size
+
+
+def build_logits_alignment_matrix(
+    source_sp,
+    target_sp,
+    source_domain: str,
+    target_domain: str,
+    cache: Optional[Dict] = None,
+) -> torch.Tensor:
+    """构建 [V_src, V_tgt] 稀疏 logits 投影矩阵（词库转译），带缓存 + 指纹失效。
+
+    行归一化：一个 source token 映射到 N 个 target token 时，每列权重 1/N，
+    保证 logits 尺度守恒（softmax 前线性投影的近似概率转移）。
+
+    Args:
+        source_sp: 源域 tokenizer。
+        target_sp: 目标域 tokenizer。
+        source_domain: 源域名（缓存键）。
+        target_domain: 目标域名（缓存键）。
+        cache: 外部缓存 dict；None 时新建（调用方持有以跨步复用）。
+              缓存项: {key: {"fp": (src_fp, tgt_fp), "matrix": COO}}。
+
+    Returns:
+        COO 稀疏张量 [V_src, V_tgt]（float32）。
+    """
+    if cache is None:
+        cache = {}
+    key = (source_domain, target_domain)
+    fp = (tokenizer_fingerprint(source_sp), tokenizer_fingerprint(target_sp))
+    cached = cache.get(key)
+    if cached is not None and cached["fp"] == fp:
+        return cached["matrix"]
+
+    alignment, src_vocab = build_domain_to_domain_alignment(source_sp, target_sp)
+    tgt_vocab = target_sp.GetPieceSize() if hasattr(target_sp, "GetPieceSize") else 0
+
+    rows, cols, vals = [], [], []
+    for src_id, tgt_ids in enumerate(alignment):
+        if not tgt_ids:
+            continue
+        w = 1.0 / len(tgt_ids)
+        for t in tgt_ids:
+            if t < 0 or t >= tgt_vocab:
+                continue
+            rows.append(src_id)
+            cols.append(t)
+            vals.append(w)
+
+    matrix = torch.sparse_coo_tensor(
+        torch.tensor([rows, cols], dtype=torch.long),
+        torch.tensor(vals, dtype=torch.float32),
+        size=(src_vocab, tgt_vocab),
+    )
+    cache[key] = {"fp": fp, "matrix": matrix}
+    return matrix

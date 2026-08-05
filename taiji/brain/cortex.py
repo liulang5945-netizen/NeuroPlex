@@ -38,6 +38,7 @@ logger = logging.getLogger("Cortex")
 from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, NeuronConfig,
 )
+from taiji.resonance.translator import tokenizer_fingerprint
 
 
 class Cortex:
@@ -1198,10 +1199,13 @@ class Cortex:
     def _get_domain_to_general_alignment(
         self, domain: str, domain_sp
     ) -> Dict[int, list]:
-        """S6: 构建 domain token ID → general token IDs 对齐表（带缓存）。
+        """S6: 构建 domain token ID → general token IDs 对齐表（带缓存 + 热插拔失效）。
 
         消除自回归生成时的 domain→text→general re-encode 往返。
         对每个 domain token，预计算其 general token IDs 映射。
+
+        热插拔：缓存项携带 tokenizer 指纹，任一 tokenizer（域/general）被替换后
+        自动失效重建；也可用 invalidate_alignment_cache() 手动失效。
 
         Args:
             domain: 域名（如 "zh"）
@@ -1210,8 +1214,14 @@ class Cortex:
         Returns:
             {domain_token_id: [general_token_ids]} 映射表
         """
-        if domain in self._domain_to_general_cache:
-            return self._domain_to_general_cache[domain]
+        # 指纹 = (域 tokenizer 指纹, general tokenizer 指纹)
+        fp = (
+            tokenizer_fingerprint(domain_sp),
+            tokenizer_fingerprint(self._general_sp),
+        )
+        cached = self._domain_to_general_cache.get(domain)
+        if cached is not None and cached.get("fp") == fp:
+            return cached["alignment"]
 
         if self._general_sp is None:
             return {}
@@ -1234,9 +1244,23 @@ class Cortex:
                 pad_id = self._general_sp.pad_id() if hasattr(self._general_sp, 'pad_id') else 0
                 alignment[domain_id] = [pad_id]
 
-        self._domain_to_general_cache[domain] = alignment
+        self._domain_to_general_cache[domain] = {"fp": fp, "alignment": alignment}
         print(f"[S6] 域 '{domain}' 对齐表已构建: {len(alignment)} entries", flush=True)
         return alignment
+
+    def invalidate_alignment_cache(self, domain: Optional[str] = None) -> None:
+        """词库热插拔手动失效：tokenizer 替换后强制重建对齐表缓存。
+
+        指纹校验已覆盖大多数替换场景（自动失效）；此接口用于强制清空
+        （如 TokenizerHub 整体重载、或调试时需要重建）。
+
+        Args:
+            domain: 指定域名失效；None 时清空全部。
+        """
+        if domain is None:
+            self._domain_to_general_cache.clear()
+        else:
+            self._domain_to_general_cache.pop(domain, None)
 
     def _generate_p7(
         self,

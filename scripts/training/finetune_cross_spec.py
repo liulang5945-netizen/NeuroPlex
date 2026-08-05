@@ -713,6 +713,7 @@ def main():
                 targets=targets,
                 field_conditioning=field_cond,  # T9: warm-up 控制
                 step=total_steps,  # §4.0c: Router warm-up
+                target_domain=DOMAIN,  # 缺口 M: batch 目标域（对应 domain_sp）
             )
 
             fused_logits = result["fused_logits"]

@@ -27,6 +27,7 @@ import torch.nn.functional as F
 from .field import ResonanceField
 from .neuron import ResonanceNeuron
 from .spatial_diffusion import SpatialDiffuser
+from .translator import build_logits_alignment_matrix
 
 
 class CrossSpecProjector(nn.Module):
@@ -459,6 +460,85 @@ class ResonanceEnsemble:
                   f"warmup={sparse_router_warmup_steps}步, shared={shared_expert_id}）", flush=True)
         else:
             self.sparse_router = None
+
+        # ── 缺口 M: 跨 vocab 联合训练 ──
+        # tokenizer hub（与 cortex 同源，set_tokenizer_hub 注入）：
+        # forward_train 在 vocab 不一致时，用词库转译矩阵把各 neuron logits
+        # 投影到 target domain 空间再融合。
+        self._tokenizer_hub = None
+        # 词库转译矩阵缓存：{(src_domain, tgt_domain): {"fp": ..., "matrix": COO}}
+        self._logits_alignment_cache: Dict[tuple, dict] = {}
+
+    def set_tokenizer_hub(self, tokenizer_hub) -> None:
+        """注入 TokenizerHub（跨 vocab 联合训练需要访问各域 tokenizer）。
+
+        与 cortex.set_tokenizer_hub 同源；不传则跨 vocab 训练路径无法构建
+        词库转译矩阵（vocab 一致时完全不需要，向后兼容）。
+        """
+        self._tokenizer_hub = tokenizer_hub
+
+    def _get_neuron_tokenizer(self, nid: str):
+        """从 hub 解析 neuron 的域 tokenizer。
+
+        nid 即域名（如 "code"/"math"）时直接用；否则取 domain 前缀
+        （如 "zh_aug0_dialogue" → "zh"）。返回 None 表示无法解析。
+        """
+        if self._tokenizer_hub is None:
+            return None
+        sp = self._tokenizer_hub.get_tokenizer(nid)
+        if sp is not None:
+            return sp
+        domain = nid.split("_")[0]
+        return self._tokenizer_hub.get_tokenizer(domain)
+
+    def _project_logits_to_target(
+        self, final_logits: Dict[str, torch.Tensor], active_ids: List[str],
+        target_domain: str,
+    ) -> torch.Tensor:
+        """缺口 M: 把各 neuron logits 用词库转译矩阵投影到 target 域空间。
+
+        返回 [N, B, L, V_tgt]（已 stack，可直接参与融合）。
+        """
+        if self._tokenizer_hub is None:
+            raise RuntimeError(
+                "[forward_train] 跨 vocab 联合训练需要 tokenizer hub。"
+                "请先调用 ensemble.set_tokenizer_hub(hub)。"
+            )
+        target_sp = self._tokenizer_hub.get_tokenizer(target_domain)
+        if target_sp is None:
+            raise RuntimeError(
+                f"[forward_train] target_domain='{target_domain}' 不在 tokenizer hub 中。"
+            )
+        tgt_vocab = target_sp.GetPieceSize() if hasattr(target_sp, "GetPieceSize") else 0
+        if tgt_vocab <= 0:
+            raise RuntimeError(
+                f"[forward_train] target tokenizer '{target_domain}' 无有效 vocab。"
+            )
+
+        projected = []
+        for nid in active_ids:
+            logits = final_logits[nid]  # [B, L, V_i]
+            if logits.shape[-1] == tgt_vocab:
+                projected.append(logits)
+                continue
+            src_sp = self._get_neuron_tokenizer(nid)
+            if src_sp is None:
+                raise RuntimeError(
+                    f"[forward_train] neuron '{nid}' 的 tokenizer 无法从 hub 解析，"
+                    f"无法投影到 target domain '{target_domain}'。"
+                )
+            matrix = build_logits_alignment_matrix(
+                src_sp, target_sp,
+                source_domain=nid, target_domain=target_domain,
+                cache=self._logits_alignment_cache,
+            )
+            # [B*L, V_i] @ [V_i, V_tgt] → [B*L, V_tgt] → [B, L, V_tgt]
+            b, l, vi = logits.shape
+            logits_2d = logits.reshape(-1, vi)
+            proj_2d = torch.sparse.mm(logits_2d, matrix.to(logits_2d.dtype))
+            projected.append(proj_2d.reshape(b, l, tgt_vocab))
+
+        return torch.stack(projected)  # [N, B, L, V_tgt]
 
     def _project_vec(self, nid: str, vec: torch.Tensor) -> torch.Tensor:
         """Cross-spec projection: 将 neuron 的 field_vector 投影到 field.dim。
@@ -1357,6 +1437,11 @@ class ResonanceEnsemble:
         # ── §4.0c: Sparse Router ──
         # step: 当前训练步数（用于 Router warm-up），仅 use_sparse_router=True 时生效
         step: int = 0,
+        # ── 缺口 M: 跨 vocab 联合训练 ──
+        # vocab 不一致时，把各 neuron logits 用词库转译矩阵投影到 target 域空间再融合。
+        # target_domain: batch 的目标域（如 "zh"），对应 batch_align_and_embed 的 domain_sp。
+        # None（默认）= vocab 一致路径，无需投影（向后兼容）。
+        target_domain: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -1670,16 +1755,22 @@ class ResonanceEnsemble:
                 pass
 
         # ── 融合聚合 ──
-        # 检查 vocab 大小一致（跨 vocab 联合训练路径未实现，缺口 M）
+        # 缺口 M: 跨 vocab 联合训练——vocab 不一致时，用词库转译矩阵把各 neuron
+        # logits 投影到 target_domain 空间再融合（softmax 前线性投影，近似概率转移）。
+        # vocab 一致时走原路径（零开销，向后兼容）。
         vocab_sizes = [final_logits[nid].shape[-1] for nid in active_ids]
         if len(set(vocab_sizes)) != 1:
-            raise RuntimeError(
-                f"[forward_train] 要求所有 neuron vocab 大小一致（跨 vocab 联合训练"
-                f"路径未实现，见缺口 M）。当前 vocab_sizes: "
-                f"{dict(zip(active_ids, vocab_sizes))}"
+            if target_domain is None:
+                raise RuntimeError(
+                    f"[forward_train] 检测到跨 vocab（vocab_sizes="
+                    f"{dict(zip(active_ids, vocab_sizes))}），需要传入 target_domain "
+                    f"（对应 batch_align_and_embed 的 domain_sp 域）才能融合。"
+                )
+            all_logits = self._project_logits_to_target(
+                final_logits, active_ids, target_domain
             )
-
-        all_logits = torch.stack([final_logits[nid] for nid in active_ids])  # [N, B, L, V]
+        else:
+            all_logits = torch.stack([final_logits[nid] for nid in active_ids])  # [N, B, L, V]
 
         # ── §4.0c: Sparse Router 融合（per-sample，STE 可微）──
         # use_sparse_router=True 且有 router_result 时，用 Router 的 final_weights 融合
