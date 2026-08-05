@@ -51,13 +51,21 @@ GENERAL_TOKENIZER_DOMAIN = "en"
 # OUTPUT_DIR 从 experiment_config 导入（见文件顶部 import）
 
 
-def load_domain_data(domain: str, data_dir: str = "data/sft") -> Optional[Dict[str, torch.Tensor]]:
+def load_domain_data(domain: str, data_dir: str = "data/sft",
+                     data_suffix: str = "") -> Optional[Dict[str, torch.Tensor]]:
     """加载 P8-2 产出的域 tokenized 数据。
+
+    Args:
+        domain: 域名（如 "code"）
+        data_dir: 数据目录
+        data_suffix: 文件名后缀（如 "mixed" 加载 p7_code_mixed_tokenized.pt，
+            用于跨域混合数据训练，工作3）
 
     Returns:
         {"input_ids": [N, 256], "labels": [N, 256]} or None
     """
-    path = os.path.join(data_dir, f"p7_{domain}_tokenized.pt")
+    suffix = f"_{data_suffix}" if data_suffix else ""
+    path = os.path.join(data_dir, f"p7_{domain}{suffix}_tokenized.pt")
     if not os.path.exists(path):
         print(f"  Warning: {path} not found, skip {domain}")
         return None
@@ -226,6 +234,8 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="compute device")
     parser.add_argument("--data-dir", type=str, default="data/sft",
                         help="P8-2 tokenized data directory")
+    parser.add_argument("--data-suffix", type=str, default="",
+                        help="数据文件后缀（如 mixed → p7_code_mixed_tokenized.pt，工作3 跨域混合数据）")
     parser.add_argument("--save-dir", type=str, default=OUTPUT_DIR,
                         help="output directory for neuron checkpoints")
     args = parser.parse_args()
@@ -252,7 +262,7 @@ def main():
         print(f"--- {domain} ---")
 
         # 1. 加载域数据
-        data = load_domain_data(domain, args.data_dir)
+        data = load_domain_data(domain, args.data_dir, args.data_suffix)
         if data is None:
             print(f"  [{domain}] SKIP: no data. Run tokenize_sft_p7.py first.")
             continue

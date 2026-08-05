@@ -690,6 +690,35 @@ C13（max 规格 EXPERT 受 CPU 限制）, T10（阵容仅 5 神经元受 CPU �
 4. **方向 B 的触发理由不变**：若跨域加入新神经元后涌现明显 → 当前架构可承载涌现，方向 B 暂不启动；若跨域加入后无涌现 → 才需要考虑方向 B（更小神经元 + 被迫协作）
 5. **中间路径**：当前架构 + 更难任务（多步推理数据）+ 稀疏路由（R1 强化），可能部分触发涌现
 
+#### 跨域 Step 2 数据准备（2026-08-05 梳理，工作3）
+
+**目标**：为 code/math 特殊神经元训练准备混合数据 + 梳理接入流程（§4.0b 候选1 Step 2）。
+
+**关键决策（用户指正）**：每个 neuron 保留自己的域 tokenizer（code 12K / math 10K），通过**词库转译**实现语义转换：
+- 输入统一 general 256K 空间（[batch_align_and_embed](file:///e:/taiji-neuron/taiji/resonance/translator.py#L452) 用 general_sp 编码输入，目标用 domain_sp 编码）
+- 推理转译用 S6 alignment_table（domain→general 预计算映射，[cortex.py:1198](file:///e:/taiji-neuron/taiji/brain/cortex.py#L1198)）
+- 推理 forward 已支持不同 vocab（[ensemble.py:1263-1284](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1263-L1284) `same_vocab` 检查，不同时走 neuron_logits 提取）
+
+**混合数据策略（已验证可行）**：
+
+| 数据源 | 规模 | 用域 tokenizer 编码 | 说明 |
+|--------|------|--------------------|------|
+| `data/sft/code_sft.pt`（CodeAlpaca） | 3000 条 | byte_ratio 7.3% ✅ | 英文代码指令-响应 |
+| `data/sft/math_sft.pt`（GSM8K） | 3000 条 | byte_ratio 2.2% ✅ | 英文数学推理 |
+| `data/sft/en_sft.pt`（英文 alpaca 对话） | 3000 条 | byte_ratio 2-7% ✅ | 混合对话能力 |
+| `data/distill/code_texts.jsonl` | 36,810 行 | ✅ 英文 | 预训练风格扩充 |
+| `data/distill/math_texts.jsonl` | 22,904 行 | ✅ 英文 | 预训练风格扩充 |
+
+**结论**：code/math neuron 用各自域 tokenizer 训练，混合数据 = 域 SFT 数据 + 英文对话数据（en_sft），目标编码全部高效（byte_ratio 2-7%）。**不混中文对话**（code tokenizer 编中文 byte_fallback 57% 低效）；中文语义通过 general 256K 统一输入空间 + S6 转译在协作层处理。
+
+**接入流程**：
+1. 训练 code/math neuron 本体（P8-1 `train_neurons_from_scratch.py --domain code`，混合域 SFT + en_sft）
+2. 加入综合体推理：forward 已支持（same_vocab 检查）
+3. 协作层训练：**前置依赖**——修缺口 M（forward_train 要求所有 neuron vocab 一致，[ensemble.py:1673-1680](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1673-L1680)），按 vocab 分组计算 loss
+4. 跨域涌现评估：对话中测试代码/数学能力
+
+**状态**：混合数据策略已验证 ✅（2026-08-05）；训练 code/math neuron 待当前 zh 训练完成后执行；缺口 M 修复是协作层训练前置（见 HUB_NEURON_DESIGN 阶段 5）。
+
 ### 4.0c ★★★ **自适应激活设计：R1 软路由 → top-K 稀疏路由**（2026-08-05 设计）
 
 > 本节是 §4.0 确定的"唯一核心缺陷"的**具体设计方案**。用户要求"梳理，同时可以着手设计"，此处完成梳理 + 设计落地，待训练完成后实施。
