@@ -88,3 +88,29 @@ def memory_guarded(func=None, *, min_avail_pct=None, on_critical=None):
         return decorator(func)
     # Used as @memory_guarded(...) with arguments.
     return decorator
+
+
+def force_memory_refresh() -> dict:
+    """强制刷新内存状态（API 集成，工作4）。
+
+    Returns:
+        当前内存状态 dict（level/status 字段兼容 routes_settings 消费）。
+    """
+    return get_memory_status_dict()
+
+
+def get_memory_status_dict() -> dict:
+    """获取内存状态 dict（API 集成，工作4）。
+
+    Returns:
+        {"level": int, "status": str, "pressure": bool, "critical": bool, ...}
+    """
+    watchdog = MemoryWatchdog()
+    status = getattr(watchdog, "status", None)
+    level = getattr(status, "level", 0) if status is not None else 0
+    return {
+        "level": level,
+        "status": "healthy" if level == 0 else f"pressure_level_{level}",
+        "pressure": bool(watchdog.check()),
+        "critical": bool(watchdog.is_critical()),
+    }
