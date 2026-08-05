@@ -12,11 +12,11 @@
 
 **EOS + 短答案筛选重训进行中（治本方案 B 执行）**：
 
-**训练进度**（2026-08-05 实时）：
-- 当前：Epoch 4/8 step 17900，PPL=15.5，进度 3142/4935（64%）
-- 收敛趋势：E1 PPL 331 → E2 42.7 → E4 15.5（正常收敛，相比上一轮 E6 PPL 32.9 显著提升）
-- checkpoint：step 17500 已保存
-- ETA：约 150 min 到 E5 结束，剩余 4 个 epoch 约 20 小时
+**训练进度**（2026-08-05 22:15 实时）：
+- 当前：Epoch 6/8 step 26800，PPL=6.3，进度 2120/4935（43%）
+- 收敛趋势：E1 PPL 331 → E2 42.7 → E4 15.5 → E5 10.3 → E6 6.3（持续下降，相比上一轮 E6 PPL 32.9 显著提升）
+- checkpoint：step 26500 已保存（每 500 步 + 每 epoch 末）
+- ETA：E6 结束约 232 min；剩余 ~12700 步，全部完成预计 2026-08-06 下午
 
 **根因诊断**（API 实测质量不达标的三个核心缺陷）：
 1. ❌ **训练数据未加 EOS**：`batch_align_and_embed` 只产生 domain_targets，无 EOS token → 模型永不自然停止
@@ -35,6 +35,12 @@
 - 备份：cross_spec_dialogue.pt.pre_eos_finetune
 
 **自适应激活设计已完成**（2026-08-05）：详见 [§4.0c](#40c--自适应激活设计r1-软路由--top-k-稀疏路由2026-08-05-设计)。Probe-based Sparse Router 方案落地，待训练完成后实施。
+
+**并行工作完成**（2026-08-05，训练期间开展 4 项，全部提交）：
+1. ✅ **eval_dialogue.py 支持任意 checkpoint**（commit 96b9ecd）：`--ckpt_path` 参数，用于训练完成后对比 held-out PPL 判断过拟合早停
+2. ✅ **稀疏 vs 稠密对比脚本**（commit 658d546）：`compare_sparse_dense.py`，同 checkpoint 双 ensemble 对比协作 PPL/EMERGE/激活数/速度（smoke 已验证）
+3. ✅ **跨域神经元 Step 2 数据准备**（commit 5d98f95）：`p7_{domain}_mixed_tokenized.pt`（6000 条/域，域 SFT + 英文对话），train_neurons_from_scratch.py 支持 `--data-suffix mixed`
+4. ✅ **API 集成修复**（commit 858c3e1）：新建 `taiji/core/config.py`（TrainingConfig + 6 个接口），memory_watchdog 补 `force_memory_refresh`/`get_memory_status_dict`，API 29 路由可正常启动
 
 **API 路径五项修复（已完成，commit e94ca1d + 6426797）**：
 1. 训练/推理 embedding 错配 → per-neuron shared embeddings 注入 cortex
