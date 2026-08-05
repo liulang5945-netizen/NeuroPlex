@@ -9,6 +9,7 @@ Usage:
     python -u scripts/training/eval_dialogue.py
     python -u scripts/training/eval_dialogue.py --weights dialogue  # 用对话训练权重
     python -u scripts/training/eval_dialogue.py --weights cross_spec  # 用 simple_zh 训练权重
+    python -u scripts/training/eval_dialogue.py --ckpt_path data/neurons/ckpt/step_6000.pt  # §4.0d+: 指定任意 checkpoint（早停对比）
 """
 from __future__ import annotations
 
@@ -45,7 +46,23 @@ from scripts.training.experiment_config import (
 DEVICE = "cpu"
 
 
-def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str = "hybrid"):
+def _resolve_weights_path(weights_type: str, ckpt_path: Optional[str] = None) -> Optional[str]:
+    """解析权重路径。
+
+    §4.0d+: ckpt_path 显式指定任意 checkpoint 文件（早停对比用），
+    未指定时按 weights_type 用默认路径。
+    """
+    if ckpt_path is not None:
+        return ckpt_path
+    if weights_type == "dialogue":
+        return os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
+    if weights_type == "cross_spec":
+        return os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
+    return None
+
+
+def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str = "hybrid",
+                             ckpt_path: Optional[str] = None):
     """加载神经元和指定类型的权重。
 
     S7: 优先从 checkpoint 自动推断拓扑（匹配训练时拓扑），
@@ -54,6 +71,7 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
     Args:
         weights_type: "dialogue"=对话训练权重, "cross_spec"=simple_zh训练权重, "none"=无权重
         topology_mode: 回退拓扑模式 (当无法从 checkpoint 推断时使用)
+        ckpt_path: §4.0d+ 显式指定 checkpoint 文件路径（优先于 weights_type 默认路径）
     """
     neurons = {}
     shared_embeddings = {}
@@ -65,12 +83,7 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
         shared_embeddings[nid] = emb
 
     # 确定权重路径（用于推断训练时拓扑）
-    if weights_type == "dialogue":
-        weights_path = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
-    elif weights_type == "cross_spec":
-        weights_path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
-    else:
-        weights_path = None
+    weights_path = _resolve_weights_path(weights_type, ckpt_path)
 
     # S7: 优先从 checkpoint 推断拓扑，回退到 topology_mode
     topology = None
@@ -124,13 +137,15 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
     return neurons, shared_embeddings
 
 
-def load_cross_spec_weights(ensemble, weights_type: str = "dialogue"):
-    """加载跨规格投影层权重。"""
-    if weights_type == "dialogue":
-        weights_path = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
-    elif weights_type == "cross_spec":
-        weights_path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
-    else:
+def load_cross_spec_weights(ensemble, weights_type: str = "dialogue",
+                            ckpt_path: Optional[str] = None):
+    """加载跨规格投影层权重。
+
+    §4.0d+: ckpt_path 显式指定任意 checkpoint 文件（早停对比用），
+    未指定时按 weights_type 用默认路径。
+    """
+    weights_path = _resolve_weights_path(weights_type, ckpt_path)
+    if weights_path is None:
         return
 
     if not os.path.exists(weights_path):
@@ -171,15 +186,15 @@ def load_cross_spec_weights(ensemble, weights_type: str = "dialogue"):
             print(f"  [sparse_router] checkpoint 含 Router 状态但 ensemble 未启用 Router，跳过", flush=True)
 
 
-def _checkpoint_has_router(weights_type: str = "dialogue") -> bool:
-    """§4.0c: 检测 checkpoint 是否含 Sparse Router 状态。"""
-    if weights_type == "dialogue":
-        path = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
-    elif weights_type == "cross_spec":
-        path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
-    else:
-        return False
-    if not os.path.exists(path):
+def _checkpoint_has_router(weights_type: str = "dialogue",
+                           ckpt_path: Optional[str] = None) -> bool:
+    """§4.0c: 检测 checkpoint 是否含 Sparse Router 状态。
+
+    §4.0d+: ckpt_path 显式指定任意 checkpoint 文件（早停对比用），
+    未指定时按 weights_type 用默认路径。
+    """
+    path = _resolve_weights_path(weights_type, ckpt_path)
+    if path is None or not os.path.exists(path):
         return False
     try:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
@@ -189,7 +204,8 @@ def _checkpoint_has_router(weights_type: str = "dialogue") -> bool:
 
 
 def eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
-                      weights_type: str = "dialogue", n_eval: int = 100):
+                      weights_type: str = "dialogue", n_eval: int = 100,
+                      ckpt_path: Optional[str] = None):
     """对话 PPL 评估（alpaca-zh 评估集）。"""
     print("\n" + "=" * 70, flush=True)
     print(f"[对话 PPL 评估] 个体 vs 协作 (weights={weights_type})", flush=True)
@@ -207,9 +223,9 @@ def eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
     # 创建 Ensemble
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    use_router = _checkpoint_has_router(weights_type)
+    use_router = _checkpoint_has_router(weights_type, ckpt_path)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
-    load_cross_spec_weights(ensemble, weights_type)
+    load_cross_spec_weights(ensemble, weights_type, ckpt_path)
 
     # 个体 PPL
     individual_ppls = {}
@@ -405,7 +421,7 @@ MULTI_TURN_SCENARIOS = [
 
 
 def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
-                      weights_type: str = "dialogue"):
+                      weights_type: str = "dialogue", ckpt_path: Optional[str] = None):
     """实际对话生成质量评估（单轮）。"""
     print("\n" + "=" * 70, flush=True)
     print(f"[对话生成质量评估] (weights={weights_type})", flush=True)
@@ -413,9 +429,9 @@ def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
 
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    use_router = _checkpoint_has_router(weights_type)
+    use_router = _checkpoint_has_router(weights_type, ckpt_path)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
-    load_cross_spec_weights(ensemble, weights_type)
+    load_cross_spec_weights(ensemble, weights_type, ckpt_path)
 
     for prompt in DIALOGUE_PROMPTS:
         print(f"\n  {prompt}", flush=True)
@@ -426,11 +442,12 @@ def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
 
 
 def eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_sp,
-                                 weights_type: str = "dialogue"):
+                                 weights_type: str = "dialogue",
+                                 ckpt_path: Optional[str] = None):
     """多轮对话评测（缺口 H 修复）：测试综合体维持上下文的能力。
 
     每个场景包含多轮追问，综合体需要根据上下文生成连贯回复。
-    输入格式与训练数据对齐：问：xxx\\n答：xxx\\n问：yyy\\n答：
+    输入格式与训练数据对齐：问：xxx\n答：xxx\n问：yyy\n答：
     """
     print("\n" + "=" * 70, flush=True)
     print(f"[多轮对话评测] (weights={weights_type})", flush=True)
@@ -438,9 +455,9 @@ def eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_
 
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    use_router = _checkpoint_has_router(weights_type)
+    use_router = _checkpoint_has_router(weights_type, ckpt_path)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
-    load_cross_spec_weights(ensemble, weights_type)
+    load_cross_spec_weights(ensemble, weights_type, ckpt_path)
 
     for scenario_idx, questions in enumerate(MULTI_TURN_SCENARIOS, 1):
         print(f"\n  场景 {scenario_idx}:", flush=True)
@@ -464,6 +481,8 @@ def main():
     parser.add_argument("--weights", type=str, default="dialogue",
                         choices=["dialogue", "cross_spec", "none"],
                         help="dialogue=对话训练权重, cross_spec=simple_zh训练权重, none=无权重")
+    parser.add_argument("--ckpt_path", type=str, default=None,
+                        help="§4.0d+: 显式指定任意 checkpoint 文件（早停对比用），优先于 --weights 默认路径")
     parser.add_argument("--n_eval", type=int, default=50)
     parser.add_argument("--skip_ppl", action="store_true", help="跳过 PPL 评估")
     parser.add_argument("--skip_gen", action="store_true", help="跳过生成评估")
@@ -481,21 +500,23 @@ def main():
     print(f"态极综合体交流能力评估 (weights={args.weights})", flush=True)
     print("=" * 70, flush=True)
 
-    neurons, shared_embeddings = load_neurons_and_weights(args.weights, args.topology)
+    neurons, shared_embeddings = load_neurons_and_weights(
+        args.weights, args.topology, ckpt_path=args.ckpt_path)
     domain_sp = load_domain_tokenizer(DOMAIN)
     general_sp = load_general_tokenizer()
 
     if not args.skip_ppl:
         eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
-                          weights_type=args.weights, n_eval=args.n_eval)
+                          weights_type=args.weights, n_eval=args.n_eval,
+                          ckpt_path=args.ckpt_path)
 
     if not args.skip_gen:
         eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
-                          weights_type=args.weights)
+                          weights_type=args.weights, ckpt_path=args.ckpt_path)
 
     if args.multi_turn:
         eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_sp,
-                                     weights_type=args.weights)
+                                     weights_type=args.weights, ckpt_path=args.ckpt_path)
 
     print("\n" + "=" * 70, flush=True)
     print("评估完成", flush=True)
