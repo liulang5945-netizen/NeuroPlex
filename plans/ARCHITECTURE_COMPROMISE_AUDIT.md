@@ -880,6 +880,89 @@ Router 初始随机，可能选错神经元。Warm-up 分阶段：
 
 ---
 
+### 4.0d ★★ **自适应激活设计深化：3 个工程妥协 + 上限更高选项**（2026-08-05 设计讨论）
+
+> §4.0c 已给出基础设计方案（Probe-based Sparse Router）并实现了阶段1-3（commit 3526274/54e95e5）。
+> 本节审视实现中的 **3 个工程妥协**，给出上限更高的替代选项，供决策。
+> 用户明确要求聚焦"设计自适应激活机制"，本节是设计层面的完整讨论（不实现）。
+
+#### 妥协 1：稀疏粒度是 batch 级并集（当前实现）vs per-sample（上限更高）
+
+**当前实现**（[ensemble.py:1016-1019](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1016-L1019)）：
+```python
+selected_mask = hard_mask.sum(dim=0) > 0  # batch 级并集
+```
+一个 batch 内**任一样本**选中的神经元，全部参与 round 2+。batch=4 时，4 个样本各选 3 个不同神经元，并集可能接近全部 N。**稀疏收益随 batch 增大而递减**。
+
+**上限更高方案：per-sample top-K**
+- 每个样本独立选 K 个神经元，round 2+ 用 [B, K] 索引
+- 真正的算力节省需在 forward 层用 sparse mask（Switch Transformer capacity factor）
+- **复杂度**：side_signals 是 per-pair 投影（[N, B, D]→[N, B, hidden]），per-sample 稀疏需要对每样本 mask 掉非选中神经元的所有 side_channels 计算
+
+**决策依据**：
+
+| N | 并集实际激活（batch=4）| per-sample 激活 | 差距 |
+|---|----------------------|-----------------|------|
+| 5（当前）| 4-5（节省 0-20%）| 3+shared=4（节省 20%）| 小 |
+| 20（未来）| 12-16（节省 20-40%）| 5+shared=6（节省 70%）| 显著 |
+
+**推荐**：当前阶段保持 batch 并集（N=5 差距小，per-sample 复杂度高收益低）；设计上预留 per-sample 接口，N 增大后升级。这是"随规模增长"的正确时点判断，不是永久妥协。
+
+#### 妥协 2：Router 无学习信号约束 vs 对比约束（上限更高）
+
+**当前实现**：Router 只通过 CE loss 的 STE 梯度隐式学习（soft_weights 梯度流回 Router）。
+**问题**：没有显式信号告诉 Router "**哪个神经元擅长当前样本**"。Router 可能学到"按响应强度路由"（大神经元主导），而非"按能力路由"（谁擅长当前样本谁上）。
+
+**上限更高方案：C12 对比约束扩展到 Router**
+共振分已有 C12 contrastive loss（[ensemble.py:1603+](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L1603)）：约束共振分与 per-neuron NLL 排序对齐。Router 应复用同一约束：
+
+```python
+# ideal: NLL 低的神经元应获高路由权重（谁能更好预测当前样本）
+ideal_weights = F.softmax(-nll / 0.5, dim=0)  # [N]
+# actual: Router soft_weights
+actual_weights = router_soft_weights.mean(dim=0)  # [N]
+# KL(actual || ideal) 让 Router 学"能力路由"
+router_contrastive_loss = (actual_weights * (actual_weights.clamp(min=1e-8).log()
+                            - ideal_weights.clamp(min=1e-8).log())).sum()
+```
+
+**为什么这是上限提升的关键**：
+- 无约束 Router：路由分只反映"响应强弱"，大神经元天然强响应 → 路由退化回"大神经元主导"
+- 有对比约束：Router 被迫学习"谁在**当前样本**上预测最好"，小神经元在它擅长的主题上获得高路由分 → **真正的样本驱动自适应激活**
+
+**推荐**：加入对比约束。改动小（复用现有 contrastive_loss 逻辑），上限提升大。
+
+#### 妥协 3：固定 K vs 熵驱动动态 K（上限更高）
+
+**当前实现**：固定 K=3。
+**局限**：简单样本 1-2 个神经元足够，复杂样本需要 4-5 个。固定 K 要么浪费算力（简单样本），要么能力不足（复杂样本）。
+
+**上限更高方案：熵驱动动态 K**
+```python
+# 路由分分布的熵：高熵（Router 不确定）→ 多选；低熵（明确）→ 少选
+entropy = -(soft_weights * torch.log(soft_weights + 1e-8)).sum(-1)  # [B]
+K_b = int(torch.clamp(entropy / math.log(N) * N, K_min, K_max).item())
+```
+- 低熵（Router 99% 确定某神经元）→ K=1-2，省算力
+- 高熵（Router 犹豫）→ K=4-5，保证能力
+- 上限：**每样本算力分配与任务难度匹配**（类似"简单问题快答，复杂问题慢想"）
+
+**推荐**：预留动态 K 接口（Router.forward 已支持 effective_k 计算），起步固定 K=3 验证，稳定后升级熵驱动。
+
+#### 设计决策汇总
+
+| 决策点 | 当前实现 | 上限更高 | 推荐 | 实施成本 |
+|--------|---------|---------|------|---------|
+| 稀疏粒度 | batch 级并集 | per-sample top-K | 当前并集，预留接口 | 高（side_channels mask）|
+| 学习信号 | 隐式（CE 梯度）| **C12 对比约束** | **加入对比约束** | 低（复用现有逻辑）|
+| K 值 | 固定 3 | 熵驱动动态 | 起步固定，预留动态接口 | 中 |
+| 路由时机 | round 1 后单次 | 每轮动态 | 单次（round1 响应已充分）| 无需改 |
+| 路由输入 | field_vector+conf+score_vec | +任务特征（域）| 当前够用，跨域后加域特征 | 中 |
+
+**结论**：3 个妥协中，**对比约束（妥协2）是当前阶段唯一值得立即实施的**——改动小、上限提升大、且直接服务于"样本驱动自适应激活"的核心目标。per-sample（妥协1）和动态 K（妥协3）留待 N 增大后升级。
+
+---
+
 ### 4.1 ~~"共振"是推理技巧，从未被训练~~（已过时，S1 修复后全可微）
 
 **历史定性已过时**：S1 修复后 `forward_train` 是全可微多轮共振路径——训练时确实注入 field_state、side_signals、调质、gamma 振荡，所有机制进入梯度流。共振不再是"推理时拼凑"。
