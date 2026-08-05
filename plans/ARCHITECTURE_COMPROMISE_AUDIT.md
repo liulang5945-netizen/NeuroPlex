@@ -961,6 +961,33 @@ K_b = int(torch.clamp(entropy / math.log(N) * N, K_min, K_max).item())
 
 **结论**：3 个妥协中，**对比约束（妥协2）是当前阶段唯一值得立即实施的**——改动小、上限提升大、且直接服务于"样本驱动自适应激活"的核心目标。per-sample（妥协1）和动态 K（妥协3）留待 N 增大后升级。
 
+#### 实施状态（2026-08-05 用户决策：三个都选上限更高方案，已全部实施）
+
+| 决策点 | 用户决策 | 实施状态 |
+|--------|---------|---------|
+| 对比约束（妥协2）| **立即实施** | ✅ 已实施（router_contrastive_loss 加入总 loss，权重 0.1）|
+| per-sample top-K（妥协1）| **现在升级** | ✅ 已实施（per-sample hard_mask 控制 side_signals + field_state 注入）|
+| 熵驱动动态 K（妥协3）| **现在设计并实施** | ✅ 已实施（Phase 2 熵驱动，低熵少选/高熵多选）|
+
+**实现要点**（commit 待填）：
+1. **SparseRouter.forward 升级**：动态 K（每样本独立，k_min=1, k_max=N-1）+ per-sample top-K（每样本选 K_b 个，shared_expert 始终激活）+ 返回 `k_per_sample [B]` + `top_k_ids [B][K]`
+2. **forward_train 接入**：round 1 后 Router 选 per-sample top-K；round 2+ 用 per-sample mask 控制：
+   - side_signals：post 只接收该样本 top-K 的 pre 信号（`pre_vec * pre_mask.unsqueeze(-1)`）
+   - field_state：只累加每样本 top-K 神经元的写入（`all_vecs_weighted * mask_t`）
+   - 融合：per-sample final_weights（STE）
+3. **forward（推理）接入**：同样 per-sample mask 控制 side_signals + field 写入，保证训练-推理一致
+4. **对比约束**：`router_contrastive_loss = KL(router_soft_weights.mean(0) || softmax(-nll/0.5))`，与 C12 共享 per_neuron_nll 计算
+5. **修复的 bug**：负载均衡 loss 的 P 原本 detach（Router 无梯度），改为可微；round 2 循环误清 Router 缓存，改为不重置
+
+**测试验证**（全部通过）：
+- SparseRouter 单元：Phase0 K=N、Phase2 熵驱动 K=[4,3,4,4]（每样本不同）、shared 始终激活、mask 行和=K、final_weights 归一化
+- 梯度流：load_balance grad=2.44、contrastive grad=1.96、CE-path grad=21.40（三条路径全部非零）
+- 集成：forward_train（use_sparse_router=True）正常，router_contrastive 激活，Router 梯度 54.18
+- 向后兼容：use_sparse_router=False 时 Router 不创建，dense 模式完全正常（router_contrastive=0）
+- 推理 forward()：use_sparse_router=True 正常，shared_expert 保留
+
+**待训练验证**（阶段4）：训练完成后 `--use_sparse_router --sparse_router_top_k 3 --sparse_router_warmup_steps 2000` 对比稠密 vs 稀疏的 EMERGE、PPL、推理速度。
+
 ---
 
 ### 4.1 ~~"共振"是推理技巧，从未被训练~~（已过时，S1 修复后全可微）

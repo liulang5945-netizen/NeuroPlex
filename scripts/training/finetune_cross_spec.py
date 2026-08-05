@@ -739,14 +739,18 @@ def main():
             balance_loss = result["balance_loss"]
             diversity_loss = result["diversity_loss"]
             contrastive_loss = result.get("contrastive_loss", torch.tensor(0.0))
+            # §4.0d: Router 对比约束（让 Router 学"谁擅长当前样本谁上"）
+            router_contrastive_loss = result.get("router_contrastive_loss", torch.tensor(0.0))
             balance_weight = 0.01   # 弱约束，避免压制主任务
             diversity_weight = 0.05  # 弱约束，鼓励差异但不强制正交
             contrastive_weight = 0.1  # C12: 弱约束，让共振分学习公平性
+            router_contrastive_weight = 0.1  # §4.0d: 同 C12 权重
             loss = (
                 ce_loss
                 + balance_weight * balance_loss
                 + diversity_weight * diversity_loss
                 + contrastive_weight * contrastive_loss
+                + router_contrastive_weight * router_contrastive_loss
             )
 
             loss.backward()

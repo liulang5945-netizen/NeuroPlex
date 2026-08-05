@@ -98,6 +98,10 @@ class SparseRouter(nn.Module):
         top_k: int = 3,
         warmup_steps: int = 0,  # Phase 0/1 warm-up 步数
         shared_expert_id: Optional[str] = None,  # shared_expert 始终激活，不参与 top-K
+        # ── §4.0d: 熵驱动动态 K ──
+        dynamic_k: bool = True,  # True=熵驱动动态K（简单样本少选，复杂样本多选）
+        k_min: int = 1,          # 动态 K 下限
+        k_max: Optional[int] = None,  # 动态 K 上限（None = N-1）
     ):
         super().__init__()
         self.field_dim = field_dim
@@ -105,6 +109,10 @@ class SparseRouter(nn.Module):
         self.top_k = top_k
         self.warmup_steps = warmup_steps
         self.shared_expert_id = shared_expert_id
+        # §4.0d: 动态 K 配置
+        self.dynamic_k = dynamic_k
+        self.k_min = max(1, k_min)
+        self.k_max = k_max
 
         # per-neuron 特征维度：field_vector + confidence(1) + score_vec(if exists)
         in_dim = field_dim + 1 + (score_dim if score_dim is not None else 0)
@@ -122,12 +130,12 @@ class SparseRouter(nn.Module):
     def forward(
         self,
         active_ids: List[str],
-        round_vecs_unified: Dict[str, torch.Tensor],  # [N, B, D_field]
-        round_confidences: Dict[str, torch.Tensor],   # [N, B]
-        round_score_vecs: Optional[Dict[str, torch.Tensor]],  # [N, B, D_score] or None
+        round_vecs_unified: Dict[str, torch.Tensor],  # {nid: [B, D_field]}
+        round_confidences: Dict[str, torch.Tensor],   # {nid: [B]}
+        round_score_vecs: Optional[Dict[str, torch.Tensor]],  # {nid: [B, D_score]} or None
         step: int = 0,
     ) -> Dict[str, torch.Tensor]:
-        """计算路由分和 top-K 选择。
+        """计算路由分和 per-sample top-K 选择（§4.0c + §4.0d）。
 
         Args:
             active_ids: 当前激活的神经元 id 列表
@@ -139,14 +147,16 @@ class SparseRouter(nn.Module):
         Returns:
             dict with:
             - routing_scores: [B, N] 路由分
-            - hard_mask: [B, N] hard top-K 选择（forward）
+            - hard_mask: [B, N] per-sample hard top-K 选择（forward）
             - soft_weights: [B, N] soft softmax 权重（backward 梯度流）
             - final_weights: [B, N] STE 融合权重（forward=hard, backward=soft）
             - load_balance_loss: scalar 负载均衡 loss（Switch 风格）
-            - effective_k: int 实际 K 值（warm-up 期间可能 = N）
+            - k_per_sample: [B] 每样本实际 K 值（熵驱动，含 shared_expert）
+            - top_k_ids: List[List[int]] 每样本 top-K 的全局索引
         """
         N = len(active_ids)
         device = next(iter(round_vecs_unified.values())).device
+        B = round_vecs_unified[active_ids[0]].shape[0]
 
         # 构建 per-neuron 特征 [N, B, in_dim]
         feats = []
@@ -163,76 +173,88 @@ class SparseRouter(nn.Module):
         routing_scores = self.router_mlp(feat_stack).squeeze(-1)  # [N, B]
         routing_scores = routing_scores.t()  # [B, N]
 
-        # Warm-up：前 warmup_steps 步 K=N（全选），Router 只学习评分
-        # Phase 0 (0-10%): K=N, Phase 1 (10-30%): K 线性降, Phase 2 (30%+): K=target
-        if step < self.warmup_steps:
-            # Phase 0: K=N
-            effective_k = N
-        elif step < self.warmup_steps * 3:
-            # Phase 1: 线性从 N 降到 top_k
-            progress = (step - self.warmup_steps) / max(1, self.warmup_steps * 2)
-            effective_k = max(self.top_k, int(N - progress * (N - self.top_k)))
-        else:
-            # Phase 2: 固定 top_k
-            effective_k = self.top_k
-        effective_k = min(effective_k, N)
-
-        # shared_expert 始终激活（不参与 top-K 选择）
-        # 策略：从非 shared 神经元中选 top-K，加上 shared
-        if self.shared_expert_id is not None and self.shared_expert_id in active_ids:
-            shared_idx = active_ids.index(self.shared_expert_id)
-            domain_indices = [i for i in range(N) if i != shared_idx]
-            domain_scores = routing_scores[:, domain_indices]  # [B, N-1]
-            k_domain = min(effective_k - 1, len(domain_indices))
-            if k_domain < 1:
-                k_domain = 1
-            # top-K domain neurons（向量化构建 mask）
-            _, top_indices = domain_scores.topk(k_domain, dim=-1)  # [B, k_domain]
-            hard_mask = torch.zeros_like(routing_scores)
-            hard_mask[:, shared_idx] = 1.0
-            # 用 scatter 向量化设置 domain top-K
-            domain_idx_tensor = torch.tensor(domain_indices, device=routing_scores.device)
-            top_domain_indices = domain_idx_tensor[top_indices]  # [B, k_domain] 全局索引
-            hard_mask.scatter_(-1, top_domain_indices, 1.0)
-            effective_k_total = k_domain + 1
-        else:
-            # 无 shared_expert，直接 top-K
-            k_domain = min(effective_k, N)
-            _, top_indices = routing_scores.topk(k_domain, dim=-1)
-            hard_mask = torch.zeros_like(routing_scores)
-            hard_mask.scatter_(-1, top_indices, 1.0)
-            effective_k_total = k_domain
-
-        # soft weights: softmax over all neurons（backward 梯度流）
+        # soft weights（backward 梯度流）
         soft_weights = F.softmax(routing_scores, dim=-1)  # [B, N]
 
+        # ── Warm-up 阶段决定 K ──
+        # Phase 0 (step < warmup): K=N（全选），Router 只学习评分
+        # Phase 1 (warmup <= step < 3*warmup): K 线性从 N 降到 top_k
+        # Phase 2 (step >= 3*warmup): 熵驱动动态 K（dynamic_k=True）或固定 top_k
+        if step < self.warmup_steps:
+            base_k = N
+            use_dynamic = False
+        elif step < self.warmup_steps * 3:
+            progress = (step - self.warmup_steps) / max(1, self.warmup_steps * 2)
+            base_k = max(self.top_k, int(N - progress * (N - self.top_k)))
+            use_dynamic = False
+        else:
+            base_k = self.top_k
+            use_dynamic = self.dynamic_k
+
+        # §4.0d: 熵驱动动态 K（每样本独立）
+        # 低熵（Router 99% 确定某神经元）→ K 小（省算力）
+        # 高熵（Router 犹豫）→ K 大（保能力）
+        if use_dynamic:
+            entropy = -(soft_weights * torch.log(soft_weights + 1e-8)).sum(-1)  # [B]
+            logN = math.log(max(N, 2))
+            norm_entropy = (entropy / logN).clamp(0.0, 1.0)  # [B] 0~1
+            k_max_eff = self.k_max if self.k_max is not None else max(base_k, N - 1)
+            k_range = max(k_max_eff - self.k_min, 1)
+            k_per_sample = self.k_min + (norm_entropy * k_range).round().long()  # [B]
+            k_per_sample = k_per_sample.clamp(self.k_min, N)
+        else:
+            k_per_sample = torch.full((B,), base_k, device=device, dtype=torch.long)
+
+        # ── per-sample top-K（含 shared_expert 始终激活）──
+        hard_mask = torch.zeros_like(routing_scores)  # [B, N]
+        top_k_ids: List[List[int]] = []
+        if self.shared_expert_id is not None and self.shared_expert_id in active_ids:
+            shared_idx = active_ids.index(self.shared_expert_id)
+            hard_mask[:, shared_idx] = 1.0  # shared 始终激活
+            for b in range(B):
+                k_b = max(int(k_per_sample[b]) - 1, 1)  # 扣掉 shared 占位
+                k_b = min(k_b, N - 1)
+                domain_scores = routing_scores[b].clone()
+                domain_scores[shared_idx] = float('-inf')  # 排除 shared
+                topk = domain_scores.topk(k_b).indices  # [k_b]
+                hard_mask[b, topk] = 1.0
+                # 更新 k_per_sample 反映实际（shared + domain）
+                k_per_sample[b] = k_b + 1
+                top_k_ids.append(topk.tolist() + [shared_idx])
+        else:
+            for b in range(B):
+                k_b = max(int(k_per_sample[b]), 1)
+                k_b = min(k_b, N)
+                topk = routing_scores[b].topk(k_b).indices  # [k_b]
+                hard_mask[b, topk] = 1.0
+                k_per_sample[b] = k_b
+                top_k_ids.append(topk.tolist())
+
         # selected weights: 只在 hard_mask 选中神经元上归一化
-        # 用 routing_scores 在选中位置上 softmax
         masked_scores = routing_scores.masked_fill(hard_mask == 0, float('-inf'))
         selected_weights = F.softmax(masked_scores, dim=-1)  # [B, N]
         # 处理全 -inf 行（不应发生，但防御）
         selected_weights = torch.nan_to_num(selected_weights, nan=0.0)
 
         # STE: forward=selected_weights(hard), backward=grad(soft_weights)
-        # final = soft + (selected - soft).detach()
-        # forward: soft + selected - soft = selected
-        # backward: grad(soft)
         final_weights = soft_weights + (selected_weights - soft_weights).detach()
 
         # 负载均衡 loss（Switch Transformer 风格）
         # f_i: 神经元 i 被选中的批次比例（hard, detach）
         f = hard_mask.mean(dim=0).detach()  # [N]
-        # P_i: Router 对神经元 i 的平均概率（soft, detach）
-        P = soft_weights.mean(dim=0).detach()  # [N]
+        # P_i: Router 对神经元 i 的平均概率（soft, 可微——提供梯度信号）
+        # 注意：P 不 detach，否则负载均衡 loss 对 Router 无梯度（修复 §4.0d）
+        P = soft_weights.mean(dim=0)  # [N]
         load_balance_loss = N * (f * P).sum()
 
         return {
             "routing_scores": routing_scores,    # [B, N]
-            "hard_mask": hard_mask,              # [B, N]
+            "hard_mask": hard_mask,              # [B, N] per-sample
             "soft_weights": soft_weights,        # [B, N]
             "final_weights": final_weights,      # [B, N] STE
             "load_balance_loss": load_balance_loss,  # scalar
-            "effective_k": effective_k_total,    # int
+            "k_per_sample": k_per_sample,        # [B] 每样本实际 K
+            "top_k_ids": top_k_ids,              # List[List[int]] 每样本 top-K 全局索引
         }
 
 
@@ -821,9 +843,10 @@ class ResonanceEnsemble:
         self.round_scores = []
         self.n_active_history = []
         self._logits_keep_ids = None  # 每次 forward 重置
-        # §4.0c: 初始化 Router 缓存（每次 forward 重置）
+        # §4.0c+d: 初始化 Router 缓存（每次 forward 重置）
         self._last_router_result = None
         self._router_active_ids = None
+        self._router_hard_mask = None
 
         # P0-2 fix (MAJOR-2): 重置所有 neurons 的 refractory_counter
         # 防止跨 forward 调用的状态泄漏（上次推理进入不应期的 neuron 不应影响本次）
@@ -991,8 +1014,10 @@ class ResonanceEnsemble:
         # 修复：round 1 正常完成后也记录 n_active（之前只在 skip 或 round 2+ 记录）
         self.n_active_history.append(len(active_ids))
 
-        # ── §4.0c: Sparse Router 接入（推理路径）──
-        # round 1 后用 Router 选 top-K，round 2+ + 融合只处理 top-K
+        # ── §4.0c+d: Sparse Router 接入（推理路径）──
+        # round 1 后用 Router 选 per-sample top-K
+        # round 2+ 用 per-sample mask 控制 side_signals/field 写入
+        # （每样本只被其 top-K 神经元影响 = per-sample 稀疏信号流）
         # use_sparse_router=False 时跳过（向后兼容）
         # 推理时不用 STE，直接 hard top-K（与训练 forward 的 hard 一致）
         if (
@@ -1011,24 +1036,15 @@ class ResonanceEnsemble:
                 round_vecs_unified=round_vecs_unified_r1,
                 round_confidences=round_confidences,
                 round_score_vecs=round_score_vecs_r1 if round_score_vecs_r1 else None,
-                step=10**9,  # 推理时固定 Phase 2（target K）
+                step=10**9,  # 推理时固定 Phase 2（熵驱动动态 K）
             )
-            # batch 级并集：任一样本选中的神经元都参与 round 2+
-            hard_mask = router_result["hard_mask"]  # [B, N]
-            selected_mask = hard_mask.sum(dim=0) > 0  # [N]
-            new_active = {nid for i, nid in enumerate(router_active_list) if selected_mask[i].item()}
-            # shared_expert 始终保留（Router 已保证）
-            if self.shared_expert_id and self.shared_expert_id in active_ids:
-                new_active.add(self.shared_expert_id)
-            if len(new_active) < len(active_ids):
-                # 清理非 top-K 的 round_vecs/round_logits
-                for nid in list(active_ids - new_active):
-                    round_vecs.pop(nid, None)
-                    round_logits.pop(nid, None)
-                active_ids = new_active
+            # 缓存 router_result + per-sample hard_mask [B, N]
             self._last_router_result = router_result
+            self._router_active_ids = router_active_list
+            self._router_hard_mask = router_result["hard_mask"]
         else:
             self._last_router_result = None
+            self._router_hard_mask = None
 
         # ── Side-channel construction (per-pair synaptic projection) ──
         # Round 1 后，每个 post 神经元接收其他 pre 神经元的原始 field_vector，
@@ -1036,6 +1052,8 @@ class ResonanceEnsemble:
         side_signals_per_neuron: Optional[Dict[str, Dict[str, torch.Tensor]]] = None
         if self.max_rounds >= 2:
             side_signals_per_neuron = {nid: {} for nid in active_ids}
+            # §4.0d: per-sample 稀疏——post 神经元只接收该样本 top-K 的 pre 信号
+            router_mask = self._router_hard_mask  # [B, N] or None
             for post_id in active_ids:
                 for pre_id in active_ids:
                     if post_id == pre_id:
@@ -1043,7 +1061,12 @@ class ResonanceEnsemble:
                     post_neuron = self.neurons[post_id]
                     if (pre_id in post_neuron.excite_channels or
                             pre_id in post_neuron.inhibit_channels):
-                        side_signals_per_neuron[post_id][pre_id] = round_vecs[pre_id]
+                        pre_vec = round_vecs[pre_id]  # [B, D]
+                        if router_mask is not None:
+                            pre_mask = router_mask[:, self._router_active_ids.index(pre_id)]  # [B]
+                            side_signals_per_neuron[post_id][pre_id] = pre_vec * pre_mask.unsqueeze(-1)
+                        else:
+                            side_signals_per_neuron[post_id][pre_id] = pre_vec
 
             # Auxiliary-loss-free balancing: 更新 channel 利用率统计
             self._update_channel_usage(side_signals_per_neuron, round_vecs)
@@ -1092,6 +1115,10 @@ class ResonanceEnsemble:
                 vec = self._project_vec(nid, round_vecs[nid])
                 # C1: 亚型写入增益（PV+ 强写入, SOM+ 弱写入等）
                 vec = vec * neuron.write_gain
+                # §4.0d: per-sample 稀疏——只在该样本被 top-K 选中时写入场
+                if self._router_hard_mask is not None:
+                    vec_mask = self._router_hard_mask[:, self._router_active_ids.index(nid)]  # [B]
+                    vec = vec * vec_mask.unsqueeze(-1)
                 if neuron.is_inhibitory:
                     self.field.write_inhibit(nid, vec, weight=maturity_w)
                 else:
@@ -1184,6 +1211,8 @@ class ResonanceEnsemble:
             # 让神经元间的信号传递随共振进行而演化，而非停留在 round 1 的快照
             if round_num < self.max_rounds and side_signals_per_neuron is not None:
                 side_signals_per_neuron = {nid: {} for nid in active_ids}
+                # §4.0d: per-sample 稀疏——每轮重建时同样应用 top-K mask
+                router_mask = self._router_hard_mask  # [B, N] or None
                 for post_id in active_ids:
                     post_neuron = self.neurons[post_id]
                     for pre_id in active_ids:
@@ -1191,7 +1220,12 @@ class ResonanceEnsemble:
                             continue
                         if (pre_id in post_neuron.excite_channels or
                                 pre_id in post_neuron.inhibit_channels):
-                            side_signals_per_neuron[post_id][pre_id] = round_vecs[pre_id]
+                            pre_vec = round_vecs[pre_id]
+                            if router_mask is not None:
+                                pre_mask = router_mask[:, self._router_active_ids.index(pre_id)]  # [B]
+                                side_signals_per_neuron[post_id][pre_id] = pre_vec * pre_mask.unsqueeze(-1)
+                            else:
+                                side_signals_per_neuron[post_id][pre_id] = pre_vec
 
             # 人脑启发：每轮结束递减所有神经元的不应期计数器
             for nid in self.neurons:
@@ -1369,9 +1403,10 @@ class ResonanceEnsemble:
 
         active_ids = list(self.neurons.keys())
         N = len(active_ids)
-        # §4.0c: 初始化 Router 缓存（每步重置）
+        # §4.0c+d: 初始化 Router 缓存（每步重置）
         self._last_router_result = None
         self._router_active_ids = None
+        self._router_hard_mask = None
 
         if gamma_oscillator is None:
             gamma_oscillator = self.gamma_oscillator
@@ -1447,6 +1482,9 @@ class ResonanceEnsemble:
             side_signals_per_neuron: Optional[Dict[str, Dict[str, torch.Tensor]]] = None
             if round_num > 1 and round_vecs_raw:
                 side_signals_per_neuron = {nid: {} for nid in active_ids}
+                # §4.0d: per-sample 稀疏——post 神经元只接收该样本 top-K 的 pre 信号
+                # 非 top-K 的 pre 在该样本的信号被 mask 为零（每样本激活不同组合）
+                router_mask = self._router_hard_mask  # [B, N] or None
                 for post_id in active_ids:
                     post_neuron = self.neurons[post_id]
                     for pre_id in active_ids:
@@ -1454,7 +1492,12 @@ class ResonanceEnsemble:
                             continue
                         if (pre_id in post_neuron.excite_channels or
                                 pre_id in post_neuron.inhibit_channels):
-                            side_signals_per_neuron[post_id][pre_id] = round_vecs_raw[pre_id]
+                            pre_vec = round_vecs_raw[pre_id]  # [B, D]
+                            if router_mask is not None:
+                                pre_mask = router_mask[:, active_ids.index(pre_id)]  # [B]
+                                side_signals_per_neuron[post_id][pre_id] = pre_vec * pre_mask.unsqueeze(-1)
+                            else:
+                                side_signals_per_neuron[post_id][pre_id] = pre_vec
 
             # 全可微前向（串行：batch 内已并行，neuron.forward 全可微）
             for nid in active_ids:
@@ -1507,6 +1550,11 @@ class ResonanceEnsemble:
                 round_confidences_new[nid] for nid in active_ids
             ])  # [N, B]
             all_vecs_weighted = all_vecs_norm * all_confidences.unsqueeze(-1)  # [N, B, D]
+            # §4.0d: per-sample 稀疏——只累加每样本 top-K 神经元的写入
+            # 非 top-K 神经元在该样本的 round 2+ 写入被 mask 为零
+            if self._router_hard_mask is not None and round_num > 1:
+                mask_t = self._router_hard_mask.t().unsqueeze(-1)  # [N, B, 1]
+                all_vecs_weighted = all_vecs_weighted * mask_t
             # C7: 空间场扩散（图拉普拉斯，近邻神经元信号互相扩散）
             if self.spatial_diffuser is not None:
                 all_vecs_weighted = self.spatial_diffuser.diffuse(
@@ -1545,9 +1593,12 @@ class ResonanceEnsemble:
                 except Exception:
                     pass  # 振荡失败不影响训练主流程
 
-            # ── §4.0c: Sparse Router 接入 ──
-            # round 1 结束后，用 Router 选 top-K，round 2+ 只处理 top-K
+            # ── §4.0c+d: Sparse Router 接入 ──
+            # round 1 结束后，Router 选 per-sample top-K
+            # round 2+ 用 per-sample mask 控制 side_signals/field_state 注入
+            # （每样本只被其 top-K 神经元影响 = per-sample 稀疏信号流）
             # use_sparse_router=False 时跳过（向后兼容）
+            # 注意：round 2+ 不重置缓存（保留 round 1 结果供融合阶段使用）
             if (
                 self.use_sparse_router
                 and self.sparse_router is not None
@@ -1561,18 +1612,11 @@ class ResonanceEnsemble:
                     round_score_vecs=round_score_vecs_new if round_score_vecs_new else None,
                     step=step,
                 )
-                # 缓存 router_result 供融合阶段使用
+                # 缓存 router_result 供融合阶段 + round 2+ 使用
                 self._last_router_result = router_result
-                # 保存 round 1 完整 active_ids（更新前），用于融合阶段映射 final_weights 列
                 self._router_active_ids = list(active_ids)
-                # 更新 active_ids：只保留 hard_mask 选中的神经元（per-sample 取并集）
-                hard_mask = router_result["hard_mask"]  # [B, N_round1]
-                selected_mask = hard_mask.sum(dim=0) > 0  # [N_round1]
-                new_active_ids = [nid for i, nid in enumerate(active_ids) if selected_mask[i].item()]
-                if len(new_active_ids) < len(active_ids):
-                    active_ids = new_active_ids
-            else:
-                self._last_router_result = None
+                # per-sample hard_mask [B, N] 缓存（round 2+ 信号流 mask）
+                self._router_hard_mask = router_result["hard_mask"]
 
         # ── 计算共振分（Leave-one-out cosine similarity，全可微）──
         # 用 unified 维度的 vecs（保证不同 field_dim 的 neuron 在同一空间比较）
@@ -1691,30 +1735,26 @@ class ResonanceEnsemble:
         else:
             diversity_loss = torch.tensor(0.0, device=weights.device)
 
-        # ── C12: 对比约束 loss（共振分与 per-neuron NLL 排序对齐）──
-        # 目标：让共振分预测"neuron 的实际贡献价值"，而非"对场状态的方向影响力"。
-        # 大神经元即使 NLL 高（答案错）也可能因主导场方向获高共振分；
-        # contrastive_loss 约束共振分与 NLL 排序对齐，让小神经元在它擅长的主题上获高权重。
-        # 机制：ideal_weights = softmax(-nll/tau)，actual_weights = softmax(scores/temp)，
-        # KL(actual || ideal) 让 actual 逼近 ideal。
-        # targets=None 时不计算（向后兼容）。
-        if (
-            targets is not None
-            and self.field_score_proj is not None
-            and N >= 2
-        ):
-            # per-neuron NLL: [N]
+        # ── per-neuron NLL（供 C12 共振分对比 + §4.0d Router 对比约束共用）──
+        # targets=None 时不计算（向后兼容）
+        per_neuron_nll: Optional[torch.Tensor] = None
+        if targets is not None and N >= 2:
             # all_logits: [N, B, L, V], targets: [B, L]
             shift_logits = all_logits[:, :, :-1, :].contiguous()  # [N, B, L-1, V]
             shift_targets = targets[:, 1:].contiguous()            # [B, L-1]
-            # 用 reshape 计算 per-neuron 平均 NLL
-            nll = F.cross_entropy(
+            per_neuron_nll = F.cross_entropy(
                 shift_logits.reshape(-1, shift_logits.size(-1)),
                 shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
                 reduction="none",
             ).view(N, -1).mean(dim=1)  # [N]
+
+        # ── C12: 对比约束 loss（共振分与 per-neuron NLL 排序对齐）──
+        # 目标：让共振分预测"neuron 的实际贡献价值"，而非"对场状态的方向影响力"。
+        # 大神经元即使 NLL 高（答案错）也可能因主导场方向获高共振分；
+        # contrastive_loss 约束共振分与 NLL 排序对齐，让小神经元在它擅长的主题上获高权重。
+        if per_neuron_nll is not None and self.field_score_proj is not None:
             # ideal: NLL 低的 neuron 应获高权重
-            ideal_weights = F.softmax(-nll / 0.5, dim=0)  # tau=0.5 温度
+            ideal_weights = F.softmax(-per_neuron_nll / 0.5, dim=0)  # tau=0.5 温度
             # actual: 当前共振分驱动的权重
             actual_weights = F.softmax(scores / temperature, dim=0)  # [N]
             # KL(actual || ideal) = Σ actual * log(actual/ideal)
@@ -1724,6 +1764,23 @@ class ResonanceEnsemble:
         else:
             contrastive_loss = torch.tensor(0.0, device=weights.device)
 
+        # ── §4.0d: Router 对比约束（让 Router 学"能力路由"）──
+        # 无约束的 Router 只反映"响应强弱"（大神经元天然强响应 → 退化回大神经元主导）
+        # 对比约束迫使 Router 学"谁在**当前样本**上预测最好"：
+        # ideal = softmax(-nll/tau)（NLL 低的神经元获高路由权重）
+        # actual = Router soft_weights，KL(actual || ideal) 对齐
+        router_contrastive_loss = torch.tensor(0.0, device=weights.device)
+        if (
+            per_neuron_nll is not None
+            and self._last_router_result is not None
+        ):
+            router_soft = self._last_router_result["soft_weights"]  # [B, N]
+            actual_router = router_soft.mean(dim=0)  # [N] batch 平均
+            router_ideal = F.softmax(-per_neuron_nll / 0.5, dim=0)  # [N]
+            router_contrastive_loss = (
+                actual_router * (actual_router.clamp(min=1e-8).log() - router_ideal.clamp(min=1e-8).log())
+            ).sum()
+
         result: Dict[str, torch.Tensor] = {
             "fused_logits": fused_logits,
             "weights": weights,
@@ -1731,6 +1788,7 @@ class ResonanceEnsemble:
             "balance_loss": balance_loss,
             "diversity_loss": diversity_loss,
             "contrastive_loss": contrastive_loss,  # C12
+            "router_contrastive_loss": router_contrastive_loss,  # §4.0d
             "field_state": field_state_full,
             "n_rounds": n_rounds,
         }
