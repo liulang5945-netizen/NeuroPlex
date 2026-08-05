@@ -821,6 +821,9 @@ class ResonanceEnsemble:
         self.round_scores = []
         self.n_active_history = []
         self._logits_keep_ids = None  # 每次 forward 重置
+        # §4.0c: 初始化 Router 缓存（每次 forward 重置）
+        self._last_router_result = None
+        self._router_active_ids = None
 
         # P0-2 fix (MAJOR-2): 重置所有 neurons 的 refractory_counter
         # 防止跨 forward 调用的状态泄漏（上次推理进入不应期的 neuron 不应影响本次）
@@ -872,7 +875,7 @@ class ResonanceEnsemble:
         def round1_logits_filter(nid):
             return round1_return_logits
 
-        round_vecs, round_logits, round_confidences, _round_score_vecs = self._parallel_forward(
+        round_vecs, round_logits, round_confidences, round_score_vecs_r1 = self._parallel_forward(
             active_ids,
             shared_embeddings,
             field_state=None,
@@ -987,6 +990,45 @@ class ResonanceEnsemble:
 
         # 修复：round 1 正常完成后也记录 n_active（之前只在 skip 或 round 2+ 记录）
         self.n_active_history.append(len(active_ids))
+
+        # ── §4.0c: Sparse Router 接入（推理路径）──
+        # round 1 后用 Router 选 top-K，round 2+ + 融合只处理 top-K
+        # use_sparse_router=False 时跳过（向后兼容）
+        # 推理时不用 STE，直接 hard top-K（与训练 forward 的 hard 一致）
+        if (
+            self.use_sparse_router
+            and self.sparse_router is not None
+            and self.max_rounds >= 2
+        ):
+            # 构建 round_vecs_unified（投影到 unified 维度）
+            round_vecs_unified_r1 = {
+                nid: self._project_vec(nid, round_vecs[nid]) for nid in active_ids
+            }
+            # active_ids 是 set，转 list 保证顺序稳定
+            router_active_list = sorted(active_ids)
+            router_result = self.sparse_router(
+                active_ids=router_active_list,
+                round_vecs_unified=round_vecs_unified_r1,
+                round_confidences=round_confidences,
+                round_score_vecs=round_score_vecs_r1 if round_score_vecs_r1 else None,
+                step=10**9,  # 推理时固定 Phase 2（target K）
+            )
+            # batch 级并集：任一样本选中的神经元都参与 round 2+
+            hard_mask = router_result["hard_mask"]  # [B, N]
+            selected_mask = hard_mask.sum(dim=0) > 0  # [N]
+            new_active = {nid for i, nid in enumerate(router_active_list) if selected_mask[i].item()}
+            # shared_expert 始终保留（Router 已保证）
+            if self.shared_expert_id and self.shared_expert_id in active_ids:
+                new_active.add(self.shared_expert_id)
+            if len(new_active) < len(active_ids):
+                # 清理非 top-K 的 round_vecs/round_logits
+                for nid in list(active_ids - new_active):
+                    round_vecs.pop(nid, None)
+                    round_logits.pop(nid, None)
+                active_ids = new_active
+            self._last_router_result = router_result
+        else:
+            self._last_router_result = None
 
         # ── Side-channel construction (per-pair synaptic projection) ──
         # Round 1 后，每个 post 神经元接收其他 pre 神经元的原始 field_vector，

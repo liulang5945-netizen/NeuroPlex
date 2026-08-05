@@ -159,6 +159,34 @@ def load_cross_spec_weights(ensemble, weights_type: str = "dialogue"):
                 proj.load_state_dict(sd)
     print(f"  [cross_spec] 已加载跨规格投影层权重: {weights_path}", flush=True)
 
+    # §4.0c: 加载 Sparse Router 状态（如果存在）
+    if "sparse_router_state" in ckpt_data:
+        if ensemble.sparse_router is not None:
+            try:
+                ensemble.sparse_router.load_state_dict(ckpt_data["sparse_router_state"])
+                print(f"  [sparse_router] 已加载 Router 状态: {weights_path}", flush=True)
+            except (RuntimeError, ValueError) as e:
+                print(f"  [sparse_router-warn] 加载失败: {e}", flush=True)
+        else:
+            print(f"  [sparse_router] checkpoint 含 Router 状态但 ensemble 未启用 Router，跳过", flush=True)
+
+
+def _checkpoint_has_router(weights_type: str = "dialogue") -> bool:
+    """§4.0c: 检测 checkpoint 是否含 Sparse Router 状态。"""
+    if weights_type == "dialogue":
+        path = os.path.join(OUTPUT_DIR, "cross_spec_dialogue.pt")
+    elif weights_type == "cross_spec":
+        path = os.path.join(OUTPUT_DIR, "cross_spec_finetuned.pt")
+    else:
+        return False
+    if not os.path.exists(path):
+        return False
+    try:
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        return isinstance(ckpt, dict) and "sparse_router_state" in ckpt
+    except Exception:
+        return False
+
 
 def eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
                       weights_type: str = "dialogue", n_eval: int = 100):
@@ -179,7 +207,8 @@ def eval_dialogue_ppl(neurons, shared_embeddings, domain_sp, general_sp,
     # 创建 Ensemble
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    use_router = _checkpoint_has_router(weights_type)
+    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
     load_cross_spec_weights(ensemble, weights_type)
 
     # 个体 PPL
@@ -384,7 +413,8 @@ def eval_conversation(neurons, shared_embeddings, domain_sp, general_sp,
 
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    use_router = _checkpoint_has_router(weights_type)
+    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
     load_cross_spec_weights(ensemble, weights_type)
 
     for prompt in DIALOGUE_PROMPTS:
@@ -408,7 +438,8 @@ def eval_multi_turn_conversation(neurons, shared_embeddings, domain_sp, general_
 
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2)
+    use_router = _checkpoint_has_router(weights_type)
+    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, use_sparse_router=use_router)
     load_cross_spec_weights(ensemble, weights_type)
 
     for scenario_idx, questions in enumerate(MULTI_TURN_SCENARIOS, 1):
