@@ -823,26 +823,29 @@ Router 初始随机，可能选错神经元。Warm-up 分阶段：
 
 #### 7. 实施路径
 
-##### 阶段1：Router 实现（不破坏现有训练）
+##### 阶段1：Router 实现（不破坏现有训练）✅ 已完成（commit 3526274）
 - [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) 新增 `SparseRouter` 类
 - Router 输入：round 1 field_vectors + confidence + score_vec
 - Router 输出：top-K mask + soft weights（STE）
 - 负载均衡 loss（Switch 风格）
 - 向后兼容：`use_sparse_router=False` 时退化为当前稠密模式
 
-##### 阶段2：接入 forward_train
+##### 阶段2：接入 forward_train ✅ 已完成（commit 3526274）
 - `forward_train` round 1 后计算 Router 输出
 - round 2+ 只对 top-K 神经元注入 side_signals + field_state
-- 融合用 Router soft weights
-- 新增 load_balance_loss 到总 loss
+- 融合用 Router soft weights（per-sample STE）
+- 新增 load_balance_loss 到总 loss（替换原负熵 balance_loss）
+- smoke test 通过（forward/backward/归一化/梯度流验证）
 
-##### 阶段3：接入推理 forward
-- 推理路径同样用 Router 选择 top-K
-- 保证训练-推理一致
+##### 阶段3：接入推理 forward ✅ 已完成（commit 54e95e5）
+- 推理路径同样用 Router 选择 top-K（round 1 后）
+- 保证训练-推理一致（"激活谁"一致）
+- 融合在 top-K 内 per-position（保留 entropy 融合）
 - active_nids 参数与 Router 协同（外部指定优先，否则用 Router）
+- [eval_dialogue.py](file:///e:/taiji-neuron/scripts/training/eval_dialogue.py) 自动检测 checkpoint 是否含 Router 状态
 
-##### 阶段4：训练验证
-- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py) 新增 `--use_sparse_router` flag
+##### 阶段4：训练验证 ⏳ 待训练完成后
+- [finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py) 新增 `--use_sparse_router` flag（已完成）
 - 对比稠密 vs 稀疏的 EMERGE、PPL、推理速度
 - 验证 warm-up 策略有效性
 
