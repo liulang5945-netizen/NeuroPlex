@@ -468,6 +468,8 @@ class ResonanceEnsemble:
         self._tokenizer_hub = None
         # 词库转译矩阵缓存：{(src_domain, tgt_domain): {"fp": ..., "matrix": COO}}
         self._logits_alignment_cache: Dict[tuple, dict] = {}
+        # 可编辑词库规则层（AlignmentRules）：人工覆盖自动转译，见 set_alignment_rules
+        self._alignment_rules = None
 
     def set_tokenizer_hub(self, tokenizer_hub) -> None:
         """注入 TokenizerHub（跨 vocab 联合训练需要访问各域 tokenizer）。
@@ -476,6 +478,16 @@ class ResonanceEnsemble:
         词库转译矩阵（vocab 一致时完全不需要，向后兼容）。
         """
         self._tokenizer_hub = tokenizer_hub
+
+    def set_alignment_rules(self, rules) -> None:
+        """注入可编辑词库规则层（AlignmentRules，人工覆盖自动转译）。
+
+        规则增删后（version 变化）词库转译矩阵缓存自动失效重建。
+
+        Args:
+            rules: AlignmentRules 实例（None 时清除规则层）。
+        """
+        self._alignment_rules = rules
 
     def _get_neuron_tokenizer(self, nid: str):
         """从 hub 解析 neuron 的域 tokenizer。
@@ -531,6 +543,8 @@ class ResonanceEnsemble:
                 src_sp, target_sp,
                 source_domain=nid, target_domain=target_domain,
                 cache=self._logits_alignment_cache,
+                overrides=self._alignment_rules,
+                source_vocab_size=logits.shape[-1],
             )
             # [B*L, V_i] @ [V_i, V_tgt] → [B*L, V_tgt] → [B, L, V_tgt]
             b, l, vi = logits.shape

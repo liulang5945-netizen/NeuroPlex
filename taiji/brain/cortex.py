@@ -107,8 +107,10 @@ class Cortex:
 
         # ── S6: Domain→General token 对齐表缓存 ──
         # 消除自回归生成时的 domain→text→general re-encode 往返
-        # 格式：{domain_name: {domain_token_id: [general_token_ids]}}
+        # 格式：{domain_name: {"fp": ..., "alignment": {domain_token_id: [general_token_ids]}}}
         self._domain_to_general_cache: Dict[str, Dict[int, list]] = {}
+        # 可编辑词库规则层（AlignmentRules）：人工覆盖自动转译，见 set_alignment_rules
+        self._alignment_rules = None
 
         # ── Domain tokenizer hub ──
         # Manages per-domain tokenizers (zh=20K, en=16K, code=12K, math=10K).
@@ -1207,6 +1209,10 @@ class Cortex:
         热插拔：缓存项携带 tokenizer 指纹，任一 tokenizer（域/general）被替换后
         自动失效重建；也可用 invalidate_alignment_cache() 手动失效。
 
+        可编辑层：set_alignment_rules() 注入的 AlignmentRules 中匹配的 domain
+        piece 跳过自动转译，改用人工指定的 general piece 文本编码
+        （新增特殊神经元时补充专业术语映射）。
+
         Args:
             domain: 域名（如 "zh"）
             domain_sp: 域 tokenizer
@@ -1214,10 +1220,12 @@ class Cortex:
         Returns:
             {domain_token_id: [general_token_ids]} 映射表
         """
-        # 指纹 = (域 tokenizer 指纹, general tokenizer 指纹)
+        # 指纹 = (域 tokenizer 指纹, general tokenizer 指纹, 规则版本)
+        rules_ver = self._alignment_rules.version if self._alignment_rules is not None else 0
         fp = (
             tokenizer_fingerprint(domain_sp),
             tokenizer_fingerprint(self._general_sp),
+            rules_ver,
         )
         cached = self._domain_to_general_cache.get(domain)
         if cached is not None and cached.get("fp") == fp:
@@ -1230,6 +1238,18 @@ class Cortex:
         vocab_size = domain_sp.GetPieceSize() if hasattr(domain_sp, 'GetPieceSize') else 0
         for domain_id in range(vocab_size):
             piece = domain_sp.id_to_piece(domain_id)
+            manual = None
+            if self._alignment_rules is not None:
+                manual = self._alignment_rules.get(domain, piece)
+            if manual is not None:
+                # 人工规则：general piece 文本 → general ids（可多段，逐段 encode 拼接）
+                general_ids = []
+                for gp in manual:
+                    general_ids.extend(self._general_sp.encode(gp))
+                alignment[domain_id] = general_ids if general_ids else [
+                    self._general_sp.pad_id() if hasattr(self._general_sp, 'pad_id') else 0
+                ]
+                continue
             if piece.startswith("<0x") and piece.endswith(">"):
                 # byte fallback piece（如 <0x0A>）：必须 decode 成真实字节再 encode，
                 # 否则 "<0x0A>" 会被当作 6 个字符编码，换行语义丢失
@@ -1247,6 +1267,16 @@ class Cortex:
         self._domain_to_general_cache[domain] = {"fp": fp, "alignment": alignment}
         print(f"[S6] 域 '{domain}' 对齐表已构建: {len(alignment)} entries", flush=True)
         return alignment
+
+    def set_alignment_rules(self, rules) -> None:
+        """注入可编辑词库规则层（AlignmentRules）。
+
+        规则增删后（version 变化）S6 对齐表缓存自动失效重建。
+
+        Args:
+            rules: AlignmentRules 实例（None 时清除规则层）。
+        """
+        self._alignment_rules = rules
 
     def invalidate_alignment_cache(self, domain: Optional[str] = None) -> None:
         """词库热插拔手动失效：tokenizer 替换后强制重建对齐表缓存。

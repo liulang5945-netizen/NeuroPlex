@@ -745,7 +745,20 @@ C13（max 规格 EXPERT 受 CPU 限制）, T10（阵容仅 5 神经元受 CPU �
 - [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) 新增 `invalidate_alignment_cache(domain=None)` 手动失效接口
 - TokenizerHub.register_domain 本身已支持热插拔（新域注册不影响现有 neuron）
 
-**验证**：`_smoke_cross_vocab_gap_m.py` 5/5 通过（转译构建/矩阵归一化/缓存复用/热插拔失效/跨 vocab 融合梯度流/向后兼容）；真实 code→zh 转译验证：`def`→`['▁','▁def']`、换行语义保持 ✓，矩阵 [12000, 50000] 构建仅 0.1s。
+**词库可编辑可拓展层（AlignmentRules，2026-08-05 新增）**——匹配新增特殊神经元词表：
+- [translator.py](file:///e:/taiji-neuron/taiji/resonance/translator.py) `AlignmentRules`：人工规则层覆盖自动转译，匹配键用 **piece 文本**（tokenizer 无关、可编辑，不用脆弱 token id）
+- 支持域特定规则 + 全局规则（`"*"`）；每次增删递增 version → 下游转译矩阵/对齐表缓存自动失效
+- 持久化 JSON（`save()`/`load()` 热加载），默认 `taiji/domains/alignment_rules.json`
+- 接入：`ensemble.set_alignment_rules()` + `cortex.set_alignment_rules()`（S6 也支持人工覆盖）
+- 新增特殊神经元时：注册 tokenizer + （可选）add_override 补专业术语映射
+
+**跨域协作层训练脚本（train_cross_domain_collab.py，2026-08-05 新增）**：
+- 多域 neuron（code/math/zh）联合训练协作层（side_channels + 投影层 + Sparse Router）
+- 域轮转 + batch 级 `target_domain`，缺口 M 词库转译融合路径；`--rules-path` 挂载 AlignmentRules
+- 自动匹配 neuron vocab 的 tokenizer（zh neuron 20K → `sp_zh_v20k.model`，防御 vocab 错位）
+- 冒烟验证通过（verify_v3 多域 neuron 完整跑通训练循环 + checkpoint）
+
+**验证**：`_smoke_cross_vocab_gap_m.py` 8/8 通过（转译构建/矩阵归一化/缓存复用/热插拔失效/跨 vocab 融合梯度流/向后兼容/override 覆盖/持久化/规则变更缓存失效）；真实 code→zh 转译验证：`def`→`['▁','▁def']`、换行语义保持 ✓，矩阵 [12000, 50000] 构建仅 0.1s。
 
 ### 4.0c ★★★ **自适应激活设计：R1 软路由 → top-K 稀疏路由**（2026-08-05 设计）
 

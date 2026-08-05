@@ -25,7 +25,7 @@ import torch.nn.functional as F
 from taiji.resonance import ResonanceNeuron, ResonanceField, ResonanceEnsemble
 from taiji.resonance.config import NeuronConfig
 from taiji.resonance.translator import (
-    TokenizerHub, build_domain_to_domain_alignment,
+    TokenizerHub, AlignmentRules, build_domain_to_domain_alignment,
     build_logits_alignment_matrix, tokenizer_fingerprint,
 )
 
@@ -241,6 +241,79 @@ def test_fingerprint():
     return True
 
 
+def test_alignment_rules_override():
+    print("\n=== Test 6: AlignmentRules 可编辑层（override 覆盖自动转译）===")
+    src = MockSP(64, "code")
+    tgt = MockSP(32, "zh")
+    rules = AlignmentRules()
+    # 默认自动：tok_10 → "10" → [10]
+    align_auto, _ = build_domain_to_domain_alignment(src, tgt, source_domain="code")
+    assert align_auto[10] == [10]
+
+    # 人工覆盖：tok_10 → 强制映射到 tok_20, tok_21（多段）
+    rules.add_override("code", "tok_10", ["tok_20", "tok_21"])
+    align_edit, _ = build_domain_to_domain_alignment(
+        src, tgt, source_domain="code", overrides=rules,
+    )
+    assert 20 in align_edit[10] and 21 in align_edit[10], f"override 未生效: {align_edit[10]}"
+
+    # 全局规则：* → 所有域生效
+    rules2 = AlignmentRules()
+    rules2.add_override("*", "tok_5", ["tok_30"])
+    align_global, _ = build_domain_to_domain_alignment(
+        src, tgt, source_domain="code", overrides=rules2,
+    )
+    assert align_global[5] == [30], f"全局规则未生效: {align_global[5]}"
+    print("  ✅ override 覆盖 + 全局规则通过")
+    return True
+
+
+def test_alignment_rules_persistence():
+    print("\n=== Test 7: AlignmentRules 持久化 + 热加载 ===")
+    import tempfile
+    tmp = os.path.join(tempfile.gettempdir(), "alignment_rules_test.json")
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    rules = AlignmentRules()
+    rules.add_override("code", "tok_10", ["tok_20"])
+    rules.save(tmp)
+    assert os.path.exists(tmp)
+
+    rules2 = AlignmentRules()
+    rules2.load(tmp)
+    assert rules2.get("code", "tok_10") == ["tok_20"], "热加载后规则丢失"
+    assert rules2.version > rules.version, "load 后 version 应递增（驱动缓存失效）"
+    os.remove(tmp)
+    print("  ✅ 持久化 + 热加载通过")
+    return True
+
+
+def test_matrix_cache_invalidated_by_rules():
+    print("\n=== Test 8: 人工规则增删 → 矩阵缓存自动失效 ===")
+    src = MockSP(64, "code")
+    tgt = MockSP(32, "zh")
+    rules = AlignmentRules()
+    cache = {}
+
+    m0 = build_logits_alignment_matrix(src, tgt, "code", "zh", cache, overrides=rules)
+    # 加规则 → version 变化 → 重建
+    rules.add_override("code", "tok_10", ["tok_20"])
+    m1 = build_logits_alignment_matrix(src, tgt, "code", "zh", cache, overrides=rules)
+    assert m1 is not m0, "规则增删后缓存未失效"
+    # 验证 override 生效：行 10 只指向 col 20（权重 1.0）
+    row10 = m1.to_dense()[10]
+    assert row10[20] == 1.0 and row10.sum() == 1.0, f"override 行归一化失败: {row10}"
+    # 同一版本再取 → 命中缓存
+    m2 = build_logits_alignment_matrix(src, tgt, "code", "zh", cache, overrides=rules)
+    assert m1 is m2, "同版本应命中缓存"
+    # 移除规则 → 版本变化 → 重建回自动
+    rules.remove_override("code", "tok_10")
+    m3 = build_logits_alignment_matrix(src, tgt, "code", "zh", cache, overrides=rules)
+    assert m3 is not m1, "移除规则后缓存未失效"
+    print("  ✅ 人工规则变更 → 矩阵缓存自动失效重建通过")
+    return True
+
+
 if __name__ == "__main__":
     tests = [
         test_alignment_build,
@@ -248,6 +321,9 @@ if __name__ == "__main__":
         test_forward_train_cross_vocab,
         test_forward_train_same_vocab_backward_compat,
         test_fingerprint,
+        test_alignment_rules_override,
+        test_alignment_rules_persistence,
+        test_matrix_cache_invalidated_by_rules,
     ]
     passed = 0
     for t in tests:

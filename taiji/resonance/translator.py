@@ -13,6 +13,7 @@ Based on the three-layer architecture:
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -577,6 +578,105 @@ def batch_align_and_embed(
 # 词库转译（跨 vocab 对齐）：domain token → target domain token
 # ============================================================================
 
+class AlignmentRules:
+    """可编辑/可拓展的词库转译规则层（人工覆盖自动构建的映射）。
+
+    背景：自动转译（piece→text→encode）对多数 token 有效，但新增特殊神经元
+    时（如 biology/legal 域），其专业术语 token 自动映射可能退化（byte fallback
+    或 <unk>）。本规则层允许人工指定映射，且可增量扩展。
+
+    设计（上限更高）：
+    - 匹配键用 source piece **文本**（tokenizer 无关、可读、可编辑），
+      不用 token id（随 tokenizer 重训漂移，脆弱）
+    - 支持域特定规则 + 全局规则（source_domain="*"）
+    - 每次增删递增 version，驱动下游对齐矩阵缓存自动失效
+    - 持久化 JSON（默认 taiji/domains/alignment_rules.json），可热加载
+
+    Usage:
+        rules = AlignmentRules()                      # 空规则
+        rules = AlignmentRules(path="...json")        # 加载已有规则
+        rules.add_override("code", "<0x0A>", ["▁\n"]) # 人工指定映射
+        rules.add_override("*", "term_x", ["term_x"]) # 全局规则
+        rules.save()
+    """
+
+    def __init__(self, rules_path: Optional[str] = None):
+        self.overrides: Dict[str, Dict[str, List[str]]] = {}
+        self.rules_path = rules_path
+        self.version: int = 0  # 增删时递增，用于下游缓存失效
+        if rules_path and os.path.exists(rules_path):
+            self.load(rules_path)
+
+    def add_override(
+        self, source_domain: str, source_piece: str,
+        target_pieces: List[str],
+    ) -> None:
+        """人工指定 source token → target token(s) 映射。
+
+        Args:
+            source_domain: 源域（"code"/"math"...）；"*" 表示全局规则。
+            source_piece: 源 token 的 piece 文本（id_to_piece 返回值）。
+            target_pieces: 目标 piece 文本列表（构建时 encode 成 target ids）。
+        """
+        self.overrides.setdefault(source_domain, {})[source_piece] = list(target_pieces)
+        self.version += 1
+
+    def remove_override(self, source_domain: str, source_piece: str) -> bool:
+        """移除一条人工规则。返回是否移除成功。"""
+        d = self.overrides.get(source_domain)
+        if d is None or source_piece not in d:
+            return False
+        del d[source_piece]
+        if not d:
+            self.overrides.pop(source_domain, None)
+        self.version += 1
+        return True
+
+    def get(
+        self, source_domain: Optional[str], source_piece: str,
+    ) -> Optional[List[str]]:
+        """查规则：先域特定，后全局（"*"）。返回 target_pieces 或 None。"""
+        if source_domain is not None:
+            hit = self.overrides.get(source_domain, {}).get(source_piece)
+            if hit is not None:
+                return hit
+        return self.overrides.get("*", {}).get(source_piece)
+
+    def to_dict(self) -> Dict:
+        return {
+            "overrides": self.overrides,
+            "version": self.version,
+            "note": "词库转译人工规则：{source_domain: {source_piece: [target_piece...]}}；"
+                    "source_domain='*' 为全局规则；piece 文本见 id_to_piece。",
+        }
+
+    def save(self, path: Optional[str] = None) -> str:
+        """持久化到 JSON（默认 self.rules_path，需在 __init__ 或此处指定）。"""
+        save_path = path or self.rules_path
+        if not save_path:
+            raise ValueError("AlignmentRules.save 需要 path（构造时未指定 rules_path）")
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        self.rules_path = save_path
+        print(f"[AlignmentRules] 已保存 {len(self.overrides)} 条规则到 {save_path}", flush=True)
+        return save_path
+
+    def load(self, path: Optional[str] = None) -> None:
+        """从 JSON 热加载（合并进现有规则，version 取 max）。"""
+        load_path = path or self.rules_path
+        if not load_path or not os.path.exists(load_path):
+            return
+        with open(load_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        loaded = data.get("overrides", {})
+        for dom, rules in loaded.items():
+            self.overrides.setdefault(dom, {}).update(rules)
+        self.version = max(self.version, int(data.get("version", 0)) + 1)
+        self.rules_path = load_path
+        print(f"[AlignmentRules] 已加载 {len(loaded)} 条规则（{load_path}）", flush=True)
+
+
 def tokenizer_fingerprint(sp) -> tuple:
     """Tokenzier 指纹：用于对齐表缓存失效判断（词库热插拔后自动重建）。
 
@@ -602,6 +702,8 @@ def tokenizer_fingerprint(sp) -> tuple:
 def build_domain_to_domain_alignment(
     source_sp,
     target_sp,
+    source_domain: Optional[str] = None,
+    overrides: Optional[AlignmentRules] = None,
 ) -> Tuple[List[List[int]], int]:
     """词库转译：构建 source domain vocab → target domain vocab 的 token 对齐表。
 
@@ -609,12 +711,17 @@ def build_domain_to_domain_alignment(
     真实字节再转译，保留换行等语义），再用 target tokenizer 重新编码得到目标
     token id 列表。空映射用 target pad_id 兜底。
 
+    可编辑层：overrides（AlignmentRules）中匹配的 source piece 跳过自动转译，
+    改用人工指定的 target piece 文本编码（新增特殊神经元时补充专业术语映射）。
+
     用于跨 vocab logits 融合：把 source neuron 的 logits 投影到 target 域空间，
     与 S6 词库转译（domain→general）同源，只是目标空间换为任意 target domain。
 
     Args:
         source_sp: 源域 tokenizer。
         target_sp: 目标域 tokenizer。
+        source_domain: 源域名（overrides 域特定规则匹配用；None 时仅全局规则）。
+        overrides: 可编辑规则层（可选）。
 
     Returns:
         (alignment, source_vocab_size)
@@ -625,6 +732,16 @@ def build_domain_to_domain_alignment(
     alignment: List[List[int]] = []
     for src_id in range(vocab_size):
         piece = source_sp.id_to_piece(src_id)
+        manual = None
+        if overrides is not None:
+            manual = overrides.get(source_domain, piece)
+        if manual is not None:
+            # 人工规则：target_piece 文本 → target ids（可多段，逐段 encode 拼接）
+            tgt_ids: List[int] = []
+            for tp in manual:
+                tgt_ids.extend(target_sp.encode(tp))
+            alignment.append(tgt_ids if tgt_ids else [pad_id])
+            continue
         if piece.startswith("<0x") and piece.endswith(">"):
             # byte fallback piece（如 <0x0A>）：decode 成真实字节再 encode，
             # 否则 "<0x0A>" 会被当作 6 个字符编码，换行语义丢失
@@ -642,19 +759,27 @@ def build_logits_alignment_matrix(
     source_domain: str,
     target_domain: str,
     cache: Optional[Dict] = None,
+    overrides: Optional[AlignmentRules] = None,
+    source_vocab_size: Optional[int] = None,
 ) -> torch.Tensor:
     """构建 [V_src, V_tgt] 稀疏 logits 投影矩阵（词库转译），带缓存 + 指纹失效。
 
     行归一化：一个 source token 映射到 N 个 target token 时，每列权重 1/N，
     保证 logits 尺度守恒（softmax 前线性投影的近似概率转移）。
 
+    缓存失效键：tokenizer 指纹 + overrides 版本（人工规则增删后自动重建）。
+
     Args:
         source_sp: 源域 tokenizer。
         target_sp: 目标域 tokenizer。
-        source_domain: 源域名（缓存键）。
+        source_domain: 源域名（缓存键 + overrides 域特定匹配）。
         target_domain: 目标域名（缓存键）。
         cache: 外部缓存 dict；None 时新建（调用方持有以跨步复用）。
-              缓存项: {key: {"fp": (src_fp, tgt_fp), "matrix": COO}}。
+              缓存项: {key: {"fp": (src_fp, tgt_fp, rules_ver, src_vocab), "matrix": COO}}。
+        overrides: 可编辑规则层（可选；版本参与缓存失效）。
+        source_vocab_size: logits 实际 vocab 大小（neuron lm_head）。None 时用
+              tokenizer GetPieceSize()。防御 neuron vocab ≠ tokenizer vocab 的场景
+              （如 zh neuron 用 20K 词表但标准 zh tokenizer 是 50K）。
 
     Returns:
         COO 稀疏张量 [V_src, V_tgt]（float32）。
@@ -662,16 +787,29 @@ def build_logits_alignment_matrix(
     if cache is None:
         cache = {}
     key = (source_domain, target_domain)
-    fp = (tokenizer_fingerprint(source_sp), tokenizer_fingerprint(target_sp))
+    rules_ver = overrides.version if overrides is not None else 0
+    tkn_vocab = source_sp.GetPieceSize() if hasattr(source_sp, "GetPieceSize") else 0
+    src_vocab = source_vocab_size if source_vocab_size is not None else tkn_vocab
+    fp = (
+        tokenizer_fingerprint(source_sp),
+        tokenizer_fingerprint(target_sp),
+        rules_ver,
+        src_vocab,
+    )
     cached = cache.get(key)
     if cached is not None and cached["fp"] == fp:
         return cached["matrix"]
 
-    alignment, src_vocab = build_domain_to_domain_alignment(source_sp, target_sp)
+    # 遍历 min(logits vocab, tokenizer vocab) 个 token（超出 tokenizer 的 id 无 piece → 零行）
+    alignment, _ = build_domain_to_domain_alignment(
+        source_sp, target_sp,
+        source_domain=source_domain, overrides=overrides,
+    )
     tgt_vocab = target_sp.GetPieceSize() if hasattr(target_sp, "GetPieceSize") else 0
 
     rows, cols, vals = [], [], []
-    for src_id, tgt_ids in enumerate(alignment):
+    for src_id in range(min(src_vocab, len(alignment))):
+        tgt_ids = alignment[src_id]
         if not tgt_ids:
             continue
         w = 1.0 / len(tgt_ids)
