@@ -12,21 +12,78 @@
 
 **结论：项目"递归"（taiji/life 递归改进 + 递归蒸馏）两条回路——任务进化回路活着，递归改进回路是死的。**
 
-**回路 A（活）**：`api/chat_strategies.py` → `record_task_success/failure` → 阶段升级 → neurogenesis 信号 → 睡眠创建新神经元。
+**✅ 已修复（commit 待填）**：
+1. **删除废弃死代码**：`recursive_improver.design_next_generation` 及 13 个私有辅助（~300 行）、`evolution_engine.execute_generation_transition`/`_design_to_model_config`/`_validate_student`/`EVOLUTION_PATH`/`_get_current_generation`/`_get_next_generation`
+2. **修潜伏 bug**：`_get_next_gen_name` 双同名定义（L623 被 L740 覆盖 → design_next_generation 必 TypeError）——方法已随死代码删除
+3. **激活死配置**：`loss_plateau_steps` 从定义未用 → `record_sleep_training` 记录 loss 历史 + `check_evolution_ready` 平台检测（std < 0.05）
+4. **接入真实调用方**：`chat_strategies._record_recursive_strategies` 每次推理记录 prompt/tool_choice/reflection 策略到 RecursiveImprover（输入环复活）；功能验证：12 条记录 → 产出 2 条提案（prompt + tool）
+5. **sleep_engine Phase 5 重构**：design_next_generation 调用 → 生成 `next_training_data_spec.json`（训练数据建议，消费方 = 跨域协作层训练）
+6. **防噪**：prompt 模式提取过滤 >80 字符整句（中文无空格分词噪声）
 
-**回路 B（死）**：
-- 输入环断开：`record_strategy` 全项目零调用方 → strategy_records 恒空 → `analyze_and_improve()` 永远空提案
-- 输出环废弃：`design_next_generation` deprecated（仅存 JSON）、`execute_generation_transition` NotImplementedError
-- 潜伏 bug：`_get_next_gen_name` 双同名定义（L623 2 参被 L740 1 参覆盖）→ `design_next_generation` 走到 L328 必 TypeError
-- 死配置：`DISTILLATION_THRESHOLDS["loss_plateau_steps"]` 定义未用
+**修复前问题（已解决）**：
+- 输入环断开：`record_strategy` 零调用方 → 分析恒空
+- 输出环废弃：design/execute 均 deprecated/NotImplemented
+- 单体变大叙事残留（0.5B→7B）与 BODY_LIFE 决策 3 冲突
 
-**4 个妥协点**（详见会话记录）：
-1. 进化信号 = 任务统计启发式，非能力信号（有 feed_engine 域错误率/PPL/EMERGE 更强信号可用）
-2. 策略改进 = 关键词玩具（空格分词对中文无效），提案无 A/B 验证、字符串覆盖无回滚
-3. 单体变大叙事残留（EVOLUTION_PATH 0.5B→7B、`_get_current_generation` 恒返第一代）与 BODY_LIFE 决策 3 冲突，转型未完成
-4. "递归蒸馏"从未闭环（进化语料 → 训练下一代无消费方）
+---
 
-**上限更高形态**：递归 = "使用 → 生成跨域配对训练数据 → train_cross_domain_collab.py 协作层训练 → 能力扩展"——即当前跨域协作工作就是递归的正确闭环。重构待用户决策。
+## 📌 态极递归流程（神经元架构下，2026-08-06 定义）
+
+```
+                        ┌────────────────────────────────────────────┐
+                        │ 推理时（循环起点）                           │
+                        │ chat_strategies：ReAct + 工具 + 直接生成     │
+                        └───────┬────────────────────────────────────┘
+                                │ 同时记录两路
+              ┌─────────────────┴──────────────────┐
+              ▼                                    ▼
+   ┌─────────────────────┐              ┌──────────────────────┐
+   │ 策略环（输入）        │              │ 任务环（输入）         │
+   │ record_strategy      │              │ record_task_success/  │
+   │ prompt/tool/reflection│             │ failure               │
+   └──────────┬──────────┘              └──────────┬───────────┘
+              ▼                                    ▼
+   ┌─────────────────────┐              ┌──────────────────────┐
+   │ RecursiveImprover   │              │ EvolutionEngine      │
+   │ 策略记录（jsonl）     │              │ 成长值/失败率/知识饱和/ │
+   └──────────┬──────────┘              │ loss 平台             │
+              │ 睡眠 Phase 5             └──────────┬───────────┘
+              ▼                                    │ check_evolution_ready
+   ┌─────────────────────┐              ┌──────────▼───────────┐
+   │ 策略改进提案         │              │ 能力扩展信号（ready）  │
+   │ analyze_and_improve │              │ ① neurogenesis 信号   │
+   │ → EventBus +        │              │ ② 训练数据建议         │
+   │   best_strategies   │              └──────────┬───────────┘
+   └─────────────────────┘                         ▼
+                                        ┌──────────────────────┐
+                                        │ next_training_data_   │
+                                        │ spec.json（弱点+建议） │
+                                        └──────────┬───────────┘
+                                                   ▼
+                                        ┌──────────────────────┐
+                                        │ 协作层训练（数据环）    │
+                                        │ train_multi_domain_  │
+                                        │ foundation.py（基座）  │
+                                        │ train_cross_domain_  │
+                                        │ collab.py（协作层）    │
+                                        └──────────┬───────────┘
+                                                   ▼
+                                        ┌──────────────────────┐
+                                        │ 能力扩展             │
+                                        │ 新 neuron / 更强协作  │
+                                        │ 5 联合 > 5（涌现实证） │
+                                        └──────────┬───────────┘
+                                                   │ 再次投入使用
+                                                   ▼
+                                              回到推理时（递归）
+```
+
+**三环说明**：
+1. **策略环**（推理时 → 睡眠分析）：记录实际使用的 prompt/工具/反思策略 → 睡眠时统计成功模式 → 低效工具降权提案（`web_fetch 成功率 0%` 实测产出）
+2. **任务进化环**（持续）：任务成功/失败 → 阶段升级（infant→adult）→ neurogenesis 信号（睡眠创建新神经元）+ 进化报告
+3. **数据环**（睡眠 → 训练，递归核心）：`check_evolution_ready` 满足 2 条件（成长值/失败率/知识饱和/loss 平台）→ 生成 `next_training_data_spec.json` → 跨域协作层训练 → 能力扩展 → 重新投入推理
+
+**废弃（已删除）**：代际变大（0.5B→7B）、design_next_generation、execute_generation_transition——神经元架构的递归 = 协作层数据闭环，非整体替换模型。
 
 ---
 

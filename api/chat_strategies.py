@@ -139,6 +139,32 @@ def _record_evolution(prompt, result_text, success):
         pass
 
 
+def _record_recursive_strategies(prompt, system_prompt, success, reasoning_steps, tool_names):
+    """记录推理策略到递归改进系统（RecursiveImprover 输入环）。
+
+    递归闭环的输入侧：每次推理把实际使用的策略（prompt / 工具选择 / 反思）
+    记录到 RecursiveImprover，睡眠时 analyze_and_improve() 才有数据可分析。
+    质量分：success → 1.0，失败 → 0.2（供 high(>=0.8)/low(<0.4) 分组）。
+    """
+    try:
+        from taiji.life.recursive_improver import get_recursive_improver
+        improver = get_recursive_improver()
+        q = 1.0 if success else 0.2
+        # prompt 策略（system_prompt 是实际生效的提示策略）
+        improver.record_strategy(
+            "prompt", (system_prompt or "")[:200], prompt[:200], success, q)
+        # 工具选择策略（每个用过的工具一条，供按工具统计成功率）
+        for tool in tool_names:
+            improver.record_strategy(
+                "tool_choice", tool, prompt[:200], success, q)
+        # 反思策略（多步推理 = 展开了反思/规划）
+        if reasoning_steps >= 2:
+            improver.record_strategy(
+                "reflection", f"react_{reasoning_steps}steps", prompt[:200], success, q)
+    except Exception:
+        pass
+
+
 def _has_react_engine() -> bool:
     """检查 ReAct 引擎是否可用"""
     try:
@@ -223,6 +249,7 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
     reasoning_steps = 0
     used_tools = False
     had_search_results = False
+    tool_names: set = set()  # 实际用过的工具（递归改进输入环）
 
     # 尝试 ReAct 引擎（统一推理）
     if _has_react_engine():
@@ -250,9 +277,14 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
                 elif event_type == "action":
                     used_tools = True
                     reasoning_steps += 1
+                    t = event_data.get("tool", "")
+                    if t:
+                        tool_names.add(str(t))
                 elif event_type == "observation":
                     # 检查是否获得了搜索结果
                     tool_name = event_data.get("tool", "")
+                    if tool_name:
+                        tool_names.add(str(tool_name))
                     result_text = event_data.get("result", "")
                     if tool_name and ("search" in tool_name.lower() or "fetch" in tool_name.lower() or "browse" in tool_name.lower()):
                         if result_text and len(str(result_text).strip()) > 50:
@@ -277,6 +309,8 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
 
     success = bool(full_text and not full_text.startswith("["))
     _record_evolution(request.prompt, full_text, success)
+    _record_recursive_strategies(
+        request.prompt, system_prompt, success, reasoning_steps, tool_names)
 
     # 记录交互到生命系统（带真实指标）
     _record_life_interaction(

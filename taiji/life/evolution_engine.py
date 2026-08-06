@@ -83,18 +83,11 @@ class EvolutionEngine:
     # 递归蒸馏进化阈值
     DISTILLATION_THRESHOLDS = {
         "growth_value_max": 90,            # 成长值达到 90% 时考虑进化
-        "loss_plateau_steps": 1000,        # Loss 连续 1000 步不降时考虑进化
+        "loss_plateau_steps": 10,          # 最近 N 次睡眠训练 loss 收敛（平台）时考虑进化
+        "loss_plateau_std": 0.05,          # loss 平台判定：最近 N 次标准差 < 阈值
         "task_failure_rate": 0.4,          # 任务失败率 > 40% 时考虑进化
         "knowledge_saturation": 0.8,       # 知识饱和度 > 80% 时考虑进化
     }
-
-    # 进化路线（态极递归蒸馏）
-    EVOLUTION_PATH = [
-        {"name": "Taiji-Seed", "base": "Qwen/Qwen2.5-0.5B", "params": "0.5B"},
-        {"name": "Taiji-S1", "base": "custom", "params": "1B"},
-        {"name": "Taiji-M1", "base": "custom", "params": "3B"},
-        {"name": "Taiji-L1", "base": "custom", "params": "7B"},
-    ]
     
     def __init__(
         self,
@@ -125,6 +118,9 @@ class EvolutionEngine:
         # 任务记忆（最近的成功/失败模式）
         self._success_patterns: deque = deque(maxlen=200)
         self._failure_patterns: deque = deque(maxlen=200)
+        
+        # 最近睡眠训练 loss（用于平台检测，DISTILLATION_THRESHOLDS.loss_plateau_steps）
+        self._recent_train_losses: deque = deque(maxlen=200)
         
         # 用户习惯追踪
         self._user_tool_preferences: Dict[str, int] = {}
@@ -178,17 +174,16 @@ class EvolutionEngine:
 
     def check_evolution_ready(self) -> dict:
         """
-        检查态极是否准备好进化（扩大规模）。
+        检查态极是否准备好能力扩展（进化）。
 
-        态极递归蒸馏的核心：模型自己决定什么时候长大。
-        不是人类设定阈值，而是模型根据自身状态判断。
+        态极递归的核心：模型自己决定什么时候扩展能力。
+        信号 = 真实能力/任务统计（成长值、任务失败率、知识饱和度、训练 loss 平台），
+        非人类设定的代际路线（0.5B→7B 单体变大叙事已废弃，见 recursive_improver）。
 
         Returns:
             {
                 "ready": bool,
                 "reason": str,
-                "current_generation": str,
-                "next_generation": str,
                 "metrics": dict,
             }
         """
@@ -214,25 +209,30 @@ class EvolutionEngine:
                 if avg_mastery >= self.DISTILLATION_THRESHOLDS["knowledge_saturation"]:
                     reasons.append(f"知识饱和度 {avg_mastery:.0%}（阈值 {self.DISTILLATION_THRESHOLDS['knowledge_saturation']:.0%}）")
 
+            # 检查训练 loss 平台（激活死配置：最近 N 次睡眠训练 loss 收敛）
+            n = self.DISTILLATION_THRESHOLDS["loss_plateau_steps"]
+            losses = list(self._recent_train_losses)
+            if len(losses) >= n:
+                recent = losses[-n:]
+                mean = sum(recent) / n
+                std = (sum((x - mean) ** 2 for x in recent) / n) ** 0.5
+                if std < self.DISTILLATION_THRESHOLDS["loss_plateau_std"]:
+                    reasons.append(f"训练 loss 收敛平台（最近 {n} 次 std={std:.4f}）")
+
             # 至少满足 2 个条件才触发进化
             if len(reasons) >= 2:
                 ready = True
 
-            # 确定当前和下一代
-            current_gen = self._get_current_generation()
-            next_gen = self._get_next_generation(current_gen)
-
             return {
                 "ready": ready,
                 "reason": "; ".join(reasons) if reasons else "尚未达到进化阈值",
-                "current_generation": current_gen["name"],
-                "next_generation": next_gen["name"] if next_gen else "已是最新",
                 "metrics": {
                     "growth_value": growth_value,
                     "tasks_completed": self.metrics.tasks_completed,
                     "tasks_failed": self.metrics.tasks_failed,
                     "current_phase": self.metrics.current_phase,
                     "knowledge_domains": len(self.metrics.knowledge_domains),
+                    "recent_train_losses": list(self._recent_train_losses)[-n:],
                 },
             }
 
@@ -246,21 +246,6 @@ class EvolutionEngine:
             self.metrics.current_phase, 0
         )
         return task_score + tool_score + domain_score + phase_score
-
-    def _get_current_generation(self) -> dict:
-        """获取当前进化代际"""
-        # 根据模型参数量判断
-        return self.EVOLUTION_PATH[0]  # 默认第一代
-
-    def _get_next_generation(self, current: dict) -> Optional[dict]:
-        """获取下一代"""
-        try:
-            idx = self.EVOLUTION_PATH.index(current)
-            if idx + 1 < len(self.EVOLUTION_PATH):
-                return self.EVOLUTION_PATH[idx + 1]
-        except ValueError:
-            pass
-        return None
 
     # ─── 事件记录 ───────────────────────────────────
     
@@ -362,6 +347,8 @@ class EvolutionEngine:
         将训练效果同步到进化系统，作为成长指标的一部分。
         """
         with self._lock:
+            # 记录 loss 用于平台检测（递归蒸馏进化阈值）
+            self._recent_train_losses.append(loss)
             # 更新知识域（训练本身就是一种知识积累）
             self.metrics.knowledge_domains["sleep_training"] = \
                 self.metrics.knowledge_domains.get("sleep_training", 0) + 1.0
@@ -776,131 +763,6 @@ class EvolutionEngine:
         ]
         
         return "\n".join(lines)
-
-    # ── 代际迁移（第三层闭环的核心）─────────────────────
-
-    def execute_generation_transition(
-        self,
-        design: dict,
-        current_model,
-        current_tokenizer,
-        training_texts: list,
-        device: str = "cpu",
-        backup_dir: Optional[str] = None,
-    ) -> dict:
-        """执行代际迁移：用知识蒸馏将当前模型能力迁移到新一代模型。
-
-        已废弃。新架构（Cortex + ResonanceNeuron）下，进化通过
-        神经新生（neurogenesis）+ 睡眠巩固（sleep_consolidation）实现，
-        不再进行整体蒸馏替换。保留此方法仅为向后兼容。
-
-        新的进化路径：
-        1. NeurogenesisTrigger 检测知识盲区
-        2. 睡眠时蒸馏新神经元（子域用现有神经元作教师，新域用 1.5B）
-        3. ApoptosisTracker 清理弱连接神经元
-        4. MaturityTracker 管理新生神经元成熟度
-
-        Args:
-            design: design_next_generation() 返回的设计 dict
-            current_model: 当前运行的模型实例（教师）
-            current_tokenizer: 当前使用的 tokenizer
-            training_texts: 蒸馏用的训练文本列表
-            device: 训练设备
-            backup_dir: 旧模型备份目录（默认 {data_dir}/backups/）
-
-        Returns:
-            {
-                "success": bool,
-                "new_model_name": str,
-                "new_model_path": str,
-                "distillation_loss": float,
-                "validation_loss": float,
-                "error": str | None,
-            }
-        """
-        import warnings as _warnings
-        _warnings.warn(
-            "execute_generation_transition() is deprecated. "
-            "New architecture uses neurogenesis + sleep_consolidation for evolution, "
-            "not whole-model distillation. This method is retained only for backward compatibility.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        raise NotImplementedError(
-            "execute_generation_transition() is no longer supported. "
-            "Use neurogenesis + sleep_consolidation for evolution instead."
-        )
-
-
-def _design_to_model_config(arch: dict, old_config=None) -> "ModelConfig":
-    """将 design_next_generation() 的架构描述转换为 ModelConfig。
-
-    处理字段名差异：design 用 num_layers，ModelConfig 用 num_hidden_layers。
-    """
-    from taiji.config import ModelConfig
-
-    # 默认值从旧配置继承（如果可用），否则用 125M 默认值
-    if old_config is not None:
-        cfg = ModelConfig(
-            hidden_size=old_config.hidden_size,
-            intermediate_size=old_config.intermediate_size,
-            num_hidden_layers=old_config.num_hidden_layers,
-            num_attention_heads=old_config.num_attention_heads,
-            num_key_value_heads=old_config.num_key_value_heads,
-            max_position_embeddings=old_config.max_position_embeddings,
-            active_heads=list(old_config.active_heads) if old_config.active_heads else None,
-        )
-    else:
-        cfg = ModelConfig()
-
-    # 用设计方案覆盖
-    if "hidden_size" in arch:
-        cfg.hidden_size = int(arch["hidden_size"])
-    if "num_layers" in arch:
-        cfg.num_hidden_layers = int(arch["num_layers"])
-    if "intermediate_size" in arch:
-        cfg.intermediate_size = int(arch["intermediate_size"])
-    if "num_attention_heads" in arch:
-        cfg.num_attention_heads = int(arch["num_attention_heads"])
-    if "num_key_value_heads" in arch:
-        cfg.num_key_value_heads = int(arch["num_key_value_heads"])
-
-    # 根据进化方向推导 active_heads
-    arch_type = arch.get("type", "expanded")
-    if arch_type == "multimodal":
-        cfg.active_heads = ["language", "tool", "perception", "memory", "plan"]
-    elif arch_type == "specialized":
-        special = arch.get("special_heads", ["language", "tool"])
-        cfg.active_heads = list(special)
-    else:
-        # grow/shrink/restructure/expanded: 保留 language + tool
-        cfg.active_heads = ["language", "tool"]
-
-    return cfg
-
-
-def _validate_student(model, tokenizer, texts: list, device: str = "cpu") -> float:
-    """用简单 forward pass 验证学生模型的 loss。"""
-    import torch
-
-    model.eval()
-    model.to(device)
-    total_loss = 0.0
-    count = 0
-
-    with torch.no_grad():
-        for text in texts:
-            if not text or not text.strip():
-                continue
-            encoded = tokenizer(text, return_tensors="pt", padding="max_length",
-                               truncation=True, max_length=256)
-            input_ids = encoded["input_ids"].to(device)
-            output = model(input_ids, targets=input_ids)
-            if output.loss is not None:
-                total_loss += output.loss.item()
-                count += 1
-
-    return total_loss / max(count, 1)
 
 
 # ─── 全局实例 ─────────────────────────────────────

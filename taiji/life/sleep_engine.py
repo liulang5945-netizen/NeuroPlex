@@ -1701,7 +1701,7 @@ class SleepEngine:
                         except Exception:
                             pass
 
-            # 2. 检查是否准备好进化（设计下一代）
+            # 2. 检查是否准备好能力扩展（神经元架构下的进化 = 数据改进闭环）
             try:
                 from taiji.life.evolution_engine import get_evolution_engine
                 engine = get_evolution_engine()
@@ -1710,67 +1710,25 @@ class SleepEngine:
                 if evolution_status["ready"]:
                     logger.info(f"  Evolution ready: {evolution_status['reason']}")
 
-                    # 态极自主设计下一代（可能变大、变小、专业化、多模态）
-                    current_info = {
-                        "name": evolution_status["current_generation"],
-                        "params": "0.5B",  # TODO: 从实际模型获取
-                        "hidden_size": 896,
-                        "num_layers": 24,
-                        "num_attention_heads": 14,
+                    # 神经元架构下无"代际变大"（design_next_generation 已废弃）：
+                    # 进化 = 生成下一轮训练数据建议，消费方 = 跨域协作层训练
+                    # （train_cross_domain_collab.py），形成
+                    # "使用 → 数据 → 协作训练 → 能力扩展"的递归闭环。
+                    recommendations = engine.get_training_recommendations()
+                    data_spec = {
+                        "timestamp": datetime.now().isoformat(),
+                        "reason": evolution_status["reason"],
+                        "metrics": evolution_status["metrics"],
                         "weaknesses": self._identify_weaknesses(),
-                        "strengths": self._identify_strengths(),
-                        "resource_constraints": self._get_resource_constraints(),
+                        "training_recommendations": recommendations,
                     }
-                    # #21: design_next_generation 已标记 deprecated，仅生成设计 JSON
-                    # 不改变模型。保留作为设计参考，未来替换为新方案。
-                    next_gen_design = improver.design_next_generation(current_info)
-
-                    # 保存设计方案
-                    design_path = os.path.join(self.data_dir, "next_gen_design.json")
-                    with open(design_path, "w", encoding="utf-8") as f:
-                        json.dump(next_gen_design, f, indent=2, ensure_ascii=False)
-
+                    spec_path = os.path.join(self.data_dir, "next_training_data_spec.json")
+                    with open(spec_path, "w", encoding="utf-8") as f:
+                        json.dump(data_spec, f, indent=2, ensure_ascii=False)
                     report.recommendations.append(
-                        f"[进化] 已设计下一代: {next_gen_design['next_gen_name']} "
-                        f"(方向: {next_gen_design['evolution_direction']})"
+                        f"[进化] 已生成下一轮训练数据建议: {len(recommendations)} 条"
                     )
-                    logger.info(f"  Next generation designed: {next_gen_design['next_gen_name']} "
-                               f"(direction: {next_gen_design['evolution_direction']})")
-
-                    # ── 第三层闭环：执行代际迁移 ──
-                    # #22: execute_generation_transition raise NotImplementedError，
-                    # auto_generation_transition 默认 False，此路径当前禁用。
-                    if self.config.auto_generation_transition:
-                        try:
-                            logger.info("  启动代际迁移（知识蒸馏）...")
-                            model = self._get_model()
-                            tokenizer = self._get_tokenizer()
-
-                            if model is not None and tokenizer is not None:
-                                training_texts = self._collect_training_texts()
-                                result = engine.execute_generation_transition(
-                                    design=next_gen_design,
-                                    current_model=model,
-                                    current_tokenizer=tokenizer,
-                                    training_texts=training_texts,
-                                    device=self._get_device(),
-                                )
-                                if result["success"]:
-                                    report.recommendations.append(
-                                        f"[进化] 代际迁移成功: {result['new_model_name']} "
-                                        f"(distill_loss={result['distillation_loss']:.4f})"
-                                    )
-                                    logger.info(f"  代际迁移成功: {result['new_model_name']}")
-                                else:
-                                    report.recommendations.append(
-                                        f"[进化] 代际迁移失败: {result.get('error', 'unknown')}"
-                                    )
-                                    logger.warning(f"  代际迁移失败: {result.get('error')}")
-                            else:
-                                logger.warning("  代际迁移跳过: model 或 tokenizer 不可用")
-                        except Exception as e:
-                            logger.error(f"  代际迁移异常: {e}", exc_info=True)
-                            report.recommendations.append(f"[进化] 代际迁移异常: {e}")
+                    logger.info(f"  下一轮训练数据建议已保存: {spec_path}")
             except ImportError:
                 logger.info("  EvolutionEngine not available for evolution check")
 
