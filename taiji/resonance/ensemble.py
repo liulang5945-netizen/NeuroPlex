@@ -1781,7 +1781,8 @@ class ResonanceEnsemble:
         # logits 投影到 target_domain 空间再融合（softmax 前线性投影，近似概率转移）。
         # vocab 一致时走原路径（零开销，向后兼容）。
         vocab_sizes = [final_logits[nid].shape[-1] for nid in active_ids]
-        if len(set(vocab_sizes)) != 1:
+        cross_vocab = len(set(vocab_sizes)) != 1
+        if cross_vocab:
             if target_domain is None:
                 raise RuntimeError(
                     f"[forward_train] 检测到跨 vocab（vocab_sizes="
@@ -1829,10 +1830,23 @@ class ResonanceEnsemble:
             balance_loss = -(other_weights * torch.log(other_weights + 1e-8)).sum()
             weights = other_weights
         else:
-            # soft 软加权融合（默认，全可微）
-            weights = F.softmax(scores / temperature, dim=0)  # [N]
-            fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
-            balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+            if cross_vocab:
+                # 缺口 M + 分工路由（2026-08-06 实验验证）：跨 vocab 时按位置置信度
+                # 路由（softmax max-prob）。稀疏转译投影使域外 neuron logits 近均匀
+                # （max-prob ~0.01-0.02），原生 neuron 保持尖锐（~0.6）→ 每个 token
+                # 交给最自信的 neuron = 分工。域内：原生 neuron 全位置胜出（≈个体，
+                # 无伤害）；跨域（zh 提问→code 输出）：zh token→zh、code token→code。
+                native_list = [final_logits[nid] for nid in active_ids]
+                fused_logits, route_weights = self._confidence_routing_fusion(
+                    all_logits, native_list, active_ids, target_domain)
+                weights = route_weights  # [N] batch 平均路由权重（监控）
+                # 路由权重由 logits 决定（非参数），balance_loss 梯度会反向干扰路由 → 置 0
+                balance_loss = torch.zeros((), device=fused_logits.device)
+            else:
+                # soft 软加权融合（默认，全可微）
+                weights = F.softmax(scores / temperature, dim=0)  # [N]
+                fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
+                balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
 
         # ── 多样性 loss（field_vector 间余弦相似度，防退化相同）──
         if N >= 2:
@@ -2042,6 +2056,49 @@ class ResonanceEnsemble:
         result["weighted_logits"] = fused
         result["weights"] = weights.detach().cpu().tolist()
         result["fusion_mode"] = "score"
+
+    def _confidence_routing_fusion(
+        self,
+        all_logits: torch.Tensor,
+        native_logits: torch.Tensor,
+        active_ids: List[str],
+        target_domain: str,
+        router_temperature: float = 0.15,
+    ):
+        """跨 vocab 分工融合：per-position **硬路由**，置信度 = min(原生, 投影后) max-prob。
+
+        诊断（2026-08-06）：
+        - 域外 neuron 的 logits 经稀疏转译投影到目标域后幅值极端（zh max|logit|=60828），
+          软加权平均必然被垃圾幅值淹没（0.07×60000=4200 >> 原生 ±14）→ 需硬路由。
+        - 仅用投影后 max-prob 路由不稳：投影极端值会在个别位置尖峰（max-prob→1.0），
+          抢走原生 neuron 的位置 → 协作 loss 崩塌。
+        - 仅用原生空间 max-prob 分离弱（code 数据上 code 0.586 vs en 0.407）。
+        - **min(原生, 投影后)**：原生项 = 域门（域外 neuron 原生 max-prob 0.31-0.41，
+          即使投影尖峰到 1.0 也被原生项封顶 < code 0.586）；投影项 = 目标空间信息量。
+          域内 code 文本：code 0.586 全位置胜出 → 协作 ≈ 个体（无伤害）。
+
+        梯度只流向被选中 neuron（分工训练：各域 batch 训练各自的原生 neuron）。
+
+        Args:
+            all_logits: [N, B, L, V_tgt]（已投影到 target_domain 空间）
+            native_logits: List[[B, L, V_i]]（各 neuron 自身 vocab 空间原始 logits，
+                逐 neuron 计算置信度，vocab 不同不 stack）
+            active_ids: 参与共振的 neuron id
+
+        Returns:
+            (fused_logits [B, L, V_tgt], route_weights [N] batch 平均路由权重)
+        """
+        probs_tgt = F.softmax(all_logits, dim=-1).max(dim=-1).values     # [N, B, L]
+        # 原生空间 vocab 不同，逐 neuron 计算后 stack
+        probs_nat = torch.stack([
+            F.softmax(ln, dim=-1).max(dim=-1).values for ln in native_logits
+        ])                                                               # [N, B, L]
+        conf = torch.minimum(probs_nat, probs_tgt)                       # [N, B, L]
+        sel = conf.argmax(dim=0)                                         # [B, L]
+        w = F.one_hot(sel, num_classes=all_logits.shape[0]).permute(2, 0, 1).float()  # [N, B, L]
+        fused = (w.unsqueeze(-1) * all_logits).sum(dim=0)                # [B, L, V_tgt]
+        route_weights = w.mean(dim=(1, 2))                               # [N] 监控
+        return fused, route_weights
 
     def _compute_per_position_weights(
         self,

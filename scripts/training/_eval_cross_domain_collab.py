@@ -36,7 +36,7 @@ DOMAINS = ["code", "math", "zh", "en"]
 CKPT = "data/neurons/cross_domain_v1.ckpt.pt"
 
 
-def load_ensemble(neuron_dir, domains, ckpt_path):
+def load_ensemble(neuron_dir, domains, ckpt_path, no_weights=False):
     neurons = {}
     shared_embeddings = {}
     for dom in domains:
@@ -48,7 +48,8 @@ def load_ensemble(neuron_dir, domains, ckpt_path):
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=geometry)
-    load_cross_spec_weights(ensemble, "dialogue", ckpt_path)
+    if not no_weights and ckpt_path:
+        load_cross_spec_weights(ensemble, "dialogue", ckpt_path)
     return neurons, shared_embeddings, ensemble
 
 
@@ -111,7 +112,7 @@ def domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, domain, te
                     if len(out) > 3:
                         sft_mask = out[3].to(DEVICE)
             result = ensemble.forward_train(
-                neuron_embeddings=neuron_embeddings, n_rounds=2, fusion_mode="soft",
+                neuron_embeddings=neuron_embeddings, n_rounds=1, fusion_mode="soft",
                 targets=targets, target_domain=domain,
             )
             fused = result["fused_logits"]
@@ -161,7 +162,7 @@ def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
             for nid, emb in shared_embeddings.items():
                 neuron_embeddings[nid] = emb(ids)
             result = ensemble.forward_train(
-                neuron_embeddings=neuron_embeddings, n_rounds=2, fusion_mode="soft",
+                neuron_embeddings=neuron_embeddings, n_rounds=1, fusion_mode="soft",
                 target_domain=target_domain,
             )
             logits = result["fused_logits"][:, -1, :].float()
@@ -182,10 +183,13 @@ def main():
     parser.add_argument("--ckpt", default=CKPT)
     parser.add_argument("--data-dir", default="data/sft")
     parser.add_argument("--n-ppl", type=int, default=10)
+    parser.add_argument("--no-weights", action="store_true",
+                        help="不加载协作层权重（只测基座 + 路由融合）")
     args = parser.parse_args()
 
     print("加载多域 neuron + 协作层...", flush=True)
-    neurons, shared_embeddings, ensemble = load_ensemble(args.neuron_dir, DOMAINS, args.ckpt)
+    neurons, shared_embeddings, ensemble = load_ensemble(
+        args.neuron_dir, DOMAINS, args.ckpt, no_weights=args.no_weights)
     print("已加载", list(neurons.keys()), flush=True)
 
     # 与训练同口径注册 tokenizer：zh 用 neuron vocab 匹配的 v20k 变体
