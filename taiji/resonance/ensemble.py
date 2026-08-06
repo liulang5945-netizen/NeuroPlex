@@ -1371,6 +1371,14 @@ class ResonanceEnsemble:
                 # R3: 共识投票融合（推理路径）
                 # 多神经元 top-k 预测一致性加权（集体智慧）
                 self._consensus_logit_fusion(all_logits, scores, result, ref)
+            elif fusion_mode in ("soft", "score") and same_vocab and len(all_logits) >= 2:
+                # 缺口 N 修复（2026-08-06）：共振分融合（与训练 forward_train 对齐）
+                # 训练 "soft" = softmax(scores/temp) 融合（C12 让共振分与 NLL 排序对齐）。
+                # 推理此前 "soft" 实际走 per_position（entropy 启发式），无视训练学的
+                # 共振分 → 训练-推理不一致（训练分布 PPL 2.2 vs 推理 12.6，生成质量差）。
+                # A/B 实验：共振分融合生成明显更通顺。统一 "soft" 语义 = 共振分融合，
+                # 让推理直接复用训练学到的协作权重。per_position 保留为显式选项。
+                self._score_logit_fusion(all_logits, scores, result, ref)
             elif same_vocab:
                 self._compute_per_position_weights(
                     all_logits, vectors, scores, result, ref,
@@ -2005,6 +2013,35 @@ class ResonanceEnsemble:
             fused_logits = fused_logits + w * logits
 
         return fused_logits
+
+    def _score_logit_fusion(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        scores: Dict[str, float],
+        result: dict,
+        ref: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> None:
+        """缺口 N 修复（2026-08-06）：共振分 softmax 融合（与训练 forward_train 对齐）。
+
+        训练时融合权重 = softmax(scores/temp)（C12 让共振分与 NLL 排序对齐），
+        但推理默认 per_position（entropy 路由）是启发式，无视训练学的共振分，
+        导致训练-推理不一致（训练分布 PPL 2.2 vs 推理 12.6，生成质量差）。
+
+        此方法用 softmax(scores/temp) 生成融合权重，让推理直接复用训练学到的
+        协作权重（side_channels 学到的"谁擅长什么"经 scores 体现）。
+        """
+        neuron_ids = list(all_logits.keys())
+        score_vals = torch.tensor(
+            [scores.get(nid, 0.0) for nid in neuron_ids],
+            dtype=torch.float32, device=ref.device,
+        )
+        weights = F.softmax(score_vals / max(temperature, 1e-6), dim=0)  # [N]
+        logits_stack = torch.stack([all_logits[nid] for nid in neuron_ids])  # [N, B, L, V]
+        fused = torch.einsum('n,nblv->blv', weights, logits_stack)
+        result["weighted_logits"] = fused
+        result["weights"] = weights.detach().cpu().tolist()
+        result["fusion_mode"] = "score"
 
     def _compute_per_position_weights(
         self,
