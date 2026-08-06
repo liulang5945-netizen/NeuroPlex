@@ -280,9 +280,11 @@ def build_final_artifact(neurons, ensemble, shared_embeddings) -> dict:
     """S8: 构建最终交付产物，含 side_channels + cross_spec + body + emb。
 
     下游 eval 脚本加载此产物后，应用全部微调结果（不再丢失 body/emb）。
+    2026-08-06: 补充 scale_bias_state（此前缺失，评估时 scale/bias 回退训练前值）。
     """
     side_state = {}
     body_state = {}
+    scale_bias_state = {}
     for nid, neuron in neurons.items():
         side_state[nid] = {
             "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
@@ -300,6 +302,16 @@ def build_final_artifact(neurons, ensemble, shared_embeddings) -> dict:
             bp[name] = p.data.clone()
         if bp:
             body_state[nid] = bp
+        # scale_bias（可训练 scale/bias 参数）
+        sb = {}
+        for name, p in neuron.named_parameters():
+            if "scale_" in name:
+                sb[name] = p.data.clone()
+        for name, buf in neuron.named_buffers():
+            if "bias_" in name:
+                sb[name] = buf.clone()
+        if sb:
+            scale_bias_state[nid] = sb
     cross_spec_state = {
         "forward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_projectors.items()},
         "backward": {nid: proj.state_dict() for nid, proj in ensemble._cross_spec_back_projectors.items()},
@@ -307,6 +319,8 @@ def build_final_artifact(neurons, ensemble, shared_embeddings) -> dict:
     artifact = {"side_channels": side_state, "cross_spec": cross_spec_state}
     if body_state:
         artifact["body_state"] = body_state
+    if scale_bias_state:
+        artifact["scale_bias_state"] = scale_bias_state
     # S8: 保存 shared_embedding（如果训练）
     if shared_embeddings is not None:
         emb_state = {}

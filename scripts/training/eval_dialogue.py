@@ -91,7 +91,7 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
     ckpt_data = None
     if weights_path and os.path.exists(weights_path):
         ckpt_data = torch.load(weights_path, map_location=DEVICE, weights_only=False)
-        side_state_peek = ckpt_data.get("side_channels", ckpt_data)
+        side_state_peek = ckpt_data.get("side_channels") or ckpt_data.get("side_channels_state")
         if side_state_peek and isinstance(side_state_peek, dict):
             topology = infer_topology_from_state(side_state_peek)
             print(f"  [topology] 从 checkpoint 推断: {topology_detail(topology, neurons)}", flush=True)
@@ -106,7 +106,7 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
 
     # 加载权重
     if ckpt_data is not None:
-        side_state = ckpt_data.get("side_channels", ckpt_data)
+        side_state = ckpt_data.get("side_channels") or ckpt_data.get("side_channels_state")
         for nid, neuron in neurons.items():
             if nid in side_state:
                 for pid, ch_state in side_state[nid].get("excite", {}).items():
@@ -139,10 +139,14 @@ def load_neurons_and_weights(weights_type: str = "dialogue", topology_mode: str 
 
 def load_cross_spec_weights(ensemble, weights_type: str = "dialogue",
                             ckpt_path: Optional[str] = None):
-    """加载跨规格投影层权重。
+    """加载跨规格投影层权重 + 协作层训练产物（side_channels/scale_bias/body）。
 
     §4.0d+: ckpt_path 显式指定任意 checkpoint 文件（早停对比用），
     未指定时按 weights_type 用默认路径。
+
+    修复（2026-08-06）：此前只加载 cross_spec，丢失 side_channels/scale_bias/
+    body_state——这三者是协作层训练的核心产物，缺失导致评估用"训练前"参数，
+    PPL 虚高（705 vs 训练 3.0）。
     """
     weights_path = _resolve_weights_path(weights_type, ckpt_path)
     if weights_path is None:
@@ -152,10 +156,64 @@ def load_cross_spec_weights(ensemble, weights_type: str = "dialogue",
         return
 
     ckpt_data = torch.load(weights_path, map_location=DEVICE, weights_only=False)
-    if not isinstance(ckpt_data, dict) or "cross_spec" not in ckpt_data:
+    if not isinstance(ckpt_data, dict):
+        return
+    if "cross_spec" not in ckpt_data and "cross_spec_state" not in ckpt_data:
         return
 
-    cross_spec_state = ckpt_data["cross_spec"]
+    # key 兼容：final artifact 用 "side_channels"/"cross_spec"；ckpt 用
+    # "side_channels_state"/"cross_spec_state"（后缀 _state 统一处理）
+    def _pick(*keys):
+        for k in keys:
+            if k in ckpt_data:
+                return ckpt_data[k]
+        return {}
+
+    side_state = _pick("side_channels", "side_channels_state")
+    scale_bias_state = _pick("scale_bias_state", "scale_bias")
+    body_state = _pick("body_state", "body")
+    cross_spec_state = _pick("cross_spec", "cross_spec_state")
+
+    # ── side_channels（协作核心：共振信号传递）──
+    for nid, neuron in ensemble.neurons.items():
+        if nid not in side_state:
+            continue
+        for pid, ch_state in side_state[nid].get("excite", {}).items():
+            if pid in neuron.excite_channels:
+                neuron.excite_channels[pid].load_state_dict(ch_state)
+        for pid, ch_state in side_state[nid].get("inhibit", {}).items():
+            if pid in neuron.inhibit_channels:
+                neuron.inhibit_channels[pid].load_state_dict(ch_state)
+    if side_state:
+        print(f"  [side_channels] 已加载 {len(side_state)} 个 neuron 的 side_channels", flush=True)
+
+    # ── scale_bias（可训练 scale/bias 参数）──
+    for nid, neuron in ensemble.neurons.items():
+        if nid not in scale_bias_state:
+            continue
+        sb = scale_bias_state[nid]
+        for name, p in neuron.named_parameters():
+            if name in sb and "scale_" in name:
+                p.data.copy_(sb[name])
+        for name, buf in neuron.named_buffers():
+            if name in sb and "bias_" in name:
+                buf.copy_(sb[name])
+    if scale_bias_state:
+        print(f"  [scale_bias] 已加载 {len(scale_bias_state)} 个 neuron 的 scale/bias", flush=True)
+
+    # ── body（S8: 训练后的最后 N 层 + lm_head + field_write）──
+    for nid, neuron in ensemble.neurons.items():
+        if nid not in body_state:
+            continue
+        for name, p in neuron.named_parameters():
+            if name in body_state[nid]:
+                saved = body_state[nid][name]
+                if saved.shape == p.shape:
+                    p.data.copy_(saved)
+    if body_state:
+        print(f"  [body] 已加载 {len(body_state)} 个 neuron 的 body 参数", flush=True)
+
+    # ── cross_spec（跨规格投影层）──
     for nid, sd in cross_spec_state.get("forward", {}).items():
         if nid in ensemble._cross_spec_projectors:
             proj = ensemble._cross_spec_projectors[nid]
