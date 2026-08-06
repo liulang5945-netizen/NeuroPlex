@@ -178,6 +178,38 @@ def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
     return target_sp.decode(generated)
 
 
+def cross_domain_generate_general(neurons, shared_embeddings, ensemble, hub, general_sp,
+                                  zh_prompt, max_tokens=40, rounds=2):
+    """通用空间生成：zh 提问 → general 256K 空间分工路由（zh 理解 + code 表达共存）。
+
+    各 neuron logits 投影到 general 空间，按位置路由（min(原生,投影) 置信度）：
+    zh token → zh neuron（中文片段自信），code token → code neuron（代码片段自信）。
+    语义桥接的关键架构探针：目标域路由在结构上阻止 code neuron 参与 zh 域批次，
+    通用空间让两种专家在输出空间共存。
+    """
+    target_sp = general_sp
+    ids = torch.tensor([general_sp.encode(zh_prompt)], dtype=torch.long, device=DEVICE)
+    generated = []
+    eos_id = None
+    with torch.no_grad():
+        for _ in range(max_tokens):
+            neuron_embeddings = {}
+            for nid, emb in shared_embeddings.items():
+                neuron_embeddings[nid] = emb(ids)
+            result = ensemble.forward_train(
+                neuron_embeddings=neuron_embeddings, n_rounds=rounds, fusion_mode="soft",
+                target_domain="general",
+            )
+            logits = result["fused_logits"][:, -1, :].float()
+            probs = F.softmax(logits / 0.7, dim=-1)
+            nxt = torch.multinomial(probs, num_samples=1).item()
+            generated.append(nxt)
+            piece = target_sp.decode([nxt])
+            new_ids = general_sp.encode(piece)
+            ids = torch.cat([ids, torch.tensor([new_ids], dtype=torch.long, device=DEVICE)], dim=1)
+    return target_sp.decode(generated)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--neuron-dir", default="data/verify_v3")
@@ -227,9 +259,15 @@ def main():
             out = cross_domain_generate(neurons, shared_embeddings, ensemble, hub,
                                         general_sp, p, target_domain="code",
                                         rounds=args.rounds)
-            print(f"  → {out}", flush=True)
+            print(f"  [code 域] → {out}", flush=True)
         except Exception as e:
             print(f"  生成失败: {e}", flush=True)
+        try:
+            out_g = cross_domain_generate_general(neurons, shared_embeddings, ensemble,
+                                                  hub, general_sp, p, rounds=args.rounds)
+            print(f"  [general 域] → {out_g}", flush=True)
+        except Exception as e:
+            print(f"  通用空间生成失败: {e}", flush=True)
 
 
 if __name__ == "__main__":
