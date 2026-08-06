@@ -237,6 +237,13 @@ def main():
     parser.add_argument("--save-name", default="cross_domain_collab",
                         help="checkpoint 文件名前缀")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--target-space", default="domain",
+                        choices=["domain", "general"],
+                        help="训练目标空间：domain=各域 tokenizer（原口径）；"
+                             "general=通用 256K 空间（各 neuron 投影到 general 融合，"
+                             "支持跨域组合：en/zh 理解指令 + code 生成代码）")
+    parser.add_argument("--seq-len", type=int, default=128,
+                        help="batch_align_and_embed 最大序列长度")
     args = parser.parse_args()
 
     global DEVICE
@@ -409,6 +416,10 @@ def main():
             domain_sp = hub.get_tokenizer(domain)
             # zh 用中文 answer marker；其他域全文本 loss（数据无中文 marker）
             answer_marker = SFT_ANSWER_MARKER if domain == "zh" else None
+            # general 目标空间：跨域组合训练（en/zh 理解指令 + code 表达），全文本 loss
+            general_mode = args.target_space == "general"
+            if general_mode:
+                answer_marker = None
 
             for i in range(0, len(texts) - args.batch_size, args.batch_size):
                 batch_texts = texts[i:i + args.batch_size]
@@ -417,11 +428,18 @@ def main():
                 mask = None
                 sft_mask = None
                 for nid, emb in shared_embeddings.items():
-                    out = batch_align_and_embed(
-                        batch_texts, domain_sp, general_sp, emb,
-                        answer_marker=answer_marker,
-                        answer_marker_mode="last" if answer_marker else "first",
-                    )
+                    if general_mode:
+                        # 输入与目标都在 general 256K 空间（domain_sp == general_sp）
+                        out = batch_align_and_embed(
+                            batch_texts, general_sp, general_sp, emb,
+                            max_seq_len=args.seq_len,
+                        )
+                    else:
+                        out = batch_align_and_embed(
+                            batch_texts, domain_sp, general_sp, emb,
+                            answer_marker=answer_marker,
+                            answer_marker_mode="last" if answer_marker else "first",
+                        )
                     neuron_embeddings[nid] = out[0].to(DEVICE)
                     if targets is None:
                         targets = out[1].to(DEVICE)
@@ -444,7 +462,7 @@ def main():
                     targets=targets,
                     field_conditioning=field_cond,
                     step=total_steps,
-                    target_domain=domain,  # 缺口 M: batch 目标域
+                    target_domain="general" if general_mode else domain,  # 缺口 M: batch 目标域
                 )
 
                 fused_logits = result["fused_logits"]
