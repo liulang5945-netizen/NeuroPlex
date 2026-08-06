@@ -509,8 +509,10 @@ class SleepEngine:
             return domain_nids[0]
 
         # 多个同域 neuron 时选共振分数最高的
+        # round_scores 已 thread-local（任务级并行）；这里读共享镜像
+        # _last_forward_round_scores（最后一次推理的写穿结果）
         try:
-            scores = getattr(self.cortex.ensemble, 'round_scores', [])
+            scores = getattr(self.cortex.ensemble, '_last_forward_round_scores', [])
             if scores:
                 last_scores = scores[-1] if scores else {}
                 best_nid = max(

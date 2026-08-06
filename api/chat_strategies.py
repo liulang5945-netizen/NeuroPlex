@@ -345,7 +345,12 @@ async def _stream_fallback(prompt, system_prompt, app_state, stop_event):
     # Cortex 神经元架构：使用 [系统]/[用户]/[助手] 格式
     formatted = f"[系统] {system_prompt}\n[用户] {prompt}\n[助手]"
     try:
-        result = model.generate(formatted, max_tokens=512)
+        # 任务级并行：同步 generate 移入工作线程（asyncio.to_thread），
+        # 不同聊天请求各自在独立线程运行 → 并发推理不阻塞事件循环，
+        # 且 ensemble 每任务独立共振场（thread-local）互不污染
+        result = await asyncio.to_thread(
+            model.generate, formatted, max_tokens=512
+        )
         full_text = result if isinstance(result, str) else str(result)
         yield f"data: {json.dumps(full_text, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0.01)

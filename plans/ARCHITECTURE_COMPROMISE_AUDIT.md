@@ -18,7 +18,7 @@
 | 增删互斥防交错 | **热插拔锁**：cortex 增删接口（`add/remove/isolate/revive_neuron`）用 `threading.RLock` 串行化；推理读走快照不拿锁（读-写无争用） | ✅ 已完成（commit bfccaf8） |
 | 混合规格种群共存 | **热插拔补投影**：`ensemble.add_neuron` 在 `field_dim ≠ unified` 时自动补建 `CrossSpecProjector`（正/反向）——修既有 bug（混合种群下新 neuron 缺投影层 → 推理 3072-vs-2048 RuntimeError）；同时**放宽 field_dim 校验**（原只对首个 neuron 校验，混合种群会误拒） | ✅ 已完成（commit bfccaf8） |
 | 训练与推理并发（学习时正常对话） | **训练/推理分离（影子权重 COW）**：推理（generate/generate_multimodal）**去训练锁**（原 acquire(timeout=10) 阻塞对话）；训练侧 `_train_cortex_neurons` 在 `_clone_module` 克隆副本上训练（live 权重训练全程稳定），结束一次性写回 + 恢复引用；`_clone_module` 用配置重建 + load_state_dict（deepcopy 因 RotaryEmbedding._cache_lock 不可 pickle 会崩） | ✅ 已完成（本 commit） |
-| 多线程并行处理不同任务 | API 并发推理 + `active_nids` 按域路由不同 neuron 子集 | ⏳ 机制 3（下一步） |
+| 多线程并行处理不同任务 | **任务级并行**：① ensemble `field` 改属性——推理 forward 期间返回 thread-local 独立共振场（`_get_task_field`，继承 W_cond + gamma gate，跨任务互不污染）；② forward scratch（round_scores/_router_*/_logits_keep_ids）全部 thread-local（`_fstate`），写穿 `_last_forward_round_scores` 供 sleep_engine 分裂选择；③ forward_train 显式用默认场；④ API SSE 聊天 `asyncio.to_thread` 移同步 generate 出事件循环（并发请求真正并行）；`active_nids` 按域路由不同 neuron 子集（已有） | ✅ 已完成（本 commit） |
 
 **快照隔离已验证**（`verify_hotswap_snapshot.py` 全通过）：
 - 推理线程持续 forward，主线程并发 add/remove/isolate/revive → 推理 8 次 forward 全部正常、分数有限
@@ -31,6 +31,12 @@
 - 写回后 live == 影子（训练生效）+ 训练期间移除的 neuron 不复活
 - 推理线程 25 次 forward 全部正常（训练 COW 周期全程不崩溃、分数有限）
 - dict 引用不变（ensemble.neurons is cortex.neurons 贯穿全周期）
+
+**任务级并行已验证**（`verify_task_parallel.py` 全通过）：
+- 三线程 barrier 同步并发推理，全部不崩溃、分数有限
+- 路由隔离：每任务 final_scores keys 只含本任务 active_nids（跨任务无污染）
+- 并发 top-1 与串行基线完全一致（field 隔离生效；neuron 不应期共享为符合人脑语义的微小调度差异）
+- task field thread-local 缓存复用断言
 
 **并发容错补充**：`_update_channel_usage` 两处 `post_neuron` 改 `.get()` + None 跳过（推理中 side_channel 清理的 post 神经元可能已被移除）。
 

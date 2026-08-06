@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 import time
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -309,7 +310,12 @@ class ResonanceEnsemble:
         sparse_router_warmup_steps: int = 2000,  # Phase 0/1 warm-up 步数
     ):
         self.neurons = neurons
-        self.field = field
+        # 任务级并行（人脑：多线程处理不同任务）：
+        # 默认场 _field（训练/诊断/无并发路径）；推理 forward 每任务用
+        # thread-local 独立共振场（_get_task_field），跨任务互不干扰。
+        self._field = field
+        self._local = threading.local()
+        self._last_forward_round_scores: List[Dict[str, float]] = []
         self.max_rounds = max_rounds
         self.diversity_lambda = diversity_lambda
 
@@ -396,11 +402,6 @@ class ResonanceEnsemble:
 
         # ── 大规模内存控制（B2/B3 fix）──
         self.logits_top_k = logits_top_k
-        self._logits_keep_ids: Optional[set] = None
-
-        # Tracking
-        self.round_scores: List[Dict[str, float]] = []
-        self.n_active_history: List[int] = []
 
         # ── Auxiliary-loss-free balancing ──
         # 每条 side_channel 的利用率统计（EMA），用于启发式 bias 更新
@@ -470,6 +471,103 @@ class ResonanceEnsemble:
         self._logits_alignment_cache: Dict[tuple, dict] = {}
         # 可编辑词库规则层（AlignmentRules）：人工覆盖自动转译，见 set_alignment_rules
         self._alignment_rules = None
+
+    # =========================================================================
+    # 任务级并行（人脑：多线程处理不同任务）——
+    # 1) field 属性：推理 forward 期间返回本线程独立共振场（thread-local），
+    #    其余路径（训练/诊断）返回默认场 _field。跨任务共振场互不污染。
+    # 2) forward scratch（round_scores/_router_* 等）全部 thread-local，
+    #    并发推理时每任务独立；forward 结束写穿到 _last_forward_round_scores
+    #    供外部诊断读取（如 sleep_engine 分裂选择）。
+    # =========================================================================
+
+    @property
+    def field(self) -> "ResonanceField":
+        """任务级并行：推理 forward 期间返回本线程的独立共振场，
+        其余路径（训练/诊断）返回默认场 _field。"""
+        return getattr(self._local, "task_field", None) or self._field
+
+    def _get_task_field(self) -> "ResonanceField":
+        """获取本线程的任务共振场（懒创建 + 缓存）。
+
+        继承默认场的 W_cond（门控参数）与 gamma gate（apply_gamma_gate 的
+        monkey-patch），保证 per-task 场与默认场行为一致。
+        """
+        f = getattr(self._local, "task_field", None)
+        if f is None:
+            f = ResonanceField(dim=self._field.dim, device=self._field._device)
+            with torch.no_grad():
+                f.W_cond.copy_(self._field.W_cond)
+            if self.gamma_oscillator is not None:
+                from taiji.resonance.gamma_oscillator import apply_gamma_gate
+                apply_gamma_gate(f, self.gamma_oscillator)
+            self._local.task_field = f
+        return f
+
+    # ── thread-local forward scratch ──
+    def _fstate(self, name: str, default=None):
+        d = getattr(self._local, "fstate", None)
+        if d is None:
+            d = {}
+            self._local.fstate = d
+        return d.get(name, default)
+
+    def _set_fstate(self, name: str, value) -> None:
+        d = getattr(self._local, "fstate", None)
+        if d is None:
+            d = {}
+            self._local.fstate = d
+        d[name] = value
+
+    @property
+    def _logits_keep_ids(self):
+        return self._fstate("_logits_keep_ids")
+
+    @_logits_keep_ids.setter
+    def _logits_keep_ids(self, v):
+        self._set_fstate("_logits_keep_ids", v)
+
+    @property
+    def _last_router_result(self):
+        return self._fstate("_last_router_result")
+
+    @_last_router_result.setter
+    def _last_router_result(self, v):
+        self._set_fstate("_last_router_result", v)
+
+    @property
+    def _router_active_ids(self):
+        return self._fstate("_router_active_ids")
+
+    @_router_active_ids.setter
+    def _router_active_ids(self, v):
+        self._set_fstate("_router_active_ids", v)
+
+    @property
+    def _router_hard_mask(self):
+        return self._fstate("_router_hard_mask")
+
+    @_router_hard_mask.setter
+    def _router_hard_mask(self, v):
+        self._set_fstate("_router_hard_mask", v)
+
+    @property
+    def round_scores(self) -> List[Dict[str, float]]:
+        v = self._fstate("round_scores")
+        return v if v is not None else []
+
+    @round_scores.setter
+    def round_scores(self, v):
+        self._set_fstate("round_scores", v)
+
+    @property
+    def n_active_history(self) -> List[int]:
+        v = self._fstate("n_active_history")
+        return v if v is not None else []
+
+    @n_active_history.setter
+    def n_active_history(self, v):
+        self._set_fstate("n_active_history", v)
 
     def set_tokenizer_hub(self, tokenizer_hub) -> None:
         """注入 TokenizerHub（跨 vocab 联合训练需要访问各域 tokenizer）。
@@ -945,7 +1043,9 @@ class ResonanceEnsemble:
         else:
             ref = shared_embeddings
 
-        self.field.reset(batch_size=ref.shape[0])
+        # 任务级并行：本任务用独立共振场（thread-local），跨任务互不干扰；
+        # forward 期间 self.field 属性解析到本线程的任务场，其余路径回默认场
+        self._get_task_field().reset(batch_size=ref.shape[0])
         self.round_scores = []
         self.n_active_history = []
         self._logits_keep_ids = None  # 每次 forward 重置
@@ -1363,6 +1463,8 @@ class ResonanceEnsemble:
             prev_round_scores = scores
 
         # ── Final output ──
+        # 写穿 thread-local round_scores → 共享镜像（供外部诊断如 sleep_engine 分裂选择）
+        self._last_forward_round_scores = self.round_scores
         result = {
             "field_state": self.field.get_state(),
             "final_scores": self.round_scores[-1] if self.round_scores else {},
@@ -1421,8 +1523,8 @@ class ResonanceEnsemble:
 
                 # C14: 计算 shared_weight
                 if self.shared_weight_mlp is not None:
-                    # field_state: [B,D] 或 [D]
-                    field_state = self.field.get_state()
+                    # field_state: [B,D] 或 [D]（训练单线程：显式用默认场）
+                    field_state = self._field.get_state()
                     if field_state.dim() == 1:
                         field_state = field_state.unsqueeze(0)  # [1,D]
                     B = field_state.shape[0]
