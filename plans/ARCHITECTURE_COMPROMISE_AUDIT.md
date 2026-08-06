@@ -12,7 +12,7 @@
 
 **结论：项目"递归"（taiji/life 递归改进 + 递归蒸馏）两条回路——任务进化回路活着，递归改进回路是死的。**
 
-**✅ 已修复（commit 待填）**：
+**✅ 已修复（commit 7e3a3ea）**：
 1. **删除废弃死代码**：`recursive_improver.design_next_generation` 及 13 个私有辅助（~300 行）、`evolution_engine.execute_generation_transition`/`_design_to_model_config`/`_validate_student`/`EVOLUTION_PATH`/`_get_current_generation`/`_get_next_generation`
 2. **修潜伏 bug**：`_get_next_gen_name` 双同名定义（L623 被 L740 覆盖 → design_next_generation 必 TypeError）——方法已随死代码删除
 3. **激活死配置**：`loss_plateau_steps` 从定义未用 → `record_sleep_training` 记录 loss 历史 + `check_evolution_ready` 平台检测（std < 0.05）
