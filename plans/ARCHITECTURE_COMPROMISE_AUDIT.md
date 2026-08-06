@@ -153,9 +153,9 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-06 21:40 更新）
+## 📌 当前执行状态（2026-08-06 22:30 更新）
 
-**"共享 general lm_head 统一输出空间"：基座训练已完成 ✅ + 产物验证通过 ✅**
+**"共享 general lm_head 统一输出空间"：基座训练完成 ✅ + 产物验证 ✅ + 路由适配完成 ✅**
 
 **架构落地（已完成，commit 5bb522b 等）**：
 - ✅ [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py#L160-L164)：`ResonanceNeuron.__init__` 支持注入 `shared_lm_head`——所有 neuron 共享同一个 general 256K lm_head，直接预测通用 token（无词库转译投影稀释）→ 路由置信度信号保留
@@ -166,7 +166,7 @@
   - checkpoint 瘦身：`_strip_shared_head()` 剥离 131M head 出 neuron ckpt（共享 head 独立存 `shared_lm_head.pt`，避免每域 ~525MB 冗余）
   - 回读验证支持 `lm_head_path` 注入（最终 + 配对校验两段都传，防止 16K 域 head 算 256K 目标崩溃）
 - ✅ **冒烟验证**（3 步/域 × 4 域，batch 2）：管线跑通 + checkpoint 回读正确；loss 从随机水平（12.9-13.2 ≈ ln256000）三轮内降到 10.3-12.5，**学习正常**
-- ✅ **正式基座训练完成**（21:23）：`data/foundation_v1_general`（4 域 × 600 步 = step 2400，batch 8），`foundation_history.json` 完整记录
+- ✅ **正式基座训练完成**（21:23）：`data/foundation_v1_general`（4 域 × 600 步 = step 2400，batch 8），`foundation_history.json` 完整记录。**注意：4 个域 neuron 是全新随机初始化训练（compact，非继承旧 5 神经元/旧域基座）**——统一空间要求所有 neuron 直接预测 general 256K token，旧域 lm_head（code 12K 等）输出空间不一致无法复用
 - ✅ **collab/eval 加载路径预修复**（commit 5bb522b）：`load_neuron` 支持注入 `shared_lm_head` + 新增 `load_shared_lm_head()`——general 基座（ckpt 已剥离 131M head）可正确加载并输出 256K 空间 logits
 
 **产物回读验证通过**（`verify_foundation_general.py`，修复 tokenizer 口径后）：
@@ -174,11 +174,20 @@
 - **配对校验**（best 权重 ↔ best 步 embedding）：code 14.1 / math 41.5 / zh 514.7 / en 187.7
 - **输出空间验证**：4 域全部输出 general 256K logits，top token 正常（code '<0x0A>'、math '4'、zh '、'、en '.'）
 
-**🔧 修复训练脚本回读 bug（本 commit）**：`verify_checkpoint` 目标 tokenizer 传错——L335/L341 传 `domain_sps[d]`（域词表），与训练（general_sp 编码）不一致 → 目标编码错位，训练脚本自身打印的"最终回读" PPL 是假值（400 万级）。已改为 `general_sp, general_sp`（输入/目标都 general，与训练循环 L267 完全一致）。独立验证脚本 [verify_foundation_general.py](file:///e:/taiji-neuron/scripts/training/verify_foundation_general.py) 即按修复后口径验证。
+**🔧 修复训练脚本回读 bug（commit 00cda08）**：`verify_checkpoint` 目标 tokenizer 传错——L335/L341 传 `domain_sps[d]`（域词表），与训练（general_sp 编码）不一致 → 目标编码错位，训练脚本自身打印的"最终回读" PPL 是假值（400 万级）。已改为 `general_sp, general_sp`（输入/目标都 general，与训练循环 L267 完全一致）。
 
-**后续链（下一步：路由适配统一空间）**：
-1. **路由适配统一空间**：同 vocab（256K）场景改走 max-prob 分工路由（无投影，置信度天然可用）
-2. 协作层 general 空间训练 + 评估（域内 EMERGE + 跨域 zh→code 语义桥接）
+**✅ 路由适配统一空间完成**（`verify_unified_space_routing.py`，commit 待填）：
+1. **新增 division 融合模式**（[ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) `_division_logit_fusion`）：同 vocab（256K）场景 per-position 硬路由——每个 token 位置交给 max-prob 最高的 neuron，直接复用原生置信度（无转译投影）。`division_norm` 为 per-neuron 归一化变体（实验）
+2. **修复架构 bug**：`forward` 的 active_ids 原为 set（迭代顺序不定）→ round_logits/all_logits dict 顺序随机 → 路由监控/诊断索引错位。改为有序 list（保持 nmap 顺序），路由信号顺序确定性
+3. **验证结果**：
+   - [2] 域内分工全对角占优：code 文本→code 0.66、math→0.54、zh→0.46、en→0.34（分工方向正确，路由信号在统一空间可用）
+   - [3] 基线 PPL（协作层未训练时）：个体最优（code 19.5/math 56.3/zh 82.6/en 108.5）> soft（共振分融合）> division 裸 > division_norm——**跨 neuron 的 logits 尺度天然不可比**（code 平均 max-prob 0.566 vs zh 0.374，尖锐者抢走非自身域位置但预测错误），启发式归一化无效（过度平坦化）
+   - [4] 生成冒烟正常（中文 prompt 回显 + 多 neuron 续写）
+4. **关键结论**：division 分工路由是"路径打通 + 信号可用"的适配（域内分工正确），PPL 校准需**协作层训练**（C12 对比约束让共振分对齐 NLL 排序 / Sparse Router 学习路由）——即下一步
+
+**后续链（下一步：协作层 general 空间训练）**：
+1. ✅ ~~路由适配统一空间~~（division 模式 + set 顺序修复 + 基线记录，见上）
+2. **协作层 general 空间训练 + 评估**（域内 EMERGE + 跨域 zh→code 语义桥接）——校准路由信号的核心步骤
 3. 结果记录到 plans + 提交
 
 **背景**：跨域协作 v3 + rounds=2 已达成域内 EMERGE +4.0% 全域转正（"5 联合 > 5" 域内实证）；通用空间投影极限诊断结论 = 静态稀疏投影到 256K 摧毁置信度（max-prob≈0.001）→ 共享 general lm_head 免投影是架构上限最高的解

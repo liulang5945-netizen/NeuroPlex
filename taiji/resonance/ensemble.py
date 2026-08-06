@@ -1023,6 +1023,9 @@ class ResonanceEnsemble:
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
                         - "per_position"（默认）：每位置按熵/置信度独立路由（向后兼容）
                         - "residual"：族长完整预测 + 其他神经元残差修正
+                        - "division"：统一空间（同 vocab）max-prob 分工路由——每位置
+                          直接交给 max-prob 最高的 neuron（共享 general lm_head 后置信度
+                          天然尖锐，无转译投影稀释）
 
         Returns:
             dict with:
@@ -1071,17 +1074,23 @@ class ResonanceEnsemble:
 
         neuron_ids = list(nmap.keys())
         # 如果指定了 active_nids，只激活这些 neuron（精简模式）
+        # 注意：用有序 list 而非 set——set 迭代顺序不确定会导致 round_logits /
+        # 融合结果 dict 顺序随机，路由监控/诊断索引错位（2026-08-06 统一空间路由
+        # 验证中发现：active_ids 为 set 时 all_logits.keys() 每次运行顺序不同）。
         if active_nids is not None:
-            active_ids = set(nid for nid in active_nids if nid in nmap)
+            seen: set = set()
+            active_ids = [nid for nid in active_nids
+                          if nid in nmap and not (nid in seen or seen.add(nid))]
             if not active_ids:
                 # fallback: 全部 neuron
-                active_ids = set(neuron_ids)
+                active_ids = list(neuron_ids)
         else:
-            active_ids = set(neuron_ids)
+            active_ids = list(neuron_ids)
 
         # Shared Expert: general 神经元始终激活（不受路由/精简模式影响）
-        if self.shared_expert_id and self.shared_expert_id in nmap:
-            active_ids.add(self.shared_expert_id)
+        if self.shared_expert_id and self.shared_expert_id in nmap \
+                and self.shared_expert_id not in active_ids:
+            active_ids.append(self.shared_expert_id)
 
         vectors: Dict[str, torch.Tensor] = {}
         all_logits: Dict[str, torch.Tensor] = {}
@@ -1501,6 +1510,20 @@ class ResonanceEnsemble:
                 # A/B 实验：共振分融合生成明显更通顺。统一 "soft" 语义 = 共振分融合，
                 # 让推理直接复用训练学到的协作权重。per_position 保留为显式选项。
                 self._score_logit_fusion(all_logits, scores, result, ref)
+            elif fusion_mode == "division" and same_vocab and len(all_logits) >= 2:
+                # 统一空间 max-prob 分工路由（2026-08-06）：共享 general lm_head 后
+                # 所有 neuron 原生输出在 256K 空间，max-prob 天然尖锐（旧诊断
+                # max-prob≈0.001 是静态稀疏投影稀释所致，已消除）。per-position
+                # 硬路由把每个 token 位置交给最自信的 neuron——域内文本由域 neuron
+                # 全位置胜出（≈个体无伤害），跨域语义桥接时不同位置不同 neuron 分工。
+                # 注意：跨 neuron 的 logits 尺度不可比（code 平均 max-prob 0.566 vs
+                # zh 0.374），裸 max-prob 分工在协作层未训练时 PPL 劣于最强个体——
+                # 正确校准需协作层训练（C12/Sparse Router 学习路由）。division_norm
+                # 提供 per-neuron 相对归一化（供诊断，实测会过度平坦化对角消失）。
+                self._division_logit_fusion(all_logits, result, ref, normalize=False)
+            elif fusion_mode == "division_norm" and same_vocab and len(all_logits) >= 2:
+                # per-neuron 相对归一化分工（消除系统性尺度偏差，供对照诊断）
+                self._division_logit_fusion(all_logits, result, ref, normalize=True)
             elif same_vocab:
                 self._compute_per_position_weights(
                     all_logits, vectors, scores, result, ref,
@@ -2180,6 +2203,62 @@ class ResonanceEnsemble:
         result["weighted_logits"] = fused
         result["weights"] = weights.detach().cpu().tolist()
         result["fusion_mode"] = "score"
+
+    def _division_logit_fusion(
+        self,
+        all_logits: Dict[str, torch.Tensor],
+        result: dict,
+        ref: torch.Tensor,
+        normalize: bool = False,
+    ) -> None:
+        """统一空间（同 vocab）max-prob 分工路由：per-position 硬路由。
+
+        背景（2026-08-06）：共享 general lm_head 统一输出空间后，所有 neuron 原生
+        输出就在 256K 空间——max-prob 天然尖锐（旧诊断 max-prob≈0.001 是静态稀疏
+        投影到 256K 的置信度稀释，已随共享 head 消除）。per-position 硬路由直接把
+        每个 token 位置交给 max-prob 最高的 neuron：
+
+        - 域内文本：域 neuron 全位置胜出（≈个体，无伤害）
+        - 跨域语义桥接（zh 理解 → code 表达）：中文位置 zh neuron、代码位置 code
+          neuron——分工涌现，无需转译投影、无需 min(原生, 投影)（对比
+          `_confidence_routing_fusion`，后者是跨 vocab 专用于防御投影极端值）
+
+        已知局限（2026-08-06 验证）：跨 neuron 的 logits 尺度天然不可比（compact
+        实测 code 平均 max-prob 0.566 vs zh 0.374）——裸 max-prob 分工让尖锐者抢走
+        非自身域位置但预测错误，协作层未训练时 division PPL 劣于最强个体。正确校准
+        需协作层训练（C12 对比约束让共振分对齐 NLL 排序 / Sparse Router 学习路由）。
+
+        normalize（默认 False，供诊断）：per-neuron 相对归一化（max-prob ÷ 自身
+        batch 平均），实测会过度平坦化导致域内分工对角消失，不作为默认。
+
+        Args:
+            all_logits: {nid: [B, L, V]}，全部同 vocab（V 相同，调用前 same_vocab 校验）
+            result: 写入 weighted_logits / weights（路由权重监控）/ route_sel
+            ref: 参考 tensor（device/dtype）
+            normalize: 是否做 per-neuron 相对归一化（消除系统性尖锐度偏差，实验用）
+        """
+        neuron_ids = list(all_logits.keys())
+        N = len(neuron_ids)
+        # 逐 neuron max-prob（softmax 后取最大值）→ [N, B, L]
+        probs = torch.stack([
+            F.softmax(all_logits[nid], dim=-1).max(dim=-1).values
+            for nid in neuron_ids
+        ])
+        if normalize:
+            # 相对校准：除以每 neuron 的 batch 平均 max-prob（消除系统性更尖锐者主导）
+            scale = probs.mean(dim=(1, 2), keepdim=True).clamp(min=1e-6)
+            conf = probs / scale
+        else:
+            conf = probs
+        sel = conf.argmax(dim=0)  # [B, L] 每位置胜出 neuron
+        w = F.one_hot(sel, num_classes=N).permute(2, 0, 1).float()  # [N, B, L]
+        logits_stack = torch.stack([all_logits[nid] for nid in neuron_ids])  # [N, B, L, V]
+        fused = (w.unsqueeze(-1) * logits_stack).sum(dim=0)  # [B, L, V]
+        result["weighted_logits"] = fused
+        result["weights"] = w.mean(dim=(1, 2)).detach().cpu().tolist()  # [N] 位置占比监控
+        result["fusion_mode"] = "division"
+        result["route_sel"] = sel.detach().cpu()  # 供诊断：per-position 路由归属
+        result["route_nids"] = neuron_ids  # route_sel/weights 的 neuron 顺序（对应关系）
 
     def _confidence_routing_fusion(
         self,
