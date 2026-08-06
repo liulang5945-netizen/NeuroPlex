@@ -53,7 +53,8 @@ def load_ensemble(neuron_dir, domains, ckpt_path, no_weights=False):
     return neurons, shared_embeddings, ensemble
 
 
-def domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, domain, texts):
+def domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, domain, texts,
+               rounds=1):
     """协作 vs 原生 neuron：answer-only PPL（训练同口径，forward_train）。
 
     基线 = 本域原生 neuron（跨 vocab 的个体对比无意义：code neuron 的 12K
@@ -112,7 +113,7 @@ def domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, domain, te
                     if len(out) > 3:
                         sft_mask = out[3].to(DEVICE)
             result = ensemble.forward_train(
-                neuron_embeddings=neuron_embeddings, n_rounds=1, fusion_mode="soft",
+                neuron_embeddings=neuron_embeddings, n_rounds=rounds, fusion_mode="soft",
                 targets=targets, target_domain=domain,
             )
             fused = result["fused_logits"]
@@ -148,7 +149,7 @@ def load_sft_texts(data_dir, domain, max_texts=20):
 
 
 def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
-                          zh_prompt, target_domain="code", max_tokens=30):
+                          zh_prompt, target_domain="code", max_tokens=30, rounds=1):
     """跨域生成：中文 prompt（general 编码）→ target 域输出（用 code neuron 表达）。"""
     target_sp = hub.get_tokenizer(target_domain)
     ids = torch.tensor([general_sp.encode(zh_prompt)], dtype=torch.long, device=DEVICE)
@@ -162,7 +163,7 @@ def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
             for nid, emb in shared_embeddings.items():
                 neuron_embeddings[nid] = emb(ids)
             result = ensemble.forward_train(
-                neuron_embeddings=neuron_embeddings, n_rounds=1, fusion_mode="soft",
+                neuron_embeddings=neuron_embeddings, n_rounds=rounds, fusion_mode="soft",
                 target_domain=target_domain,
             )
             logits = result["fused_logits"][:, -1, :].float()
@@ -185,6 +186,8 @@ def main():
     parser.add_argument("--n-ppl", type=int, default=10)
     parser.add_argument("--no-weights", action="store_true",
                         help="不加载协作层权重（只测基座 + 路由融合）")
+    parser.add_argument("--rounds", type=int, default=1,
+                        help="forward_train 共振轮数（无训练权重时用 1 避免 side 扭曲）")
     args = parser.parse_args()
 
     print("加载多域 neuron + 协作层...", flush=True)
@@ -205,7 +208,8 @@ def main():
     total_emerge = 0.0
     for dom in DOMAINS:
         texts = load_sft_texts(args.data_dir, dom, args.n_ppl)
-        r = domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, dom, texts)
+        r = domain_ppl(neurons, shared_embeddings, ensemble, hub, general_sp, dom, texts,
+                       rounds=args.rounds)
         total_emerge += r["emerge_pct"]
         print(f"  [{dom}] 最强个体={r['best_individual']} PPL={r['best_ppl']:.1f} | "
               f"协作 PPL={r['collab_ppl']:.1f} | EMERGE={r['emerge_pct']:+.1f}%", flush=True)
@@ -221,7 +225,8 @@ def main():
         print(f"\n  中文提问：{p}", flush=True)
         try:
             out = cross_domain_generate(neurons, shared_embeddings, ensemble, hub,
-                                        general_sp, p, target_domain="code")
+                                        general_sp, p, target_domain="code",
+                                        rounds=args.rounds)
             print(f"  → {out}", flush=True)
         except Exception as e:
             print(f"  生成失败: {e}", flush=True)
