@@ -8,6 +8,28 @@
 
 ---
 
+## 📌 递归设计检查（2026-08-06 补充）
+
+**结论：项目"递归"（taiji/life 递归改进 + 递归蒸馏）两条回路——任务进化回路活着，递归改进回路是死的。**
+
+**回路 A（活）**：`api/chat_strategies.py` → `record_task_success/failure` → 阶段升级 → neurogenesis 信号 → 睡眠创建新神经元。
+
+**回路 B（死）**：
+- 输入环断开：`record_strategy` 全项目零调用方 → strategy_records 恒空 → `analyze_and_improve()` 永远空提案
+- 输出环废弃：`design_next_generation` deprecated（仅存 JSON）、`execute_generation_transition` NotImplementedError
+- 潜伏 bug：`_get_next_gen_name` 双同名定义（L623 2 参被 L740 1 参覆盖）→ `design_next_generation` 走到 L328 必 TypeError
+- 死配置：`DISTILLATION_THRESHOLDS["loss_plateau_steps"]` 定义未用
+
+**4 个妥协点**（详见会话记录）：
+1. 进化信号 = 任务统计启发式，非能力信号（有 feed_engine 域错误率/PPL/EMERGE 更强信号可用）
+2. 策略改进 = 关键词玩具（空格分词对中文无效），提案无 A/B 验证、字符串覆盖无回滚
+3. 单体变大叙事残留（EVOLUTION_PATH 0.5B→7B、`_get_current_generation` 恒返第一代）与 BODY_LIFE 决策 3 冲突，转型未完成
+4. "递归蒸馏"从未闭环（进化语料 → 训练下一代无消费方）
+
+**上限更高形态**：递归 = "使用 → 生成跨域配对训练数据 → train_cross_domain_collab.py 协作层训练 → 能力扩展"——即当前跨域协作工作就是递归的正确闭环。重构待用户决策。
+
+---
+
 ## 📌 当前执行状态（2026-08-06 20:10 更新）
 
 **"共享 general lm_head 统一输出空间"立项实施中：基座训练已启动**
