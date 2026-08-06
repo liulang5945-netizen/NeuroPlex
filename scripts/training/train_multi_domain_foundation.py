@@ -332,13 +332,14 @@ def main():
         torch.save({"weight": shared_lm_head.weight.data.clone()}, lm_head_path)
     print("\n[最终] 回读验证（best 权重 + 最终 embedding，collab/eval 口径）：", flush=True)
     for d in domains:
-        verify_checkpoint(args.save_dir, d, domain_sps[d], general_sp, shared_emb, texts[d],
+        # 统一空间模式：输入/目标都 general 编码（与训练循环 L267 一致），不能传域 sp
+        verify_checkpoint(args.save_dir, d, general_sp, general_sp, shared_emb, texts[d],
                           lm_head_path=lm_head_path)
     print("[配对校验] best 权重 + 各自 best 步 embedding 快照：", flush=True)
     for d in domains:
         p = os.path.join(args.save_dir, f"shared_embedding_best_{d}.pt")
         if os.path.exists(p):
-            verify_checkpoint(args.save_dir, d, domain_sps[d], general_sp, shared_emb,
+            verify_checkpoint(args.save_dir, d, general_sp, general_sp, shared_emb,
                               texts[d], embed_path=p, lm_head_path=lm_head_path)
 
     hist_path = os.path.join(LOG_DIR, "foundation_history.json")

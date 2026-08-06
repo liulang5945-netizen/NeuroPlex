@@ -153,11 +153,11 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-06 20:10 更新）
+## 📌 当前执行状态（2026-08-06 21:40 更新）
 
-**"共享 general lm_head 统一输出空间"立项实施中：基座训练已启动**
+**"共享 general lm_head 统一输出空间"：基座训练已完成 ✅ + 产物验证通过 ✅**
 
-**架构落地（本轮已完成，冒烟验证通过）**：
+**架构落地（已完成，commit 5bb522b 等）**：
 - ✅ [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py#L160-L164)：`ResonanceNeuron.__init__` 支持注入 `shared_lm_head`——所有 neuron 共享同一个 general 256K lm_head，直接预测通用 token（无词库转译投影稀释）→ 路由置信度信号保留
 - ✅ [train_multi_domain_foundation.py](file:///e:/taiji-neuron/scripts/training/train_multi_domain_foundation.py)：`--target-space general` 完整适配
   - `create_shared_lm_head()`（512→256K，131M params）；neuron 创建注入共享 head
@@ -166,11 +166,18 @@
   - checkpoint 瘦身：`_strip_shared_head()` 剥离 131M head 出 neuron ckpt（共享 head 独立存 `shared_lm_head.pt`，避免每域 ~525MB 冗余）
   - 回读验证支持 `lm_head_path` 注入（最终 + 配对校验两段都传，防止 16K 域 head 算 256K 目标崩溃）
 - ✅ **冒烟验证**（3 步/域 × 4 域，batch 2）：管线跑通 + checkpoint 回读正确；loss 从随机水平（12.9-13.2 ≈ ln256000）三轮内降到 10.3-12.5，**学习正常**
-- ⏳ **正式基座训练运行中**：`data/foundation_v1_general`（4 域 × 600 步，batch 8，与 v1 同配置；CPU 预计 6-10h）
-- ✅ **collab/eval 加载路径预修复**（训练期间并行，commit 5bb522b）：`load_neuron` 支持注入 `shared_lm_head` + 新增 `load_shared_lm_head()`——general 基座（ckpt 已剥离 131M head）可正确加载并输出 256K 空间 logits（冒烟产物验证：logits shape (1,8,256000)）
+- ✅ **正式基座训练完成**（21:23）：`data/foundation_v1_general`（4 域 × 600 步 = step 2400，batch 8），`foundation_history.json` 完整记录
+- ✅ **collab/eval 加载路径预修复**（commit 5bb522b）：`load_neuron` 支持注入 `shared_lm_head` + 新增 `load_shared_lm_head()`——general 基座（ckpt 已剥离 131M head）可正确加载并输出 256K 空间 logits
 
-**后续链（训练完成后自动推进）**：
-1. 路由适配统一空间：同 vocab（256K）场景改走 max-prob 分工路由（无投影，置信度天然可用）
+**产物回读验证通过**（`verify_foundation_general.py`，修复 tokenizer 口径后）：
+- **回读 PPL**（best ckpt + 最终 embedding，collab/eval 口径）：**code 6.1 / math 21.1 / zh 274.9 / en 178.2**——code/math 健康，zh/en 因 general 256K 空间全文本 CE（无 SFT masking）偏高，属预期口径（不是坏 ckpt）
+- **配对校验**（best 权重 ↔ best 步 embedding）：code 14.1 / math 41.5 / zh 514.7 / en 187.7
+- **输出空间验证**：4 域全部输出 general 256K logits，top token 正常（code '<0x0A>'、math '4'、zh '、'、en '.'）
+
+**🔧 修复训练脚本回读 bug（本 commit）**：`verify_checkpoint` 目标 tokenizer 传错——L335/L341 传 `domain_sps[d]`（域词表），与训练（general_sp 编码）不一致 → 目标编码错位，训练脚本自身打印的"最终回读" PPL 是假值（400 万级）。已改为 `general_sp, general_sp`（输入/目标都 general，与训练循环 L267 完全一致）。独立验证脚本 [verify_foundation_general.py](file:///e:/taiji-neuron/scripts/training/verify_foundation_general.py) 即按修复后口径验证。
+
+**后续链（下一步：路由适配统一空间）**：
+1. **路由适配统一空间**：同 vocab（256K）场景改走 max-prob 分工路由（无投影，置信度天然可用）
 2. 协作层 general 空间训练 + 评估（域内 EMERGE + 跨域 zh→code 语义桥接）
 3. 结果记录到 plans + 提交
 
