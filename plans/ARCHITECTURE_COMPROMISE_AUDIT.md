@@ -8,7 +8,34 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-06 更新）
+## 📌 当前执行状态（2026-08-06 17:00 更新）
+
+**跨域协作 5>5 实测：基座诊断 → 重建 → 验证中**
+
+**核心诉求**：5 个域神经元（code/math/zh/en）联合 > 5 个独立之和（涌现）。
+
+**诊断结论（verify_v3 基座不可用）**：
+- verify_v3 多域神经元由 train_neurons_from_scratch 训练，输入是**域编码**（p7 input_ids max 11912 < code vocab），但训练时 `create_shared_embedding` 随机初始化且**从未保存** → 评估时任何管线（域编码/通用编码/joint 变体）PPL 均≈随机（loss 9.4-10.6 vs 随机 9.39）
+- 已验证：code/math/zh/en 的 neuron_*.pt 与 *_joint.pt × shared_embedding*.pt 全部组合，loss 均≥8.9
+- **根因**：域编码输入 + 丢失 embedding = 不可复现的模型（权重对着随机向量训练，向量已丢失）
+
+**正确配方（对话管线实证，PPL 2.2 可复现）**：
+- 输入 = general_sp 编码 → 共享 embedding（保存）→ neuron；标签 = 域 tokenizer
+- 冒烟验证：对话 embedding 基座 + code 数据，code neuron 500 步 loss 9.4→2.7（PPL 15）✅
+
+**行动**：
+1. ✅ 新建 `train_multi_domain_foundation.py`：按对话配方重训 4 域 neuron + 联合训练共享 embedding（对话基座 warm-start），保存时回读验证 checkpoint（用户规则：训练前确认保存正确）
+2. ⏳ 运行中：`data/foundation_v1`（600 步/域，~25min，含周期保存+回读验证）
+3. ⏭ 基座完成后：重跑跨域协作训练（train_cross_domain_collab.py）+ 评估（_eval_cross_domain_collab.py 已验证 API 兼容）
+
+**参考基线（同域 5>5 已实证）**：5 个 zh 对话 neuron 协作 PPL 29.7 vs 个体 95，EMERGE 65.7%（对话管线）
+
+**待决策/下一步**：
+- 基座训练完成后自动继续跨域协作训练 → 评估 5>5
+
+---
+
+## 📌 历史状态（2026-08-06 15:26 对话线）
 
 **EOS + 短答案筛选重训已完成，评估中**：
 
