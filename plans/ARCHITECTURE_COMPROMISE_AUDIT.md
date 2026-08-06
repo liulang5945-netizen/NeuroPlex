@@ -8,25 +8,27 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-06 20:00 更新）
+## 📌 当前执行状态（2026-08-06 20:10 更新）
 
-**跨域协作 5>5：域内全正（+4.0%）✅，通用空间投影极限诊断完成**
+**"共享 general lm_head 统一输出空间"立项实施中：基座训练已启动**
 
-**最新发现（general 空间训练失败根因）**：
-- 尝试：--target-space general 在通用 256K 空间训练协作层（zh/en 理解 + code 表达共存）→ 损失不稳定（15-334，不收敛）
-- **根因诊断**：各 neuron logits 经静态稀疏转译投影到 general 256K 后 max-prob ≈ 0.001（近均匀，256K 空间稀释）→ min(原生,投影) 置信度被投影项主导 → 路由完全随机（code 11/math 3/zh 16/en 10 胜 = 噪声）
-- **结论**：静态稀疏投影到大型词表在结构上摧毁置信度信号。语义桥接（zh→code）需要：
-  a) **共享 general lm_head 基座**（各 neuron 隐藏层 → 共享 256K lm_head，直接预测 general token——旧 sft_v2 曾用 W_base 256000×384 注入 5 neuron，架构有先例）→ 重训基座，路由在 general 空间天然有效
-  b) 可学习/稠密投影（对齐矩阵训练化）——大矩阵，低秩近似可行
-- 两者都是**大型架构工程**，超出本轮小步迭代范围
+**架构落地（本轮已完成，冒烟验证通过）**：
+- ✅ [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py#L160-L164)：`ResonanceNeuron.__init__` 支持注入 `shared_lm_head`——所有 neuron 共享同一个 general 256K lm_head，直接预测通用 token（无词库转译投影稀释）→ 路由置信度信号保留
+- ✅ [train_multi_domain_foundation.py](file:///e:/taiji-neuron/scripts/training/train_multi_domain_foundation.py)：`--target-space general` 完整适配
+  - `create_shared_lm_head()`（512→256K，131M params）；neuron 创建注入共享 head
+  - general 模式：输入/目标都 general 编码（`batch_align_and_embed(batch, general_sp, general_sp, emb)`），全文本 loss（无 answer marker）
+  - 优化器三分：neuron 主体 lr / embedding 独立低 lr / **共享 head 独立 lr（--lm-head-lr）**
+  - checkpoint 瘦身：`_strip_shared_head()` 剥离 131M head 出 neuron ckpt（共享 head 独立存 `shared_lm_head.pt`，避免每域 ~525MB 冗余）
+  - 回读验证支持 `lm_head_path` 注入（最终 + 配对校验两段都传，防止 16K 域 head 算 256K 目标崩溃）
+- ✅ **冒烟验证**（3 步/域 × 4 域，batch 2）：管线跑通 + checkpoint 回读正确；loss 从随机水平（12.9-13.2 ≈ ln256000）三轮内降到 10.3-12.5，**学习正常**
+- ⏳ **正式基座训练运行中**：`data/foundation_v1_general`（4 域 × 600 步，batch 8，与 v1 同配置；CPU 预计 6-10h）
 
-**已达成（全部提交，可复现）**：
-1. ✅ 基座重建 foundation_v1（verify_v3 损坏诊断 + 对话配方重训，个体基线远低于随机）
-2. ✅ 跨 vocab 硬路由融合（EMERGE -4228% → -5.9%）
-3. ✅ 协作层 v3 + rounds=2：域内 EMERGE **+4.0% 全域转正**（code +1.9% / math +3.6% / zh +6.9% / en +3.3%）→ **"5 联合 > 5" 域内实证**
-4. ✅ 结构性跨域涌现（zh 提问 → code 形态输出）+ 通用空间探针（确认架构方向与投影极限）
+**后续链（训练完成后自动推进）**：
+1. 路由适配统一空间：同 vocab（256K）场景改走 max-prob 分工路由（无投影，置信度天然可用）
+2. 协作层 general 空间训练 + 评估（域内 EMERGE + 跨域 zh→code 语义桥接）
+3. 结果记录到 plans + 提交
 
-**下一步（唯一建议）**：立项"共享 general lm_head 统一输出空间"（含基座重训），完成后语义跨域桥接训练自然可行
+**背景**：跨域协作 v3 + rounds=2 已达成域内 EMERGE +4.0% 全域转正（"5 联合 > 5" 域内实证）；通用空间投影极限诊断结论 = 静态稀疏投影到 256K 摧毁置信度（max-prob≈0.001）→ 共享 general lm_head 免投影是架构上限最高的解
 
 ---
 

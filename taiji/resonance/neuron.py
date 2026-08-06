@@ -40,7 +40,7 @@ class ResonanceNeuron(nn.Module):
     - domain_prototype: EMA-updated data-driven典型响应向量 (for L2 prototype routing)
     """
 
-    def __init__(self, neuron_config: NeuronConfig):
+    def __init__(self, neuron_config: NeuronConfig, shared_lm_head: Optional[nn.Linear] = None):
         super().__init__()
         self.config = neuron_config
         c = neuron_config
@@ -157,7 +157,12 @@ class ResonanceNeuron(nn.Module):
         # P7: 每 neuron 自带完整独立 lm_head [hidden, domain_vocab]
         # 域专用 vocab (10k-20k) 让独立 lm_head 参数量可控 (5-10M)
         # lm_head_rank > 0 保留用于实验性低秩训练（非共享，per-neuron only）
-        if c.lm_head_rank > 0:
+        if shared_lm_head is not None:
+            # 统一输出空间（2026-08-06）：所有 neuron 共享同一个 general 256K lm_head，
+            # 直接预测通用 token（无词库转译投影稀释）→ 路由置信度信号保留。
+            # hidden_size 由外部保证与共享 lm_head 输入一致。
+            self.lm_head = shared_lm_head
+        elif c.lm_head_rank > 0:
             # 低秩模式：U_i/V_i 是 per-neuron 低秩分解（实验性）
             self.lm_head_delta_u = nn.Linear(c.hidden_size, c.lm_head_rank, bias=False)
             self.lm_head_delta_v = nn.Linear(c.lm_head_rank, c.vocab_size, bias=False)
