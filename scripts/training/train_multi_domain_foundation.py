@@ -84,10 +84,37 @@ def save_foundation(save_dir: str, domain: str, step: int, neuron: ResonanceNeur
     return os.path.join(save_dir, f"neuron_{domain}.pt")
 
 
+def save_best_foundation(save_dir: str, domain: str, step: int, neuron: ResonanceNeuron,
+                         shared_emb: torch.nn.Embedding, ppl: float):
+    """保存每域最优权重（早停选择）+ 该步 embedding 快照。
+
+    评估/协作层用 shared_embedding.pt（最终），此处额外保存每域最优 embedding
+    快照（shared_embedding_best_{domain}.pt）用于配对校验。
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    ckpt = {
+        "neuron_config": neuron.config,
+        "state_dict": neuron.state_dict(),
+        "shared_embedding_state": {"weight": shared_emb.weight.data.clone()},
+        "domain": domain,
+        "step": step,
+        "result": {"best_ppl": ppl, "best_step": step, "steps": step},
+        "saved_at": datetime.now().isoformat(),
+    }
+    torch.save(ckpt, os.path.join(save_dir, f"neuron_{domain}.pt"))
+    torch.save(shared_emb.weight.data.clone(),
+               os.path.join(save_dir, f"shared_embedding_best_{domain}.pt"))
+    return os.path.join(save_dir, f"neuron_{domain}.pt")
+
+
 def verify_checkpoint(save_dir: str, domain: str, sp, general_sp,
                       shared_emb: torch.nn.Embedding, texts: List[str],
-                      n_check: int = 8) -> float:
-    """保存后立即回读，验证 neuron + embedding 能复现低 PPL（防坏 checkpoint）。"""
+                      n_check: int = 8, embed_path: Optional[str] = None) -> float:
+    """保存后立即回读，验证 neuron + embedding 能复现低 PPL（防坏 checkpoint）。
+
+    embed_path 为 None 时用共享 embedding（collab/eval 口径）；否则用该步 embedding
+    快照（配对校验：best 权重 ↔ best 步 embedding）。
+    """
     ckpt = torch.load(os.path.join(save_dir, f"neuron_{domain}.pt"),
                       map_location="cpu", weights_only=False)
     cfg = ckpt["neuron_config"]
@@ -95,8 +122,8 @@ def verify_checkpoint(save_dir: str, domain: str, sp, general_sp,
     n = ResonanceNeuron(cfg)
     n.load_state_dict(ckpt["state_dict"], strict=False)
     emb = torch.nn.Embedding(256000, 512)
-    emb.weight.data.copy_(torch.load(os.path.join(save_dir, "shared_embedding.pt"),
-                                     map_location="cpu", weights_only=False))
+    src = embed_path if embed_path else os.path.join(save_dir, "shared_embedding.pt")
+    emb.weight.data.copy_(torch.load(src, map_location="cpu", weights_only=False))
     n.eval()
     answer_marker = SFT_ANSWER_MARKER if domain == "zh" else None
     marker_mode = "last" if answer_marker else "first"
@@ -175,6 +202,7 @@ def main():
     step = 0
     loss_history: list = []
     best_ppl: Dict[str, float] = {d: float("inf") for d in domains}
+    best_step: Dict[str, int] = {d: 0 for d in domains}
     t0 = time.time()
 
     for dom_idx in range(args.steps_per_domain):
@@ -215,24 +243,31 @@ def main():
             loss_history.append({"step": step, "domain": d, "loss": loss.item(), "ppl": ppl})
             if ppl < best_ppl[d]:
                 best_ppl[d] = ppl
+                best_step[d] = step
+                # 早停选择：保存该域最优权重 + 该步 embedding 快照
+                save_best_foundation(args.save_dir, d, step, neurons[d], shared_emb, ppl)
 
             if step % 50 == 0:
                 elapsed = time.time() - t0
                 print(f"  step {step}/{total_steps} [{d}] loss={loss.item():.3f} "
-                      f"PPL={ppl:.1f} best[{d}]={best_ppl[d]:.1f} ({elapsed:.0f}s)", flush=True)
+                      f"PPL={ppl:.1f} best[{d}]={best_ppl[d]:.1f}@{best_step[d]} ({elapsed:.0f}s)", flush=True)
 
-            # 周期保存 + 回读验证（用户规则：训练前确认 checkpoint 正确保存）
-            if step % 200 == 0:
-                path = save_foundation(args.save_dir, d, step, neurons[d], shared_emb, loss_history)
-                verify_checkpoint(args.save_dir, d, domain_sps[d], general_sp,
-                                  shared_emb, texts[d])
+            # 周期保存最终 embedding（训练全程共享，供 eval 使用）
+            if step % 400 == 0:
+                torch.save(shared_emb.weight.data.clone(),
+                           os.path.join(args.save_dir, "shared_embedding.pt"))
 
-    # 最终保存 + 全域回读验证
-    for d in domains:
-        save_foundation(args.save_dir, d, total_steps, neurons[d], shared_emb, loss_history)
-    print("\n[最终] 全域回读验证：", flush=True)
+    # 最终：保存最终 embedding 为规范版本（collab/eval 用），并全域回读验证
+    torch.save(shared_emb.weight.data.clone(), os.path.join(args.save_dir, "shared_embedding.pt"))
+    print("\n[最终] 回读验证（best 权重 + 最终 embedding，collab/eval 口径）：", flush=True)
     for d in domains:
         verify_checkpoint(args.save_dir, d, domain_sps[d], general_sp, shared_emb, texts[d])
+    print("[配对校验] best 权重 + 各自 best 步 embedding 快照：", flush=True)
+    for d in domains:
+        p = os.path.join(args.save_dir, f"shared_embedding_best_{d}.pt")
+        if os.path.exists(p):
+            verify_checkpoint(args.save_dir, d, domain_sps[d], general_sp, shared_emb,
+                              texts[d], embed_path=p)
 
     hist_path = os.path.join(LOG_DIR, "foundation_history.json")
     with open(hist_path, "w", encoding="utf-8") as f:
