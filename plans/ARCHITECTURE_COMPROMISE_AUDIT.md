@@ -38,6 +38,10 @@
 - 并发 top-1 与串行基线完全一致（field 隔离生效；neuron 不应期共享为符合人脑语义的微小调度差异）
 - task field thread-local 缓存复用断言
 
+**真实集成验证**（`verify_hotswap_integration.py` 全通过，真实 zh_general compact 权重）：
+- 三线程并发真实推理 ✓；推理线程中热插拔（同规格 compact + 跨规格 1024→2048 投影层自动补建）✓；隔离/复活 ✓；真实 COW 周期（live 稳定 → 写回生效）✓
+- **已知限制（待讨论）**：`ensemble.add_neuron` 保留 hidden_size 校验——standard(768)/compact(512) 混合 hidden 种群会被拒。当前生产统一 compact 无实际影响；若未来引入 expert(1024)/foundation(384) 混合种群，需评估 forward 路径（embed_adapter 各自投影 → 理论上兼容）后放宽
+
 **并发容错补充**：`_update_channel_usage` 两处 `post_neuron` 改 `.get()` + None 跳过（推理中 side_channel 清理的 post 神经元可能已被移除）。
 
 ---
