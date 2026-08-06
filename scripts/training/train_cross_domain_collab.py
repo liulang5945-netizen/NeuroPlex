@@ -50,6 +50,7 @@ from taiji.resonance.translator import (
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     create_shared_embedding, build_muon_adamw_optimizers, make_wsd_scheduler,
+    load_dialogue_texts_multi,
     OUTPUT_DIR, DOMAIN_TOKENIZER_DIR,
 )
 from scripts.training.experiment_config import SFT_ANSWER_MARKER
@@ -256,6 +257,19 @@ def main():
     parser.add_argument("--sparse_router_warmup_steps", type=int, default=2000)
     parser.add_argument("--rules-path", default=None,
                         help="AlignmentRules 词库规则 JSON（可编辑层，可选）")
+    parser.add_argument("--dialogue-ids", default="",
+                        help="混合阵容：旧对话 neuron id 列表（逗号分隔，如 "
+                             "zh_aug0_dialogue,zh_aug1_dialogue,...）。这些 neuron "
+                             "保留各自域输出头（zh 50K），经词库转译参与统一空间协作")
+    parser.add_argument("--dialogue-dir", default=OUTPUT_DIR,
+                        help="旧对话 neuron 目录（默认 data/neurons）")
+    parser.add_argument("--dialogue-max-texts", type=int, default=10000,
+                        help="对话数据最大条数（混合阵容时加入训练）")
+    parser.add_argument("--dialogue-data-dir",
+                        default=os.path.join(
+                            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                            "data", "simple_zh"),
+                        help="对话数据目录（DIALOGUE_DATA_FILES 所在，默认 data/simple_zh）")
     parser.add_argument("--save-name", default="cross_domain_collab",
                         help="checkpoint 文件名前缀")
     parser.add_argument("--device", default="cpu")
@@ -299,11 +313,42 @@ def main():
         neurons[nid] = n
         shared_embeddings[nid] = load_shared_embedding(args.neuron_dir, DEVICE)
 
+    # 混合阵容：旧对话 neuron（跨 vocab 协作核心能力）
+    # 保留各自域输出头（zh 50K），输入用各自 home embedding（ckpt 内 shared_embedding_state），
+    # 协作训练时经词库转译矩阵投影到统一目标空间（缺口 M 既有路径）
+    dialogue_ids = [d.strip() for d in (args.dialogue_ids or "").split(",") if d.strip()]
+    for nid in dialogue_ids:
+        path = os.path.join(args.dialogue_dir, f"neuron_{nid}.pt")
+        if not os.path.exists(path):
+            print(f"  ⚠️ 对话 neuron 缺失，跳过: {path}", flush=True)
+            continue
+        ck = torch.load(path, map_location=DEVICE, weights_only=False)
+        cfg = ck["neuron_config"]
+        cfg.unified_field_dim = None
+        n = ResonanceNeuron(cfg).to(DEVICE)  # 不注入 shared head：保留域输出头（跨 vocab 协作）
+        n.load_state_dict(ck["state_dict"], strict=False)
+        neurons[nid] = n
+        # home embedding：从 ckpt 的 shared_embedding_state 加载（该 neuron 训练时的表）
+        emb = create_shared_embedding(DEVICE)
+        ses = ck.get("shared_embedding_state", {})
+        if isinstance(ses, dict) and "weight" in ses:
+            emb.weight.data.copy_(ses["weight"])
+        elif isinstance(ses, torch.Tensor):
+            emb.weight.data.copy_(ses)
+        shared_embeddings[nid] = emb
+        print(f"  [{nid}] vocab={cfg.vocab_size}, spec={cfg.spec}, "
+              f"home embedding 从 ckpt 加载（保留域输出头 → 词库转译协作）", flush=True)
+    print(f"  阵容: {len(neurons)} neuron "
+          f"(域 {domains} + 对话 {dialogue_ids})", flush=True)
+
     # 2. TokenizerHub + 词库规则层
     print("\n[2] TokenizerHub + 词库可编辑层...", flush=True)
     hub = TokenizerHub()
     for dom in domains:
         hub.register_domain(dom, load_tokenizer_for_vocab(dom, neurons[dom].config.vocab_size))
+    # 旧对话 neuron（zh 域空间）：注册 zh tokenizer 供 _get_neuron_tokenizer 前缀解析
+    if dialogue_ids:
+        hub.register_domain("zh", load_tokenizer_for_vocab("zh", neurons[dialogue_ids[0]].config.vocab_size))
     general_sp = load_general_tokenizer()
     hub.register_domain("general", general_sp)
 
@@ -421,6 +466,14 @@ def main():
     domain_texts: Dict[str, List[str]] = {}
     for dom in domains:
         domain_texts[dom] = load_sft_texts(args.data_dir, dom, args.max_texts_per_domain)
+    data_sources = list(domains)
+    # 混合阵容：对话数据桶（旧 5 的对话能力来源，目标 general 编码统一训练）
+    # 仅 general 目标空间支持（对话文本统一 general 编码，domain tokenizer 未注册）
+    if dialogue_ids and args.target_space == "general":
+        domain_texts["dialogue"] = load_dialogue_texts_multi(
+            args.dialogue_data_dir, max_texts=args.dialogue_max_texts, max_answer_chars=150)
+        data_sources.append("dialogue")
+        print(f"  dialogue: {len(domain_texts['dialogue'])} 条对话（短答案 ≤150 字）", flush=True)
     total_steps_per_epoch = sum(
         max(1, (len(t) - args.batch_size) // args.batch_size) for t in domain_texts.values()
     )
@@ -435,10 +488,11 @@ def main():
 
     for epoch in range(args.epochs):
         epoch_start = time.time()
-        for domain in domains:
+        for domain in data_sources:
             texts = domain_texts[domain]
             random.shuffle(texts)
-            domain_sp = hub.get_tokenizer(domain)
+            # general_mode 下 domain_sp 不使用（输入/目标都 general 编码）；dialogue 桶亦然
+            domain_sp = hub.get_tokenizer(domain) if domain in domains else None
             # zh 用中文 answer marker；其他域全文本 loss（数据无中文 marker）
             answer_marker = SFT_ANSWER_MARKER if domain == "zh" else None
             # general 目标空间：跨域组合训练（en/zh 理解指令 + code 表达），全文本 loss
@@ -519,7 +573,7 @@ def main():
                     body_optimizer.step()
 
                 total_steps += 1
-                if total_steps % 50 == 0:
+                if total_steps % 10 == 0:
                     ppl = math.exp(min(ce_loss.item(), 20))
                     elapsed = time.time() - epoch_start
                     print(f"  E{epoch+1}/{args.epochs} [{domain}] step {total_steps}: "
