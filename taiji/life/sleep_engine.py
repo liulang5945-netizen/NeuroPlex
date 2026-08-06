@@ -26,6 +26,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from collections import deque
 
+import torch
+
 logger = logging.getLogger("SleepEngine")
 
 # 神经元架构组件（try/except 守住，避免循环导入）
@@ -33,6 +35,31 @@ try:
     from taiji.brain.cortex import Cortex
 except ImportError:
     Cortex = None  # type: ignore
+
+
+def _clone_module(module):
+    """torch 标准模块克隆（影子权重 COW 用）。
+
+    不用 copy.deepcopy：模块含 threading.Lock（RotaryEmbedding._cache_lock）
+    不可 pickle 会崩溃。改为「配置重建 + load_state_dict」：
+    - ResonanceNeuron：由 config 重建（与生产构造路径一致）
+    - nn.Embedding：from_pretrained 克隆权重
+    输出与输入无共享参数（真副本），device 与原模块一致。
+    """
+    from dataclasses import replace
+
+    if isinstance(module, torch.nn.Embedding):
+        return torch.nn.Embedding.from_pretrained(
+            module.weight.detach().clone(), freeze=False
+        )
+    cfg = replace(module.config)
+    new = type(module)(cfg)
+    new.load_state_dict(module.state_dict(), strict=False)
+    ref = next(module.parameters(), None)
+    if ref is not None:
+        new = new.to(ref.device)
+    new.train(module.training)
+    return new
 
 try:
     from taiji.resonance.lifecycle import LifecycleManager
@@ -545,86 +572,122 @@ class SleepEngine:
 
         logger.info("  P7 模式：使用 per-neuron embedding + 域 tokenizer 训练")
 
-        # 获取训练锁，防止与 generate/其他训练并发修改 neuron 权重
+        # 获取训练锁，防止与其他训练并发（训练-训练互斥）
         # 非阻塞：锁被占用时跳过本次训练，不阻塞睡眠流程
+        # 注意：推理（generate）不再拿此锁——训练在影子权重上进行，
+        # live 权重训练期间稳定，推理快照读到稳定权重（人脑：学习时正常对话）
         from taiji.core.app_state import app_state
         if not app_state.try_start_training():
             logger.warning("  训练锁被占用，跳过本次 Cortex 训练")
             return
 
         try:
-            ppl_results: Dict[str, float] = {}
-            total_loss = 0.0
-            trained_count = 0
-            # 供 Phase 4 凋亡评估使用（多维生存评分信号之一）
-            self._last_ppl_results = ppl_results
-
-            for domain, samples in domain_samples.items():
-                # 找到对应域的神经元
-                neuron = self.cortex.neurons.get(domain)
-                if neuron is None:
-                    logger.debug(f"  域 '{domain}' 无对应神经元，跳过")
-                    continue
-
-                if not samples:
-                    continue
-
-                # 分离文本样本和多模态样本
-                text_samples = [s for s in samples if s.get("type") != "multimodal"]
-                mm_samples = [s for s in samples if s.get("type") == "multimodal"]
-
-                # 文本样本训练（经验驱动：shared_embedding + lm_head 协同学习）
-                if text_samples:
-                    avg_loss, ppl = self._train_single_neuron(
-                        neuron, domain, text_samples, cortex=self.cortex
-                    )
-
-                    if avg_loss is not None:
-                        total_loss = total_loss + avg_loss
-                        trained_count = trained_count + 1
-                        ppl_results[domain] = ppl
-                        logger.info(f"  域 '{domain}' 文本训练完成: loss={avg_loss:.4f}, PPL={ppl:.1f}")
-
-                # 多模态样本训练（新逻辑）— 所有 neuron 参与共振
-                for mm_sample in mm_samples:
-                    modality = mm_sample.get("modality")
-                    if modality:
-                        mm_loss, mm_ppl = self._train_multimodal_ensemble(
-                            modality, mm_sample, tokenizer_hub=tokenizer_hub
-                        )
-                        if mm_loss is not None:
-                            total_loss = total_loss + mm_loss
-                            trained_count = trained_count + 1
-                            logger.info(f"  模态 '{modality}' ensemble 训练完成: loss={mm_loss:.4f}, PPL={mm_ppl:.1f}")
-
-                # 记录 PPL 到凋亡追踪器
-                if self._lifecycle is not None:
-                    try:
-                        if domain in ppl_results:
-                            self._lifecycle.apoptosis.record_ppl(domain, ppl_results[domain])
-                    except Exception as e:
-                        logger.debug(f"  apoptosis.record_ppl 失败: {e}")
-
-            # 应用 STDP 更新（局部学习规则，也修改权重，需在锁内）
-            if self._stdp_tracker is not None:
-                try:
-                    updates = self._stdp_tracker.apply_all_updates(self.cortex.neurons)
-                    if updates:
-                        logger.info(f"  STDP 更新: {len(updates)} 个神经元")
-                except Exception as e:
-                    logger.warning(f"  STDP 更新失败: {e}")
-
-            # Contrastive phase: 增强 neuron 间场向量差异化
-            # 机制借鉴 MoCo Top-k/Bottom-k Contrastive Loss
-            # 在所有 neuron 单独训练 + STDP 后执行，推开跨域场向量
+            # ── 影子权重 COW（训练/推理分离核心）──
+            # 训练在克隆副本上进行：live 权重训练全程稳定，
+            # 推理（快照隔离读 self.neurons dict）读到稳定权重。
+            # 训练结束后一次性写回 live + 恢复引用。
+            # dict 引用不变（ensemble.neurons 与 cortex.neurons 同引用），
+            # 内容替换对推理线程原子可见。
+            # 注意：不能用 copy.deepcopy——模块含 threading.Lock
+            # （RotaryEmbedding._cache_lock）不可 pickle，需配置重建 + load_state_dict。
+            live_modules = dict(self.cortex.neurons)
+            live_emb = self.cortex._shared_embedding
+            shadow_modules = {nid: _clone_module(m) for nid, m in live_modules.items()}
+            shadow_emb = _clone_module(live_emb) if live_emb is not None else None
+            self.cortex.neurons.update(shadow_modules)  # 内容换影子（引用不变）
+            if shadow_emb is not None:
+                self.cortex._shared_embedding = shadow_emb
             try:
-                contrastive_loss = self._train_contrastive_phase(self.cortex)
-                if contrastive_loss is not None:
-                    report.recommendations.append(
-                        f"[对比学习] 场向量差异化 loss={contrastive_loss:.4f}"
+                ppl_results: Dict[str, float] = {}
+                total_loss = 0.0
+                trained_count = 0
+                # 供 Phase 4 凋亡评估使用（多维生存评分信号之一）
+                self._last_ppl_results = ppl_results
+
+                for domain, samples in domain_samples.items():
+                    # 找到对应域的神经元（影子模块）
+                    neuron = self.cortex.neurons.get(domain)
+                    if neuron is None:
+                        logger.debug(f"  域 '{domain}' 无对应神经元，跳过")
+                        continue
+
+                    if not samples:
+                        continue
+
+                    # 分离文本样本和多模态样本
+                    text_samples = [s for s in samples if s.get("type") != "multimodal"]
+                    mm_samples = [s for s in samples if s.get("type") == "multimodal"]
+
+                    # 文本样本训练（经验驱动：shared_embedding + lm_head 协同学习）
+                    if text_samples:
+                        avg_loss, ppl = self._train_single_neuron(
+                            neuron, domain, text_samples, cortex=self.cortex
+                        )
+
+                        if avg_loss is not None:
+                            total_loss = total_loss + avg_loss
+                            trained_count = trained_count + 1
+                            ppl_results[domain] = ppl
+                            logger.info(f"  域 '{domain}' 文本训练完成: loss={avg_loss:.4f}, PPL={ppl:.1f}")
+
+                    # 多模态样本训练（新逻辑）— 所有 neuron 参与共振
+                    for mm_sample in mm_samples:
+                        modality = mm_sample.get("modality")
+                        if modality:
+                            mm_loss, mm_ppl = self._train_multimodal_ensemble(
+                                modality, mm_sample, tokenizer_hub=tokenizer_hub
+                            )
+                            if mm_loss is not None:
+                                total_loss = total_loss + mm_loss
+                                trained_count = trained_count + 1
+                                logger.info(f"  模态 '{modality}' ensemble 训练完成: loss={mm_loss:.4f}, PPL={mm_ppl:.1f}")
+
+                    # 记录 PPL 到凋亡追踪器
+                    if self._lifecycle is not None:
+                        try:
+                            if domain in ppl_results:
+                                self._lifecycle.apoptosis.record_ppl(domain, ppl_results[domain])
+                        except Exception as e:
+                            logger.debug(f"  apoptosis.record_ppl 失败: {e}")
+
+                # 应用 STDP 更新（局部学习规则，在影子权重上执行，训练-训练互斥锁内）
+                if self._stdp_tracker is not None:
+                    try:
+                        updates = self._stdp_tracker.apply_all_updates(self.cortex.neurons)
+                        if updates:
+                            logger.info(f"  STDP 更新: {len(updates)} 个神经元")
+                    except Exception as e:
+                        logger.warning(f"  STDP 更新失败: {e}")
+
+                # Contrastive phase: 增强 neuron 间场向量差异化
+                # 机制借鉴 MoCo Top-k/Bottom-k Contrastive Loss
+                # 在所有 neuron 单独训练 + STDP 后执行，推开跨域场向量
+                try:
+                    contrastive_loss = self._train_contrastive_phase(self.cortex)
+                    if contrastive_loss is not None:
+                        report.recommendations.append(
+                            f"[对比学习] 场向量差异化 loss={contrastive_loss:.4f}"
+                        )
+                except Exception as e:
+                    logger.warning(f"  contrastive phase 失败（非关键）: {e}")
+            finally:
+                # ── 写回 live ← 影子 + 恢复 live 引用 ──
+                # 写回期间推理仍在读影子（稳定）；引用恢复是 GIL 原子操作，
+                # 推理在线程调度点后读到 live（已训练）权重，无撕裂窗口。
+                try:
+                    self._copy_shadow_back(live_modules, live_emb, shadow_modules, shadow_emb)
+                    # 恢复 live 引用：只恢复当前仍在 dict 中的 nid
+                    # （训练期间被移除的保持移除，不复活；训练期间新增的保持不动）
+                    for nid in list(self.cortex.neurons.keys()):
+                        live_n = live_modules.get(nid)
+                        if live_n is not None:
+                            self.cortex.neurons[nid] = live_n
+                    self.cortex._shared_embedding = live_emb
+                    logger.info(
+                        f"  影子权重写回完成: {len(shadow_modules)} 个神经元"
                     )
-            except Exception as e:
-                logger.warning(f"  contrastive phase 失败（非关键）: {e}")
+                except Exception as e:
+                    logger.warning(f"  影子权重写回失败: {e}")
         finally:
             app_state.finish_training()
 
@@ -913,6 +976,35 @@ class SleepEngine:
         if total == 0:
             return None
         return correct / total
+
+    @staticmethod
+    def _copy_shadow_back(live_modules: dict, live_emb, shadow_modules: dict, shadow_emb) -> None:
+        """影子权重写回：live ← shadow（per-tensor copy_），并恢复 live 引用。
+
+        训练/推理分离的收尾：
+        1. 写回期间推理仍读影子模块（稳定），写回本身不产生撕裂；
+        2. 引用恢复（dict 内容替换为 live 模块）是 GIL 原子操作；
+        3. 保留训练期间新增的模块（live_modules 之外的 nid 不动）。
+        """
+        import torch
+
+        def copy_state(dst, src) -> None:
+            sd_src = src.state_dict()
+            with torch.no_grad():
+                for k, v in dst.state_dict().items():
+                    s = sd_src.get(k)
+                    if s is not None and v.shape == s.shape:
+                        v.data.copy_(s.data)
+
+        for nid, shadow_n in shadow_modules.items():
+            live_n = live_modules.get(nid)
+            if live_n is None:
+                continue  # 训练期间该 neuron 被移除，跳过
+            copy_state(live_n, shadow_n)
+        if shadow_emb is not None and live_emb is not None:
+            copy_state(live_emb, shadow_emb)
+        # 注意：dict 内容恢复（live 引用）由调用方在写回后执行，
+        # 本方法只负责权重写回，避免静态方法与 cortex 实例耦合。
 
     def _train_single_neuron(
         self, neuron, domain: str, samples: list, cortex

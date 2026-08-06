@@ -932,42 +932,35 @@ class Cortex:
         if self._tokenizer_hub is None:
             raise RuntimeError("TokenizerHub not set. Call cortex.set_tokenizer_hub() first.")
 
-        # 读侧保护：与 sleep 训练互斥，最多等待 10 秒
-        # sleep 训练用 try_start_training() 非阻塞获取，失败跳过；generate 持有锁时 sleep 让步
-        from taiji.core.app_state import app_state
-        acquired = app_state.train_lock.acquire(timeout=10)
-        if not acquired:
-            logger.warning("Cortex.generate 等待训练锁超时（10s），可能并发")
-        try:
-            if n_candidates <= 1:
-                return self._generate_p7(
+        # 训练/推理分离（人脑：学习时正常对话）：推理无锁读
+        # 训练侧（sleep_engine）在影子权重（deepcopy）上进行，live 权重训练期间稳定，
+        # 推理快照（nmap = dict(self.neurons)）读到稳定权重 → 无需与训练互斥。
+        if n_candidates <= 1:
+            return self._generate_p7(
+                prompt, max_tokens, temperature, top_k, domain,
+                repetition_penalty, routing_level=routing_level,
+                active_nids=active_nids, collab_mode=collab_mode,
+                fusion_mode=fusion_mode,
+            )
+        # SMCS EPE: 生成多条候选，混合后验评分选最优
+        candidates = []
+        for _ in range(n_candidates):
+            try:
+                text = self._generate_p7(
                     prompt, max_tokens, temperature, top_k, domain,
                     repetition_penalty, routing_level=routing_level,
                     active_nids=active_nids, collab_mode=collab_mode,
                     fusion_mode=fusion_mode,
                 )
-            # SMCS EPE: 生成多条候选，混合后验评分选最优
-            candidates = []
-            for _ in range(n_candidates):
-                try:
-                    text = self._generate_p7(
-                        prompt, max_tokens, temperature, top_k, domain,
-                        repetition_penalty, routing_level=routing_level,
-                        active_nids=active_nids, collab_mode=collab_mode,
-                        fusion_mode=fusion_mode,
-                    )
-                    if text:
-                        candidates.append(text)
-                except Exception:
-                    continue
-            if not candidates:
-                return ""
-            if len(candidates) == 1:
-                return candidates[0]
-            return self._select_best_candidate(candidates)
-        finally:
-            if acquired:
-                app_state.train_lock.release()
+                if text:
+                    candidates.append(text)
+            except Exception:
+                continue
+        if not candidates:
+            return ""
+        if len(candidates) == 1:
+            return candidates[0]
+        return self._select_best_candidate(candidates)
 
     def _select_best_candidate(self, candidates: List[str]) -> str:
         """SMCS EPE 混合后验评分选最优候选。
@@ -1786,19 +1779,11 @@ class Cortex:
         if features is None:
             raise ValueError("多模态输入缺少 data/features 字段")
 
-        # 2. 读侧保护（与 generate 共用 train_lock）
-        from taiji.core.app_state import app_state
-        acquired = app_state.train_lock.acquire(timeout=10)
-        if not acquired:
-            logger.warning("Cortex.generate_multimodal 等待训练锁超时（10s），可能并发")
-        try:
-            return self._generate_multimodal_p8(
-                features, actual_modality, domain,
-                max_tokens, temperature, top_k,
-            )
-        finally:
-            if acquired:
-                app_state.train_lock.release()
+        # 训练/推理分离：无锁读（同 generate，训练侧影子权重保证 live 稳定）
+        return self._generate_multimodal_p8(
+            features, actual_modality, domain,
+            max_tokens, temperature, top_k,
+        )
 
     def _generate_multimodal_p8(
         self,
