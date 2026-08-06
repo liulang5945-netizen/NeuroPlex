@@ -176,7 +176,7 @@
 
 **🔧 修复训练脚本回读 bug（commit 00cda08）**：`verify_checkpoint` 目标 tokenizer 传错——L335/L341 传 `domain_sps[d]`（域词表），与训练（general_sp 编码）不一致 → 目标编码错位，训练脚本自身打印的"最终回读" PPL 是假值（400 万级）。已改为 `general_sp, general_sp`（输入/目标都 general，与训练循环 L267 完全一致）。
 
-**✅ 路由适配统一空间完成**（`verify_unified_space_routing.py`，commit 待填）：
+**✅ 路由适配统一空间完成**（`verify_unified_space_routing.py`，commit 4dc5db3）：
 1. **新增 division 融合模式**（[ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) `_division_logit_fusion`）：同 vocab（256K）场景 per-position 硬路由——每个 token 位置交给 max-prob 最高的 neuron，直接复用原生置信度（无转译投影）。`division_norm` 为 per-neuron 归一化变体（实验）
 2. **修复架构 bug**：`forward` 的 active_ids 原为 set（迭代顺序不定）→ round_logits/all_logits dict 顺序随机 → 路由监控/诊断索引错位。改为有序 list（保持 nmap 顺序），路由信号顺序确定性
 3. **验证结果**：
@@ -185,10 +185,19 @@
    - [4] 生成冒烟正常（中文 prompt 回显 + 多 neuron 续写）
 4. **关键结论**：division 分工路由是"路径打通 + 信号可用"的适配（域内分工正确），PPL 校准需**协作层训练**（C12 对比约束让共振分对齐 NLL 排序 / Sparse Router 学习路由）——即下一步
 
-**后续链（下一步：协作层 general 空间训练）**：
-1. ✅ ~~路由适配统一空间~~（division 模式 + set 顺序修复 + 基线记录，见上）
-2. **协作层 general 空间训练 + 评估**（域内 EMERGE + 跨域 zh→code 语义桥接）——校准路由信号的核心步骤
-3. 结果记录到 plans + 提交
+**✅ 混合阵容协作层训练支持完成**（train_cross_domain_collab.py，commit c3a6a68）：
+- **回应核心设计**：不同词表 neuron 通过**词库转译**协作是既有核心能力（EMERGE +4.0% 实测），统一空间（共享 lm_head）是演进而非否定。协作层训练**同时包含旧 5 对话 neuron + 新 4 general neuron**
+- `--dialogue-ids/--dialogue-dir/--dialogue-max-texts/--dialogue-data-dir`：旧对话 neuron（zh 50K 域空间）加入阵容——保留各自域输出头（跨 vocab 协作），输入用 ckpt 内 home embedding（shared_embedding_state），经词库转译矩阵（zh 50K→general 256K，sparse.mm）投影到统一目标空间
+- dialogue 数据桶（data/simple_zh，短答案 ≤150 字）加入域轮转，general 目标空间统一编码
+- 日志频率 %50→%10（原 epoch_ppl 用 loss_history[-1]，无记录时假打印 PPL=1.0）
+- **冒烟验证通过**（9 neuron 含 standard/compact 混合规格 + 转译 + 融合 + loss 下降 + checkpoint 可加载）：43 step / 7.1min，math loss 5.82 → dialogue 7.28（下降中）；PPL 高是协作层未训练自然状态
+- **性能基准**：batch1×seq32 ≈ 10s/step（CPU + 256K vocab 固有成本）；正式训练建议 batch2×seq64 ≈ 40s/step
+
+**后续链（下一步：正式协作层训练启动）**：
+1. ✅ ~~路由适配统一空间~~（division 模式 + set 顺序修复 + 基线记录）
+2. ✅ ~~混合阵容支持~~（旧 5 + 新 4 词库转译联合训练管线，冒烟通过）
+3. **正式协作层训练**（9 neuron 混合阵容，域内 EMERGE + 跨域 zh→code 语义桥接）——校准路由信号的核心步骤
+4. 结果记录到 plans + 提交
 
 **背景**：跨域协作 v3 + rounds=2 已达成域内 EMERGE +4.0% 全域转正（"5 联合 > 5" 域内实证）；通用空间投影极限诊断结论 = 静态稀疏投影到 256K 摧毁置信度（max-prob≈0.001）→ 共享 general lm_head 免投影是架构上限最高的解
 
