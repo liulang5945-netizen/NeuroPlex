@@ -80,8 +80,14 @@ class TeeLogger:
         self.fp.close()
 
 
-def load_neuron(nid: str, neuron_dir: str, device: str) -> ResonanceNeuron:
-    """加载单个域 neuron（兼容 verify_v3 与训练产物格式）。"""
+def load_neuron(nid: str, neuron_dir: str, device: str,
+                shared_lm_head: Optional[nn.Linear] = None) -> ResonanceNeuron:
+    """加载单个域 neuron（兼容 verify_v3 与训练产物格式）。
+
+    shared_lm_head：统一输出空间（general 基座）时传入共享 general 256K head——
+    基座 ckpt 已剥离 lm_head（_strip_shared_head），必须注入共享 head 才能
+    在 general 256K 空间输出 logits（否则用域 vocab head 算 256K 目标会崩溃）。
+    """
     path = os.path.join(neuron_dir, f"neuron_{nid}.pt")
     ckpt = torch.load(path, map_location=device, weights_only=False)
     if "neuron_config" in ckpt and ckpt["neuron_config"] is not None:
@@ -89,12 +95,28 @@ def load_neuron(nid: str, neuron_dir: str, device: str) -> ResonanceNeuron:
     else:
         cfg = get_domain_neuron_config(nid, spec="compact")
     cfg.unified_field_dim = None
-    neuron = ResonanceNeuron(cfg).to(device)
+    neuron = ResonanceNeuron(cfg, shared_lm_head=shared_lm_head).to(device)
     neuron.load_state_dict(ckpt["state_dict"], strict=False)
     result = ckpt.get("result", {})
     print(f"  [{nid}] vocab={cfg.vocab_size}, spec={cfg.spec}, "
           f"best_val_ppl={result.get('best_val_ppl', '?')}", flush=True)
     return neuron
+
+
+def load_shared_lm_head(neuron_dir: str, hidden_size: int, device: str) -> Optional[nn.Linear]:
+    """统一输出空间：加载共享 general 256K lm_head（shared_lm_head.pt）。
+
+    general 基座（--target-space general）产物：neuron ckpt 已剥离 131M head，
+    head 独立存 shared_lm_head.pt。文件不存在时返回 None（域基座，向后兼容）。
+    """
+    path = os.path.join(neuron_dir, "shared_lm_head.pt")
+    if not os.path.exists(path):
+        return None
+    head = nn.Linear(hidden_size, 256000, bias=False)
+    head.weight.data.copy_(
+        torch.load(path, map_location=device, weights_only=False)["weight"])
+    print(f"  [shared_lm_head] 从 {path} 加载 general 256K head", flush=True)
+    return head
 
 
 def load_shared_embedding(neuron_dir: str, device: str) -> nn.Embedding:
@@ -267,10 +289,13 @@ def main():
 
     # 1. 加载多域 neuron + shared_embedding
     print("\n[1] 加载神经元...", flush=True)
+    # 统一输出空间（general 基座）：shared_lm_head.pt 存在时注入所有 neuron
+    # （基座 ckpt 已剥离 lm_head，不注入会因 vocab 错位崩溃）
+    shared_lm_head = load_shared_lm_head(args.neuron_dir, 512, DEVICE)
     neurons = {}
     shared_embeddings = {}
     for nid in domains:
-        n = load_neuron(nid, args.neuron_dir, DEVICE)
+        n = load_neuron(nid, args.neuron_dir, DEVICE, shared_lm_head=shared_lm_head)
         neurons[nid] = n
         shared_embeddings[nid] = load_shared_embedding(args.neuron_dir, DEVICE)
 

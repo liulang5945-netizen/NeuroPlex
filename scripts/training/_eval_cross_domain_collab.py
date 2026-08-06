@@ -26,7 +26,9 @@ from taiji.resonance import ResonanceField, ResonanceEnsemble
 from taiji.resonance.geometry import NeuronGeometry
 from taiji.resonance.topology import build_topology, establish_topology_channels
 from taiji.resonance.translator import TokenizerHub, batch_align_and_embed
-from scripts.training.train_cross_domain_collab import load_neuron, load_shared_embedding, load_tokenizer_for_vocab
+from scripts.training.train_cross_domain_collab import (
+    load_neuron, load_shared_embedding, load_shared_lm_head, load_tokenizer_for_vocab,
+)
 from scripts.training.eval_dialogue import load_cross_spec_weights
 from scripts.training.utils import load_general_tokenizer
 from scripts.training.experiment_config import SFT_ANSWER_MARKER
@@ -39,8 +41,10 @@ CKPT = "data/neurons/cross_domain_v1.ckpt.pt"
 def load_ensemble(neuron_dir, domains, ckpt_path, no_weights=False):
     neurons = {}
     shared_embeddings = {}
+    # 统一输出空间（general 基座）：注入共享 general 256K head
+    shared_lm_head = load_shared_lm_head(neuron_dir, 512, DEVICE)
     for dom in domains:
-        neurons[dom] = load_neuron(dom, neuron_dir, DEVICE)
+        neurons[dom] = load_neuron(dom, neuron_dir, DEVICE, shared_lm_head=shared_lm_head)
         shared_embeddings[dom] = load_shared_embedding(neuron_dir, DEVICE)
     geometry = NeuronGeometry(embedding_dim=8, sigma=0.5)
     topology = build_topology(neurons, geometry, mode="hybrid", k=3)
