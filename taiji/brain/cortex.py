@@ -755,6 +755,96 @@ class Cortex:
         print(f"[Cortex] 🧹 Apoptosis: {nid} 已移除 (剩余 {len(self.neurons)} 个)")
         return True
 
+    def isolate_neuron(self, nid: str) -> bool:
+        """隔离神经元（凋亡级联：启动后摘除路由，保留权重与 ckpt）。
+
+        人脑对应：凋亡级联启动后神经元功能被抑制但仍存活（可复活）。
+        与 remove_neuron 的区别：不删除磁盘 ckpt，并记录恢复信息。
+
+        Args:
+            nid: 神经元 ID
+
+        Returns:
+            True 如果成功隔离
+        """
+        if nid not in self.neurons:
+            logger.warning(f"[Cortex] isolate_neuron: {nid} 不存在")
+            return False
+        if len(self.neurons) <= 1:
+            logger.warning(f"[Cortex] isolate_neuron: 拒绝隔离最后一个神经元 {nid}")
+            return False
+
+        domain = nid.split("_")[0] if "_" in nid else nid
+        # 从共享 dict 摘除（cortex.neurons 与 ensemble.neurons 同一引用）
+        self.neurons.pop(nid)
+        # 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
+        for other_neuron in self.neurons.values():
+            try:
+                if hasattr(other_neuron, "excite_channels") and nid in other_neuron.excite_channels:
+                    del other_neuron.excite_channels[nid]
+                if hasattr(other_neuron, "inhibit_channels") and nid in other_neuron.inhibit_channels:
+                    del other_neuron.inhibit_channels[nid]
+            except Exception:
+                pass
+
+        # 记录恢复信息（ckpt 保留，未删除）
+        if not hasattr(self, "_isolated"):
+            self._isolated: Dict[str, dict] = {}
+        self._isolated[nid] = {
+            "domain": domain,
+            "ckpt": os.path.join(self.neurons_dir, f"neuron_{nid}.pt"),
+        }
+        logger.info(f"[Cortex] Isolate: 神经元 {nid} 已隔离（保留 ckpt，可复活）")
+        print(f"[Cortex] 💤 Isolate: {nid} 已隔离（保留 ckpt，可复活）")
+        return True
+
+    def revive_neuron(self, nid: str) -> bool:
+        """复活被隔离的神经元（隔离观察期分数回升，或手动干预）。
+
+        从保留的 ckpt 重新加载 neuron 并加回共享 dict。
+        注意：side_channels 拓扑需由调用方（sleep_engine）重新建立。
+
+        Args:
+            nid: 神经元 ID
+
+        Returns:
+            True 如果成功复活
+        """
+        isolated = getattr(self, "_isolated", {})
+        if nid not in isolated:
+            logger.warning(f"[Cortex] revive_neuron: {nid} 不在隔离池")
+            return False
+
+        info = isolated[nid]
+        ckpt_path = info.get("ckpt", os.path.join(self.neurons_dir, f"neuron_{nid}.pt"))
+        if not os.path.exists(ckpt_path):
+            logger.warning(f"[Cortex] revive_neuron: ckpt 不存在 {ckpt_path}")
+            return False
+
+        try:
+            ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+            cfg: NeuronConfig = ckpt["neuron_config"]
+            sd = ckpt["state_dict"]
+            sd = self._migrate_state_dict(sd, cfg)
+            neuron = ResonanceNeuron(cfg).to(self.device)
+            has_v2 = {"field_pool_query", "field_read_gate.weight"} <= set(sd.keys())
+            neuron.load_state_dict(sd, strict=False)
+            neuron.v1_compat = not has_v2
+            neuron.eval()
+            self.neurons[nid] = neuron
+        except Exception as e:
+            logger.error(f"[Cortex] revive_neuron 加载失败 {nid}: {e}")
+            return False
+
+        del isolated[nid]
+        logger.info(f"[Cortex] Revive: 神经元 {nid} 已复活 (总数 {len(self.neurons)})")
+        print(f"[Cortex] 🌱 Revive: {nid} 已复活")
+        return True
+
+    def get_isolated_neurons(self) -> list:
+        """获取隔离池中的神经元 ID（诊断/复活用）。"""
+        return list(getattr(self, "_isolated", {}).keys())
+
     def think(
         self,
         shared_embeddings: Optional[torch.Tensor] = None,

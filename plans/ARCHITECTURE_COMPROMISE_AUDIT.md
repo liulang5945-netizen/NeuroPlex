@@ -8,6 +8,34 @@
 
 ---
 
+## 📌 弱神经元剔除（凋亡）v2：人脑分层凋亡（2026-08-06 重构，commit 待填）
+
+**动机**：原 ApoptosisTracker 固定 PPL>200 + 激活率<5% 两个绝对阈值——① general 256K 空间与域空间 PPL 口径完全不同（固定 200 会误杀全部 general 空间 neuron，与当前基座训练直接冲突）；② 均匀激活假设与"5 联合 > 5"分工路由冲突（域 neuron 只在自己域激活是设计意图）；③ 永久删除无恢复。
+
+**人脑机制映射**：
+
+| 人脑机制 | 态极实现 |
+|---------|---------|
+| 突触修剪先行（Synaptic Pruning）| 弱 side_channels（`_channel_usage` 长期低）先被修剪，神经元本体保留（`prune_synapses`）|
+| 活动依赖存活（use it or lose it）| 激活率作为生存信号，种群相对归一化 |
+| 神经营养竞争（营养=网络贡献）| 协作边际贡献（A/B 剔除实验）+ 网络中心度（side channel 出入度）入生存分 |
+| 凋亡级联（启动→执行→清除）| active → candidate → isolated → trial → dead，多阶段可取消/可复活 |
+| 成熟度保护 | 幼稚态（maturity_ratio<0.5）不参与凋亡竞争 |
+| 抑制性神经元保护 | inhibitory 不把"网络贡献"作为存活要求（权重转移给活动+能力）|
+| 空间自适应 | PPL 用**种群内百分位**（同空间内排序），不跨空间比绝对值 |
+
+**v2 实现（已验证）**：
+- [lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py) `ApoptosisTracker`：多维生存评分（activity/ppl 分位/contribution/connectivity/redundancy 惩罚，缺失自动降权）+ 状态机（`step_population`）+ `prune_synapses` + `cleanup_neuron` 改移入 `_recycle_bin`（不直接删）
+- [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py)：`isolate_neuron`（摘除路由保留 ckpt）/ `revive_neuron`（重载 ckpt 复活）/ `get_isolated_neurons`
+- [sleep_engine.py](file:///e:/taiji-neuron/taiji/life/sleep_engine.py) Phase 4：采集多维信号（activity/ppl/connectivity/maturity/inhibitory）+ 级联动作（隔离/试复活/复活/凋亡补偿新生）+ 突触修剪
+- 兼容：`record_ppl`/`check_activation`/`get_apoptosis_candidates` 保留（verify_apoptosis.py 全通过）
+
+**验证**：状态机全链路 active→candidate→isolated→trial→dead ✓；复活 ✓；成熟度保护 ✓；抑制性保护（exc 0.31 vs inh 0.80）✓；**general 空间安全（4 域 PPL 全 >200 仍全 active，旧固定阈值会误杀）** ✓；突触修剪 ✓；旧接口兼容 ✓
+
+**待注入信号（评估基础设施就绪后）**：contribution（协作 A/B 剔除实验）、redundancy（field_vector 相似度）
+
+---
+
 ## 📌 递归设计检查（2026-08-06 补充）
 
 **结论：项目"递归"（taiji/life 递归改进 + 递归蒸馏）两条回路——任务进化回路活着，递归改进回路是死的。**

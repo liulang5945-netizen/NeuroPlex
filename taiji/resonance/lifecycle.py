@@ -24,111 +24,211 @@ logger = logging.getLogger("Taiji.Lifecycle")
 @dataclass
 class ApoptosisTracker:
     """
-    神经元凋亡追踪器（人脑启发：弱连接神经元被清除）。
+    人脑启发的分层神经元凋亡追踪器（v2，2026-08-06 重构）。
 
-    追踪连续 K 次评估 PPL > threshold 的神经元，
-    标记为"凋亡"后从 ensemble 移除并清理资源。
+    人脑对应：
+    - 突触修剪先行：弱突触（side_channels）先被修剪，神经元本体保留（见 prune_synapses）
+    - 活动依赖存活（use it or lose it）：存活依赖持续活动，种群内相对竞争（非绝对阈值）
+    - 神经营养因子竞争：营养 = 网络贡献（协作边际贡献 + 网络中心度），营养不足者凋亡
+    - 凋亡级联：启动（低生存分）→ 隔离观察 → 执行，非一步到位；隔离期可复活
+    - 成熟度保护：幼稚态神经元受保护（MaturityTracker 联动）
+    - 抑制性神经元保护：皮层抑制性比例稳定，凋亡阈值放宽
 
-    触发条件：
-    1. 连续 failure_threshold 次 PPL > ppl_threshold（宽限期 grace_evals 之后）
-    2. 或长期（>min_rounds_observed）激活率 < activation_ratio
+    状态机：active → (连续低分) → candidate → isolated → (观察期无反转) → dead
+            isolated → (分数回升) → active（可复活）
 
-    宽限期保护：前 grace_evals 次评估不触发凋亡。
-    随机初始化或 lm_head 未训练的神经元 PPL 天然很高（幼稚态），
-    宽限期给它们时间通过 feed+sleep 积累经验后再评估凋亡。
+    PPL 不用固定绝对阈值（如 200）——general 256K 空间与域空间 PPL 口径完全不同，
+    固定阈值会误杀全部 general 空间神经元。改为多维生存评分 + 种群相对分位。
     """
 
-    # 阈值依据：
-    # - ppl_threshold=200：compact 神经元训练良好时 PPL 10-50，>200 说明严重退化
-    #   （对下一个 token 置信度 < 1/200，接近随机猜）
-    # - failure_threshold=3：连续 3 次而非 1 次，避免单次评估抖动误杀
-    # - activation_ratio=0.05：4 神经元均匀激活应 25%，<5%（均值 1/5）视为孤立
-    # - min_rounds_observed=20：至少观察 20 轮，初期激活波动大需足够样本
+    # 相对阈值（种群竞争）
+    low_score_threshold: float = 0.4    # 生存分 < 此值视为"低分"
+    failure_threshold: int = 3          # 连续 3 轮低分 → candidate（防单轮抖动）
+    observe_rounds: int = 10            # 隔离观察期（级联过程，可复活）
+
+    # 状态机（nid -> state）
+    _states: dict = field(default_factory=dict)          # active|candidate|isolated|dead
+    _failure_counts: dict = field(default_factory=dict)  # nid -> 连续低分计数
+    _isolate_since: dict = field(default_factory=dict)   # nid -> 进入隔离的轮次
+    _scores: dict = field(default_factory=dict)          # nid -> 最近生存分
+
+    # 兼容旧字段（旧调用方仍可调用 record_ppl / check_activation）
+    _apoptosed: dict = field(default_factory=dict)
+    _eval_counts: dict = field(default_factory=dict)
+    # 旧固定阈值保留为"兜底"（仅当未注入 ppl_percentile 时用于 record_ppl 兼容）
     ppl_threshold: float = 200.0
-    failure_threshold: int = 3
+    failure_threshold_legacy: int = 3
+    grace_evals: int = 10
     activation_ratio: float = 0.05
     min_rounds_observed: int = 20
-    grace_evals: int = 10  # 宽限期：前 N 次评估不触发凋亡（幼稚态 PPL 天然高）
 
-    # nid -> 连续失败计数
-    _failure_counts: dict = field(default_factory=dict)
-    # nid -> True 表示已凋亡
-    _apoptosed: dict = field(default_factory=dict)
-    # nid -> 累计评估次数
-    _eval_counts: dict = field(default_factory=dict)
+    # ── 多维生存评分 ───────────────────────────────────
 
-    def record_ppl(self, neuron_id: str, ppl: float) -> bool:
-        """记录一次 PPL 评估，返回是否触发凋亡。
+    def compute_survival_score(self, metrics: dict) -> float:
+        """多维生存评分（0-1，越高越健康）。
 
-        Args:
-            neuron_id: 神经元 ID
-            ppl: 本次评估的 PPL
-
-        Returns:
-            True 如果该神经元触发凋亡
+        metrics（由 sleep 侧采集注入）：
+          activity: 0-1 激活率（归一化到种群最大值）
+          ppl_percentile: 0-1 PPL 在种群中的百分位（1=最优）——空间自适应，
+                          general 256K 与域空间各自计算分位，不直接比绝对值
+          contribution: 0-1 协作边际贡献（A/B 剔除实验：剔除后协作不变差=1；可选）
+          connectivity: 0-1 网络中心度（side channel 出入度归一化）
+          redundancy: 0-1 与最强同质 neuron 的 field_vector 相似度（1=完全冗余，惩罚项）
+          maturity_ratio: 0-1 成熟度（幼稚态 <0.5 → 直接高保护，不判死）
+          is_inhibitory: bool 抑制性保护（皮层抑制性比例稳定，放宽贡献/连接要求）
+        信号缺失 → 该维度不参与，权重重归一化。
         """
-        if self._apoptosed.get(neuron_id, False):
-            return True  # 已凋亡
+        # 幼稚态保护：未成熟神经元不参与凋亡竞争（人脑：新生神经元有存活窗口）
+        maturity = metrics.get("maturity_ratio", 1.0)
+        if maturity < 0.5:
+            return 1.0
 
-        # 累计评估次数，宽限期内不触发凋亡
-        self._eval_counts[neuron_id] = self._eval_counts.get(neuron_id, 0) + 1
-        if self._eval_counts[neuron_id] <= self.grace_evals:
-            return False
+        # 信号 → 权重（缺失信号自动剔除并重归一化）
+        dims = {
+            "activity": (metrics.get("activity"), 0.25),
+            "ppl": (metrics.get("ppl_percentile"), 0.25),
+            "contribution": (metrics.get("contribution"), 0.25),
+            "connectivity": (metrics.get("connectivity"), 0.15),
+            "redundancy": (metrics.get("redundancy"), 0.10),  # 惩罚项
+        }
+        # 抑制性保护：皮层抑制性比例稳定——"网络贡献"不是其存活要求
+        # （抑制性神经元靠功能活性存活，贡献/连接差 → 不惩罚；权重转移给活动+能力）
+        if metrics.get("is_inhibitory"):
+            dims["contribution"] = (None, 0.25)
+            dims["connectivity"] = (None, 0.15)
+            dims["activity"] = (metrics.get("activity"), 0.35)
+            dims["ppl"] = (metrics.get("ppl_percentile"), 0.35)
 
-        if ppl > self.ppl_threshold:
-            self._failure_counts[neuron_id] = self._failure_counts.get(neuron_id, 0) + 1
-            if self._failure_counts[neuron_id] >= self.failure_threshold:
-                self._apoptosed[neuron_id] = True
-                logger.warning(
-                    "神经元 %s 连续 %d 次 PPL > %.1f（当前 %.1f），触发凋亡",
-                    neuron_id,
-                    self._failure_counts[neuron_id],
-                    self.ppl_threshold,
-                    ppl,
-                )
-                return True
-        else:
-            # 评估通过，重置失败计数
-            self._failure_counts[neuron_id] = 0
+        total_w, score = 0.0, 0.0
+        for name, (val, w) in dims.items():
+            if val is None:
+                continue
+            total_w += w
+            if name == "redundancy":
+                score -= w * val  # 冗余惩罚
+            else:
+                score += w * val
+        if total_w <= 0:
+            return 0.5
+        return max(0.0, min(1.0, score / total_w))
 
-        return False
+    # ── 种群级状态机步进（睡眠 Phase 4 主入口）──────────
 
-    def check_activation(self, neuron_id: str, activation_count: int, total_rounds: int) -> bool:
-        """检查激活率是否过低，触发凋亡。
+    def step_population(self, metrics_map: Dict[str, dict], step_round: int) -> Dict[str, str]:
+        """种群级凋亡状态机步进，返回 {nid: new_state}。
 
-        Args:
-            neuron_id: 神经元 ID
-            activation_count: 神经元被激活的总次数
-            total_rounds: 总轮次
-
-        Returns:
-            True 如果该神经元触发凋亡
+        metrics_map: {nid: metrics}，先计算种群 ppl 百分位（若注入 ppl），再逐 nid 流转。
         """
-        if self._apoptosed.get(neuron_id, False):
-            return True
-        if total_rounds < self.min_rounds_observed:
-            return False
+        # 1. 种群 ppl 百分位（空间自适应：分位在同一空间内计算）
+        ppl_vals = {
+            nid: m["ppl"] for nid, m in metrics_map.items()
+            if m.get("ppl") is not None
+        }
+        if ppl_vals:
+            sorted_ids = sorted(ppl_vals, key=lambda k: ppl_vals[k])
+            rank = {nid: i for i, nid in enumerate(sorted_ids)}
+            n = len(sorted_ids)
+            for nid in metrics_map:
+                if nid in ppl_vals and n > 0:
+                    # 分位 0-1：PPL 最低（最优）→ 1.0
+                    metrics_map[nid]["ppl_percentile"] = 1.0 - rank[nid] / (n - 1) if n > 1 else 1.0
 
-        ratio = activation_count / total_rounds if total_rounds > 0 else 0
-        if ratio < self.activation_ratio:
-            self._apoptosed[neuron_id] = True
-            logger.warning(
-                "神经元 %s 激活率 %.3f < %.3f（%d/%d 轮），触发凋亡",
-                neuron_id,
-                ratio,
-                self.activation_ratio,
-                activation_count,
-                total_rounds,
-            )
-            return True
-        return False
+        # 2. 逐 nid 状态流转
+        for nid, metrics in metrics_map.items():
+            state = self._states.get(nid, "active")
+            if state == "dead":
+                continue
+            score = self.compute_survival_score(metrics)
+            self._scores[nid] = score
+            low = score < self.low_score_threshold
+
+            if state == "active":
+                if low:
+                    self._failure_counts[nid] = self._failure_counts.get(nid, 0) + 1
+                    if self._failure_counts[nid] >= self.failure_threshold:
+                        self._states[nid] = "candidate"  # 凋亡级联启动
+                        logger.warning("神经元 %s 生存分 %.2f 连续 %d 轮偏低，进入 candidate",
+                                       nid, score, self._failure_counts[nid])
+                else:
+                    self._failure_counts[nid] = 0
+            elif state == "candidate":
+                if not low:
+                    # 分数回升 → 级联取消
+                    self._states[nid] = "active"
+                    self._failure_counts[nid] = 0
+                    logger.info("神经元 %s 生存分回升 %.2f，取消凋亡级联", nid, score)
+                else:
+                    # 进入隔离（摘除路由，保留权重，可复活）
+                    self._states[nid] = "isolated"
+                    self._isolate_since[nid] = step_round
+                    logger.warning("神经元 %s 进入隔离（观察 %d 轮）", nid, self.observe_rounds)
+            elif state == "isolated":
+                if not low:
+                    # 激活/能力回升 → 复活
+                    self._states[nid] = "active"
+                    self._failure_counts[nid] = 0
+                    self._isolate_since.pop(nid, None)
+                    logger.info("神经元 %s 复活（生存分回升 %.2f）", nid, score)
+                elif step_round - self._isolate_since.get(nid, step_round) >= self.observe_rounds:
+                    # 观察期满 → 试复活（重新加入路由，下一轮决定生死）
+                    # 人脑：凋亡级联的最后确认，给神经元最后一次证明自己的机会
+                    self._states[nid] = "trial"
+                    logger.warning("神经元 %s 隔离观察 %d 轮，进入 trial（试复活）", nid, self.observe_rounds)
+            elif state == "trial":
+                if not low:
+                    # 试复活成功：分数恢复 → 真正复活
+                    self._states[nid] = "active"
+                    self._failure_counts[nid] = 0
+                    self._isolate_since.pop(nid, None)
+                    logger.info("神经元 %s 试复活成功（生存分 %.2f 恢复）", nid, score)
+                else:
+                    # 试复活失败 → 执行凋亡（不可逆）
+                    self._states[nid] = "dead"
+                    self._apoptosed[nid] = True
+                    logger.warning("神经元 %s 试复活失败（生存分 %.2f），执行凋亡", nid, score)
+
+        return dict(self._states)
+
+    # ── 状态查询 ───────────────────────────────────────
+
+    def get_state(self, neuron_id: str) -> str:
+        return self._states.get(neuron_id, "active")
+
+    def get_states(self) -> dict:
+        return dict(self._states)
+
+    def get_scores(self) -> dict:
+        return dict(self._scores)
+
+    def get_isolated(self) -> list:
+        return [nid for nid, s in self._states.items() if s == "isolated"]
+
+    def get_trial(self) -> list:
+        """试复活中的神经元（隔离观察期满，需重新加入路由做最后确认）。"""
+        return [nid for nid, s in self._states.items() if s == "trial"]
+
+    def get_dead(self) -> list:
+        return [nid for nid, s in self._states.items() if s == "dead"]
 
     def is_apoptosed(self, neuron_id: str) -> bool:
-        return self._apoptosed.get(neuron_id, False)
+        return self._apoptosed.get(neuron_id, False) or self._states.get(neuron_id) == "dead"
 
     def get_apoptosis_candidates(self) -> list:
-        """获取所有已凋亡的神经元 ID。"""
-        return [nid for nid, ap in self._apoptosed.items() if ap]
+        """已凋亡（dead）的神经元 ID（兼容旧调用）。"""
+        return self.get_dead()
+
+    def revive(self, neuron_id: str) -> bool:
+        """复活（隔离/试复活期恢复，或手动干预）。"""
+        if self._states.get(neuron_id) in ("isolated", "candidate", "trial"):
+            self._states[neuron_id] = "active"
+            self._failure_counts.pop(neuron_id, None)
+            self._isolate_since.pop(neuron_id, None)
+            self._apoptosed.pop(neuron_id, None)
+            logger.info("神经元 %s 手动复活", neuron_id)
+            return True
+        return False
+
+    # ── 资源清理（dead 后执行）──────────────────────────
 
     def cleanup_neuron(
         self,
@@ -140,7 +240,7 @@ class ApoptosisTracker:
 
         Args:
             neuron_id: 神经元 ID
-            ckpt_path: ckpt 文件路径，若提供则删除
+            ckpt_path: ckpt 文件路径，若提供则移入回收站目录（不直接删除，防误判丢失）
             ensemble: ResonanceEnsemble 实例，若提供则从 neurons 移除
 
         Returns:
@@ -155,13 +255,16 @@ class ApoptosisTracker:
                 del ensemble.neurons[neuron_id]
                 logger.info("已从 ensemble 移除凋亡神经元 %s", neuron_id)
 
-        # 删除 ckpt 文件
+        # 移动 ckpt 到回收站目录（人脑：凋亡清除不是销毁信息，而是移出工作集）
         if ckpt_path is not None and os.path.exists(ckpt_path):
             try:
-                os.remove(ckpt_path)
-                logger.info("已删除凋亡神经元 ckpt: %s", ckpt_path)
+                recycle_dir = os.path.join(os.path.dirname(ckpt_path), "_recycle_bin")
+                os.makedirs(recycle_dir, exist_ok=True)
+                dst = os.path.join(recycle_dir, os.path.basename(ckpt_path))
+                os.replace(ckpt_path, dst)
+                logger.info("凋亡神经元 ckpt 移入回收站: %s", dst)
             except OSError as e:
-                logger.error("删除 ckpt %s 失败: %s", ckpt_path, e)
+                logger.error("移动 ckpt %s 失败: %s", ckpt_path, e)
                 return False
 
         # 清理其他神经元的 side_channels
@@ -175,10 +278,88 @@ class ApoptosisTracker:
 
         return True
 
+    # ── 突触修剪（层级 0：先修剪连接，不动神经元本体）────
+
+    def prune_synapses(self, neurons: Dict[str, Any],
+                       min_usage: float = 0.01, stale_rounds: int = 10) -> int:
+        """修剪弱突触（side_channels）——人脑突触修剪（Synaptic Pruning）。
+
+        长期未被利用的侧通道（|proj*scale+bias| 均值低）被删除，
+        神经元本体保留（用进废退，最温和的弱化层级）。
+
+        Args:
+            neurons: {nid: ResonanceNeuron}
+            min_usage: 通道 usage 低于此值视为弱（neuron._channel_usage 统计）
+            stale_rounds: 连续多少轮低利用才修剪（防单轮波动）
+
+        Returns:
+            修剪的通道数
+        """
+        pruned = 0
+        for nid, neuron in neurons.items():
+            usage = getattr(neuron, "_channel_usage", {}) or {}
+            for key, u in usage.items():
+                if u < min_usage:
+                    ch_type, peer_id = key.split(":", 1)
+                    ch_name = f"{ch_type}_channels"
+                    channels = getattr(neuron, ch_name, None)
+                    if channels and peer_id in channels:
+                        del channels[peer_id]
+                        # 清理关联 scale/bias 参数
+                        for attr in (f"{ch_type}_scale_{peer_id}", f"{ch_type}_bias_{peer_id}"):
+                            if hasattr(neuron, attr):
+                                delattr(neuron, attr)
+                        pruned += 1
+                        logger.info("突触修剪: %s → %s 通道（usage=%.4f）", nid, peer_id, u)
+        return pruned
+
     def reset(self, neuron_id: str) -> None:
         """重置某神经元的失败计数和评估计数（不复活已凋亡的）。"""
         self._failure_counts.pop(neuron_id, None)
         self._eval_counts.pop(neuron_id, None)
+
+    # ── 兼容旧接口（旧调用方）──────────────────────────
+
+    def record_ppl(self, neuron_id: str, ppl: float) -> bool:
+        """【兼容】记录 PPL。v2 以种群评分判定，此处仅保留计数供诊断。
+
+        保留旧固定阈值触发（仅当调用方未走 step_population 时兜底）。
+        """
+        if self._apoptosed.get(neuron_id, False):
+            return True
+        self._eval_counts[neuron_id] = self._eval_counts.get(neuron_id, 0) + 1
+        if self._eval_counts[neuron_id] <= self.grace_evals:
+            return False
+        # 兼容兜底：只有尚未进入 v2 状态机的旧调用路径才用固定阈值
+        if self._states.get(neuron_id, "active") == "active":
+            if ppl > self.ppl_threshold:
+                self._failure_counts[neuron_id] = self._failure_counts.get(neuron_id, 0) + 1
+                if self._failure_counts[neuron_id] >= self.failure_threshold_legacy:
+                    self._states[neuron_id] = "candidate"
+                    self._apoptosed[neuron_id] = True
+                    logger.warning(
+                        "神经元 %s 连续 %d 次 PPL > %.1f（当前 %.1f），标记凋亡（兼容路径）",
+                        neuron_id, self._failure_counts[neuron_id], self.ppl_threshold, ppl)
+                    return True
+            else:
+                self._failure_counts[neuron_id] = 0
+        return False
+
+    def check_activation(self, neuron_id: str, activation_count: int, total_rounds: int) -> bool:
+        """【兼容】检查激活率。v2 请用 step_population 注入 activity 信号。"""
+        if self._apoptosed.get(neuron_id, False):
+            return True
+        if total_rounds < self.min_rounds_observed:
+            return False
+        ratio = activation_count / total_rounds if total_rounds > 0 else 0
+        if ratio < self.activation_ratio and self._states.get(neuron_id, "active") == "active":
+            self._apoptosed[neuron_id] = True
+            self._states[neuron_id] = "candidate"
+            logger.warning("神经元 %s 激活率 %.3f < %.3f（%d/%d 轮），标记凋亡（兼容路径）",
+                           neuron_id, ratio, self.activation_ratio,
+                           activation_count, total_rounds)
+            return True
+        return False
 
 
 @dataclass
@@ -511,35 +692,62 @@ class LifecycleManager:
 
     def step(
         self,
-        ppl_results: dict,
+        metrics_map: dict,
         ensemble: Any,
         ckpt_dir: Optional[str] = None,
+        step_round: int = 0,
+        prune_neurons: Optional[Dict[str, Any]] = None,
     ) -> dict:
-        """执行一次生命周期步进。
+        """执行一次生命周期步进（v2：多维生存评分 + 分层状态机）。
 
         Args:
-            ppl_results: {neuron_id: ppl}
+            metrics_map: {neuron_id: metrics}（activity/ppl/contribution/connectivity/
+                         redundancy/maturity_ratio/is_inhibitory，缺失信号自动降权）
             ensemble: ResonanceEnsemble
             ckpt_dir: ckpt 目录路径
+            step_round: 当前轮次（隔离观察计时）
+            prune_neurons: 提供 {nid: neuron} 时执行突触修剪（层级 0）
 
         Returns:
             dict with:
-            - apoptosed: 凋亡的神经元列表
-            - new_needs: 需要新生的 domain 列表
+            - states: {nid: state}（active/candidate/isolated/dead）
+            - isolated: 进入隔离的神经元列表（调用方应摘除路由，保留权重）
+            - dead: 执行凋亡的神经元列表（调用方应清理 + 新生补偿）
+            - pruned_synapses: 修剪的突触数
         """
-        apoptosed = []
-        for nid, ppl in ppl_results.items():
-            if self.apoptosis.record_ppl(nid, ppl):
-                ckpt_path = (
-                    os.path.join(ckpt_dir, f"neuron_{nid}.pt")
-                    if ckpt_dir else None
-                )
-                self.apoptosis.cleanup_neuron(nid, ckpt_path, ensemble)
-                apoptosed.append(nid)
+        # 层级 0：突触修剪（弱连接先消失，神经元本体保留）
+        pruned = 0
+        if prune_neurons:
+            pruned = self.apoptosis.prune_synapses(prune_neurons)
+
+        # 状态机流转
+        states = self.apoptosis.step_population(metrics_map, step_round)
+        newly_isolated = [
+            nid for nid, s in states.items()
+            if s == "isolated" and self.apoptosis._isolate_since.get(nid, 0) == step_round
+        ]
+        # 隔离观察期满 → 试复活（sleep 侧需 revive_neuron 重新加入路由）
+        newly_trial = [
+            nid for nid, s in states.items() if s == "trial"
+        ]
+        dead = [
+            nid for nid, s in states.items() if s == "dead"
+        ]
+        # dead 神经元清理（ckpt 移入回收站 + 从 ensemble 摘除）
+        for nid in dead:
+            ckpt_path = (
+                os.path.join(ckpt_dir, f"neuron_{nid}.pt")
+                if ckpt_dir else None
+            )
+            self.apoptosis.cleanup_neuron(nid, ckpt_path, ensemble)
 
         # 递增所有注册神经元的成熟度
         self.maturity.tick_all()
 
         return {
-            "apoptosed": apoptosed,
+            "states": states,
+            "isolated": newly_isolated,
+            "trial": newly_trial,
+            "dead": dead,
+            "pruned_synapses": pruned,
         }

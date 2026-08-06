@@ -556,6 +556,8 @@ class SleepEngine:
             ppl_results: Dict[str, float] = {}
             total_loss = 0.0
             trained_count = 0
+            # 供 Phase 4 凋亡评估使用（多维生存评分信号之一）
+            self._last_ppl_results = ppl_results
 
             for domain, samples in domain_samples.items():
                 # 找到对应域的神经元
@@ -1585,79 +1587,165 @@ class SleepEngine:
 
     def _evaluate_cortex_quality(self, report: SleepReport) -> dict:
         """
-        P7: 评估 Cortex 神经元质量。
+        P7: 评估 Cortex 神经元质量（v2：人脑分层凋亡，2026-08-06 重构）。
 
-        使用 lifecycle.apoptosis.check_activation 检查激活率。
-        激活计数从 coaction（CoactivationTracker）获取，而非硬编码 0。
+        多维生存评分信号（缺失自动降权，ApoptosisTracker.compute_survival_score）：
+        - activity: 激活率（种群相对归一化）
+        - ppl: 上轮训练 PPL（种群内百分位，空间自适应——general 256K 与域空间不混比）
+        - connectivity: side channel 出入度（网络中心度）
+        - maturity_ratio: 成熟度（幼稚态保护）
+        - is_inhibitory: 抑制性保护（皮层抑制性比例稳定）
+        - contribution / redundancy: 可选（A/B 剔除 / probe 基础设施就绪后注入）
+
+        凋亡级联动作（人脑参考）：
+        - 突触修剪先行：弱 side_channels 被修剪，神经元本体保留
+        - active → candidate → isolated：cortex.isolate_neuron（摘除路由，保留权重）
+        - isolated 观察期满 → trial：cortex.revive_neuron（试复活，最后证明机会）
+        - trial 仍低 → dead：清理（ckpt 移回收站）+ 盲区 → 新生补偿
+        - isolated/trial 分数恢复 → active：cortex.revive_neuron（复活）
         """
         health = {
             "n_neurons": len(self.cortex.neurons),
             "neurons": {},
             "status": "healthy",
+            "isolated": [],
+            "revived": [],
+            "dead": [],
+            "pruned_synapses": 0,
         }
 
-        # 检查每个神经元的激活率
-        apoptosed = []
-        if self._lifecycle is not None:
-            try:
-                total_rounds = max(1, self._current_step)
-                # 从 coaction 获取真实激活计数（修复硬编码 0 的 bug）
-                coaction = getattr(self.cortex, "coaction", None)
-                activation_counts = {}
-                if coaction is not None:
-                    activation_counts = getattr(coaction, "_activation_counts", {})
+        if self._lifecycle is None:
+            return health
 
-                for nid in list(self.cortex.neurons.keys()):
-                    activation_count = activation_counts.get(nid, 0)
-                    triggered = self._lifecycle.apoptosis.check_activation(
-                        nid, activation_count, total_rounds
-                    )
-                    health["neurons"][nid] = {
-                        "activation_count": activation_count,
-                        "total_rounds": total_rounds,
-                        "apoptosis_triggered": triggered,
-                    }
-                    if triggered:
-                        apoptosed.append(nid)
+        try:
+            neurons = self.cortex.neurons
+            coaction = getattr(self.cortex, "coaction", None)
+            activation_counts = {}
+            if coaction is not None:
+                activation_counts = getattr(coaction, "_activation_counts", {})
 
-                if apoptosed:
-                    health["status"] = "degraded"
-                    report.recommendations.append(
-                        f"[凋亡] {len(apoptosed)} 个神经元触发凋亡: {apoptosed[:5]}"
-                    )
-                    logger.warning(f"  凋亡触发: {apoptosed}")
+            total_rounds = max(1, self._current_step)
+            max_activation = max(activation_counts.values()) if activation_counts else 0
+            ppl_results = getattr(self, "_last_ppl_results", {}) or {}
 
-                    # 执行清理：从 cortex/ensemble 移除 + 删除 ckpt
-                    if self.cortex is not None:
-                        for nid in apoptosed:
-                            try:
-                                self.cortex.remove_neuron(nid, delete_ckpt=True)
-                                report.recommendations.append(
-                                    f"[凋亡] 神经元 {nid} 已清理"
-                                )
-                            except Exception as ce:
-                                logger.warning(f"  凋亡清理失败 {nid}: {ce}")
+            # 1. 网络中心度（side channel 出入度，种群相对）
+            degrees = {}
+            max_degree = 0
+            for nid in neurons:
+                neuron = neurons[nid]
+                out_deg = len(getattr(neuron, "excite_channels", {})) + \
+                          len(getattr(neuron, "inhibit_channels", {}))
+                in_deg = sum(
+                    1 for other in neurons.values()
+                    if (hasattr(other, "excite_channels") and nid in other.excite_channels)
+                    or (hasattr(other, "inhibit_channels") and nid in other.inhibit_channels)
+                )
+                degrees[nid] = out_deg + in_deg
+                max_degree = max(max_degree, degrees[nid])
 
-                    # 凋亡→新生反馈：为凋亡的域创建替代神经元，
-                    # 维持种群规模（修复凋亡后种群单调下降问题）
-                    if self.cortex is not None and self._lifecycle is not None:
-                        for nid in apoptosed:
-                            domain = nid.split("_")[0] if "_" in nid else nid
-                            try:
-                                split_parent = self._select_split_parent(domain)
-                                new_nid = self.cortex.add_neuron(
-                                    domain, lifecycle=self._lifecycle,
-                                    from_split=split_parent,
-                                )
-                                split_info = f" (split from {split_parent})" if split_parent else " (from scratch)"
-                                logger.info(f"  🌱 凋亡补偿新生: {new_nid}{split_info} (替代 {nid})")
-                                report.recommendations.append(
-                                    f"[神经新生] 凋亡补偿: {nid} → {new_nid}{split_info}"
-                                )
-                            except Exception as ne:
-                                logger.warning(f"  凋亡补偿新生失败 ({domain}): {ne}")
-            except Exception as e:
-                logger.warning(f"  凋亡检查失败: {e}")
+            # 2. 采集当前路由神经元的多维信号
+            metrics_map = {}
+            for nid in neurons:
+                neuron = neurons[nid]
+                act = activation_counts.get(nid, 0)
+                activity_norm = (act / max_activation) if max_activation > 0 else 0.0
+                maturity = 1.0
+                if self._lifecycle.maturity is not None:
+                    try:
+                        maturity = self._lifecycle.maturity.get_maturity_ratio(nid)
+                    except Exception:
+                        maturity = 1.0
+                is_inhibitory = getattr(getattr(neuron, "config", None), "neuron_type", "") == "inhibitory"
+                metrics_map[nid] = {
+                    "activity": activity_norm,
+                    "ppl": ppl_results.get(nid),
+                    "connectivity": (degrees[nid] / max_degree) if max_degree > 0 else 0.0,
+                    "contribution": None,  # A/B 剔除实验（可选，评估基础设施就绪后注入）
+                    "redundancy": None,     # field_vector 相似度（可选）
+                    "maturity_ratio": maturity,
+                    "is_inhibitory": is_inhibitory,
+                }
+                health["neurons"][nid] = {
+                    "activation_count": act,
+                    "activity_norm": round(activity_norm, 3),
+                    "ppl": ppl_results.get(nid),
+                    "connectivity": round(metrics_map[nid]["connectivity"], 3),
+                    "maturity_ratio": round(maturity, 3),
+                }
+
+            # 3. 隔离池神经元（状态机推进：isolated → trial → dead/active）
+            #    隔离中无激活、无训练，用最近 ppl + 降级信号；trial 由 sleep 侧重新加入路由
+            for nid in self.cortex.get_isolated_neurons():
+                metrics_map[nid] = {
+                    "activity": 0.0,
+                    "ppl": ppl_results.get(nid),
+                    "connectivity": None,
+                    "contribution": None,
+                    "redundancy": None,
+                    "maturity_ratio": 1.0,
+                    "is_inhibitory": False,
+                }
+
+            # 4. 生命周期步进（突触修剪 + 分层状态机）
+            result = self._lifecycle.step(
+                metrics_map,
+                self.cortex.ensemble,
+                ckpt_dir=self.cortex.neurons_dir,
+                step_round=self._current_step,
+                prune_neurons=neurons,
+            )
+            health["pruned_synapses"] = result["pruned_synapses"]
+            if result["pruned_synapses"]:
+                logger.info(f"  突触修剪: {result['pruned_synapses']} 条弱连接已修剪")
+
+            # 5. 级联动作
+            # 5a. 新隔离 → 摘除路由（保留权重）
+            for nid in result["isolated"]:
+                if self.cortex.isolate_neuron(nid):
+                    health["isolated"].append(nid)
+                    report.recommendations.append(f"[凋亡级联] {nid} 已隔离（保留权重，观察中）")
+
+            # 5b. 观察期满 → 试复活（重新加入路由做最后确认）
+            dead = list(result["dead"])
+            for nid in result["trial"]:
+                if self.cortex.revive_neuron(nid):
+                    report.recommendations.append(f"[凋亡级联] {nid} 试复活（最后确认）")
+                else:
+                    # ckpt 丢失/加载失败 → 立即凋亡
+                    self._lifecycle.apoptosis._states[nid] = "dead"
+                    self._lifecycle.apoptosis._apoptosed[nid] = True
+                    dead.append(nid)
+
+            # 5c. 分数恢复的隔离神经元 → 复活
+            for nid in self.cortex.get_isolated_neurons():
+                if result["states"].get(nid) == "active":
+                    if self.cortex.revive_neuron(nid):
+                        health["revived"].append(nid)
+                        report.recommendations.append(f"[凋亡级联] {nid} 复活（生存分恢复）")
+
+            # 5d. dead → 盲区 → 新生补偿（清理已由 lifecycle.step 完成）
+            if dead:
+                health["status"] = "degraded"
+                report.recommendations.append(f"[凋亡] {len(dead)} 个神经元凋亡: {dead[:5]}")
+                logger.warning(f"  凋亡执行: {dead}")
+                for nid in dead:
+                    try:
+                        domain = nid.split("_")[0] if "_" in nid else nid
+                        split_parent = self._select_split_parent(domain)
+                        new_nid = self.cortex.add_neuron(
+                            domain, lifecycle=self._lifecycle,
+                            from_split=split_parent,
+                        )
+                        split_info = f" (split from {split_parent})" if split_parent else " (from scratch)"
+                        logger.info(f"  🌱 凋亡补偿新生: {new_nid}{split_info} (替代 {nid})")
+                        report.recommendations.append(
+                            f"[神经新生] 凋亡补偿: {nid} → {new_nid}{split_info}"
+                        )
+                    except Exception as ne:
+                        logger.warning(f"  凋亡补偿新生失败 ({domain}): {ne}")
+
+        except Exception as e:
+            logger.warning(f"  凋亡检查失败: {e}")
 
         return health
 
