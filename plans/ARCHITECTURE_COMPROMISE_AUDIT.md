@@ -22,6 +22,7 @@
   - 回读验证支持 `lm_head_path` 注入（最终 + 配对校验两段都传，防止 16K 域 head 算 256K 目标崩溃）
 - ✅ **冒烟验证**（3 步/域 × 4 域，batch 2）：管线跑通 + checkpoint 回读正确；loss 从随机水平（12.9-13.2 ≈ ln256000）三轮内降到 10.3-12.5，**学习正常**
 - ⏳ **正式基座训练运行中**：`data/foundation_v1_general`（4 域 × 600 步，batch 8，与 v1 同配置；CPU 预计 6-10h）
+- ✅ **collab/eval 加载路径预修复**（训练期间并行，commit 5bb522b）：`load_neuron` 支持注入 `shared_lm_head` + 新增 `load_shared_lm_head()`——general 基座（ckpt 已剥离 131M head）可正确加载并输出 256K 空间 logits（冒烟产物验证：logits shape (1,8,256000)）
 
 **后续链（训练完成后自动推进）**：
 1. 路由适配统一空间：同 vocab（256K）场景改走 max-prob 分工路由（无投影，置信度天然可用）
