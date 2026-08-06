@@ -640,7 +640,10 @@ class ResonanceEnsemble:
             return
         with torch.no_grad():
             for post_id, signals in side_signals_per_neuron.items():
-                post_neuron = self.neurons[post_id]
+                # 快照隔离容错：post 神经元可能已被并发增删移除
+                post_neuron = self.neurons.get(post_id)
+                if post_neuron is None:
+                    continue
                 for pre_id, sig in signals.items():
                     key = f"{post_id}->{pre_id}"
                     # 计算 proj 范数作为利用率指标
@@ -676,7 +679,10 @@ class ResonanceEnsemble:
         with torch.no_grad():
             for key, usage in self._channel_usage.items():
                 post_id, pre_id = key.split("->")
-                post_neuron = self.neurons[post_id]
+                # 快照隔离容错：post 神经元可能已被并发增删移除
+                post_neuron = self.neurons.get(post_id)
+                if post_neuron is None:
+                    continue
                 # 低利用率 → 正 bias（增强），高利用率 → bias 衰减
                 # 阈值依据（Auxiliary-loss-free balancing，借鉴 DeepSeek V3）：
                 # - ratio<0.5（使用率<均值一半）→ 增强该通道，防止死通道
@@ -701,8 +707,8 @@ class ResonanceEnsemble:
     def add_neuron(self, nid: str, neuron: ResonanceNeuron, from_split: Optional[str] = None) -> None:
         """运行时添加新神经元到 ensemble（neurogenesis 入口）。
 
-        新神经元必须与现有神经元共享 field_dim 和 hidden_size
-        （由 Cortex.add_neuron 保证，这里做防御性校验）。
+        混合规格热插拔：field_dim 允许不同（跨规格投影层在下方自动补建），
+        hidden_size 必须一致（共享 embedding 契约，防御性校验）。
 
         Args:
             nid: 神经元 ID（如 "zh_1"）
@@ -713,14 +719,8 @@ class ResonanceEnsemble:
         if nid in self.neurons:
             raise ValueError(f"神经元 {nid} 已存在于 ensemble")
 
-        # 校验 field_dim 一致性
+        # 校验 hidden_size 一致性（field_dim 混合规格由跨规格投影层处理）
         if self.neurons:
-            existing_field_dim = next(iter(self.neurons.values())).config.field_dim
-            if neuron.config.field_dim != existing_field_dim:
-                raise ValueError(
-                    f"新神经元 field_dim={neuron.config.field_dim} 与 ensemble "
-                    f"field_dim={existing_field_dim} 不一致"
-                )
             existing_hidden = next(iter(self.neurons.values())).config.hidden_size
             if neuron.config.hidden_size != existing_hidden:
                 raise ValueError(
@@ -733,6 +733,14 @@ class ResonanceEnsemble:
         neuron.refractory_counter = neuron.refractory_counter.to(
             next(iter(self.neurons.values())).refractory_counter.device
         )
+
+        # 混合规格热插拔（2026-08-06 修复）：新 neuron field_dim ≠ unified 时
+        # 必须补建跨规格投影层，否则推理 _project_vec 用 identity 导致维度错配崩溃
+        if neuron.config.field_dim != self.field.dim:
+            self._cross_spec_projectors[nid] = CrossSpecProjector(
+                neuron.config.field_dim, self.field.dim)
+            self._cross_spec_back_projectors[nid] = CrossSpecProjector(
+                self.field.dim, neuron.config.field_dim)
 
         # RSGN 融合: 新 neuron 加入几何空间
         # splitting 模式下靠近父 neuron，新建模式下靠近同域中心
@@ -773,6 +781,7 @@ class ResonanceEnsemble:
         side_signals: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
+        nmap: Optional[Dict] = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """并行 forward 多个神经元（人脑启发：神经元并行工作）。
 
@@ -806,6 +815,9 @@ class ResonanceEnsemble:
         round_confidences: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
         round_score_vecs: Dict[str, torch.Tensor] = {}  # C12: 评分投影向量
 
+        # 快照隔离：调用方（forward/forward_train）传入 nmap，缺省用 self.neurons
+        nmap = nmap if nmap is not None else self.neurons
+
         # 确定参考 tensor（device 信息来源）
         ref_tensor = (neuron_embeddings[next(iter(neuron_embeddings))]
                       if neuron_embeddings else shared_embeddings)
@@ -833,7 +845,7 @@ class ResonanceEnsemble:
                 kwargs["side_signals"] = side_signals[nid]
             if mm_logits_modality is not None:
                 kwargs["mm_logits_modality"] = mm_logits_modality
-            return self.neurons[nid].forward(emb, **kwargs)
+            return nmap[nid].forward(emb, **kwargs)
 
         is_cuda = ref_tensor.is_cuda
         if is_cuda and len(active_ids) > 1:
@@ -942,19 +954,25 @@ class ResonanceEnsemble:
         self._router_active_ids = None
         self._router_hard_mask = None
 
+        # 快照隔离（人脑：神经元动态增删不影响工作中的推理）
+        # 浅拷贝：推理全程用 nmap，增删只改原 dict——被删的 neuron 在快照中
+        # 仍持有对象引用，推理不崩（统计性影响，符合人脑冗余/并行特性）。
+        # 训练微调同对象共享引用 → 自然反映到后续推理。
+        nmap = dict(self.neurons)
+
         # P0-2 fix (MAJOR-2): 重置所有 neurons 的 refractory_counter
         # 防止跨 forward 调用的状态泄漏（上次推理进入不应期的 neuron 不应影响本次）
-        for nid in self.neurons:
-            self.neurons[nid].refractory_counter.fill_(0)
+        for nid in nmap:
+            nmap[nid].refractory_counter.fill_(0)
 
         # P1-STDP: 每次推理开始时清空 firing history（一次推理内的发放时序）
         if self.stdp_tracker is not None:
             self.stdp_tracker._firing_history.clear()
 
-        neuron_ids = list(self.neurons.keys())
+        neuron_ids = list(nmap.keys())
         # 如果指定了 active_nids，只激活这些 neuron（精简模式）
         if active_nids is not None:
-            active_ids = set(nid for nid in active_nids if nid in self.neurons)
+            active_ids = set(nid for nid in active_nids if nid in nmap)
             if not active_ids:
                 # fallback: 全部 neuron
                 active_ids = set(neuron_ids)
@@ -962,7 +980,7 @@ class ResonanceEnsemble:
             active_ids = set(neuron_ids)
 
         # Shared Expert: general 神经元始终激活（不受路由/精简模式影响）
-        if self.shared_expert_id and self.shared_expert_id in self.neurons:
+        if self.shared_expert_id and self.shared_expert_id in nmap:
             active_ids.add(self.shared_expert_id)
 
         vectors: Dict[str, torch.Tensor] = {}
@@ -1002,6 +1020,7 @@ class ResonanceEnsemble:
             mm_logits_modality=mm_logits_modality,
             temp_gain=temp_gain,
             ffn_gain=ffn_gain,
+            nmap=nmap,
         )
 
         # Write round 1 to field
@@ -1010,7 +1029,7 @@ class ResonanceEnsemble:
                        if self.neuromodulator is not None else 1.0)
         for nid in active_ids:
             # P0#3: 抑制性神经元走 write_inhibit（乘法衰减），兴奋性走 write（累加）
-            neuron = self.neurons[nid]
+            neuron = nmap[nid]
             # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
             maturity_w = (self.maturity.get_resonance_weight(nid)
                           if self.maturity is not None else 1.0)
@@ -1042,7 +1061,7 @@ class ResonanceEnsemble:
         # Deviance detection 融合：inhibitory neuron 竞争性抑制（WTA）
         # 多个 inhibitory neuron 写入后，只保留 top-1 最强抑制方向，
         # 避免全场过度衰减。只有 ≥2 个 inhibitory neuron 时才触发竞争。
-        n_inhibitory = sum(1 for nid in active_ids if self.neurons[nid].is_inhibitory)
+        n_inhibitory = sum(1 for nid in active_ids if nmap[nid].is_inhibitory)
         if n_inhibitory >= 2:
             try:
                 self.field.apply_inhibitory_wta(top_k=1)
@@ -1066,8 +1085,8 @@ class ResonanceEnsemble:
         refractory_k = max(1, min(len(ranked_round1) // 2, self.logits_top_k))
         for nid, _ in ranked_round1[:refractory_k]:
             # C1: 亚型不应期乘数 × 调质乘数
-            subtype_mult = self.neurons[nid].refractory_multiplier
-            self.neurons[nid].enter_refractory(multiplier=neuromod_mult * subtype_mult)
+            subtype_mult = nmap[nid].refractory_multiplier
+            nmap[nid].enter_refractory(multiplier=neuromod_mult * subtype_mult)
 
         # ── B2/B3 fix: round 1 后确定 top-K ──
         if return_logits:
@@ -1090,7 +1109,7 @@ class ResonanceEnsemble:
                 best_emb = (neuron_embeddings[best_nid]
                             if neuron_embeddings is not None and best_nid in neuron_embeddings
                             else shared_embeddings)
-                best_result = self.neurons[best_nid].forward(best_emb, **best_kwargs)
+                best_result = nmap[best_nid].forward(best_emb, **best_kwargs)
                 round_logits[best_nid] = best_result["logits"]
             else:
                 # 小规模：round 1 已获取所有 logits，丢弃非 top-K
@@ -1152,7 +1171,7 @@ class ResonanceEnsemble:
                 for pre_id in active_ids:
                     if post_id == pre_id:
                         continue
-                    post_neuron = self.neurons[post_id]
+                    post_neuron = nmap[post_id]
                     if (pre_id in post_neuron.excite_channels or
                             pre_id in post_neuron.inhibit_channels):
                         pre_vec = round_vecs[pre_id]  # [B, D]
@@ -1189,20 +1208,21 @@ class ResonanceEnsemble:
                 side_signals=side_signals_per_neuron,
                 temp_gain=temp_gain,
                 ffn_gain=ffn_gain,
+                nmap=nmap,
             )
 
             # 人脑启发：不应期调度（错峰写入）
             writable_ids = []
             refractory_ids = []
             for nid in active_ids:
-                if self.neurons[nid].in_refractory:
+                if nmap[nid].in_refractory:
                     refractory_ids.append(nid)
                 else:
                     writable_ids.append(nid)
 
             for nid in writable_ids:
                 # P0#3: 抑制性神经元走 write_inhibit，兴奋性走 update
-                neuron = self.neurons[nid]
+                neuron = nmap[nid]
                 # MaturityTracker: 幼稚态低共振权重（0.1），成熟态 1.0
                 maturity_w = (self.maturity.get_resonance_weight(nid)
                               if self.maturity is not None else 1.0)
@@ -1220,8 +1240,8 @@ class ResonanceEnsemble:
                     # C8: per-sample confidence 调制写入幅度
                     scale = write_scale * maturity_w * round_confidences[nid]
                     self.field.update(nid, vec, scale=scale)
-                self.neurons[nid].enter_refractory(
-                    multiplier=neuromod_mult * self.neurons[nid].refractory_multiplier
+                nmap[nid].enter_refractory(
+                    multiplier=neuromod_mult * nmap[nid].refractory_multiplier
                 )
                 # P1-STDP: 记录 round 2+ 发放
                 if self.stdp_tracker is not None:
@@ -1308,7 +1328,7 @@ class ResonanceEnsemble:
                 # §4.0d: per-sample 稀疏——每轮重建时同样应用 top-K mask
                 router_mask = self._router_hard_mask  # [B, N] or None
                 for post_id in active_ids:
-                    post_neuron = self.neurons[post_id]
+                    post_neuron = nmap[post_id]
                     for pre_id in active_ids:
                         if post_id == pre_id:
                             continue
@@ -1322,8 +1342,8 @@ class ResonanceEnsemble:
                                 side_signals_per_neuron[post_id][pre_id] = pre_vec
 
             # 人脑启发：每轮结束递减所有神经元的不应期计数器
-            for nid in self.neurons:
-                self.neurons[nid].tick_refractory()
+            for nid in nmap:
+                nmap[nid].tick_refractory()
 
             # KoPE/Kuramoto: 相位耦合 — 共激活强的 neuron 相位相互牵引
             if self.gamma_oscillator is not None and hasattr(self.gamma_oscillator, "kuramoto_step"):
@@ -1508,7 +1528,9 @@ class ResonanceEnsemble:
                 "[forward_train] 必须提供 shared_embeddings 或 neuron_embeddings"
             )
 
-        active_ids = list(self.neurons.keys())
+        # 快照隔离（训练与推理并发时，增删不影响正在进行的训练步）
+        nmap = dict(self.neurons)
+        active_ids = list(nmap.keys())
         N = len(active_ids)
         # §4.0c+d: 初始化 Router 缓存（每步重置）
         self._last_router_result = None
@@ -1593,7 +1615,7 @@ class ResonanceEnsemble:
                 # 非 top-K 的 pre 在该样本的信号被 mask 为零（每样本激活不同组合）
                 router_mask = self._router_hard_mask  # [B, N] or None
                 for post_id in active_ids:
-                    post_neuron = self.neurons[post_id]
+                    post_neuron = nmap[post_id]
                     for pre_id in active_ids:
                         if post_id == pre_id:
                             continue
@@ -1626,7 +1648,7 @@ class ResonanceEnsemble:
                 if side_signals_per_neuron is not None:
                     kwargs["side_signals"] = side_signals_per_neuron[nid]
 
-                result = self.neurons[nid].forward(emb, **kwargs)
+                result = nmap[nid].forward(emb, **kwargs)
 
                 # 原始 field_vector（neuron.field_dim，用于 side_signals）
                 vec_raw = result["field_vector"]  # [B, neuron.field_dim]

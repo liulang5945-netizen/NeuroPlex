@@ -8,6 +8,28 @@
 
 ---
 
+## 📌 人脑动态神经元：热插拔三机制（2026-08-06 实施中）
+
+**动机**：用户提出"人脑神经元动态增加/减少不影响工作，可正常对话输出，且可多线程处理不同任务"——态极需支持运行时增删神经元而不打断推理，并支持多任务并行。
+
+| 人脑机制 | 态极实现 | 状态 |
+|---------|---------|------|
+| 神经元增删不影响工作中推理 | **快照隔离**：`ensemble.forward/forward_train` 入口 `nmap = dict(self.neurons)` 浅拷贝，全程用快照；增删只改原 dict，被删 neuron 在快照中仍持引用不崩 | ✅ 已完成（本 commit） |
+| 增删互斥防交错 | **热插拔锁**：cortex 增删接口（`add/remove/isolate/revive_neuron`）用 `threading.RLock` 串行化；推理读走快照不拿锁（读-写无争用） | ✅ 已完成（本 commit） |
+| 混合规格种群共存 | **热插拔补投影**：`ensemble.add_neuron` 在 `field_dim ≠ unified` 时自动补建 `CrossSpecProjector`（正/反向）——修既有 bug（混合种群下新 neuron 缺投影层 → 推理 3072-vs-2048 RuntimeError）；同时**放宽 field_dim 校验**（原只对首个 neuron 校验，混合种群会误拒） | ✅ 已完成（本 commit） |
+| 训练与推理并发 | 训练/推理分离 | ⏳ 机制 2（下一步） |
+| 多线程并行处理不同任务 | API 并发推理 + `active_nids` 按域路由不同 neuron 子集 | ⏳ 机制 3（再下一步） |
+
+**快照隔离已验证**（`verify_hotswap_snapshot.py` 全通过）：
+- 推理线程持续 forward，主线程并发 add/remove/isolate/revive → 推理 8 次 forward 全部正常、分数有限
+- 混合规格热插拔：field_dim=256 neuron 加入 field=512 → 投影层自动补建（in=256/out=512 断言）
+- 隔离/复活语义：pop 保留引用可复活，复活后推理正常
+- 回归：旧 3072-vs-2048 崩溃场景（静态混合规格推理）分数有限
+
+**并发容错补充**：`_update_channel_usage` 两处 `post_neuron` 改 `.get()` + None 跳过（推理中 side_channel 清理的 post 神经元可能已被移除）。
+
+---
+
 ## 📌 弱神经元剔除（凋亡）v2：人脑分层凋亡（2026-08-06 重构，commit 6efd24f）
 
 **动机**：原 ApoptosisTracker 固定 PPL>200 + 激活率<5% 两个绝对阈值——① general 256K 空间与域空间 PPL 口径完全不同（固定 200 会误杀全部 general 空间 neuron，与当前基座训练直接冲突）；② 均匀激活假设与"5 联合 > 5"分工路由冲突（域 neuron 只在自己域激活是设计意图）；③ 永久删除无恢复。

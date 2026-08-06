@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import logging
 import re
+import threading
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -66,6 +67,8 @@ class Cortex:
         # neuron_ids 指定装配集合（如对话综合体 ENSEMBLE_DIALOGUE_IDS）；
         # None = 扫描全部 neuron_*.pt（向后兼容）
         self.neurons: Dict[str, ResonanceNeuron] = {}
+        # 增删锁（热插拔：add/remove/isolate/revive 串行化；推理读走快照隔离不拿锁）
+        self._neurons_lock = threading.RLock()
         self._load_neurons(neuron_ids=neuron_ids)
 
         # ── Create field and ensemble ──
@@ -723,26 +726,24 @@ class Cortex:
             logger.warning(f"[Cortex] remove_neuron: 拒绝移除最后一个神经元 {nid}")
             return False
 
-        # 1. 从 neurons dict 移除（cortex.neurons 和 ensemble.neurons 是同一引用）
-        removed = self.neurons.pop(nid)
+        # 增删锁：热插拔（推理读走快照隔离不拿锁，增删之间互斥防交错）
+        with self._neurons_lock:
+            if nid not in self.neurons:
+                return False
+            # 1. 从 neurons dict 移除（cortex.neurons 和 ensemble.neurons 是同一引用）
+            self.neurons.pop(nid)
 
-        # 2. 清理其他神经元的 side channel 引用
-        for other_nid, other_neuron in self.neurons.items():
-            try:
-                if hasattr(other_neuron, "excite_channels"):
-                    other_neuron.excite_channels = [
-                        ch for ch in other_neuron.excite_channels
-                        if getattr(ch, "target_id", None) != nid
-                    ]
-                if hasattr(other_neuron, "inhibit_channels"):
-                    other_neuron.inhibit_channels = [
-                        ch for ch in other_neuron.inhibit_channels
-                        if getattr(ch, "target_id", None) != nid
-                    ]
-            except Exception:
-                pass
+            # 2. 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
+            for other_neuron in self.neurons.values():
+                try:
+                    if hasattr(other_neuron, "excite_channels") and nid in other_neuron.excite_channels:
+                        del other_neuron.excite_channels[nid]
+                    if hasattr(other_neuron, "inhibit_channels") and nid in other_neuron.inhibit_channels:
+                        del other_neuron.inhibit_channels[nid]
+                except Exception:
+                    pass
 
-        # 3. 删除 ckpt 文件
+        # 3. 删除 ckpt 文件（锁外，I/O 不阻塞增删并发）
         if delete_ckpt:
             ckpt_path = os.path.join(self.neurons_dir, f"neuron_{nid}.pt")
             if os.path.exists(ckpt_path):
@@ -775,25 +776,29 @@ class Cortex:
             return False
 
         domain = nid.split("_")[0] if "_" in nid else nid
-        # 从共享 dict 摘除（cortex.neurons 与 ensemble.neurons 同一引用）
-        self.neurons.pop(nid)
-        # 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
-        for other_neuron in self.neurons.values():
-            try:
-                if hasattr(other_neuron, "excite_channels") and nid in other_neuron.excite_channels:
-                    del other_neuron.excite_channels[nid]
-                if hasattr(other_neuron, "inhibit_channels") and nid in other_neuron.inhibit_channels:
-                    del other_neuron.inhibit_channels[nid]
-            except Exception:
-                pass
+        # 增删锁：与 remove/add 互斥（推理读走快照隔离不拿锁）
+        with self._neurons_lock:
+            if nid not in self.neurons:
+                return False
+            # 从共享 dict 摘除（cortex.neurons 与 ensemble.neurons 同一引用）
+            self.neurons.pop(nid)
+            # 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
+            for other_neuron in self.neurons.values():
+                try:
+                    if hasattr(other_neuron, "excite_channels") and nid in other_neuron.excite_channels:
+                        del other_neuron.excite_channels[nid]
+                    if hasattr(other_neuron, "inhibit_channels") and nid in other_neuron.inhibit_channels:
+                        del other_neuron.inhibit_channels[nid]
+                except Exception:
+                    pass
 
-        # 记录恢复信息（ckpt 保留，未删除）
-        if not hasattr(self, "_isolated"):
-            self._isolated: Dict[str, dict] = {}
-        self._isolated[nid] = {
-            "domain": domain,
-            "ckpt": os.path.join(self.neurons_dir, f"neuron_{nid}.pt"),
-        }
+            # 记录恢复信息（ckpt 保留，未删除）
+            if not hasattr(self, "_isolated"):
+                self._isolated: Dict[str, dict] = {}
+            self._isolated[nid] = {
+                "domain": domain,
+                "ckpt": os.path.join(self.neurons_dir, f"neuron_{nid}.pt"),
+            }
         logger.info(f"[Cortex] Isolate: 神经元 {nid} 已隔离（保留 ckpt，可复活）")
         print(f"[Cortex] 💤 Isolate: {nid} 已隔离（保留 ckpt，可复活）")
         return True
@@ -831,12 +836,15 @@ class Cortex:
             neuron.load_state_dict(sd, strict=False)
             neuron.v1_compat = not has_v2
             neuron.eval()
-            self.neurons[nid] = neuron
+            with self._neurons_lock:
+                if nid in self.neurons:
+                    logger.warning(f"[Cortex] revive_neuron: {nid} 已在运行中，跳过")
+                    return True
+                self.neurons[nid] = neuron
+                del isolated[nid]
         except Exception as e:
             logger.error(f"[Cortex] revive_neuron 加载失败 {nid}: {e}")
             return False
-
-        del isolated[nid]
         logger.info(f"[Cortex] Revive: 神经元 {nid} 已复活 (总数 {len(self.neurons)})")
         print(f"[Cortex] 🌱 Revive: {nid} 已复活")
         return True
