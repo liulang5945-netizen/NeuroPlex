@@ -1494,23 +1494,37 @@ class SleepEngine:
             logger.debug(f"  [{modality}] cortex 未初始化")
             return None, None
 
-        # 找出所有支持该模态的 neuron
+        # 2026-08-07 收敛：多模态输出统一走共享 general lm_head（256K vocab）。
+        # target 必须映射到 general 词表的 codec 段（base + codec_index）。
+        # image/audio 段在 tokenizer_contract.json 预留；video 暂无预留段，v1 不支持训练。
+        from taiji.config import MULTIMODAL_TOKENS
+        if modality == "image":
+            mm_token_base = MULTIMODAL_TOKENS["image_token_base"]
+            mm_codebook_size = MULTIMODAL_TOKENS["image_codebook_size"]
+        elif modality == "audio":
+            mm_token_base = MULTIMODAL_TOKENS["audio_token_base"]
+            mm_codebook_size = MULTIMODAL_TOKENS["audio_codebook_size"]
+        else:
+            # video 等未在 general 词表预留段的模态，v1 不支持 ensemble 训练
+            logger.debug(f"  [{modality}] general 词表无预留段，v1 不支持 ensemble 训练")
+            return None, None
+
+        # 找出所有支持该模态输入投影的 neuron
+        # （输出统一走共享 general lm_head，不再需要 per-neuron mm_lm_heads）
         mm_nids = [
             nid for nid, neuron in cortex.neurons.items()
-            if modality in neuron.mm_projections and modality in neuron.mm_lm_heads
+            if modality in neuron.mm_projections
         ]
         if not mm_nids:
             logger.debug(f"  [{modality}] 无 neuron 支持该模态")
             return None, None
 
-        # 收集所有可训练参数
+        # 收集所有可训练参数（mm_projections + 共享 lm_head 由 ensemble 统一调用）
         trainable_params = []
         for nid in mm_nids:
             neuron = cortex.neurons[nid]
             if modality in neuron.mm_projections:
                 trainable_params.extend(neuron.mm_projections[modality].parameters())
-            if modality in neuron.mm_lm_heads:
-                trainable_params.extend(neuron.mm_lm_heads[modality].parameters())
 
         if not trainable_params:
             logger.debug(f"  [{modality}] 无可训练参数")
@@ -1553,12 +1567,12 @@ class SleepEngine:
         optimizer.zero_grad()
 
         # ensemble forward（共振）—— 与推理路径完全一致
+        # 2026-08-07 收敛：输出统一走共享 general lm_head（256K vocab），不再传 mm_logits_modality
         result = cortex.ensemble.forward(
             neuron_embeddings=neuron_embeddings,
             return_logits=True,
             active_filter=True,
             active_nids=mm_nids,
-            mm_logits_modality=modality,
         )
 
         # 取加权 logits 计算 loss
@@ -1566,12 +1580,15 @@ class SleepEngine:
             logger.debug(f"  [{modality}] ensemble 未返回 weighted_logits")
             return None, None
 
-        logits = result["weighted_logits"]
+        logits = result["weighted_logits"]  # [B, L, general_vocab=256K]
         shift_logits = logits[:, -len(target_ids):, :].contiguous()
-        shift_targets = target_tensor.contiguous()
 
-        vocab_size = logits.size(-1)
-        shift_targets = shift_targets.clamp(0, vocab_size - 1)
+        # 2026-08-07 收敛：target 是 codec 索引（0~codebook_size），
+        # 需映射到 general 词表的 codec 段（base + codec_index）才能与 logits 对齐。
+        # 越界索引（codec_index >= codebook_size）clamp 到 base 段外，ignore_index 处理。
+        target_codec = target_tensor.clamp(0, mm_codebook_size - 1)
+        shift_targets = target_codec + mm_token_base  # 映射到 general vocab codec 段
+        shift_targets = shift_targets.contiguous()
 
         loss = F.cross_entropy(
             shift_logits.view(-1, shift_logits.size(-1)),

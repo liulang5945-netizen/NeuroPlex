@@ -68,9 +68,7 @@ class ResonanceNeuron(nn.Module):
         # text 模态不需要投影（外部 shared_embedding 已完成查表）。
         # 离散 token id（VQ-VAE codebook 索引）走外部 shared_embedding。
         self.mm_projections = nn.ModuleDict()  # {modality: Linear(raw_dim, base_embed_dim)}
-        # 多模态输出头：每个模态独立 lm_head，映射到 codec vocab（codebook size）。
-        # 与文本 lm_head 分离，避免模态间词汇干扰。
-        self.mm_lm_heads = nn.ModuleDict()  # {modality: Linear(hidden_size, codec_vocab_size)}
+        # mm_lm_heads（独立 codebook 输出头）2026-08-07 已废弃——多模态输出统一走共享 general lm_head
 
         # ── Transformer body (reuses layers.py, zero changes) ──
         self.layers = nn.ModuleList([
@@ -399,31 +397,12 @@ class ResonanceNeuron(nn.Module):
         self.mm_projections[modality] = nn.Linear(raw_dim, self.config.base_embed_dim, bias=False)
         nn.init.normal_(self.mm_projections[modality].weight, std=self.config.base_embed_dim ** -0.5)
 
-    def register_modality_lm_head(self, modality: str, vocab_size: int) -> None:
-        """P8: 注册非文本模态的输出头（lm_head）。
-
-        每个模态独立输出头，映射到 codec vocab（codebook size）。
-        与文本 lm_head 分离，避免模态间词汇干扰。
-
-        Args:
-            modality: 模态名（"image"/"audio"/"video"）。
-            vocab_size: codec codebook 大小。
-        """
-        if modality == "text":
-            return  # text 模态走自带的 lm_head
-        if modality in self.mm_lm_heads:
-            return  # 已注册，幂等
-        self.mm_lm_heads[modality] = nn.Linear(
-            self.config.hidden_size, vocab_size, bias=False,
-        )
-        nn.init.normal_(self.mm_lm_heads[modality].weight,
-                        std=self.config.hidden_size ** -0.5)
-
     def auto_register_modalities(self, tokenizer_hub) -> None:
-        """P8: 自动注册所有已注册到 TokenizerHub 的非文本模态。
+        """2026-08-07 收敛后：自动注册所有已注册到 TokenizerHub 的非文本模态的**输入投影**。
 
-        从 TokenizerHub 获取所有模态编码器，自动注册投影层和输出头。
-        新增模态或新增 neuron 时无需手动修改代码。
+        从 TokenizerHub 获取所有模态编码器，自动注册投影层（raw 特征 → shared 空间）。
+        mm_lm_heads（独立 codebook 输出头）已废弃——多模态输出统一走共享 general
+        lm_head，与文本同构（输入输出都在 shared/general 空间，消除空间割裂）。
 
         Args:
             tokenizer_hub: TokenizerHub 实例
@@ -439,30 +418,8 @@ class ResonanceNeuron(nn.Module):
                 if hasattr(encoder.model.quantizer, "codebook"):
                     latent_dim = encoder.model.quantizer.codebook.weight.shape[-1]
 
-            # 获取 vocab_size（codebook size）
-            vocab_size = encoder.vocab_size()
-
-            # 注册投影层和输出头
+            # 只注册输入投影（mm_lm_heads 已废弃）
             self.register_modality_projection(modality, raw_dim=latent_dim)
-            self.register_modality_lm_head(modality, vocab_size=vocab_size)
-
-    def compute_mm_logits(self, h: torch.Tensor, modality: str) -> torch.Tensor:
-        """P8: 计算指定模态的 logits。
-
-        Args:
-            h: [B, L, hidden_size] transformer 输出
-            modality: 模态名
-
-        Returns:
-            logits: [B, L, vocab_size]
-        """
-        if modality == "text":
-            return self.compute_logits(h)
-        if modality not in self.mm_lm_heads:
-            raise ValueError(
-                f"模态 '{modality}' 未注册输出头，请先调用 register_modality_lm_head"
-            )
-        return self.mm_lm_heads[modality](h)
 
     def encode_multimodal_input(
         self,
@@ -510,7 +467,6 @@ class ResonanceNeuron(nn.Module):
         round_num: int = 1,
         return_logits: bool = False,
         side_signals: Optional[Dict[int, torch.Tensor]] = None,
-        mm_logits_modality: Optional[str] = None,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
         return_intermediate: bool = False,
@@ -524,8 +480,6 @@ class ResonanceNeuron(nn.Module):
             round_num: current resonance round (1 = independent, 2+ = conditioned)
             return_logits: if True, also return lm_head logits (for PPL)
             side_signals: optional {neuron_id: vector} for side-channel communication
-            mm_logits_modality: if set, 返回该模态的 lm_head logits（而非文本 lm_head）。
-                                优先级高于 return_logits（return_logits 文本，mm_logits_modality 多模态）。
             temp_gain: S9 注意力温度增益（norepinephrine 驱动）。
                        >1 聚焦（logits 尖锐），<1 泛化（logits 分散），1.0 标准。
             ffn_gain: S9 FFN 输出增益（dopamine 驱动）。
@@ -537,7 +491,7 @@ class ResonanceNeuron(nn.Module):
             dict with keys:
             - field_vector: [B, D] L2-normalised write vector
             - hidden_before_write: [B, hidden] for diversity loss
-            - logits: [B, L, vocab] (only if return_logits=True or mm_logits_modality set)
+            - logits: [B, L, vocab] (only if return_logits=True)
             - intermediate_hidden: [B, num_layers, L, hidden] (only if return_intermediate=True)
             - attn_weights: [B, num_layers, num_heads, L, L] (only if return_intermediate=True)
         """
@@ -771,10 +725,11 @@ class ResonanceNeuron(nn.Module):
             result["score_vec"] = score_vec
 
         # ── Step 5: Optional logits (for PPL evaluation) ──
+        # 2026-08-07 收敛：多模态输出统一走共享 general lm_head（compute_logits）。
+        # 旧的 mm_lm_heads 独立 codebook 头已废弃（与"共享 general 256K 头"架构矛盾，
+        # 输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂）。
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
-        if mm_logits_modality is not None:
-            result["logits"] = self.compute_mm_logits(h, mm_logits_modality)  # [B, L, mm_vocab]
 
         # ── R7: 中间表示（蒸馏用）──
         if return_intermediate:

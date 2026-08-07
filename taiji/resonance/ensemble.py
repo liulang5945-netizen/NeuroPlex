@@ -875,7 +875,6 @@ class ResonanceEnsemble:
         round_num: int,
         return_logits_filter,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
-        mm_logits_modality: Optional[str] = None,
         side_signals: Optional[Dict[str, Dict[str, torch.Tensor]]] = None,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
@@ -896,7 +895,6 @@ class ResonanceEnsemble:
             round_num: 轮次
             return_logits_filter: callable(nid) -> bool，决定哪些 neuron 返回 logits
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
-            mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
             side_signals: {post_nid: {pre_nid: field_vector}} per-pair 突触信号
             temp_gain: S9 注意力温度增益（norepinephrine 驱动，所有 neuron 共享）
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
@@ -941,8 +939,6 @@ class ResonanceEnsemble:
             )
             if side_signals is not None and nid in side_signals:
                 kwargs["side_signals"] = side_signals[nid]
-            if mm_logits_modality is not None:
-                kwargs["mm_logits_modality"] = mm_logits_modality
             return nmap[nid].forward(emb, **kwargs)
 
         is_cuda = ref_tensor.is_cuda
@@ -998,7 +994,6 @@ class ResonanceEnsemble:
         active_filter: bool = True,
         active_nids: Optional[List[str]] = None,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
-        mm_logits_modality: Optional[str] = None,
         fusion_mode: str = "per_position",
         field_conditioning: bool = True,
     ) -> Dict:
@@ -1019,7 +1014,6 @@ class ResonanceEnsemble:
                         None 表示全部参与（默认行为，向后兼容）
                         支持字符串模式：'auto_topK'/'auto_all'/'auto_top1'（稀疏激活）
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
-            mm_logits_modality: 多模态输出模态，不为 None 时所有 neuron 用 mm_lm_head 输出
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
                         - "per_position"（默认）：每位置按熵/置信度独立路由（向后兼容）
                         - "residual"：族长完整预测 + 其他神经元残差修正
@@ -1126,7 +1120,6 @@ class ResonanceEnsemble:
             round_num=1,
             return_logits_filter=round1_logits_filter,
             neuron_embeddings=neuron_embeddings,
-            mm_logits_modality=mm_logits_modality,
             temp_gain=temp_gain,
             ffn_gain=ffn_gain,
             nmap=nmap,
@@ -1213,8 +1206,6 @@ class ResonanceEnsemble:
                     temp_gain=temp_gain,
                     ffn_gain=ffn_gain,
                 )
-                if mm_logits_modality is not None:
-                    best_kwargs["mm_logits_modality"] = mm_logits_modality
                 best_emb = (neuron_embeddings[best_nid]
                             if neuron_embeddings is not None and best_nid in neuron_embeddings
                             else shared_embeddings)
@@ -1313,7 +1304,6 @@ class ResonanceEnsemble:
                 round_num=round_num,
                 return_logits_filter=round2_logits_filter,
                 neuron_embeddings=neuron_embeddings,
-                mm_logits_modality=mm_logits_modality,
                 side_signals=side_signals_per_neuron,
                 temp_gain=temp_gain,
                 ffn_gain=ffn_gain,

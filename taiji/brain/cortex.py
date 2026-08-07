@@ -1798,22 +1798,49 @@ class Cortex:
     ) -> list:
         """P8: 多模态生成的内部实现（走 ensemble 共振路径）。
 
+        2026-08-07 收敛：输出统一走共享 general lm_head（256K vocab）。
+        - 输入：codec 索引 → codebook → mm_projections → 共享 embedding
+        - 输出：general 256K logits，mask 到 codec 段采样
+        - 自回归：采样 general_id → 映射回 codec_index → codebook → 下一步输入
+
         策略：
         1. 所有注册了该模态投影层的 neuron 都参与共振（小神经元协同）
         2. 每个 neuron 独立预编码多模态 embedding（neuron_embeddings）
-        3. ensemble.forward 多轮共振，mm_logits_modality 让所有 neuron 输出同 vocab 的 codebook logits
-        4. 取 weighted_logits（共振加权）采样，自回归生成
+        3. ensemble.forward 多轮共振，输出统一走共享 general lm_head（256K vocab）
+        4. mask 到 codec 段采样，映射回 codec 索引，自回归生成
         """
         hub = self._tokenizer_hub
 
-        # 1. 找出所有支持该模态的 neuron
+        # 2026-08-07 收敛：确定模态在 general 词表的 codec 段
+        # image/audio 段在 tokenizer_contract.json 预留；video 暂无预留段，v1 不支持生成
+        from taiji.config import MULTIMODAL_TOKENS
+        if modality == "image":
+            mm_token_base = MULTIMODAL_TOKENS["image_token_base"]
+            mm_codebook_size = MULTIMODAL_TOKENS["image_codebook_size"]
+        elif modality == "audio":
+            mm_token_base = MULTIMODAL_TOKENS["audio_token_base"]
+            mm_codebook_size = MULTIMODAL_TOKENS["audio_codebook_size"]
+        else:
+            # video 等未在 general 词表预留段的模态，v1 不支持生成
+            logger.warning(
+                f"模态 '{modality}' 在 general 词表无预留段，v1 不支持生成，fallback 到 text 路径"
+            )
+            if features.dim() == 2 and features.dtype == torch.long:
+                ids = features.tolist()[0] if features.dim() == 2 else features.tolist()
+                return ids[:max_tokens]
+            raise RuntimeError(
+                f"模态 '{modality}' v1 不支持生成（general 词表无预留段），且输入不是离散 token id"
+            )
+
+        # 1. 找出所有支持该模态输入投影的 neuron
+        # （输出统一走共享 general lm_head，不再需要 per-neuron mm_lm_heads）
         mm_nids = [
             nid for nid, neuron in self.neurons.items()
-            if modality in neuron.mm_projections and modality in neuron.mm_lm_heads
+            if modality in neuron.mm_projections
         ]
         if not mm_nids:
             logger.warning(
-                f"无 neuron 注册了模态 '{modality}' 投影层和输出头，fallback 到 text 路径"
+                f"无 neuron 注册了模态 '{modality}' 投影层，fallback 到 text 路径"
             )
             if features.dim() == 2 and features.dtype == torch.long:
                 ids = features.tolist()[0] if features.dim() == 2 else features.tolist()
@@ -1835,11 +1862,7 @@ class Cortex:
             emb = neuron.encode_multimodal_input(features, modality)  # [1, L, base_embed_dim]
             neuron_embeddings[nid] = emb
 
-        # 4. 多模态 EOS
-        eos_id = hub.eos_token_id(domain=domain, modality=modality)
-
-        # 5. 自回归生成（多 neuron 共振）
-        generated = []
+        # 4. codec（用于自回归时查 codebook）
         codec = hub.modal_encoders.get(modality)
         has_codebook = (
             codec is not None
@@ -1847,19 +1870,21 @@ class Cortex:
             and hasattr(codec.model, "quantizer")
         )
 
+        # 5. 自回归生成（多 neuron 共振）
+        generated = []
+
         for step in range(max_tokens):
-            # 多轮共振：所有 neuron 参与，mm_logits_modality 统一输出 codebook logits
+            # 多轮共振：输出统一走共享 general lm_head（256K vocab）
             res = self.ensemble.forward(
                 neuron_embeddings=neuron_embeddings,
                 return_logits=True,
                 active_filter=True,
                 active_nids=mm_nids,
-                mm_logits_modality=modality,
             )
 
-            # 取加权 logits（所有 neuron vocab 相同，ensemble 已加权合并）
+            # 取加权 logits（general 256K vocab）
             if "weighted_logits" in res:
-                logits = res["weighted_logits"]  # [B, L, mm_vocab]
+                logits = res["weighted_logits"]  # [B, L, general_vocab=256K]
             elif "neuron_logits" in res and res["neuron_logits"]:
                 # fallback: 取第一个 neuron 的 logits
                 first_nid = next(iter(res["neuron_logits"].keys()))
@@ -1867,25 +1892,33 @@ class Cortex:
             else:
                 raise RuntimeError("共振未返回 logits，无法生成")
 
-            logits = logits[:, -1, :] / temperature  # [B, mm_vocab]
+            logits = logits[:, -1, :] / temperature  # [B, general_vocab]
+
+            # mask 到 codec 段：非 codec 段 logits 设为 -inf，确保采样落在 codec 段
+            mask = torch.full_like(logits, float('-inf'))
+            mask[:, mm_token_base:mm_token_base + mm_codebook_size] = 0
+            logits = logits + mask
 
             if top_k > 0:
-                actual_k = min(top_k, logits.shape[-1])
+                actual_k = min(top_k, mm_codebook_size)
                 top_k_vals, top_k_indices = torch.topk(logits, actual_k)
                 probs = F.softmax(top_k_vals, dim=-1)
                 sampled_idx_in_topk = torch.multinomial(probs, 1)
-                next_token = top_k_indices[0, sampled_idx_in_topk[0]].item()
+                next_general_id = top_k_indices[0, sampled_idx_in_topk[0]].item()
             else:
                 probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, 1).item()
+                next_general_id = torch.multinomial(probs, 1).item()
 
-            if eos_id is not None and eos_id >= 0 and next_token == eos_id:
+            # 映射回 codec 索引（生成结果用 codec 索引表示，与原接口一致）
+            next_codec_index = next_general_id - mm_token_base
+            if next_codec_index < 0 or next_codec_index >= mm_codebook_size:
+                # 越界（理论上 mask 后不会发生），停止生成
                 break
 
-            generated.append(next_token)
+            generated.append(next_codec_index)
 
-            # 自回归：把 next_token 编码为新 embedding，拼接到每个 neuron 的 embedding
-            next_token_tensor = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
+            # 自回归：用 codec 索引查 codebook 得到 embedding，拼接到每个 neuron
+            next_token_tensor = torch.tensor([[next_codec_index]], dtype=torch.long, device=self.device)
             if has_codebook:
                 codebook = codec.model.quantizer.codebook  # Embedding
                 next_feat = codebook(next_token_tensor)  # [1, 1, latent_dim]

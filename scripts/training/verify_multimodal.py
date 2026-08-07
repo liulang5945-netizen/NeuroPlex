@@ -1,9 +1,11 @@
 """P8: Multimodal end-to-end verification.
 
 验证完整链路：
-  raw input → codec.encode → neuron.forward(mm_logits_modality) → decode → output
+  raw input → codec.encode → neuron.encode_multimodal_input → neuron.forward → logits → output
 
-即使 codec 未训练，验证 wiring 是否正确连接。
+2026-08-07 收敛后：多模态输出统一走共享 general lm_head（256K vocab），
+不再需要 register_modality_lm_head / mm_logits_modality。
+本脚本验证输入投影通路（codec → mm_projections → embed_adapter → Transformer）。
 
 Usage:
     python scripts/training/verify_multimodal.py
@@ -50,7 +52,6 @@ def verify_image_pathway():
     cfg.spec = "image-fallback"
     neuron = ResonanceNeuron(cfg).to(device)
     neuron.register_modality_projection("image", raw_dim=256)
-    neuron.register_modality_lm_head("image", vocab_size=8192)
 
     features = model.encoder(dummy_img.unsqueeze(0))
     features = features.permute(0, 2, 3, 1).flatten(1, 2)
@@ -58,8 +59,9 @@ def verify_image_pathway():
     shared_emb = neuron.encode_multimodal_input(features, modality="image")
     print(f"  encode_multimodal_input: shape={shared_emb.shape}")
 
-    result = neuron.forward(shared_emb, mm_logits_modality="image")
-    print(f"  forward with mm_logits_modality='image':")
+    # 2026-08-07 收敛：输出统一走共享 general lm_head，return_logits=True 触发
+    result = neuron.forward(shared_emb, return_logits=True)
+    print(f"  forward with return_logits=True:")
     print(f"    field_vector: shape={result['field_vector'].shape}")
     print(f"    logits: shape={result['logits'].shape}")
 
@@ -88,7 +90,6 @@ def verify_audio_pathway():
     cfg.spec = "audio-fallback"
     neuron = ResonanceNeuron(cfg).to(device)
     neuron.register_modality_projection("audio", raw_dim=128)
-    neuron.register_modality_lm_head("audio", vocab_size=4096)
 
     features = model.encoder(dummy_audio.unsqueeze(0).unsqueeze(0))
     features = features.permute(0, 2, 1)
@@ -96,8 +97,9 @@ def verify_audio_pathway():
     shared_emb = neuron.encode_multimodal_input(features, modality="audio")
     print(f"  encode_multimodal_input: shape={shared_emb.shape}")
 
-    result = neuron.forward(shared_emb, mm_logits_modality="audio")
-    print(f"  forward with mm_logits_modality='audio':")
+    # 2026-08-07 收敛：输出统一走共享 general lm_head
+    result = neuron.forward(shared_emb, return_logits=True)
+    print(f"  forward with return_logits=True:")
     print(f"    field_vector: shape={result['field_vector'].shape}")
     print(f"    logits: shape={result['logits'].shape}")
 
@@ -126,7 +128,6 @@ def verify_video_pathway():
     cfg.spec = "video-fallback"
     neuron = ResonanceNeuron(cfg).to(device)
     neuron.register_modality_projection("video", raw_dim=256)
-    neuron.register_modality_lm_head("video", vocab_size=256)
 
     features = model.encoder(dummy_video.unsqueeze(0))
     features = features.permute(0, 2, 3, 4, 1).flatten(1, 3)
@@ -134,12 +135,14 @@ def verify_video_pathway():
     shared_emb = neuron.encode_multimodal_input(features, modality="video")
     print(f"  encode_multimodal_input: shape={shared_emb.shape}")
 
-    result = neuron.forward(shared_emb, mm_logits_modality="video")
-    print(f"  forward with mm_logits_modality='video':")
+    # 2026-08-07 收敛：video 无 general 词表预留段，v1 仅验证输入投影通路。
+    # forward 返回 general 256K logits（per-neuron lm_head），非 video codebook logits。
+    result = neuron.forward(shared_emb, return_logits=True)
+    print(f"  forward with return_logits=True:")
     print(f"    field_vector: shape={result['field_vector'].shape}")
-    print(f"    logits: shape={result['logits'].shape}")
+    print(f"    logits: shape={result['logits'].shape} (general vocab, video 生成需 v2)")
 
-    print("  ✅ Video pathway verified")
+    print("  ✅ Video input pathway verified (generation deferred to v2)")
 
 
 def verify_cortex_wiring():
@@ -163,7 +166,7 @@ def verify_cortex_wiring():
         neuron = cortex.neurons[first_nid]
         print(f"  First neuron [{first_nid}]:")
         print(f"    mm_projections: {list(neuron.mm_projections.keys())}")
-        print(f"    mm_lm_heads: {list(neuron.mm_lm_heads.keys())}")
+        # 2026-08-07 收敛：mm_lm_heads 已废弃，输出统一走共享 general lm_head
 
     if "tokenizer_hub" in modules:
         hub = modules["tokenizer_hub"]

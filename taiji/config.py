@@ -105,8 +105,8 @@ MULTIMODAL_TOKENS = {
     "image_codebook_size": int(_MULTIMODAL["image"]["codebook_size"]),
     "audio_token_base": int(_MULTIMODAL["audio"]["base"]),
     "audio_codebook_size": int(_MULTIMODAL["audio"]["codebook_size"]),
-    # video: 暂未在 contract 中预留段，先用独立 codebook（不占总 vocab）
-    # mm_lm_heads 是独立输出头，vocab 不与文本共享
+    # video: 暂未在 contract 中预留段，v1 仅支持输入编码（无生成能力）
+    # 2026-08-07 收敛：多模态输出统一走共享 general lm_head，mm_lm_heads 独立头已废弃
     "video_codebook_size": 256,
     "mm_control_base": int(_MULTIMODAL_CONTROL_RANGE[0]),
     "mm_control_size": int(_MULTIMODAL_CONTROL_RANGE[1]) - int(_MULTIMODAL_CONTROL_RANGE[0]) + 1,
