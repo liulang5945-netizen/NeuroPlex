@@ -480,7 +480,14 @@ def main():
             if p.requires_grad and not any(
                 name.startswith(prefix) for prefix in ["excite_", "inhibit_"]
             ) and "scale_" not in name and "bias_" not in name:
-                body_params.append(p)
+                # C14 fix（2026-08-08）：domain_score_head（域判别器）不走 body 低 lr。
+                # 诊断：判别器 lr=1e-4（body_lr_ratio=0.1）下 MLP 欠拟合——zh（语言差异粗信号）
+                # 勉强学到，math vs en（同为英文，需语义判别）学不到 → math 8/8 路由错误。
+                # 判别器是辅助域分类任务，走主 lr（args.lr，adamw 优化器）快速收敛。
+                if name.startswith("domain_score_head"):
+                    adamw_params.append(p)
+                else:
+                    body_params.append(p)
     for proj in ensemble._cross_spec_projectors.values():
         for p in proj.parameters():
             if p.requires_grad and p.ndim == 2:

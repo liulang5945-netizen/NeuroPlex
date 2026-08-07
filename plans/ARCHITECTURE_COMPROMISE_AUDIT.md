@@ -241,7 +241,12 @@
    - **根因 1：判别器以"表面语言"为域信号，而非"域语义"**——math 文本（英文 GSM8K）5/8 判给 en（en logit 0.29-1.25 vs math -0.30-0.26），soft PPL 暴涨 10 倍（128-446 vs gate 29-106）；code 域 2 条 Java/自然语言文本也判给 en
    - **根因 2：en head 系统性高偏置**——en 对纯中文 zh 文本也给 0.79-1.26 高分（与 en 文本上的 0.67-1.47 无差），说明 en head 学到的主要是偏置、权重贡献小 → softmax 温度 0.15 极尖锐 → zh batch 上 en 一旦不是赢家 softmax≈0 → **非赢家梯度消失，en 高偏置压不下去**
    - **zh 门控也差（gate 1436-5618 vs solo 996-5306）**：zh 域融合/转译本身有损（与 [4b] -3.5% 一致），独立于路由，需单独排查
-9. **下一步（唯一建议，C14）**：双管齐下修复路由——① **domain_score_head 升级**：Linear(hidden→1) → 2 层 MLP(hidden→128→1) + GELU + mean/max 双 pooling 特征（判别器容量才能学到"域语义"而非"表面语言"）；② **routing_loss 温度校准**：0.15 → 1.0（消除非赢家梯度消失，压平 en 系统性偏置）。重训 collab_v3_c14 后复测
+9. ✅ **C14 实施 + 训练 + 二次诊断（2026-08-08）**：
+   - **实施**：① domain_score_head 升级 MLP(hidden×2→128→1)+GELU+mean/max 双 pooling（[neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py)）；② routing_loss 温度参数化（--routing-loss-temp，0.15→1.0）
+   - **c14 训练完成**（540 步，E1 PPL≈419.6 优于 c13 的 1174，E2 PPL≈137.2）→ 评估：code -17.7→**-11.6%** ✓、zh -19.0→**-6.9%** ✓、dialogue +67.1→**+71.2%** ✓、en +0.2%、**math -28.2→-60.2% ❌ 恶化**
+   - **c14 二次诊断（diag_route_errors）**：math **8/8 路由错误**、code 4 路由错误（c13 为 2）；zh 7/8 正常（c13 为 3/8）、en 8/8 正常。关键证据：math 判别器给分不低（0.15-1.02）但 en 总高 0.5-1.0（1.25-1.90）——**根因：判别器 lr 太低**（domain_score_head 属 body 走 body_lr_ratio=0.1 → lr=1e-4），MLP 131K 参数 540 步远不够收敛；zh 靠语言粗信号勉强学到、math-vs-en 需语义判别学不到
+   - **c14b 修复 + 重训中**（2026-08-08）：domain_score_head 参数从 body_params 分离 → adamw 主 lr（1e-3，快 10 倍）。冒烟验证：body 222→195、adamw 36→63（9 neuron × 3 判别器参数全部移入）✓
+10. **待办**：c14b 训练完成（~1.7h）后复测 verify + diag，验证 math/code 路由错误消除
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
