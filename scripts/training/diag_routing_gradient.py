@@ -176,6 +176,14 @@ def main():
         f"{nid}={float(s):.4f}" for nid, s in zip(list(neurons.keys()), scores.detach())
     ))
 
+    # C13: 域判别 logits（新机制，应替代 scores）
+    domain_logits = result.get("domain_logits")
+    print(f"[domain_logits] requires_grad={domain_logits.requires_grad if domain_logits is not None else 'N/A'}, "
+          f"shape={domain_logits.shape if domain_logits is not None else 'N/A'}")
+    if domain_logits is not None:
+        dl_sorted = sorted(zip(list(neurons.keys()), domain_logits.detach()), key=lambda x: -x[1])
+        print(f"[domain_logits] 排序: " + ", ".join(f"{nid}={float(d):.4f}" for nid, d in dl_sorted))
+
     # ── 7. CE loss（与训练一致）──
     fused_logits = result["fused_logits"]
     shift_logits = fused_logits[:, :-1, :].contiguous()
@@ -192,12 +200,17 @@ def main():
     ce_loss = ce_loss / n_tokens
     print(f"[loss] ce={ce_loss.item():.4f}")
 
-    # ── 8. routing_loss（与训练一致）──
+    # ── 8. routing_loss（与训练一致，v2 用 domain_logits）──
     domain = "code"
     nids_all = list(neurons.keys())
     domain_idx = nids_all.index(domain)
-    routing_loss = -F.log_softmax(scores / 0.15, dim=0)[domain_idx]
-    print(f"[loss] routing_loss={routing_loss.item():.4f}, weight=0.5 -> {0.5*routing_loss.item():.4f}")
+    if domain_logits is not None:
+        routing_loss = -F.log_softmax(domain_logits / 0.15, dim=0)[domain_idx]
+        rl_source = "domain_logits"
+    else:
+        routing_loss = -F.log_softmax(scores / 0.15, dim=0)[domain_idx]
+        rl_source = "scores (fallback)"
+    print(f"[loss] routing_loss({rl_source})={routing_loss.item():.4f}, weight=0.5 -> {0.5*routing_loss.item():.4f}")
 
     # ── 9. 分别反传对比梯度 ──
     def zero_all_grads():
@@ -255,15 +268,24 @@ def main():
         else:
             print(">>> routing_loss 梯度量级正常（>10%），问题在别处（步数/温度/冲突）")
 
-    # 9d. 其他 neuron 是否被 routing_loss 影响（loo 耦合）
+    # 9d. 其他 neuron 是否被 routing_loss 影响（loo 耦合，fix 后应接近 0）
+    zero_all_grads()
+    routing_loss.backward()
     other_sum = 0.0
+    other_names = []
     for nid, n in neurons.items():
         if nid == domain:
             continue
         for name, p in n.named_parameters():
             if p.grad is not None:
                 other_sum += p.grad.norm().item()
-    print(f"[grad] RL -> 其他 8 neuron body 梯度 L1={other_sum:.6f}（loo 耦合泄漏）")
+                other_names.append(f"{nid}:{name}:{p.grad.norm().item():.4f}")
+    print(f"[grad] RL -> 其他 8 neuron body 梯度 L1={other_sum:.6f}（fix 后应≈0，泄漏已消除）")
+    if other_names:
+        print(f"    top5 泄漏: {sorted(other_names, key=lambda x: -float(x.rsplit(':',1)[1]))[:5]}")
+    # 自身 code 的梯度（fix 后应保持）
+    code_sum = sum(g for _, g in rl_grads)
+    print(f"[grad] RL -> code 自身梯度 L1={code_sum:.6f}（与 fix 前 15.2 对比，有效信号应保留）")
 
     return 0
 

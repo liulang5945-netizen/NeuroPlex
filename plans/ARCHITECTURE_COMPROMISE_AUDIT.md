@@ -211,17 +211,17 @@
    - **scores 诊断（关键结论）**：`result["scores"]`（LOO cosine 共振分）排序——code 文本 top1 是 **math**（-0.418 > code -0.429）、math 文本 top1 是 **zh**、zh 文本 zh 反而最低；且所有 scores 为负且极接近（差 0.02-0.05）→ `trust=softmax(scores/0.15)` **几乎无区分度 → 校准实际失效** → 路由退化为 max-prob → 弱 neuron 抢位（code 文本 code 仅 0.700，math 抢 0.200）
    - **body 微调无损确认**：协作层训练前 code solo（8 条随机 general 空间）45 → 训练后 23.99（verify_unified_space_routing L147 注释佐证）——训练有效，负 EMERGE 纯粹是路由校准问题
    - **上界实验（[4b]，trust_override 硬门控）**：已知域硬门控下协作追平 solo（code -18.0%→**-1.4%**、math -6.8%→**-0.7%**、zh +0.5%→**+1.4%**、en -4.0%→**-0.2%**）——**路由是唯一瓶颈，修复路由即可消除负 EMERGE**；且门控下协作 ≈ solo（域内任务协作目标是"不伤害"，跨域才是涌现价值）
-5. 🔄 **域判别路由 loss 重训中**（collab_v2_routing，2026-08-07）：
+5. ✅ **域判别路由 loss v1 已训练（270/540 步，中断半成品）**（collab_v2_routing，2026-08-07）：
    - 方案：训练时显式约束"本 batch 域 neuron 的共振分 scores 最高"——`routing_loss = -log_softmax(scores/0.15)[domain_idx]`（温度与推理 router_temperature 一致），`--routing-loss-weight 0.5`，仅 4 个 general 域生效（dialogue 桶无单一目标 neuron 跳过）
    - 理由：scores 是 LOO cosine（共振协调度），数据少时学不到"域内 neuron 应胜出"→ 显式注入域判别目标比加大数据量（10× 训练时间）更高效直接
    - ensemble.py 新增 `forward_train(trust_override=...)` + `_confidence_routing_fusion(trust_override=...)`（上界诊断用，向后兼容 None）
    - 训练配置与 v1 一致：batch2×seq64×max_texts100×dialogue150×2epochs≈540 step（~1.7h CPU）
-6. 🔴 **routing_loss 未生效诊断（2026-08-07，diag_routing_gradient.py）**：
+6. ✅ **routing_loss 未生效诊断 + C13 修复（2026-08-07）**：
    - **第一层：训练中断（执行层）**——日志显示训练实际跑到 step 360+（进入 E2），但最终 ckpt 只保存到 **270 步**（E1 结束保存点；训练脚本每 500 步 + epoch 结束才保存）。**评估用的是半成品 ckpt**，计划 540 步只完成一半。训练进程无报错突然中断（疑似手动/超时被杀）
-   - **第二层：LOO 梯度泄漏（机制层，核心）**——`scores[n] = cosine(vec_n, normalize(field_state - vec_n))`，`field_state` 含全部 9 neuron 的 vec → 提高 code 的 score 时梯度也流到其他 8 个 neuron。实测：RL→其他 8 neuron 梯度 L1=57.5，是 code 自身 15.2 的 **3.8 倍**。batch 轮转下每步 routing_loss 都在同时"拉"所有 neuron 的 field vectors，方向互相拉锯（code batch 抬 code、math batch 抬 math、反作用回 code），**有效信号被稀释 80%**
-   - **第三层：结构性偏向（根因）**——code 文本 scores 排序 `en 0.365 > math 0.155 > code 0.138`。en 是 general 空间高锐度 neuron，其 vec 主导场方向 → **LOO cosine 天然偏向强 neuron**。这正是 C12 `score_proj`（评分与写入解耦）设计要解决的，但所有 neuron `score_dim=None`，C12 未启用
-   - **排除项**：① routing_loss 梯度量级正常（是 CE 的 3.7 倍，未淹没）；② 训练/推理 scores 口径一致（都是 LOO cosine，field.score 与 forward_train 同构）；③ 梯度断链不存在（scores requires_grad=True，流入 neuron body）
-   - **修复方向（决策点）**：A. 消除 LOO 泄漏——`field_state` 部分 detach（`loo = field_state.detach() - vec_n`），梯度只流自身 vec；B. 启用 C12 score_dim（评分与写入解耦，消除强 neuron 主导）；C. 跑满 540 步（v2 只跑了一半）
+   - **第二层：LOO 梯度泄漏（机制层）**——`scores[n] = cosine(vec_n, normalize(field_state - vec_n))`，`field_state` 含全部 9 neuron 的 vec → 提高 code 的 score 时梯度也流到其他 8 个 neuron。实测：RL→其他 8 neuron 梯度 L1=57.5，是 code 自身 15.2 的 **3.8 倍**。尝试 detach field_state 无效（泄漏反而升到 125.8）——**真正泄漏源是 round 2 场条件化注入**（neuron 第 2 轮输入 fs=field_state 携带所有 neuron round 1 的梯度）
+   - **第三层：结构性偏向（根因）**——code 文本 scores 排序 `en 0.365 > math 0.155 > code 0.138`。en 是 general 空间高锐度 neuron，其 vec 主导场方向 → **LOO cosine 天然偏向强 neuron**（C12 score_dim 设计解决但未启用）
+   - **C13 修复（用户决策：per-neuron 域判别 head，上限最高）**：每个 neuron 新增 `domain_score_head: Linear(hidden→1)`，round 1 独立前向（无场注入）输出"当前样本属于本 neuron 域"的 logit；routing_loss 与推理 trust 都改用它（softmax(domain_logits/temp)）。round 1 独立 → 梯度只流向自身 + softmax 分母的合理负监督
+   - **修复验证**（diag_routing_gradient.py）：① domain_logits 排序正确（code 文本 code=0.87 第一，en=0.44 第二，随机 head 已有域判别力）；② 错误泄漏消除（RL→其他 8 neuron 从 125.8 降到 8.37，剩余为 softmax 分母的合理负监督）；③ CE 梯度增强（4.1→15.9，code 被正确路由选中）
 7. 结果记录到 plans + 提交
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：

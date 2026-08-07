@@ -140,6 +140,18 @@ class ResonanceNeuron(nn.Module):
         else:
             self.score_proj = None
 
+        # ── C13: 域判别 head（2026-08-07）──
+        # 输出"当前样本属于本 neuron 域"的 logit（round 1 独立前向，无场注入）。
+        # 用作路由信任信号：训练时 routing_loss 监督本 batch 域 neuron logit 最高，
+        # 推理时 trust = softmax(domain_logits/temp)。
+        # 替代 LOO cosine 作为域判别信号——LOO cosine 依赖场状态：
+        # ① 梯度经 round 2 场条件化跨 neuron 泄漏（实测 RL→其他 8 neuron 梯度是
+        #    自身 3.8 倍，batch 轮转下互相拉锯）；② 强 neuron（general 高锐度）
+        #    主导场方向 → cosine 天然偏向它们。domain_score_head 是可学习判别器，
+        #    梯度只流向自身 neuron，直接学习"我擅长什么样本"。
+        self.domain_score_head = nn.Linear(c.hidden_size, 1, bias=False)
+        nn.init.normal_(self.domain_score_head.weight, std=c.hidden_size ** -0.5)
+
         # ── Field read projections (one per layer, for conditioning) ──
         self.field_read_layers = nn.ModuleList([
             nn.Linear(effective_field_dim, c.hidden_size, bias=False)
@@ -730,6 +742,13 @@ class ResonanceNeuron(nn.Module):
         # 输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂）。
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
+
+        # ── C13: 域判别 logit（2026-08-07）──
+        # 只在 round 1 计算：round 1 独立前向（无 field_state 注入、无 side_signals），
+        # h 是纯自身能力输出 → domain_logit 的梯度只流向自身 neuron（无跨 neuron 泄漏）。
+        # round 2+ 的 h 经场条件化/侧通道调制（携带他人信息），不适合做域判别。
+        if round_num == 1 and self.domain_score_head is not None:
+            result["domain_logit"] = self.domain_score_head(h.mean(dim=1))  # [B, 1]
 
         # ── R7: 中间表示（蒸馏用）──
         if return_intermediate:

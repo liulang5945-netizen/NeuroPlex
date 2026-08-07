@@ -413,6 +413,10 @@ def main():
                     p.requires_grad = True
             for p in neuron.get_field_write_parameters():
                 p.requires_grad = True
+            # C13: 域判别 head 解冻（routing_loss 监督本 batch 域 neuron logit 最高）
+            if hasattr(neuron, 'domain_score_head') and neuron.domain_score_head is not None:
+                for p in neuron.domain_score_head.parameters():
+                    p.requires_grad = True
         neuron.train()
 
     # 5. 创建 ensemble（跨域 vocab，缺口 M 融合路径）
@@ -585,17 +589,18 @@ def main():
                 ce_loss = ce_loss / n_tokens
 
                 total_loss = ce_loss + 0.01 * result["balance_loss"] + 0.05 * result["diversity_loss"]
-                # 域判别路由 loss（2026-08-07）：直接约束本 batch 域 neuron 的共振分
-                # scores 最高。scores 是 LOO cosine（共振协调度），训练数据少时学不到
-                # "域内 neuron 应胜出"→ 跨空间 max-prob 校准失效 → 弱 neuron 抢位 → 负
-                # EMERGE。此 loss 显式注入域判别目标（仅 4 个 general 域，dialogue 桶无
-                # 单一目标 neuron 跳过），让 trust=softmax(scores/temp) 真的偏向域 neuron。
+                # 域判别路由 loss（2026-08-07 v2）：直接约束本 batch 域 neuron 的
+                # domain_logits 最高。C13 域判别 head（round 1 独立前向）输出"当前样本
+                # 属于本 neuron 域"的 logit——梯度只流向自身 neuron（无 LOO cosine 的
+                # 场耦合泄漏：scores 依赖场状态 → 梯度经 round 2 场条件化跨 neuron
+                # 泄漏 80% + 强 neuron 主导场方向）。仅 4 个 general 域生效（dialogue
+                # 桶无单一目标 neuron 跳过）。domain_logits 缺失时（旧 ckpt）fallback scores。
                 if (args.routing_loss_weight > 0 and general_mode
-                        and domain in domains and result["scores"] is not None):
+                        and domain in domains and result.get("domain_logits") is not None):
                     nids_all = list(ensemble.neurons.keys())
                     domain_idx = nids_all.index(domain)
                     routing_loss = -F.log_softmax(
-                        result["scores"] / 0.15, dim=0)[domain_idx]  # 0.15 与推理 router_temperature 一致
+                        result["domain_logits"] / 0.15, dim=0)[domain_idx]
                     total_loss = total_loss + args.routing_loss_weight * routing_loss
 
                 total_loss.backward()
