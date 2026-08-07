@@ -218,6 +218,24 @@
    - 训练配置与 v1 一致：batch2×seq64×max_texts100×dialogue150×2epochs≈540 step（~1.7h CPU）
 6. 结果记录到 plans + 提交
 
+**✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
+- **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
+- **收敛方案**：废弃 `mm_lm_heads` 独立头 + `mm_logits_modality` 机制，多模态输出统一走共享 general lm_head（与文本同构）
+- **核心改动**：
+  - [neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py)：删除 `mm_lm_heads` 属性 + `register_modality_lm_head`/`compute_mm_logits` 方法，`auto_register_modalities` 只注册输入投影
+  - [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)：删除 `mm_logits_modality` 参数及传递，`logits` 统一走 `compute_logits`（共享 general head）
+  - [sleep_engine.py](file:///e:/taiji-neuron/taiji/life/sleep_engine.py)：target 映射到 general 词表 codec 段（`base + codec_index`），删除 `mm_lm_heads` 依赖
+  - [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py)：生成路径 mask 到 codec 段采样 + 映射回 codec 索引自回归
+- **modality 映射**（general 词表预留段）：
+  - image: `[1000, 9191]`（base=1000, size=8192）✅ 支持训练 + 生成
+  - audio: `[9192, 13287]`（base=9192, size=4096）✅ 支持训练 + 生成
+  - video: 无预留段 ❌ v1 仅支持输入编码（生成需 v2：codec token 并入 general 词表）
+- **验证通过**（`verify_multimodal.py` + `verify_mm_ensemble_train.py`）：
+  - 单元通路：image/audio/video forward 返回 `[1, L, 256000]` logits（general vocab）✅
+  - ensemble 训练闭环：image 2 rounds loss 12.69→12.24（下降），audio 1 round loss 14.92 ✅
+  - loss ≈ ln(256000) ≈ 12.45 符合未训练 uniform 分布预期
+- **后续（v2）**：codec token 并入 general 词表 + mm 统一序列训练（图文双向），video 生成支持
+
 **背景**：跨域协作 v3 + rounds=2 已达成域内 EMERGE +4.0% 全域转正（"5 联合 > 5" 域内实证）；通用空间投影极限诊断结论 = 静态稀疏投影到 256K 摧毁置信度（max-prob≈0.001）→ 共享 general lm_head 免投影是架构上限最高的解
 
 ---
