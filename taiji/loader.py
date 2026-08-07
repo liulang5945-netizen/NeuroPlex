@@ -77,6 +77,8 @@ def create_cortex(
         max_rounds: 共振最大轮数
         sp_model_path: SentencePiece 模型路径（若为 None 自动查找）
         neuron_ids: 只装配指定 ID 集合（如对话综合体）；None = 扫描全部
+        collab_name: 协作层权重文件名（默认 cross_spec_dialogue.pt；
+                     可指定 C16 训练 ckpt 如 collab_v3_c16.ckpt.pt）
 
     Returns:
         (cortex, tokenizer)
@@ -204,6 +206,7 @@ def assemble_cortex(
     sp_model_path: str | None = None,
     wire_bio_modules: bool = True,
     neuron_ids: Optional[list] = None,
+    collab_name: str = "cross_spec_dialogue.pt",
 ) -> tuple[Any, Optional[Any], dict]:
     """统一装配 Cortex，接线所有 bio-inspired 模块。
 
@@ -373,12 +376,12 @@ def assemble_cortex(
             "[assemble_cortex] shared_embedding/general tokenizer 加载失败（非致命）: %s", e,
         )
 
-    # Step 1.7: 协作层权重加载（side_channels + 跨规格投影层）— 推理核心，非可选 bio 模块
+    # Step 1.7: 协作层权重加载（side_channels + 跨规格投影层 + head/lora）— 推理核心，非可选 bio 模块
     # 训练产物 cross_spec_dialogue.pt（finetune_cross_spec --data dialogue 保存）
-    # 含 side_channels（excite/inhibit）+ cross_spec 投影层（forward/backward）。
+    # 或 C16 训练 ckpt（collab_v3_c16.ckpt.pt，含 head_state/lora_state）。
     # 加载后 ensemble 的协作能力在运行时生效（断裂 B 修复）。
     try:
-        _load_collab_weights_into_cortex(cortex, neurons_dir, device)
+        _load_collab_weights_into_cortex(cortex, neurons_dir, device, collab_name=collab_name)
     except Exception as e:
         logger.warning("[assemble_cortex] 协作层权重加载失败（非致命）: %s", e)
 
@@ -722,20 +725,29 @@ def _load_collab_weights_into_cortex(
     device: str,
     collab_name: str = "cross_spec_dialogue.pt",
 ) -> bool:
-    """把训练好的协作层权重（side_channels + 跨规格投影层）加载进 cortex.ensemble。
+    """把训练好的协作层权重加载进 cortex.ensemble。
 
-    训练产物（finetune_cross_spec.py --data dialogue 保存）结构：
+    C18（2026-08-08）扩展：支持 train_cross_domain_collab 产物的完整分量——
+    key 兼容 final artifact（"side_channels"/"cross_spec"）与训练 ckpt
+    （"side_channels_state"/"cross_spec_state"），并新增 C16 分量：
+    head_state（quality_head 判别器）+ lora_state（LoRA 尾层增量）。
+
+    训练产物结构（两种格式兼容）：
     {
-        "side_channels": {nid: {"excite": {pid: state_dict}, "inhibit": {...}}},
-        "cross_spec": {"forward": {nid: state_dict}, "backward": {nid: state_dict}},
-        ...
+        "side_channels" / "side_channels_state": {nid: {"excite": {...}, "inhibit": {...}}},
+        "cross_spec" / "cross_spec_state": {"forward": {nid: sd}, "backward": {nid: sd}},
+        "body_state": {nid: sd},              # C16 模式为空 dict（body 冻结，保持原始）
+        "scale_bias_state": {nid: sd},
+        "head_state": {nid: sd},              # C16: quality_head 独立分量
+        "lora_state": {nid: sd},              # C16: LoRA 尾层增量
     }
 
     Args:
         cortex: Cortex 实例（含 neurons + ensemble）
         neurons_dir: 神经元 ckpt 目录（跨规格投影层在 ensemble 中已按需创建）
         device: 计算设备
-        collab_name: 协作层权重文件名
+        collab_name: 协作层权重文件名（默认推理用 cross_spec_dialogue.pt；
+                     可指定训练 ckpt 如 collab_v3_c16.ckpt.pt）
 
     Returns:
         是否成功加载（False = 文件不存在或加载失败，调用方按非致命处理）
@@ -750,9 +762,16 @@ def _load_collab_weights_into_cortex(
         logger.warning("[assemble_cortex] 协作层权重格式异常（非 dict），跳过")
         return False
 
+    def _pick(*keys):
+        """key 兼容：训练 ckpt（_state 后缀）与 final artifact（无后缀）。"""
+        for k in keys:
+            if k in ckpt:
+                return ckpt[k]
+        return None
+
     n_side = 0
     # 1. side_channels：先确保通道存在（ensemble 创建时不自动建 per-pair 通道），再加载权重
-    side_state = ckpt.get("side_channels", None)
+    side_state = _pick("side_channels_state", "side_channels")
     if side_state is not None:
         for nid, neuron in cortex.neurons.items():
             if nid not in side_state:
@@ -782,7 +801,7 @@ def _load_collab_weights_into_cortex(
 
     # 2. 跨规格投影层（forward/backward）
     n_proj = 0
-    cross_spec = ckpt.get("cross_spec", None)
+    cross_spec = _pick("cross_spec_state", "cross_spec")
     if cross_spec is not None:
         for nid, sd in (cross_spec.get("forward") or {}).items():
             if nid in cortex.ensemble._cross_spec_projectors:
@@ -794,11 +813,10 @@ def _load_collab_weights_into_cortex(
                 n_proj += 1
 
     # 3. body_state（S8/T12: 微调后的 body 参数——lm_head + 最后 N 层 + field_write）
-    # 训练产物 body_state 含增量微调结果；不应用则推理用未微调的 lm_head（新 token 乱码）。
-    # 注意：跨规格投影层旧格式兼容（T6）由上面的 load_state_dict 处理失败时降级，
-    # body_state 的 shape 不匹配（如词表再次升级）时跳过。
+    # C16 模式 body_state 为空 dict（body 冻结未动）→ 不注入，保持原始 body（保护个体能力）。
+    # 旧格式（C13/C14 直接微调）body_state 非空 → 按旧行为注入（兼容）。
     n_body = 0
-    body_state = ckpt.get("body_state", None)
+    body_state = _pick("body_state")
     if body_state:
         for nid, sd in body_state.items():
             if nid not in cortex.neurons:
@@ -812,7 +830,7 @@ def _load_collab_weights_into_cortex(
 
     # 4. scale_bias_state（S8: 可学习 scale 标量 + 通道 bias 缓冲）
     n_sb = 0
-    sb_state = ckpt.get("scale_bias_state", None)
+    sb_state = _pick("scale_bias_state")
     if sb_state:
         for nid, sb in sb_state.items():
             if nid not in cortex.neurons:
@@ -828,8 +846,49 @@ def _load_collab_weights_into_cortex(
                     n_sb += 1
         logger.info("[assemble_cortex] scale_bias_state 已应用: %d 个参数", n_sb)
 
+    # 5. head_state（C16：quality_head 判别器独立分量——路由监督，不耦合 body）
+    n_head = 0
+    head_state = _pick("head_state")
+    if head_state:
+        for nid, sd in head_state.items():
+            if nid not in cortex.neurons:
+                continue
+            neuron = cortex.neurons[nid]
+            qh = getattr(neuron, "quality_head", None)
+            if qh is not None:
+                try:
+                    qh.load_state_dict(sd)
+                    n_head += 1
+                except Exception as e:
+                    logger.warning(
+                        "[assemble_cortex] %s quality_head 加载失败: %s", nid, e)
+        logger.info("[assemble_cortex] head_state 已应用: %d 个 quality_head", n_head)
+
+    # 6. lora_state（C16：LoRA 尾层增量——body 冻结时的低秩适配）
+    n_lora = 0
+    lora_state = _pick("lora_state")
+    if lora_state:
+        for nid, sd in lora_state.items():
+            if nid not in cortex.neurons:
+                continue
+            neuron = cortex.neurons[nid]
+            if len(neuron.lora_adapters) == 0:
+                # 先启用 LoRA（rank 从已保存 a.weight 推断，层默认最后 2 层）
+                rank = 0
+                for k, v in sd.items():
+                    if k.endswith(".a.weight"):
+                        rank = max(rank, v.shape[0])
+                neuron.enable_lora(rank if rank > 0 else 16, layers=None)
+            try:
+                neuron.lora_adapters.load_state_dict(sd)
+                n_lora += 1
+            except Exception as e:
+                logger.warning("[assemble_cortex] %s lora_state 加载失败: %s", nid, e)
+        logger.info("[assemble_cortex] lora_state 已应用: %d 个 neuron", n_lora)
+
     logger.info(
-        "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d)",
-        collab_path, n_side, n_proj,
+        "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d, "
+        "body=%d, scale_bias=%d, head=%d, lora=%d)",
+        collab_path, n_side, n_proj, n_body, n_sb, n_head, n_lora,
     )
     return True

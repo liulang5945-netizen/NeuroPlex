@@ -297,6 +297,12 @@
     - **sleep_engine.py**：`_integrate_new_neuron` helper，挂载到两个 neurogenesis 创建点（域错误率 + 孤立检测）后
     - **冒烟验证**（verify_integrate.py）：影子 COW ✓ / 训练循环（CE+蒸馏+contrastive）✓ / 静默期（maturity 压低融合）✓ / ablation 真实对比 ✓ / 决策 ✓ / 写回 live ✓
     - **关键发现**：MaturityTracker 已有 get_resonance_weight（0.1→1.0）与 get_lr_multiplier（3×→1×）——静默期机制基础天然存在，C17 只需接线（fusion 注入 + 训练循环）
+16. ✅ **C18 实施：协作层注入运行时 cortex（2026-08-08，客户端端到端前置）**：
+    - **需求**：客户端端到端测试前置——C16 训练产物（collab_v3_c16.ckpt.pt，9 阵容）需注入运行时 cortex.ensemble 才生效；原 `_load_collab_weights_into_cortex` 只支持 final artifact 格式（side_channels/cross_spec 无 _state 后缀）+ 缺 head/lora
+    - **loader.py**：`_load_collab_weights_into_cortex` 扩展——① `_pick` key 兼容（side_channels_state/cross_spec_state 训练格式 + side_channels/cross_spec 旧格式）；② head_state 注入（quality_head 独立分量）；③ lora_state 注入（enable_lora 后 load，rank 从 a.weight 推断）；④ body_state 语义更新（C16 冻结 → 空 dict 不注入，保持原始 body 保护个体能力；旧 C13/C14 微调格式仍兼容）
+    - **assemble_cortex**：新增 `collab_name` 参数（默认 cross_spec_dialogue.pt，可指定 C16 训练 ckpt）
+    - **验证**（verify_collab_runtime.py）：head 注入 5/6 ✓、lora 注入 5 个 b 非零 ✓、body 0 分量 ✓、生成不崩 ✓
+    - **意义**：客户端端到端 = assemble_cortex(collab_name="collab_v3_c16.ckpt.pt") 后纯客户端驱动（chat/feed/sleep API），无需额外接线
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
