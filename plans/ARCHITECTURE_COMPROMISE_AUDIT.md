@@ -236,7 +236,12 @@
 
    - **结论**：① C13 方向正确——code 改善 25.4pp、zh 改善 21.3pp、en 转正，domain_logits 路由显著优于 LOO cosine；② 负 EMERGE 未完全消除（code -17.7%/math -28.2%/zh -19.0%）；③ [4b] 硬门控上界 code/math/en ≈ +0.5% → **融合层无损，剩余负值是路由仍不完美**（soft 融合 vs 门控差 18-29pp）；④ **zh 例外**：门控下仍 -3.5%（PPL 512 vs 415）——zh 域融合/转译本身有损，独立于路由；⑤ dialogue +67.1% 大幅正向（协作对对话域显著增益）
    - **遗留问题**：① 路由精度仍有提升空间（门控上界未达）；② zh 域门控 -3.5% 需单独排查（融合/转译损耗）；③ math 域 C13 后 EMERGE 反而微降（-21.6→-28.2），domain_logits 对 math 判别力不足
-8. **下一步（唯一建议）**：诊断 domain_logits 在 8 文本上的路由错误模式（对比 soft 权重 vs 门控）——区分"路由错误"与"融合有损"两类残留，再决定是增强判别器（2 层 MLP domain head）还是修复 zh 融合
+8. ✅ **路由错误模式诊断（2026-08-07，diag_route_errors.py，seed 42 逐文本分类）**：
+   - **汇总**：code 正常 6/路由错误 2；math 正常 3/**路由错误 5**；zh 正常 3/**路由错误 5**；en 正常 8；dialogue 门控口径不适用（5 个均匀 gate 融合爆炸）
+   - **根因 1：判别器以"表面语言"为域信号，而非"域语义"**——math 文本（英文 GSM8K）5/8 判给 en（en logit 0.29-1.25 vs math -0.30-0.26），soft PPL 暴涨 10 倍（128-446 vs gate 29-106）；code 域 2 条 Java/自然语言文本也判给 en
+   - **根因 2：en head 系统性高偏置**——en 对纯中文 zh 文本也给 0.79-1.26 高分（与 en 文本上的 0.67-1.47 无差），说明 en head 学到的主要是偏置、权重贡献小 → softmax 温度 0.15 极尖锐 → zh batch 上 en 一旦不是赢家 softmax≈0 → **非赢家梯度消失，en 高偏置压不下去**
+   - **zh 门控也差（gate 1436-5618 vs solo 996-5306）**：zh 域融合/转译本身有损（与 [4b] -3.5% 一致），独立于路由，需单独排查
+9. **下一步（唯一建议，C14）**：双管齐下修复路由——① **domain_score_head 升级**：Linear(hidden→1) → 2 层 MLP(hidden→128→1) + GELU + mean/max 双 pooling 特征（判别器容量才能学到"域语义"而非"表面语言"）；② **routing_loss 温度校准**：0.15 → 1.0（消除非赢家梯度消失，压平 en 系统性偏置）。重训 collab_v3_c14 后复测
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
