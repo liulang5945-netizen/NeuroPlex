@@ -1611,16 +1611,14 @@ class Cortex:
                 # logits 被均分平均化导致 argmax 落到符号噪声）
                 logits = result["weighted_logits"][:, -1, :] / temperature
             elif neuron_logits and final_scores:
-                # Fallback: MoCo 动态融合（跨 vocab 无法 per-position 路由时）
-                fused_logits = self.ensemble._dynamic_logit_fusion(
-                    neuron_logits, final_scores, temperature=0.5,
-                )
-                logits = fused_logits[:, -1, :] / temperature
-                # 融合后 logits vocab = max(all neuron vocabs)，但解码只用 domain_sp
-                # 截断到 domain vocab，避免 id_to_piece 越界
-                domain_vocab = hub.vocab_size(domain)
-                if logits.shape[-1] > domain_vocab:
-                    logits = logits[..., :domain_vocab]
+                # 跨 vocab 投影失败（ensemble.forward 未产出 weighted_logits）时，
+                # 直接取当前域 neuron 的 logits（_dynamic_logit_fusion 已删除——
+                # 旧 MoCo 加权与训练口径不一致，且 forward 已能产出 weighted_logits）
+                if domain in neuron_logits:
+                    logits = neuron_logits[domain][:, -1, :] / temperature
+                else:
+                    first_logits = next(iter(neuron_logits.values()))
+                    logits = first_logits[:, -1, :] / temperature
             elif domain in neuron_logits:
                 # Fallback: domain-specific logits only
                 logits = neuron_logits[domain][:, -1, :] / temperature

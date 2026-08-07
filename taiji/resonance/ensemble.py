@@ -1533,9 +1533,9 @@ class ResonanceEnsemble:
                 # 投影到统一目标空间（general 256K）+ confidence routing
                 # （min(原生,投影) max-prob × trust(scores)）。
                 # 此前该分支不做融合，把责任甩给 cortex._generate_p7 的
-                # _dynamic_logit_fusion（MoCo 加权，无 trust 校准）→ 训练-推理
+                # MoCo 动态融合（_dynamic_logit_fusion，已删除）→ 训练-推理
                 # 融合路径不一致。现在 forward 直接产出 weighted_logits，
-                # cortex 已优先使用该键（L1603 weighted_logits 分支）。
+                # cortex 已优先使用该键（weighted_logits 分支）。
                 nids = list(all_logits.keys())
                 if self._tokenizer_hub is not None and len(nids) >= 2:
                     try:
@@ -2138,80 +2138,6 @@ class ResonanceEnsemble:
             padded.append(logits)
         stacked = torch.stack(padded)
         return stacked.mean(dim=0)
-
-    def _dynamic_logit_fusion(
-        self,
-        all_logits: Dict[str, torch.Tensor],
-        scores: Dict[str, float],
-        temperature: float = 1.0,
-    ) -> torch.Tensor:
-        """MoCo-inspired dynamic logit fusion.
-
-        状态（2026-08-07 收敛）：兼容 fallback——仅 cortex 推理在跨 vocab 投影
-        失败时兜底（final_scores 加权），不是主路径。主路径：同 vocab 走
-        `_score_logit_fusion`（soft），跨 vocab 走 `_confidence_routing_fusion`。
-
-        Each step re-computes field scores and dynamically weights all neurons' logits.
-        This replaces static weighting with adaptive, context-aware fusion.
-
-        Args:
-            all_logits: {nid: [B, L, vocab]} per-neuron logits
-            scores: {nid: float} current resonance scores
-            temperature: softmax temperature for weighting (lower = sharper selection)
-
-        Returns:
-            fused_logits: [B, L, vocab] dynamically weighted logits
-        """
-        if not all_logits:
-            raise ValueError("[_dynamic_logit_fusion] all_logits is empty")
-
-        neuron_ids = list(all_logits.keys())
-        n_neurons = len(neuron_ids)
-
-        # Get reference tensor for device/dtype
-        ref_logits = next(iter(all_logits.values()))
-        device = ref_logits.device
-
-        # 1. Compute dynamic weights from field scores
-        score_vals = torch.tensor(
-            [float(scores.get(nid, 0.0)) for nid in neuron_ids],
-            device=device,
-        )
-        # Apply temperature sharpening (MoCo-style)
-        weights = F.softmax(score_vals / temperature, dim=0)  # [N]
-
-        # 2. Check if all logits have the same vocab size
-        vocab_sizes = [logits.shape[-1] for logits in all_logits.values()]
-        if len(set(vocab_sizes)) == 1:
-            # Same vocab: direct weighted sum
-            fused_logits = None
-            for i, (nid, logits) in enumerate(all_logits.items()):
-                w = weights[i].item()
-                if fused_logits is None:
-                    fused_logits = w * logits
-                else:
-                    fused_logits = fused_logits + w * logits
-            return fused_logits
-
-        # 3. Different vocab sizes: pad to max (P7 compatibility)
-        max_vocab = max(vocab_sizes)
-        fused_logits = torch.zeros(
-            ref_logits.shape[0], ref_logits.shape[1], max_vocab,
-            device=device, dtype=ref_logits.dtype,
-        )
-
-        for i, (nid, logits) in enumerate(all_logits.items()):
-            w = weights[i].item()
-            vocab_size = logits.shape[-1]
-            if vocab_size < max_vocab:
-                pad = torch.zeros(
-                    logits.shape[0], logits.shape[1], max_vocab - vocab_size,
-                    device=device, dtype=logits.dtype,
-                )
-                logits = torch.cat([logits, pad], dim=-1)
-            fused_logits = fused_logits + w * logits
-
-        return fused_logits
 
     def _score_logit_fusion(
         self,
