@@ -477,6 +477,20 @@ def main():
             elif p.requires_grad:
                 adamw_params.append(p)
 
+    # 2026-08-07 fix：去重——共享 general lm_head 被多个 general neuron 共享，
+    # named_parameters 会重复收集（body 学习率 ×N 效果，同参数每步更新 N 次）
+    def _dedup(params):
+        seen, out = set(), []
+        for p in params:
+            if id(p) not in seen:
+                seen.add(id(p))
+                out.append(p)
+        return out
+
+    muon_params = _dedup(muon_params)
+    adamw_params = _dedup(adamw_params)
+    body_params = _dedup(body_params)
+
     muon_optimizer, adamw_optimizer = build_muon_adamw_optimizers(
         muon_params, adamw_params, args.lr)
     body_optimizer = None
