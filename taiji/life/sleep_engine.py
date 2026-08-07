@@ -152,6 +152,8 @@ class SleepEngine:
         self.cortex: Optional[Any] = None  # Cortex 实例
         self._lifecycle: Optional[Any] = None  # LifecycleManager
         self._sleep_consolidator: Optional[Any] = None  # SleepConsolidator
+        # C17（2026-08-08）：新生神经元无缝衔接引擎（懒加载，neurogenesis 后调用）
+        self._integrate_engine: Optional[Any] = None
         self._stdp_tracker: Optional[Any] = None  # STDPTracker
         self._feed_engine: Optional[Any] = None  # FeedEngine
         self._current_step: int = 0  # 全局步数计数器（供 SleepConsolidator）
@@ -482,6 +484,29 @@ class SleepEngine:
 
         logger.warning("Cortex 未注入，跳过睡眠训练")
 
+    def _integrate_new_neuron(self, new_nid: str, report) -> None:
+        """C17：新生 neuron 无缝衔接（静默→蒸馏→验证→固化/凋亡）。
+
+        由 neurogenesis 创建新 neuron 后调用，避免"粗暴加入"（无整合训练）。
+        """
+        if self._integrate_engine is None:
+            try:
+                from taiji.life.integrate_engine import IntegrateEngine
+                self._integrate_engine = IntegrateEngine(
+                    cortex=self.cortex, lifecycle=self._lifecycle,
+                    feed_engine=self._feed_engine,
+                )
+            except Exception as e:
+                logger.warning(f"  IntegrateEngine 初始化失败: {e}")
+                return
+        try:
+            result = self._integrate_engine.integrate(new_nid)
+            status = result.get("status", "unknown")
+            logger.info(f"  🌱 新生整合 {new_nid}: {status}")
+            report.recommendations.append(f"[新生整合] {new_nid} → {status}")
+        except Exception as e:
+            logger.warning(f"  新生整合 {new_nid} 失败: {e}")
+
     def _select_split_parent(self, domain: str) -> Optional[str]:
         """选择分裂父 neuron（LuminaNet splitting 融合）。
 
@@ -735,6 +760,8 @@ class SleepEngine:
                                 report.recommendations.append(
                                     f"[神经新生] 新神经元 {new_nid} 已创建{split_info}"
                                 )
+                                # C17：无缝衔接（静默→蒸馏→验证→固化/凋亡），避免粗暴加入
+                                self._integrate_new_neuron(new_nid, report)
                             except Exception as ne:
                                 logger.warning(f"  neurogenesis 创建失败: {ne}")
             except Exception as e:
@@ -770,6 +797,8 @@ class SleepEngine:
                                 report.recommendations.append(
                                     f"[神经新生] 孤立神经元 {nid} → 创建协同神经元 {new_nid}{split_info}"
                                 )
+                                # C17：无缝衔接（静默→蒸馏→验证→固化/凋亡），避免粗暴加入
+                                self._integrate_new_neuron(new_nid, report)
                             except Exception as ne:
                                 logger.warning(f"  孤立协同神经元创建失败: {ne}")
             except Exception as e:

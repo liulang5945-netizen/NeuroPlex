@@ -2348,6 +2348,15 @@ class ResonanceEnsemble:
             trust = None
         if trust is not None:
             conf = conf * trust.view(-1, 1, 1)
+        if self.maturity is not None:
+            # C17（2026-08-08）静默期：新生 neuron（幼稚态）融合权重按成熟度压低——
+            # get_resonance_weight 0.1→1.0 线性 ramp，配合 IntegrateEngine 无缝衔接
+            # （人脑"沉默突触"：新生神经元初期不参与输出）。成熟 neuron 返回 1.0 不受影响。
+            mw = torch.tensor(
+                [self.maturity.get_resonance_weight(nid) for nid in active_ids],
+                dtype=conf.dtype, device=conf.device,
+            )
+            conf = conf * mw.view(-1, 1, 1)
         sel = conf.argmax(dim=0)                                         # [B, L]
         w = F.one_hot(sel, num_classes=all_logits.shape[0]).permute(2, 0, 1).float()  # [N, B, L]
         fused = (w.unsqueeze(-1) * all_logits).sum(dim=0)                # [B, L, V_tgt]

@@ -283,6 +283,20 @@
     - **结论**：破坏源 = collab 训练的 body 微调整体（尾层 layers.4/5 + norm + field_write + lm_head + 判别器耦合其中），无法用当前注入粒度再细分（判别器耦合在 body）
     - **修复方向收敛**：候选 A（冻结 body）——collab 训练冻结 body 主干，判别器（quality_head）拆为独立分量单独解冻+保存，协作层只训 side/scale/cross_spec
     - **关键事实**：body_state 含 lm_head.weight（256000×512）→ collab 训练微调了共享头，混合数据污染共享输出分布
+14. ✅ **C16 实施：LoRA 保护 body + quality_head 独立分量（2026-08-08，commit 0a33a26）**：
+    - **用户决策**：LoRA 微调尾层（个体能力零破坏起点 + 保留适配能力） + quality_head 拆独立分量
+    - **neuron.py**：`LoraPair`（B 初始 0 → 输出恒 0 → 向后兼容）+ `enable_lora(rank, layers)`（默认尾层 2 层，嵌套 ModuleDict），forward 标准路径在 attention/ffn norm 后输入注入低秩增量、dendritic 路径退化块级
+    - **train_cross_domain_collab.py**：`--lora-rank`（默认 16）→ body 全部冻结（含 lm_head，body=0 可训练），LoRA + quality_head 走 adamw 主 lr；save_checkpoint 拆 `head_state`（quality_head）/`lora_state`，body_state 空
+    - **gen_test_collab.py**：--inject 支持 head/lora 分量
+    - **冒烟验证**（48 步）：loss 5.68→4.96 正常下降；ckpt head/lora_state 结构正确（lora b 非零=学到增量）；**生成测试：无重复崩坏（回显+句号，=原始 body 行为）+ 路由按语言正确（英文→en、中文→zh）**——对比 c14b 的 en 全抢占，C16 修复生效
+    - **正式训练进行中**（collab_v3_c16，全量 2 epoch，ETA ~4h）
+15. ✅ **C17 实施：新生神经元无缝衔接 IntegrateEngine（2026-08-08，设计→代码→冒烟）**：
+    - **设计**：BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.6 节——人脑神经发生 4 阶段（静默→蒸馏→验证→固化/凋亡），参考"沉默突触/关键期可塑性/use-it-or-lose-it/关键期关闭"
+    - **ensemble.py**：`_confidence_routing_fusion` 的 conf 乘 `maturity.get_resonance_weight`（新 neuron 融合权重 0.1→1.0 渐进，静默期不参与输出；成熟 neuron 返回 1.0 不受影响；maturity=None 时跳过向后兼容）
+    - **integrate_engine.py（新）**：`IntegrateEngine.integrate(new_nid)`——影子 COW 训练（复用 sleep_engine._clone_module/staticmethod _copy_shadow_back），只训新 neuron 协作层（side_channels/quality_head/LoRA，body 冻结 C16 延续），loss = CE + 邻居蒸馏 KL（DISTILL_TEMP=2.0）+ contrastive，每步 tick maturity，maturity≥0.8 跑 ablation（临时从 ensemble 弹出对比 CE）→ commit / apoptosis 信号
+    - **sleep_engine.py**：`_integrate_new_neuron` helper，挂载到两个 neurogenesis 创建点（域错误率 + 孤立检测）后
+    - **冒烟验证**（verify_integrate.py）：影子 COW ✓ / 训练循环（CE+蒸馏+contrastive）✓ / 静默期（maturity 压低融合）✓ / ablation 真实对比 ✓ / 决策 ✓ / 写回 live ✓
+    - **关键发现**：MaturityTracker 已有 get_resonance_weight（0.1→1.0）与 get_lr_multiplier（3×→1×）——静默期机制基础天然存在，C17 只需接线（fusion 注入 + 训练循环）
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
