@@ -149,8 +149,25 @@ class ResonanceNeuron(nn.Module):
         #    自身 3.8 倍，batch 轮转下互相拉锯）；② 强 neuron（general 高锐度）
         #    主导场方向 → cosine 天然偏向它们。domain_score_head 是可学习判别器，
         #    梯度只流向自身 neuron，直接学习"我擅长什么样本"。
-        self.domain_score_head = nn.Linear(c.hidden_size, 1, bias=False)
-        nn.init.normal_(self.domain_score_head.weight, std=c.hidden_size ** -0.5)
+        # ── C14: 升级为 MLP + mean/max 双 pooling（2026-08-08）──
+        # diag_route_errors 发现 C13 单 Linear(hidden→1) 判别器只能学到"表面语言"：
+        # 英文 GSM8K 数学题全判给 en（en logit 0.29-1.25 vs math -0.30-0.26）、
+        # en 对纯中文 zh 文本也给 0.79-1.26 高分（偏置学成默认赢家）。
+        # 2 层 MLP + mean/max 双 pooling 提供非线性判别容量：
+        # mean 捕获全局分布、max 捕获强信号 token，才能学到"域语义"（数学推理/
+        # 代码语法）而非"文本语言"。
+        self.domain_score_head = nn.Sequential(
+            nn.Linear(c.hidden_size * 2, 128),
+            nn.GELU(),
+            nn.Linear(128, 1, bias=False),
+        )
+        # 第一层 xavier（GELU MLP 标准）；末层小初始化（输出 logit 量级 ~0.1-1，
+        # 与 C13 单层尺度相当，softmax 路由温度下可区分）
+        for m in self.domain_score_head:
+            if isinstance(m, nn.Linear) and m.out_features > 1:
+                nn.init.xavier_uniform_(m.weight)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, std=0.02)
 
         # ── Field read projections (one per layer, for conditioning) ──
         self.field_read_layers = nn.ModuleList([
@@ -743,12 +760,14 @@ class ResonanceNeuron(nn.Module):
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
 
-        # ── C13: 域判别 logit（2026-08-07）──
+        # ── C13/C14: 域判别 logit（2026-08-07/08）──
         # 只在 round 1 计算：round 1 独立前向（无 field_state 注入、无 side_signals），
         # h 是纯自身能力输出 → domain_logit 的梯度只流向自身 neuron（无跨 neuron 泄漏）。
         # round 2+ 的 h 经场条件化/侧通道调制（携带他人信息），不适合做域判别。
+        # C14: mean/max 双 pooling 拼接 → MLP（mean 全局分布 + max 强信号 token）。
         if round_num == 1 and self.domain_score_head is not None:
-            result["domain_logit"] = self.domain_score_head(h.mean(dim=1))  # [B, 1]
+            h_pool = torch.cat([h.mean(dim=1), h.max(dim=1).values], dim=-1)  # [B, 2H]
+            result["domain_logit"] = self.domain_score_head(h_pool)  # [B, 1]
 
         # ── R7: 中间表示（蒸馏用）──
         if return_intermediate:

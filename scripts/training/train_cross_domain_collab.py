@@ -31,6 +31,19 @@ v2（域判别路由 loss，collab_v2_routing，2026-08-07）：
     同 v1 参数 + --routing-loss-weight 0.5 --save-name collab_v2_routing
     routing_loss = -log_softmax(scores/0.15)[domain_idx]（约束本 batch 域 neuron 共振分最高，
     修 scores 无域判别 → trust 校准失效 → 负 EMERGE；仅 4 general 域生效）
+    ⚠️ 半成品（270/540 步被杀）：LOO cosine 场耦合梯度泄漏 80% + en 主导场方向 → 评估负 EMERGE 未消除
+
+v3（C13 per-neuron 域判别 head，collab_v3_c13.ckpt.pt，2026-08-07 完整 540 步）：
+    同 v1 参数 + --routing-loss-weight 0.5 --save-name collab_v3_c13
+    domain_score_head: Linear(hidden→1)，round 1 独立前向（无场注入）→ 梯度只流向自身。
+    替代 LOO cosine：泄漏从 125.8→8.37，CE 梯度增强。评估：code -43.1→-17.7%、zh -40.3→-19.0%、
+    en 转正 +0.7%，但 math -28.2%/zh -19.0% 仍负 → diag_route_errors 定位：判别器只学到
+    "表面语言"（英文 math 题判给 en）+ en 偏置梯度消失（温度 0.15 过尖锐）
+
+v4（C14 MLP 判别器 + 温度校准，collab_v3_c14，2026-08-08）：
+    同 v1 参数 + --routing-loss-weight 1.0 --routing-loss-temp 1.0 --save-name collab_v3_c14
+    ① domain_score_head 升级为 MLP(hidden*2→128→1) + GELU + mean/max 双 pooling（学到"域语义"
+    而非"表面语言"）；② routing_loss 温度 0.15→1.0（非赢家梯度不再消失，压平 en 系统性偏置）
 
 注意：
 - --neuron-dir 必须是 general 基座目录（data/foundation_v1_general），默认 data/neurons 是旧的
@@ -299,8 +312,14 @@ def main():
                         help="batch_align_and_embed 最大序列长度")
     parser.add_argument("--routing-loss-weight", type=float, default=0.0,
                         help="域判别路由 loss 权重（2026-08-07：直接约束本 batch 域 "
-                             "neuron 的共振分 scores 最高——修跨空间 max-prob 校准不足，"
-                             "消除域内负 EMERGE；仅 general_mode 的 4 域生效）")
+                             "neuron 的 domain_logits 最高——修 LOO cosine 场耦合梯度泄漏 + "
+                             "强 neuron 主导场方向，消除域内负 EMERGE；仅 general_mode 的 4 "
+                             "域生效。C14 起与 --routing-loss-temp 配合）")
+    parser.add_argument("--routing-loss-temp", type=float, default=1.0,
+                        help="域判别路由 loss softmax 温度（C14，2026-08-08：0.15→1.0。"
+                             "诊断发现 0.15 极尖锐 → 非赢家 softmax≈0 → 梯度消失，en 系统性"
+                             "高偏置压不下去；1.0 让所有 neuron 都收到压偏置梯度。"
+                             "注意：这是训练温度，与推理 router_temperature 分离）")
     args = parser.parse_args()
 
     global DEVICE
@@ -613,8 +632,11 @@ def main():
                         and domain in domains and result.get("domain_logits") is not None):
                     nids_all = list(ensemble.neurons.keys())
                     domain_idx = nids_all.index(domain)
+                    # C14: 温度 1.0（默认）——0.15 时非赢家 softmax≈0 梯度消失，
+                    # en 系统性高偏置压不下去（diag_route_errors 实证）
                     routing_loss = -F.log_softmax(
-                        result["domain_logits"] / 0.15, dim=0)[domain_idx]
+                        result["domain_logits"] / max(args.routing_loss_temp, 1e-6),
+                        dim=0)[domain_idx]
                     total_loss = total_loss + args.routing_loss_weight * routing_loss
 
                 total_loss.backward()
