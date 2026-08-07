@@ -216,7 +216,13 @@
    - 理由：scores 是 LOO cosine（共振协调度），数据少时学不到"域内 neuron 应胜出"→ 显式注入域判别目标比加大数据量（10× 训练时间）更高效直接
    - ensemble.py 新增 `forward_train(trust_override=...)` + `_confidence_routing_fusion(trust_override=...)`（上界诊断用，向后兼容 None）
    - 训练配置与 v1 一致：batch2×seq64×max_texts100×dialogue150×2epochs≈540 step（~1.7h CPU）
-6. 结果记录到 plans + 提交
+6. 🔴 **routing_loss 未生效诊断（2026-08-07，diag_routing_gradient.py）**：
+   - **第一层：训练中断（执行层）**——日志显示训练实际跑到 step 360+（进入 E2），但最终 ckpt 只保存到 **270 步**（E1 结束保存点；训练脚本每 500 步 + epoch 结束才保存）。**评估用的是半成品 ckpt**，计划 540 步只完成一半。训练进程无报错突然中断（疑似手动/超时被杀）
+   - **第二层：LOO 梯度泄漏（机制层，核心）**——`scores[n] = cosine(vec_n, normalize(field_state - vec_n))`，`field_state` 含全部 9 neuron 的 vec → 提高 code 的 score 时梯度也流到其他 8 个 neuron。实测：RL→其他 8 neuron 梯度 L1=57.5，是 code 自身 15.2 的 **3.8 倍**。batch 轮转下每步 routing_loss 都在同时"拉"所有 neuron 的 field vectors，方向互相拉锯（code batch 抬 code、math batch 抬 math、反作用回 code），**有效信号被稀释 80%**
+   - **第三层：结构性偏向（根因）**——code 文本 scores 排序 `en 0.365 > math 0.155 > code 0.138`。en 是 general 空间高锐度 neuron，其 vec 主导场方向 → **LOO cosine 天然偏向强 neuron**。这正是 C12 `score_proj`（评分与写入解耦）设计要解决的，但所有 neuron `score_dim=None`，C12 未启用
+   - **排除项**：① routing_loss 梯度量级正常（是 CE 的 3.7 倍，未淹没）；② 训练/推理 scores 口径一致（都是 LOO cosine，field.score 与 forward_train 同构）；③ 梯度断链不存在（scores requires_grad=True，流入 neuron body）
+   - **修复方向（决策点）**：A. 消除 LOO 泄漏——`field_state` 部分 detach（`loo = field_state.detach() - vec_n`），梯度只流自身 vec；B. 启用 C12 score_dim（评分与写入解耦，消除强 neuron 主导）；C. 跑满 540 步（v2 只跑了一半）
+7. 结果记录到 plans + 提交
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
