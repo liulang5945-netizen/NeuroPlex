@@ -258,7 +258,23 @@
     - **实施**（commit 03c3f1f）：① `domain_score_head` 废弃 → `quality_head`（MLP 结构不变），round 1 独立前向输出"我对当前样本的预测质量"；② 监督从域标签 CE 改为 **contrastive_loss**（KL(softmax(quality/1.0) || softmax(-NLL/0.5))）——NLL 是客观预测质量，训练时可得，推理时 quality_logit 直接可用；③ 替代 C12 的 field_score_proj 条件（从未启用：训练时 score_dim=None → contrastive 恒 0）；④ quality_head 走 adamw 主 lr
     - **验证**（verify_contrastive.py）：contrastive_loss 非零（1.78-4.41）+ quality_head 梯度流动（10.8-22.9）✓；冒烟 5 步内 zh/en 文本 quality 排序已与 NLL 对齐（code/math 需正式训练收敛）
     - **为什么能修**：① 无判别任务不对称（监督目标是客观 NLL 而非域标签）；② KL 对齐固定分布（softmax(-NLL/0.5)）→ logit 膨胀会增大 KL → 天然防尺度游戏；③ 所有域 batch 生效（含 dialogue）
-    - **训练中**：collab_v3_c15（540 步 ~1.7h），完成后复测 verify + diag
+12. ✅ **生成质量验证链建立 + 崩坏层定位（2026-08-08，用户关键质疑"生成质量没有测试"）**：
+    - **用户质疑成立**：C13→C15 全部基于 PPL/EMERGE 纸面指标迭代，真实生成从未系统测试
+    - **建立 gen_test_collab.py**：真实推理路径（ensemble.forward）+ 采样/argmax + solo 对照 + subset 阵容对照
+    - **实测证据**（collab_v3_c14b）：
+      | 阵容 | 生成质量 |
+      |------|---------|
+      | 混合 9 ensemble（argmax） | 全崩：回显 + 答：空行 |
+      | solo code（argmax） | 全崩：仅回显/重复标点 |
+      | solo zh_std0（采样 0.9） | 崩坏：句子断裂 + 来 来 来 退化 |
+      | 旧 5 + c14b 注入 | 崩坏：clusters/colonial 随机英文词重复 |
+      | **旧 5 原始权重（cross_spec_dialogue）** | **正常：4/5 通顺对话**（你好，很高兴你们 / 可以学习基本代码） |
+    - **崩坏源定位**：collab 训练产物（body 尾层微调 + 混合 side_channels）破坏个体生成能力；旧 5 原始协作权重生成正常 → **PPL 改善是混合数据 next-token 拟合的假象，与生成能力负相关**。路由不是生成崩坏主因
+    - **方法论修正**：真实生成测试（采样 + 多 prompt）为第一验证指标；PPL/EMERGE 降级为辅助诊断；每次训练后必须过生成测试
+13. **方向决策（用户确认，2026-08-08）**：按生成质量优先调整——暂停路由迭代，先解决 collab 训练破坏生成的问题。候选：
+    - A. **collab 训练冻结 body**：不微调 body 尾层（unfreeze_layers=0），只训 side_channels/融合层——保持个体生成能力（协作层只增强不破坏）
+    - B. **分解验证**：旧 5 + c14b 只注 side_channels vs 只注 body，细分离破坏源
+    - C. **collab 产物不覆盖 body**：生成时用原始 body + 训练后的协作层
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂

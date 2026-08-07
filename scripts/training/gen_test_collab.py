@@ -56,6 +56,9 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.0,
                     help="采样温度（0=argmax 贪心；>0 用 top-k 采样，如 0.9）")
     ap.add_argument("--top-k", type=int, default=50)
+    ap.add_argument("--subset", default="all",
+                    help="阵容子集：all=9 neuron / dialogue=旧 5 对话 / general=新 4 / "
+                         "或逗号列表（定位崩坏层对照）")
     args = ap.parse_args()
 
     from scripts.training.train_cross_domain_collab import (
@@ -75,13 +78,28 @@ def main():
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     print(f"ckpt: epoch={ck['epoch']}, total_steps={ck['total_steps']}")
 
+    # subset 解析（对照测试用）
+    if args.subset == "all":
+        load_ids = DOMAINS + DIALOGUE_IDS
+    elif args.subset == "dialogue":
+        load_ids = DIALOGUE_IDS
+    elif args.subset == "general":
+        load_ids = DOMAINS
+    else:
+        load_ids = [s.strip() for s in args.subset.split(",") if s.strip()]
+    print(f"[subset] {args.subset} → {load_ids}")
+
     shared_lm_head = load_shared_lm_head(GENERAL_DIR, 512, "cpu")
     neurons, embeddings = {}, {}
     for nid in DOMAINS:
+        if nid not in load_ids:
+            continue
         n = load_neuron(nid, GENERAL_DIR, "cpu", shared_lm_head=shared_lm_head)
         neurons[nid] = n
         embeddings[nid] = load_shared_embedding(GENERAL_DIR, "cpu")
     for nid in DIALOGUE_IDS:
+        if nid not in load_ids:
+            continue
         ckp = torch.load(os.path.join(DIALOGUE_DIR, f"neuron_{nid}.pt"),
                          map_location="cpu", weights_only=False)
         cfg = ckp["neuron_config"]; cfg.unified_field_dim = None
@@ -107,6 +125,8 @@ def main():
     hub.register_domain("general", general_sp)
     ens.set_tokenizer_hub(hub)
     for nid, sd in ck["side_channels_state"].items():
+        if nid not in neurons:
+            continue
         for pid, ch_sd in sd.get("excite", {}).items():
             if pid in neurons[nid].excite_channels:
                 neurons[nid].excite_channels[pid].load_state_dict(ch_sd)
@@ -114,6 +134,8 @@ def main():
             if pid in neurons[nid].inhibit_channels:
                 neurons[nid].inhibit_channels[pid].load_state_dict(ch_sd)
     for nid, sb in ck["scale_bias_state"].items():
+        if nid not in neurons:
+            continue
         with torch.no_grad():
             for name, val in sb.items():
                 for pname, p in neurons[nid].named_parameters():
@@ -123,6 +145,8 @@ def main():
                     if bname == name:
                         b.copy_(val)
     for nid, bp in ck["body_state"].items():
+        if nid not in neurons:
+            continue
         with torch.no_grad():
             for name, val in bp.items():
                 for pname, p in neurons[nid].named_parameters():
