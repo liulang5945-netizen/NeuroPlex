@@ -253,11 +253,12 @@
     - **根因 2（判别任务不对称）**：C13/C14/C14b 三次 en 判别器全是默认赢家——math/code 文本是**英文**，en 的"英文性"覆盖它们；math vs en 需语义判别（难），en 只需识别英文（易）→ 判别器学习不平衡
     - **根因 3（判别器输入不可比）**：每个 neuron 判别器输入是**自己的 round 1 表征 h**（不同空间），softmax 在 9 个不可比分数间比较（同 C12 跨 embedding 不可比问题）→ en neuron 表征空间与自身判别器对齐好，天然占优
     - **教训**：C14（MLP + lr 1e-4 + temp 1.0）是三版最佳（zh 修好、code 略降、math 仍错）；判别器 lr 提高无益反害。路由信任依赖"域标签预测"是间接代理，需重新设计
-11. **决策点（路由信任信号重设计，用户选择）**：
-    - A. **margin-based routing loss**：域 neuron 领先 margin（超限零梯度 → 防膨胀）+ lr 1e-3。改动小，根治尺度游戏，但不解决判别力/可比性问题
-    - B. **样本级混合 batch**：batch 内混入其他域负样本，判别器学到"我的 vs 不是我的"对比。增加监督信息质量，工作量中
-    - C. **共享文本特征判别器**：判别器输入改 round 1 输入 x 的 mean（4 个 general neuron 共享 general embedding → 可比），替代各自 round1 输出 h。解决不可比问题，但 x.mean 信息浅（词面非语义）
-    - D. **预测质量路由（C12 强化，上限最高）**：放弃域标签判别，路由权重直接对齐各 neuron NLL 排序（"谁能预测好当前文本谁上"）——与 [4b] 门控上界（已知域下协作≈solo）一致：路由目标就是"找预测最好的 neuron"。改动最大
+11. ✅ **决策：D 方案（预测质量路由，C15）实施中（2026-08-08）**：
+    - **用户决策**：D. 预测质量路由（替代 C13/C14 域标签判别，域判别方案三次迭代判定失败）
+    - **实施**（commit 03c3f1f）：① `domain_score_head` 废弃 → `quality_head`（MLP 结构不变），round 1 独立前向输出"我对当前样本的预测质量"；② 监督从域标签 CE 改为 **contrastive_loss**（KL(softmax(quality/1.0) || softmax(-NLL/0.5))）——NLL 是客观预测质量，训练时可得，推理时 quality_logit 直接可用；③ 替代 C12 的 field_score_proj 条件（从未启用：训练时 score_dim=None → contrastive 恒 0）；④ quality_head 走 adamw 主 lr
+    - **验证**（verify_contrastive.py）：contrastive_loss 非零（1.78-4.41）+ quality_head 梯度流动（10.8-22.9）✓；冒烟 5 步内 zh/en 文本 quality 排序已与 NLL 对齐（code/math 需正式训练收敛）
+    - **为什么能修**：① 无判别任务不对称（监督目标是客观 NLL 而非域标签）；② KL 对齐固定分布（softmax(-NLL/0.5)）→ logit 膨胀会增大 KL → 天然防尺度游戏；③ 所有域 batch 生效（含 dialogue）
+    - **训练中**：collab_v3_c15（540 步 ~1.7h），完成后复测 verify + diag
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
