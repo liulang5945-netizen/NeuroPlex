@@ -14,11 +14,28 @@
 - --rules-path 加载人工规则 JSON，新增特殊神经元时补充专业术语映射
 - 规则增删（version 变化）→ 词库转译矩阵缓存自动失效重建
 
-Usage:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+可复现配方（2026-08-07 记录——后续训练以这里为准，勿翻日志）：
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+v1（基线，collab_v1_mixed.ckpt.pt，540 step ≈ 1.7h CPU）：
     python -u scripts/training/train_cross_domain_collab.py \
-        --neuron-dir data/verify_v3 --domains code,math,zh \
-        --epochs 2 --lr 1e-3 --batch-size 4 \
-        --rules-path taiji/domains/alignment_rules.json
+        --neuron-dir data/foundation_v1_general \
+        --domains code,math,zh,en --target-space general \
+        --max-texts-per-domain 100 --batch-size 2 --seq-len 64 \
+        --dialogue-ids zh_aug0_dialogue,zh_aug1_dialogue,zh_aug2_dialogue,zh_aug3_dialogue,zh_std0_dialogue \
+        --dialogue-max-texts 150 --dialogue-data-dir data/simple_zh \
+        --save-name collab_v1_mixed --epochs 2
+
+v2（域判别路由 loss，collab_v2_routing，2026-08-07）：
+    同 v1 参数 + --routing-loss-weight 0.5 --save-name collab_v2_routing
+    routing_loss = -log_softmax(scores/0.15)[domain_idx]（约束本 batch 域 neuron 共振分最高，
+    修 scores 无域判别 → trust 校准失效 → 负 EMERGE；仅 4 general 域生效）
+
+注意：
+- --neuron-dir 必须是 general 基座目录（data/foundation_v1_general），默认 data/neurons 是旧的
+- max_texts_per_domain/dialogue-max-texts 不设时按全部数据（4×3000+2000 → ~14000 步 ≈ 40h，勿踩）
+- 评估：verify_collab_mixed.py（内部 CKPT_PATH 或改路径）
 """
 from __future__ import annotations
 

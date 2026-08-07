@@ -857,7 +857,7 @@ class Cortex:
         self,
         shared_embeddings: Optional[torch.Tensor] = None,
         active_nids: Optional[List[str]] = None,
-        fusion_mode: str = "per_position",
+        fusion_mode: str = "soft",
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict:
         """Run one round of resonance thinking.
@@ -866,14 +866,18 @@ class Cortex:
         This ensures field vectors are comparable — cosine similarity is meaningful.
 
         P7-修复：支持 neuron_embeddings dict（每神经元独立编码，与训练一致）。
+        2026-08-07 收敛：默认 fusion_mode 从 "per_position"（旧 entropy 启发式）改为
+        "soft"（共振分融合，与训练 forward_train 对齐，见 generate/_generate_p7 默认）。
 
         Args:
             shared_embeddings: [B, L, base_embed_dim] from shared_embedding(general_ids).
             active_nids: 如果指定，只激活这些 neuron（硬件受限路由）。
                         None 表示全部参与（默认行为，向后兼容）。
-            fusion_mode: 推理融合模式
-                        - "per_position"（默认）：每位置按熵/置信度独立路由
-                        - "residual"：族长完整预测 + 其他神经元残差修正（方向③）
+            fusion_mode: 推理融合模式（主路径 "soft"；实验模式 "residual"/"consensus"/
+                        "division"/"per_position" 供诊断对照）
+                        - "soft"（默认）：共振分 softmax 融合（训练对齐）
+                        - "per_position"：每位置按熵/置信度独立路由（旧，诊断用）
+                        - "residual"：族长完整预测 + 其他神经元残差修正（方向③，实验）
             neuron_embeddings: {nid: [B, L, base_embed_dim]} 每神经元预编码 embedding
                               （优先级高于 shared_embeddings，与 ensemble.forward 一致）
 

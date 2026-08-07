@@ -1528,7 +1528,36 @@ class ResonanceEnsemble:
                 self._compute_per_position_weights(
                     all_logits, vectors, scores, result, ref,
                 )
-            # else: neuron_logits already in result, _generate_p7 handles extraction
+            else:
+                # 跨 vocab（混合阵容）收敛（2026-08-07）：与训练口径一致——
+                # 投影到统一目标空间（general 256K）+ confidence routing
+                # （min(原生,投影) max-prob × trust(scores)）。
+                # 此前该分支不做融合，把责任甩给 cortex._generate_p7 的
+                # _dynamic_logit_fusion（MoCo 加权，无 trust 校准）→ 训练-推理
+                # 融合路径不一致。现在 forward 直接产出 weighted_logits，
+                # cortex 已优先使用该键（L1603 weighted_logits 分支）。
+                nids = list(all_logits.keys())
+                if self._tokenizer_hub is not None and len(nids) >= 2:
+                    try:
+                        proj = self._project_logits_to_target(all_logits, nids, "general")
+                        native_list = [all_logits[nid] for nid in nids]
+                        scores_t = torch.tensor(
+                            [scores.get(nid, 0.0) for nid in nids],
+                            dtype=ref.dtype, device=ref.device,
+                        )
+                        fused, rw = self._confidence_routing_fusion(
+                            proj, native_list, nids, "general",
+                            scores=scores_t,
+                        )
+                        result["weighted_logits"] = fused
+                        result["weights"] = rw.detach().cpu().tolist()
+                        result["fusion_mode"] = "confidence_routing"
+                    except Exception as e:
+                        # 投影/融合失败（hub 缺域等）→ 保持原行为（cortex fallback）
+                        result["fusion_mode"] = "neuron_logits_only"
+                        result["fusion_error"] = str(e)
+                else:
+                    result["fusion_mode"] = "neuron_logits_only"
 
             # Shared Expert 重新加权（借鉴 Kimi K3 / DeepSeek V3）
             # general 神经元获得基础权重，域特定神经元按原逻辑分配剩余权重
@@ -2118,6 +2147,10 @@ class ResonanceEnsemble:
     ) -> torch.Tensor:
         """MoCo-inspired dynamic logit fusion.
 
+        状态（2026-08-07 收敛）：兼容 fallback——仅 cortex 推理在跨 vocab 投影
+        失败时兜底（final_scores 加权），不是主路径。主路径：同 vocab 走
+        `_score_logit_fusion`（soft），跨 vocab 走 `_confidence_routing_fusion`。
+
         Each step re-computes field scores and dynamically weights all neurons' logits.
         This replaces static weighting with adaptive, context-aware fusion.
 
@@ -2190,6 +2223,9 @@ class ResonanceEnsemble:
     ) -> None:
         """缺口 N 修复（2026-08-06）：共振分 softmax 融合（与训练 forward_train 对齐）。
 
+        状态（2026-08-07 收敛）：**主路径（同 vocab 推理）**——fusion_mode="soft"/"score"
+        时的默认融合，generate/_generate_p7 默认走这里。
+
         训练时融合权重 = softmax(scores/temp)（C12 让共振分与 NLL 排序对齐），
         但推理默认 per_position（entropy 路由）是启发式，无视训练学的共振分，
         导致训练-推理不一致（训练分布 PPL 2.2 vs 推理 12.6，生成质量差）。
@@ -2217,6 +2253,10 @@ class ResonanceEnsemble:
         normalize: bool = False,
     ) -> None:
         """统一空间（同 vocab）max-prob 分工路由：per-position 硬路由。
+
+        状态（2026-08-07 收敛）：实验/诊断——仅 fusion_mode="division"/"division_norm"
+        显式选择时使用，非主路径（默认 soft → `_score_logit_fusion`；跨 vocab →
+        `_confidence_routing_fusion`）。
 
         背景（2026-08-06）：共享 general lm_head 统一输出空间后，所有 neuron 原生
         输出就在 256K 空间——max-prob 天然尖锐（旧诊断 max-prob≈0.001 是静态稀疏
@@ -2276,6 +2316,9 @@ class ResonanceEnsemble:
         trust_override: Optional[torch.Tensor] = None,  # [N] 实验：直接指定信任系数（覆盖 scores）
     ):
         """跨 vocab 分工融合：per-position **硬路由**，置信度 = min(原生, 投影后) max-prob。
+
+        状态（2026-08-07 收敛）：**主路径（跨 vocab）**——训练 forward_train 与推理
+        forward 的混合阵容（不同词表 neuron）融合统一走这里，含 trust_override 上界诊断。
 
         诊断（2026-08-06）：
         - 域外 neuron 的 logits 经稀疏转译投影到目标域后幅值极端（zh max|logit|=60828），
@@ -2339,6 +2382,9 @@ class ResonanceEnsemble:
         ref: torch.Tensor,
     ) -> None:
         """Per-position routing (v2): logit-entropy weighting + complementarity.
+
+        状态（2026-08-07 收敛）：旧/诊断——entropy 启发式路由，无训练对齐。
+        仅 fusion_mode="per_position" 显式选择时使用；默认已改走 `_score_logit_fusion`。
 
         Each position independently picks the neuron that is most confident.
         Complementarity scores boost neurons bringing new information.
@@ -2473,6 +2519,9 @@ class ResonanceEnsemble:
         temperature: float = 1.0,
     ) -> None:
         """R3: 共识投票融合（consensus voting fusion）。
+
+        状态（2026-08-07 收敛）：实验保留——仅 fusion_mode="consensus" 显式选择时使用，
+        非主路径（默认 soft → `_score_logit_fusion`）。
 
         三种融合模式的精神：
         - per_position: 每位置独立选最自信神经元（熵路由，局部决策）
