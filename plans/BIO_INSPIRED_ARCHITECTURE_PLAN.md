@@ -122,6 +122,54 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 - 多 standard 神经元协作验证
 - 更长训练（8000→16000 步）
 
+### 2.6 ✅ 神经发生无缝衔接设计（IntegrateEngine，2026-08-08）
+
+**背景与动机**：真正的神经元新生应是"态极自主演化"的一部分——喂入数据 / 自我搜集学习达到瓶颈后触发新生，而非手动粗暴加入。当前 `cortex.add_neuron` 后仅做权重继承 + 投影补建 + `maturity.register_new`，**无整合训练**：side_channels 需调用方重建、quality_head 随机、加入即全权参与融合。
+
+**人脑参照**（海马体齿状回神经发生）：
+1. **沉默突触（silent synapse）**：新生神经元只接收输入、不参与输出（树突先成熟，轴突后建立）
+2. **关键期可塑性（critical period）**：新生神经元 LTP 阈值低、可塑性远超成熟神经元，依赖现有回路引导整合
+3. **use-it-or-lose-it**：只有成功整合进回路的存活，未整合的凋亡
+4. **关键期关闭**：成熟后可塑性下降、突触稳定固化
+
+**现有基础（可复用）**：
+- `MaturityTracker`（taiji/resonance/lifecycle.py#L366）：`get_resonance_weight`（幼稚 0.1 → 成熟 1.0 线性 ramp）、`get_lr_multiplier`（幼稚 3× → 成熟 1×）、`tick_all`、`is_mature`
+- `apoptosis.record_ppl`：凋零记录；`gen_test_collab.py`：subset 对照 = ablation 工具
+- C16 LoRA（body 冻结，个体能力零破坏）+ C15 quality_head/contrastive（路由监督）
+- `FeedEngine.get_pending_samples_by_domain()`：喂养数据流（睡眠时累积样本）
+- 挂载点：`SleepEngine._train_cortex_neurons` 中 neurogenesis 创建新 neuron 之后
+
+**设计：`taiji/life/integrate_engine.py`** — 类 `IntegrateEngine`，由 sleep_engine 在 neurogenesis 分支后调用 `integrate(new_nid)`。按 `maturity_ratio` 分 4 阶段：
+
+| 阶段 | maturity | 融合权重 | 可训练参数 | 机制 |
+|------|----------|---------|-----------|------|
+| ① 静默期 | 0–0.3 | `get_resonance_weight`（0.1 起步） | side_channels + quality_head + LoRA | 只连输入侧，用 feed 样本 forward_train 学习；fusion 权重近 0（对比当前"加入即全权"） |
+| ② 可塑+蒸馏期 | 0.3–0.8 | ramp 0.3→0.8 | 同上 + 高 lr（`get_lr_multiplier` 3×） | 加**邻居蒸馏 loss**：KL(新 neuron logits ‖ 拓扑最近邻输出)；LoRA 快速适配 |
+| ③ 验证期 | 0.8–1.0 | 0.8→1.0 | 冻结 | **ablation 贡献评估**：有 vs 无该 neuron 的 ensemble 生成/路由指标（复用 gen_test subset 对照） |
+| ④ 固化/凋亡 | 1.0 | 1.0 | — | 贡献正 → commit（tick 满，成为导师）；负 → apoptosis 信号 + 移出 ensemble |
+
+**关键技术决策**：
+1. **蒸馏源 = 拓扑最近邻**：side_channels 已按 geometry 建立，新 neuron 的 indegree 邻居即"导师"——自然衔接共振场（人脑"被邻居回路引导"）
+2. **融合权重**：复用 `get_resonance_weight`（0.1→1.0）。可选增强：`maturity_min_resonance_weight` 降到 0（完全静默起步，更贴"沉默突触"），配置项
+3. **训练数据**：全部来自 `FeedEngine` 累积样本 → "喂养训练"闭环数据源，无需手动脚本
+4. **ablation 指标**：优先生成质量（gen_test 采样），辅以 PPL/EMERGE
+5. **C16 保护延续**：新 neuron body 冻结，只训 LoRA/side/head → 整合不破坏个体能力
+
+**喂养闭环（态极自主训练方式）**：
+
+```
+探索/玩耍/喂数据（FeedEngine.feed_*）
+    ↓ 累积 pending 样本
+睡眠（SleepEngine.run）
+    ├─ 训练既有 neuron（_train_cortex_neurons，P7 模式）
+    ├─ neurogenesis 触发 → add_neuron → IntegrateEngine.integrate（静默→蒸馏→验证→固化）
+    └─ apoptosis 筛选（未整合 / 冗余 neuron 凋零）
+    ↓ maturity.tick_all
+醒来应用新能力 → 循环
+```
+
+这是态极自主演化的完整闭环：**喂（数据）→ 睡（整合+新生+凋零）→ 醒（应用）**，无需手动训练脚本。IntegrateEngine 是最后一块拼图（当前缺口：新生 neuron 无整合、粗暴加入）。
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
@@ -1280,6 +1328,7 @@ v1 PPL 在 131-134 停滞 6 个数据点。诊断发现**所有 12 条通道都�
 **架构事实**（来源：[NVIDIA NeMo 文档](https://docs.nvidia.com/nemo/automodel/model-coverage/large-language-models/glm-5-moe-dsa.md) + [智谱开源说明](https://cndba.cn/article/17044)）：
 - 744B 总参数，激活 40B（5.4% 稀疏度）
 - MLA (Multi-head Latent Attention) + **DSA (Dynamic Sparse Attention)** 动态稀疏注意力
+
 - **IndexShare DSA**：共享 DSA 层复用前一层的 top-k 稀疏注意力选择（跨层索引复用）
 - 1M token 上下文
 - MIT 协议
