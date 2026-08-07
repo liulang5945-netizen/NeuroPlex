@@ -193,18 +193,21 @@
 - **冒烟验证通过**（9 neuron 含 standard/compact 混合规格 + 转译 + 融合 + loss 下降 + checkpoint 可加载）：43 step / 7.1min，math loss 5.82 → dialogue 7.28（下降中）；PPL 高是协作层未训练自然状态
 - **性能基准**：batch1×seq32 ≈ 10s/step（CPU + 256K vocab 固有成本）；正式训练建议 batch2×seq64 ≈ 40s/step
 
-**后续链（下一步：推理侧跨 vocab division 分工路由）**：
+**后续链（当前：域判别路由 loss 重训中）**：
 1. ✅ ~~路由适配统一空间~~（division 模式 + set 顺序修复 + 基线记录）
 2. ✅ ~~混合阵容支持~~（旧 5 + 新 4 词库转译联合训练管线，冒烟通过）
 3. ✅ **正式协作层训练完成**（collab_v1_mixed.ckpt.pt，540 step × 2 epochs ≈ 1.7h，9 neuron 混合阵容）
-   - **评估结果**（verify_collab_mixed.py，target=general 口径）：
-     - dialogue **EMERGE +82.0%**（协作 2586 vs 个体爆炸 9.5e18）✓✓ 对话协作涌现
-     - zh **EMERGE +4.9%**（协作 850 vs 个体 1205）✓
-     - code -21.5% / math -10.1% / en -7.0%：**soft 加权融合稀释强个体**（9 neuron 含 5 个 zh 对话 neuron 的转译 logits 混入）
-     - 生成链路正常（zh 提问 → 转译融合输出，出现"答："对话格式）
-   - **关键结论**：协作层校准生效（对话/zh 域协作优于个体）；code/math/en 的负 EMERGE 源于 soft 融合稀释，**需 division 分工路由**（per-position 只选最自信者）避免稀释——推理侧混合 vocab 场景尚未接入
-4. **推理侧跨 vocab division 分工路由**（转译到 general 256K 后 per-position 硬路由）——让 code/math/en 免稀释，预期负 EMERGE 转正
-5. 结果记录到 plans + 提交
+4. ✅ **负 EMERGE 根因诊断 + 评估口径修复**（2026-08-07，verify_collab_mixed.py）：
+   - **评估口径修复**：① cap 加错函数（ensemble 而非 solo）→ 移正；② 无固定 seed + n_eval=8 → 采样噪声致结果不可复现（zh solo 855↔43364 波动 50 倍）→ `random.seed(42)`；③ `load_dialogue_texts_multi` 用 `list(set())` 去重 → set 迭代顺序跨进程随机 → 改插入序去重
+   - **scores 诊断（关键结论）**：`result["scores"]`（LOO cosine 共振分）排序——code 文本 top1 是 **math**（-0.418 > code -0.429）、math 文本 top1 是 **zh**、zh 文本 zh 反而最低；且所有 scores 为负且极接近（差 0.02-0.05）→ `trust=softmax(scores/0.15)` **几乎无区分度 → 校准实际失效** → 路由退化为 max-prob → 弱 neuron 抢位（code 文本 code 仅 0.700，math 抢 0.200）
+   - **body 微调无损确认**：协作层训练前 code solo（8 条随机 general 空间）45 → 训练后 23.99（verify_unified_space_routing L147 注释佐证）——训练有效，负 EMERGE 纯粹是路由校准问题
+   - **上界实验（[4b]，trust_override 硬门控）**：已知域硬门控下协作追平 solo（code -18.0%→**-1.4%**、math -6.8%→**-0.7%**、zh +0.5%→**+1.4%**、en -4.0%→**-0.2%**）——**路由是唯一瓶颈，修复路由即可消除负 EMERGE**；且门控下协作 ≈ solo（域内任务协作目标是"不伤害"，跨域才是涌现价值）
+5. 🔄 **域判别路由 loss 重训中**（collab_v2_routing，2026-08-07）：
+   - 方案：训练时显式约束"本 batch 域 neuron 的共振分 scores 最高"——`routing_loss = -log_softmax(scores/0.15)[domain_idx]`（温度与推理 router_temperature 一致），`--routing-loss-weight 0.5`，仅 4 个 general 域生效（dialogue 桶无单一目标 neuron 跳过）
+   - 理由：scores 是 LOO cosine（共振协调度），数据少时学不到"域内 neuron 应胜出"→ 显式注入域判别目标比加大数据量（10× 训练时间）更高效直接
+   - ensemble.py 新增 `forward_train(trust_override=...)` + `_confidence_routing_fusion(trust_override=...)`（上界诊断用，向后兼容 None）
+   - 训练配置与 v1 一致：batch2×seq64×max_texts100×dialogue150×2epochs≈540 step（~1.7h CPU）
+6. 结果记录到 plans + 提交
 
 **背景**：跨域协作 v3 + rounds=2 已达成域内 EMERGE +4.0% 全域转正（"5 联合 > 5" 域内实证）；通用空间投影极限诊断结论 = 静态稀疏投影到 256K 摧毁置信度（max-prob≈0.001）→ 共享 general lm_head 免投影是架构上限最高的解
 

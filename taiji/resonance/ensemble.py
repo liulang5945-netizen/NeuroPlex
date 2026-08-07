@@ -1609,6 +1609,10 @@ class ResonanceEnsemble:
         # target_domain: batch 的目标域（如 "zh"），对应 batch_align_and_embed 的 domain_sp。
         # None（默认）= vocab 一致路径，无需投影（向后兼容）。
         target_domain: Optional[str] = None,
+        # ── 路由信任覆盖（实验/上界诊断用）──
+        # 覆盖 _confidence_routing_fusion 的 trust（softmax(scores/temp)），
+        # 直接指定 per-neuron 信任系数。None（默认）= 正常 scores 校准路径（向后兼容）。
+        trust_override: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -1985,7 +1989,8 @@ class ResonanceEnsemble:
                 # 无伤害）；跨域（zh 提问→code 输出）：zh token→zh、code token→code。
                 native_list = [final_logits[nid] for nid in active_ids]
                 fused_logits, route_weights = self._confidence_routing_fusion(
-                    all_logits, native_list, active_ids, target_domain)
+                    all_logits, native_list, active_ids, target_domain,
+                    scores=scores, trust_override=trust_override)  # trust_override: 上界诊断
                 weights = route_weights  # [N] batch 平均路由权重（监控）
                 # 路由权重由 logits 决定（非参数），balance_loss 梯度会反向干扰路由 → 置 0
                 balance_loss = torch.zeros((), device=fused_logits.device)
@@ -2267,6 +2272,8 @@ class ResonanceEnsemble:
         active_ids: List[str],
         target_domain: str,
         router_temperature: float = 0.15,
+        scores: Optional[torch.Tensor] = None,  # [N] 协作层校准的共振分（per-sample 信任）
+        trust_override: Optional[torch.Tensor] = None,  # [N] 实验：直接指定信任系数（覆盖 scores）
     ):
         """跨 vocab 分工融合：per-position **硬路由**，置信度 = min(原生, 投影后) max-prob。
 
@@ -2280,6 +2287,14 @@ class ResonanceEnsemble:
           即使投影尖峰到 1.0 也被原生项封顶 < code 0.586）；投影项 = 目标空间信息量。
           域内 code 文本：code 0.586 全位置胜出 → 协作 ≈ 个体（无伤害）。
 
+        scores 校准（2026-08-06 混合阵容诊断新增）：
+        跨空间原生 max-prob 不可比——general 空间 zh neuron 高锐度（原生 max-prob
+        0.999 vs code 0.005）系统性抢走 code/math/en 文本位置但预测错误（code 文本
+        仅 67.5% 位置给 code neuron → 负 EMERGE）。用 side_channels 学到的共振分
+        （scores，反映"协作层认为当前样本谁擅长"）作为 per-neuron 信任系数
+        （softmax 归一化），与 per-position max-prob 相乘：信任系数放大协作层
+        认可 neuron 的位置置信度 → 抢回正确位置。scores 顺序须与 active_ids 一致。
+
         梯度只流向被选中 neuron（分工训练：各域 batch 训练各自的原生 neuron）。
 
         Args:
@@ -2287,6 +2302,7 @@ class ResonanceEnsemble:
             native_logits: List[[B, L, V_i]]（各 neuron 自身 vocab 空间原始 logits，
                 逐 neuron 计算置信度，vocab 不同不 stack）
             active_ids: 参与共振的 neuron id
+            scores: [N] 协作层共振分（None 时退化为纯 max-prob 路由，向后兼容）
 
         Returns:
             (fused_logits [B, L, V_tgt], route_weights [N] batch 平均路由权重)
@@ -2297,6 +2313,17 @@ class ResonanceEnsemble:
             F.softmax(ln, dim=-1).max(dim=-1).values for ln in native_logits
         ])                                                               # [N, B, L]
         conf = torch.minimum(probs_nat, probs_tgt)                       # [N, B, L]
+        if trust_override is not None:
+            # 上界诊断：trust 直接给定（如"已知域"硬门控），跳过 scores 软校准
+            trust = trust_override.to(conf.dtype).to(conf.device).clamp(min=1e-9)
+        elif scores is not None:
+            # 协作层校准：信任系数 = softmax(scores/temp)（归一化 <1，乘后缩小但相对
+            # 放大协作层认可 neuron）→ 修正跨空间原生 max-prob 系统性不可比
+            trust = F.softmax(scores / max(router_temperature, 1e-6), dim=0)  # [N]
+        else:
+            trust = None
+        if trust is not None:
+            conf = conf * trust.view(-1, 1, 1)
         sel = conf.argmax(dim=0)                                         # [B, L]
         w = F.one_hot(sel, num_classes=all_logits.shape[0]).permute(2, 0, 1).float()  # [N, B, L]
         fused = (w.unsqueeze(-1) * all_logits).sum(dim=0)                # [B, L, V_tgt]

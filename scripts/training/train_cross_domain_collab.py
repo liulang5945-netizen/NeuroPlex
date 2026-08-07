@@ -280,6 +280,10 @@ def main():
                              "支持跨域组合：en/zh 理解指令 + code 生成代码）")
     parser.add_argument("--seq-len", type=int, default=128,
                         help="batch_align_and_embed 最大序列长度")
+    parser.add_argument("--routing-loss-weight", type=float, default=0.0,
+                        help="域判别路由 loss 权重（2026-08-07：直接约束本 batch 域 "
+                             "neuron 的共振分 scores 最高——修跨空间 max-prob 校准不足，"
+                             "消除域内负 EMERGE；仅 general_mode 的 4 域生效）")
     args = parser.parse_args()
 
     global DEVICE
@@ -564,6 +568,19 @@ def main():
                 ce_loss = ce_loss / n_tokens
 
                 total_loss = ce_loss + 0.01 * result["balance_loss"] + 0.05 * result["diversity_loss"]
+                # 域判别路由 loss（2026-08-07）：直接约束本 batch 域 neuron 的共振分
+                # scores 最高。scores 是 LOO cosine（共振协调度），训练数据少时学不到
+                # "域内 neuron 应胜出"→ 跨空间 max-prob 校准失效 → 弱 neuron 抢位 → 负
+                # EMERGE。此 loss 显式注入域判别目标（仅 4 个 general 域，dialogue 桶无
+                # 单一目标 neuron 跳过），让 trust=softmax(scores/temp) 真的偏向域 neuron。
+                if (args.routing_loss_weight > 0 and general_mode
+                        and domain in domains and result["scores"] is not None):
+                    nids_all = list(ensemble.neurons.keys())
+                    domain_idx = nids_all.index(domain)
+                    routing_loss = -F.log_softmax(
+                        result["scores"] / 0.15, dim=0)[domain_idx]  # 0.15 与推理 router_temperature 一致
+                    total_loss = total_loss + args.routing_loss_weight * routing_loss
+
                 total_loss.backward()
                 if muon_optimizer is not None:
                     muon_optimizer.step()

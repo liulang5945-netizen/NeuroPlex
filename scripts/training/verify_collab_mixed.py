@@ -58,7 +58,9 @@ def compute_avg_loss_ensemble(ens, embeddings, general_sp, text, fusion_mode="so
     n = int(sm.sum().item())
     if n == 0:
         return None
-    return loss.item() / max(n, 1)
+    # 单点数值爆炸（旧 5 转译 logits 极端值 → 某位置概率≈0 → loss 巨大）会污染平均：
+    # cap 单条文本平均 loss 到 30（exp(30)≈1e13，仍是"极差"级别，不影响相对比较）
+    return min(loss.item() / max(n, 1), 30.0)
 
 
 def compute_avg_loss_solo(neuron, emb, general_sp, text, seq_len=64):
@@ -86,10 +88,13 @@ def compute_avg_loss_solo(neuron, emb, general_sp, text, seq_len=64):
     n = int(sm.sum().item())
     if n == 0:
         return None
-    return loss.item() / max(n, 1)
+    # 单点数值爆炸（旧 5 转译 logits 极端值 → 某位置概率≈0 → loss 巨大）会污染平均：
+    # cap 单条文本平均 loss 到 30（exp(30)≈1e13，仍是"极差"级别，不影响相对比较）
+    return min(loss.item() / max(n, 1), 30.0)
 
 
 def main():
+    random.seed(42)  # 固定评估采样，保证同 ckpt 下结果可复现
     from scripts.training.train_cross_domain_collab import (
         load_neuron, load_shared_lm_head, load_shared_embedding,
     )
@@ -109,6 +114,7 @@ def main():
     print("=" * 64)
 
     general_sp = load_general_tokenizer()
+    from scripts.training.train_multi_domain_foundation import batch_align_and_embed
     ck = torch.load(CKPT_PATH, map_location="cpu", weights_only=False)
     print(f"  epoch={ck['epoch']}, total_steps={ck['total_steps']}")
 
@@ -221,7 +227,90 @@ def main():
         print(f"  {src:8s} {math.exp(cs) if cs==cs else float('nan'):10.2f} "
               f"{math.exp(ind) if ind==ind else float('nan'):10.2f} {es:9.1f}%")
 
-    # ── 5. 生成冒烟（跨 vocab 转译融合）──
+    # ── 4b. 上界实验：已知域硬门控 trust（路由完美的协作 PPL 上界）──
+    # 若上界仍 ≤ solo → 转译/融合本身有损，加强训练无济于事；
+    # 若上界 ≥ solo → 路由是唯一瓶颈，值得用训练让 scores 逼近该门控。
+    print("\n[4b] 已知域硬门控 trust 上界（trust[src]=100，其他=1）...")
+    nids_ordered = list(ens.neurons.keys())
+    print(f"  {'数据':8s} {'协作门控':>10s} {'最强个体':>10s} {'EMERGE':>10s}")
+    for src in DOMAINS:
+        collab_gate, indiv = [], []
+        for t in random.sample(texts[src], n_eval):
+            neuron_embeddings, targets = {}, None
+            for nid, emb in embeddings.items():
+                out = batch_align_and_embed([t], general_sp, general_sp, emb, max_seq_len=64)
+                neuron_embeddings[nid] = out[0]
+                if targets is None:
+                    targets, _mask = out[1], out[2]
+            trust = torch.ones(len(nids_ordered))
+            trust[nids_ordered.index(src)] = 100.0  # 已知域 → 域 neuron 绝对信任
+            with torch.no_grad():
+                r = ens.forward_train(
+                    neuron_embeddings=neuron_embeddings, n_rounds=2,
+                    fusion_mode="soft", targets=targets,
+                    field_conditioning=True, target_domain="general",
+                    trust_override=trust,
+                )
+            logits = r["fused_logits"]
+            sl, st, sm = (logits[:, :-1].contiguous(), targets[:, 1:].clone().contiguous(),
+                          _mask[:, 1:].contiguous())
+            st[~sm] = -100
+            loss = F.cross_entropy(sl.reshape(-1, sl.size(-1)), st.reshape(-1),
+                                   ignore_index=-100, reduction="sum")
+            n = int(sm.sum().item())
+            if n:
+                collab_gate.append(min(loss.item() / n, 30.0))
+            l_solo = compute_avg_loss_solo(neurons[src], embeddings[src], general_sp, t)
+            if l_solo:
+                indiv.append(l_solo)
+        avg = lambda xs: sum(xs) / len(xs) if xs else float("nan")
+        cg, ind = avg(collab_gate), avg(indiv)
+        es = (ind - cg) / ind * 100 if cg == cg and ind == ind else float("nan")
+        print(f"  {src:8s} {math.exp(cg) if cg==cg else float('nan'):10.2f} "
+              f"{math.exp(ind) if ind==ind else float('nan'):10.2f} {es:9.1f}%")
+
+    # ── 5. 路由诊断：各域文本上共振分 scores 排序（判断训练是否学到"域内 neuron 应胜出"）──
+    print("\n[5] 域适配诊断：各域文本上 9 neuron 共振分 scores 排序...")
+    nids_ordered = list(ens.neurons.keys())
+    for src in DOMAINS + ["dialogue"]:
+        sample = texts[src][0]
+        neuron_embeddings, targets = {}, None
+        for nid, emb in embeddings.items():
+            out = batch_align_and_embed([sample], general_sp, general_sp, emb, max_seq_len=64)
+            neuron_embeddings[nid] = out[0]
+            if targets is None:
+                targets = out[1]
+        with torch.no_grad():
+            r = ens.forward_train(neuron_embeddings=neuron_embeddings, n_rounds=2,
+                                  fusion_mode="soft", targets=targets,
+                                  field_conditioning=True, target_domain="general")
+        sc = r["scores"]  # [N] batch 平均共振分
+        rank = sorted(nids_ordered, key=lambda k: -sc[nids_ordered.index(k)])
+        desc = "  >  ".join(f"{k}={sc[nids_ordered.index(k)]:.3f}" for k in rank)
+        print(f"  {src:9s} | {desc}")
+
+    # ── 5b. 路由权重诊断：code 文本上谁在抢位置（跨空间 max-prob 校准后）──
+    print("\n[5b] 路由权重诊断（code 文本，_confidence_routing_fusion per-position 占比）...")
+    sample = texts["code"][0]
+    neuron_embeddings, targets = {}, None
+    for nid, emb in embeddings.items():
+        out = batch_align_and_embed([sample], general_sp, general_sp, emb, max_seq_len=64)
+        neuron_embeddings[nid] = out[0]
+        if targets is None:
+            targets = out[1]
+    with torch.no_grad():
+        r = ens.forward_train(neuron_embeddings=neuron_embeddings, n_rounds=2,
+                              fusion_mode="soft", targets=targets,
+                              field_conditioning=True, target_domain="general")
+    w = r["weights"]  # [N] batch 平均路由权重（position 占比）
+    nids = list(ens.neurons.keys())
+    prof = dict(zip(nids, w))
+    print(f"  样例: {sample[:60]}")
+    for nid in sorted(prof, key=lambda k: -prof[k]):
+        tag = " (旧5对话)" if "dialogue" in nid else " (新4general)"
+        print(f"    {nid:18s}: {prof[nid]:.3f}{tag}")
+
+    # ── 6. 生成冒烟（跨 vocab 转译融合）──
     print("\n[5] 生成冒烟（zh 提问 → 转译融合）...")
     from scripts.training.train_multi_domain_foundation import batch_align_and_embed
     prompt = "写一个 Python 函数计算斐波那契数列"

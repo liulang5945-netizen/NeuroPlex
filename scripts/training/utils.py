@@ -338,8 +338,13 @@ def load_dialogue_texts_multi(
                     continue
         print(f"  {fname}: {count} 条", flush=True)
 
-    # 去重
-    unique_texts = list(set(texts))
+    # 去重（用插入序保持确定性——set 迭代顺序跨进程随机，会导致验证/采样不可复现）
+    seen = set()
+    unique_texts = []
+    for t in texts:
+        if t not in seen:
+            seen.add(t)
+            unique_texts.append(t)
     if len(unique_texts) < len(texts):
         print(f"  去重: {len(texts)} → {len(unique_texts)} 条", flush=True)
     texts = unique_texts
