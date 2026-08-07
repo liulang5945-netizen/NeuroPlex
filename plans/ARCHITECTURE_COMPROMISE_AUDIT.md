@@ -275,6 +275,14 @@
     - A. **collab 训练冻结 body**：不微调 body 尾层（unfreeze_layers=0），只训 side_channels/融合层——保持个体生成能力（协作层只增强不破坏）
     - B. **分解验证**：旧 5 + c14b 只注 side_channels vs 只注 body，细分离破坏源
     - C. **collab 产物不覆盖 body**：生成时用原始 body + 训练后的协作层
+13b. ✅ **分解验证完成（2026-08-08，B 方案实施）**：gen_test_collab.py 新增 `--inject`（side/scale/body/cross 选择性注入）+ `--no-lmhead`（body 注入时跳过 lm_head）。c14b 终态分解（subset=dialogue，unified=3072 与训练一致）：
+    - 全注入（终态）→ 崩（clusters/clicking 重复）＝ 复现 C14b 崩坏
+    - body+cross 注入 → 崩（同重复崩坏）
+    - body+cross --no-lmhead（排除 lm_head 微调）→ 仍崩 → lm_head 非唯一破坏源，body 主干（layers.4/5 + domain_score_head）也参与
+    - side,scale,cross（排除 body）→ **无法归因**：判别器（domain_score_head）在 body_state 里，排除 body = 判别器未注入 = 路由全判 en 失效；生成为英文胡言而非重复崩坏（body 缺失使重复崩坏消失，但判别器失效掩盖真相）
+    - **结论**：破坏源 = collab 训练的 body 微调整体（尾层 layers.4/5 + norm + field_write + lm_head + 判别器耦合其中），无法用当前注入粒度再细分（判别器耦合在 body）
+    - **修复方向收敛**：候选 A（冻结 body）——collab 训练冻结 body 主干，判别器（quality_head）拆为独立分量单独解冻+保存，协作层只训 side/scale/cross_spec
+    - **关键事实**：body_state 含 lm_head.weight（256000×512）→ collab 训练微调了共享头，混合数据污染共享输出分布
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂

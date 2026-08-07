@@ -59,6 +59,12 @@ def main():
     ap.add_argument("--subset", default="all",
                     help="阵容子集：all=9 neuron / dialogue=旧 5 对话 / general=新 4 / "
                          "或逗号列表（定位崩坏层对照）")
+    ap.add_argument("--inject", default="side,scale,body,cross",
+                    help="注入 ckpt 哪些分量（逗号列表：side/scale/body/cross/head/lora，"
+                         "用于分解验证破坏源——C16 后 head=quality_head 独立分量，"
+                         "lora=LoRA 尾层增量）")
+    ap.add_argument("--no-lmhead", action="store_true",
+                    help="注入 body 时跳过 lm_head.weight（分解验证：共享头微调是否破坏生成）")
     args = ap.parse_args()
 
     from scripts.training.train_cross_domain_collab import (
@@ -124,43 +130,68 @@ def main():
     hub.register_domain("zh", load_domain_tokenizer("zh"))
     hub.register_domain("general", general_sp)
     ens.set_tokenizer_hub(hub)
-    for nid, sd in ck["side_channels_state"].items():
-        if nid not in neurons:
-            continue
-        for pid, ch_sd in sd.get("excite", {}).items():
-            if pid in neurons[nid].excite_channels:
-                neurons[nid].excite_channels[pid].load_state_dict(ch_sd)
-        for pid, ch_sd in sd.get("inhibit", {}).items():
-            if pid in neurons[nid].inhibit_channels:
-                neurons[nid].inhibit_channels[pid].load_state_dict(ch_sd)
-    for nid, sb in ck["scale_bias_state"].items():
-        if nid not in neurons:
-            continue
-        with torch.no_grad():
-            for name, val in sb.items():
-                for pname, p in neurons[nid].named_parameters():
-                    if pname == name:
-                        p.copy_(val)
-                for bname, b in neurons[nid].named_buffers():
-                    if bname == name:
-                        b.copy_(val)
-    for nid, bp in ck["body_state"].items():
-        if nid not in neurons:
-            continue
-        with torch.no_grad():
-            for name, val in bp.items():
-                for pname, p in neurons[nid].named_parameters():
-                    if pname == name:
-                        p.copy_(val)
-                for bname, b in neurons[nid].named_buffers():
-                    if bname == name:
-                        b.copy_(val)
-    for nid, sd in ck["cross_spec_state"].get("forward", {}).items():
-        if nid in ens._cross_spec_projectors:
-            ens._cross_spec_projectors[nid].load_state_dict(sd)
-    for nid, sd in ck["cross_spec_state"].get("backward", {}).items():
-        if nid in ens._cross_spec_back_projectors:
-            ens._cross_spec_back_projectors[nid].load_state_dict(sd)
+    inject_set = set(s.strip() for s in args.inject.split(",") if s.strip())
+    print(f"[inject] {sorted(inject_set)}")
+    if "side" in inject_set:
+        for nid, sd in ck["side_channels_state"].items():
+            if nid not in neurons:
+                continue
+            for pid, ch_sd in sd.get("excite", {}).items():
+                if pid in neurons[nid].excite_channels:
+                    neurons[nid].excite_channels[pid].load_state_dict(ch_sd)
+            for pid, ch_sd in sd.get("inhibit", {}).items():
+                if pid in neurons[nid].inhibit_channels:
+                    neurons[nid].inhibit_channels[pid].load_state_dict(ch_sd)
+    if "scale" in inject_set:
+        for nid, sb in ck["scale_bias_state"].items():
+            if nid not in neurons:
+                continue
+            with torch.no_grad():
+                for name, val in sb.items():
+                    for pname, p in neurons[nid].named_parameters():
+                        if pname == name:
+                            p.copy_(val)
+                    for bname, b in neurons[nid].named_buffers():
+                        if bname == name:
+                            b.copy_(val)
+    if "body" in inject_set:
+        for nid, bp in ck["body_state"].items():
+            if nid not in neurons:
+                continue
+            with torch.no_grad():
+                for name, val in bp.items():
+                    if args.no_lmhead and name == "lm_head.weight":
+                        continue
+                    for pname, p in neurons[nid].named_parameters():
+                        if pname == name:
+                            p.copy_(val)
+                    for bname, b in neurons[nid].named_buffers():
+                        if bname == name:
+                            b.copy_(val)
+    if "head" in inject_set:
+        for nid, hd in ck.get("head_state", {}).items():
+            if nid in neurons and getattr(neurons[nid], "quality_head", None) is not None:
+                neurons[nid].quality_head.load_state_dict(hd)
+    if "lora" in inject_set:
+        for nid, ls in ck.get("lora_state", {}).items():
+            if nid not in neurons:
+                continue
+            n = neurons[nid]
+            if len(n.lora_adapters) == 0:
+                # 先启用 LoRA（rank 从已保存 a.weight 推断，层默认最后 2 层）
+                rank = 0
+                for k, v in ls.items():
+                    if k.endswith(".a.weight"):
+                        rank = max(rank, v.shape[0])
+                n.enable_lora(rank if rank > 0 else 16, layers=None)
+            n.lora_adapters.load_state_dict(ls)
+    if "cross" in inject_set:
+        for nid, sd in ck["cross_spec_state"].get("forward", {}).items():
+            if nid in ens._cross_spec_projectors:
+                ens._cross_spec_projectors[nid].load_state_dict(sd)
+        for nid, sd in ck["cross_spec_state"].get("backward", {}).items():
+            if nid in ens._cross_spec_back_projectors:
+                ens._cross_spec_back_projectors[nid].load_state_dict(sd)
     for n in neurons.values():
         n.eval()
 

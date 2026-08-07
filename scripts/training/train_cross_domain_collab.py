@@ -217,10 +217,17 @@ def load_sft_texts(data_dir: str, domain: str, max_texts: int) -> List[str]:
 def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
                     muon_optimizer, adamw_optimizer, body_optimizer,
                     loss_history):
-    """保存协作层 checkpoint（side_channels + scale/bias + body + 投影层 + Router）。"""
+    """保存协作层 checkpoint（side_channels + scale/bias + body + 投影层 + Router）。
+
+    C16（2026-08-08）：body_state 不再包含 quality_head（判别器拆为独立 head_state，
+    解决分解验证发现的"判别器耦合 body 无法归因"问题）；LoRA 模式下 body_state 为空
+    （body 冻结未动），尾层增量单独存 lora_state。
+    """
     side_state = {}
     scale_bias_state = {}
     body_state = {}
+    head_state = {}
+    lora_state = {}
     for nid, neuron in neurons.items():
         side_state[nid] = {
             "excite": {pid: ch.state_dict() for pid, ch in neuron.excite_channels.items()},
@@ -242,9 +249,17 @@ def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
                 continue
             if "scale_" in name or "bias_" in name:
                 continue
+            if name.startswith("quality_head") or "lora_adapters" in name:
+                continue
             bp[name] = p.data.clone()
         if bp:
             body_state[nid] = bp
+        # C16: quality_head（判别器）独立分量
+        if getattr(neuron, "quality_head", None) is not None:
+            head_state[nid] = neuron.quality_head.state_dict()
+        # C16: LoRA 尾层增量（body 冻结时唯一被动的 body 侧参数）
+        if getattr(neuron, "lora_enabled", False) and len(neuron.lora_adapters) > 0:
+            lora_state[nid] = neuron.lora_adapters.state_dict()
 
     ckpt = {
         "epoch": epoch,
@@ -252,6 +267,8 @@ def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
         "side_channels_state": side_state,
         "scale_bias_state": scale_bias_state,
         "body_state": body_state,
+        "head_state": head_state,
+        "lora_state": lora_state,
         "cross_spec_state": {
             "forward": {nid: p.state_dict() for nid, p in ensemble._cross_spec_projectors.items()},
             "backward": {nid: p.state_dict() for nid, p in ensemble._cross_spec_back_projectors.items()},
@@ -326,6 +343,11 @@ def main():
                              "对齐 per-neuron NLL 排序——谁能预测好当前文本谁上。替代 C13/C14 "
                              "域标签判别 routing_loss（判别任务不对称 + 输入不可比 + 尺度游戏，"
                              "三次失败）。所有域 batch 生效）")
+    parser.add_argument("--lora-rank", type=int, default=16,
+                        help="C16（2026-08-08）：尾层 LoRA 秩。>0 时 body 尾层（最后 2 层）"
+                             "冻结并改用低秩增量 BA（B 初始 0 → 个体生成能力零破坏起点），"
+                             "解决 C14b 分解验证发现的 'collab 训练 body 微调破坏生成' 根因；"
+                             "=0 关闭（退回直接微调 body 尾层旧行为）")
     args = parser.parse_args()
 
     global DEVICE
@@ -412,7 +434,9 @@ def main():
     establish_topology_channels(neurons, topology, geometry)
 
     # 4. 冻结核心参数，仅协作层可训练
-    print(f"\n[4] 冻结核心参数 (unfreeze_layers={args.unfreeze_layers})...", flush=True)
+    print(f"\n[4] 冻结核心参数 (unfreeze_layers={args.unfreeze_layers}, "
+          f"lora_rank={args.lora_rank})...", flush=True)
+    lora_mode = args.lora_rank > 0
     for neuron in neurons.values():
         for p in neuron.parameters():
             p.requires_grad = False
@@ -425,7 +449,17 @@ def main():
         for name, p in neuron.named_parameters():
             if "scale_" in name:
                 p.requires_grad = True
-        if args.unfreeze_layers > 0:
+        if lora_mode:
+            # C16：body 全部冻结（含 lm_head/尾层/field_write），尾层改用 LoRA 低秩增量。
+            # LoRA B 初始 0 → 个体生成能力零破坏起点（C14b 分解验证结论：body 微调是破坏源）。
+            neuron.enable_lora(args.lora_rank, layers=None)  # 最后 2 层
+            for p in neuron.lora_adapters.parameters():
+                p.requires_grad = True
+            # quality_head（判别器）独立解冻走主 lr（C15 + C16：拆为独立分量）
+            if hasattr(neuron, 'quality_head') and neuron.quality_head is not None:
+                for p in neuron.quality_head.parameters():
+                    p.requires_grad = True
+        elif args.unfreeze_layers > 0:
             n_layers = len(neuron.layers)
             unfreeze_from = max(0, n_layers - args.unfreeze_layers)
             for i in range(unfreeze_from, n_layers):
@@ -491,7 +525,7 @@ def main():
                 # softmax CE 无尺度约束 → logit 膨胀作弊（全判给 en）。D 方案用
                 # contrastive_loss（KL 对齐 NLL 排序）监督 quality_head——KL 天然防膨胀，
                 # quality_head 走主 lr（args.lr，adamw 优化器）快速收敛。
-                if name.startswith("quality_head"):
+                if name.startswith("quality_head") or "lora_adapters" in name:
                     adamw_params.append(p)
                 else:
                     body_params.append(p)

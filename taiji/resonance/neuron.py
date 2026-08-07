@@ -28,6 +28,27 @@ from taiji.layers import RMSNorm, TransformerBlock
 from .config import NeuronConfig
 
 
+class LoraPair(nn.Module):
+    """低秩适配对（C16，2026-08-08）：y += scale * BAx。
+
+    B 初始化为 0 → LoRA 分支初始输出恒 0 → 个体生成能力零破坏起点；
+    训练中低秩增量 ΔW = scale·BA 适配协作（collab 训练不再直接微调 body）。
+    """
+
+    def __init__(self, in_dim: int, rank: int, alpha: Optional[float] = None):
+        super().__init__()
+        self.rank = rank
+        # alpha/r 风格缩放（alpha 默认 = rank，即 scale=1.0，可调）
+        self.scale = (alpha if alpha is not None else rank) / rank
+        self.a = nn.Linear(in_dim, rank, bias=False)
+        self.b = nn.Linear(rank, in_dim, bias=False)
+        nn.init.kaiming_uniform_(self.a.weight, a=5 ** 0.5)
+        nn.init.zeros_(self.b.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.b(self.a(x)) * self.scale
+
+
 class ResonanceNeuron(nn.Module):
     """A single resonance neuron — independent Transformer + field interface.
 
@@ -92,6 +113,13 @@ class ResonanceNeuron(nn.Module):
         self.dendritic_enabled = c.dendritic_enabled
         # C4: 场读入模式
         self.field_read_mode = c.field_read_mode
+
+        # ── C16: LoRA 适配器（collab 训练保护 body 个体能力）──
+        # 启用后尾层 body 冻结，只训低秩增量 BA（B 初始 0 → 零破坏起点）。
+        # 嵌套 ModuleDict：{str(层索引): ModuleDict({attn/ffn/blk: LoraPair})}
+        self.lora_adapters = nn.ModuleDict()
+        self.lora_enabled = False
+        self.lora_layers: List[int] = []
 
         # ── Field write projection ──
         # C6: 多头 field write（num_field_heads > 1 时启用）
@@ -546,12 +574,17 @@ class ResonanceNeuron(nn.Module):
             # S10: dendritic=True 时，block.forward 内部完成 basal + apical + 预测编码整合
             #   - dendritic=False: field_state 被忽略（走标准 basal 路径）
             #   - dendritic=True: field_state 作为 apical KV，参与 cross-attention
+            lora_on = self.lora_enabled and i in self.lora_layers
             if self.dendritic_enabled and field_state is not None:
                 # 树突化：直接调用 block.forward，内部处理 basal + apical
+                h_in = h
                 h, _, attn_w = block(
                     h, mask=causal_mask, temp_gain=temp_gain, ffn_gain=ffn_gain,
                     field_state=field_state, return_attn_weights=return_intermediate,
                 )
+                # C16: 整块 LoRA（dendritic 路径无法拆开注入，退化到块级低秩残差）
+                if lora_on:
+                    h = h + self.lora_adapters[str(i)]["blk"](h_in)
             else:
                 # 标准路径（向后兼容）
                 h_normed = block.attention_norm(h)
@@ -560,7 +593,14 @@ class ResonanceNeuron(nn.Module):
                     return_attn_weights=return_intermediate,
                 )
                 h = h + attn_out
-                h = h + block.feed_forward(block.ffn_norm(h), gain=ffn_gain)
+                # C16: attention 低秩增量（作用于 norm 后输入 → 整层 attention 修正）
+                if lora_on:
+                    h = h + self.lora_adapters[str(i)]["attn"](h_normed)
+                h_ffn_in = block.ffn_norm(h)
+                h = h + block.feed_forward(h_ffn_in, gain=ffn_gain)
+                # C16: FFN 低秩增量
+                if lora_on:
+                    h = h + self.lora_adapters[str(i)]["ffn"](h_ffn_in)
 
             # Field conditioning (round 2+ only)
             if field_state is not None and round_num > 1:
@@ -849,3 +889,30 @@ class ResonanceNeuron(nn.Module):
             params.append(self.field_pool_queries)
             return params
         return list(self.field_write.parameters()) + [self.field_pool_query]
+
+    def enable_lora(self, rank: int, layers: Optional[List[int]] = None):
+        """C16: 启用尾层 LoRA 适配器（冻结 body，只训低秩增量）。
+
+        Args:
+            rank: 低秩维度（默认 16）
+            layers: 尾层索引列表；None = 最后 2 层
+
+        适配器 B 初始 0 → LoRA 输出恒 0 → 不改变任何既有 forward 结果（向后兼容）。
+        """
+        if rank <= 0:
+            return
+        if layers is None:
+            n = len(self.layers)
+            layers = list(range(max(0, n - 2), n))
+        self.lora_enabled = True
+        self.lora_layers = list(layers)
+        for i in layers:
+            layer_adapters = nn.ModuleDict()
+            if self.dendritic_enabled:
+                layer_adapters["blk"] = LoraPair(self.config.hidden_size, rank)
+            else:
+                layer_adapters["attn"] = LoraPair(self.config.hidden_size, rank)
+                layer_adapters["ffn"] = LoraPair(self.config.hidden_size, rank)
+            self.lora_adapters[str(i)] = layer_adapters
+        return self.lora_adapters
+
