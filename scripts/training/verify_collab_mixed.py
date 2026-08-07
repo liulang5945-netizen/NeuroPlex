@@ -94,6 +94,16 @@ def compute_avg_loss_solo(neuron, emb, general_sp, text, seq_len=64):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", default="data/neurons/collab_v1_mixed.ckpt.pt",
+                    help="协作层 checkpoint 路径（评估 v2 用 --ckpt data/neurons/collab_v2_routing.ckpt.pt）")
+    ap.add_argument("--n-eval", type=int, default=8,
+                    help="每域评估文本条数（seed 固定，可复现）")
+    args = ap.parse_args()
+    global CKPT_PATH, n_eval
+    CKPT_PATH = args.ckpt
+    n_eval = args.n_eval
     random.seed(42)  # 固定评估采样，保证同 ckpt 下结果可复现
     from scripts.training.train_cross_domain_collab import (
         load_neuron, load_shared_lm_head, load_shared_embedding,
@@ -190,7 +200,6 @@ def main():
 
     # ── 3. 数据 ──
     print("\n[3] 加载评估数据...")
-    n_eval = 8
     texts = {d: load_domain_texts(d, 3000) for d in DOMAINS}
     texts["dialogue"] = load_dialogue_texts_multi(
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
