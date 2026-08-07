@@ -222,7 +222,21 @@
    - **第三层：结构性偏向（根因）**——code 文本 scores 排序 `en 0.365 > math 0.155 > code 0.138`。en 是 general 空间高锐度 neuron，其 vec 主导场方向 → **LOO cosine 天然偏向强 neuron**（C12 score_dim 设计解决但未启用）
    - **C13 修复（用户决策：per-neuron 域判别 head，上限最高）**：每个 neuron 新增 `domain_score_head: Linear(hidden→1)`，round 1 独立前向（无场注入）输出"当前样本属于本 neuron 域"的 logit；routing_loss 与推理 trust 都改用它（softmax(domain_logits/temp)）。round 1 独立 → 梯度只流向自身 + softmax 分母的合理负监督
    - **修复验证**（diag_routing_gradient.py）：① domain_logits 排序正确（code 文本 code=0.87 第一，en=0.44 第二，随机 head 已有域判别力）；② 错误泄漏消除（RL→其他 8 neuron 从 125.8 降到 8.37，剩余为 softmax 分母的合理负监督）；③ CE 梯度增强（4.1→15.9，code 被正确路由选中）
-7. 结果记录到 plans + 提交
+7. ✅ **collab_v3_c13 完整训练 + 评估（2026-08-07 完成）**：
+   - **训练**：540 步 × 2 epochs 完整完成（E1 PPL≈1174 50.9min → E2 PPL≈177.6 48.4min），`data/neurons/collab_v3_c13.ckpt.pt`（epoch=2, total_steps=540）
+   - **域内 EMERGE（8 文本/域，seed 42 固定）**：
+
+     | 域 | v2 | C13 | 门控上界[4b] |
+     |----|-----|------|------|
+     | code | -43.1% | **-17.7%** | +0.7% |
+     | math | -21.6% | -28.2% | +0.4% |
+     | zh | -40.3% | **-19.0%** | -3.5% |
+     | en | -0.4% | **+0.7%** ✅ | +0.4% |
+     | dialogue | — | **+67.1%** ✅ | — |
+
+   - **结论**：① C13 方向正确——code 改善 25.4pp、zh 改善 21.3pp、en 转正，domain_logits 路由显著优于 LOO cosine；② 负 EMERGE 未完全消除（code -17.7%/math -28.2%/zh -19.0%）；③ [4b] 硬门控上界 code/math/en ≈ +0.5% → **融合层无损，剩余负值是路由仍不完美**（soft 融合 vs 门控差 18-29pp）；④ **zh 例外**：门控下仍 -3.5%（PPL 512 vs 415）——zh 域融合/转译本身有损，独立于路由；⑤ dialogue +67.1% 大幅正向（协作对对话域显著增益）
+   - **遗留问题**：① 路由精度仍有提升空间（门控上界未达）；② zh 域门控 -3.5% 需单独排查（融合/转译损耗）；③ math 域 C13 后 EMERGE 反而微降（-21.6→-28.2），domain_logits 对 math 判别力不足
+8. **下一步（唯一建议）**：诊断 domain_logits 在 8 文本上的路由错误模式（对比 soft 权重 vs 门控）——区分"路由错误"与"融合有损"两类残留，再决定是增强判别器（2 层 MLP domain head）还是修复 zh 融合
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
