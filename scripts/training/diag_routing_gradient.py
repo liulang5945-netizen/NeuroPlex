@@ -176,13 +176,13 @@ def main():
         f"{nid}={float(s):.4f}" for nid, s in zip(list(neurons.keys()), scores.detach())
     ))
 
-    # C13: 域判别 logits（新机制，应替代 scores）
-    domain_logits = result.get("domain_logits")
-    print(f"[domain_logits] requires_grad={domain_logits.requires_grad if domain_logits is not None else 'N/A'}, "
+    # C15: 预测质量 logits（D 方案，监督 = NLL 排序对比，替代 C13 域判别）
+    domain_logits = result.get("quality_logits")
+    print(f"[quality_logits] requires_grad={domain_logits.requires_grad if domain_logits is not None else 'N/A'}, "
           f"shape={domain_logits.shape if domain_logits is not None else 'N/A'}")
     if domain_logits is not None:
         dl_sorted = sorted(zip(list(neurons.keys()), domain_logits.detach()), key=lambda x: -x[1])
-        print(f"[domain_logits] 排序: " + ", ".join(f"{nid}={float(d):.4f}" for nid, d in dl_sorted))
+        print(f"[quality_logits] 排序: " + ", ".join(f"{nid}={float(d):.4f}" for nid, d in dl_sorted))
 
     # ── 7. CE loss（与训练一致）──
     fused_logits = result["fused_logits"]

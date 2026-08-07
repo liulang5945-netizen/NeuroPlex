@@ -900,17 +900,18 @@ class ResonanceEnsemble:
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
-            (round_vecs, round_logits, round_confidences, round_score_vecs)
+            (round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits)
             - round_vecs: {nid: [B, field_dim]} L2-normalized field vectors
             - round_logits: {nid: [B, L, vocab]} optional logits
             - round_confidences: {nid: [B]} C8 per-sample confidence ∈ [0, 1]
             - round_score_vecs: {nid: [B, score_dim]} C12 评分投影向量（score_dim=None 时为空 dict）
+            - round_quality_logits: {nid: [B, 1]} C15 预测质量 logit（round 1，无场耦合）
         """
         round_vecs: Dict[str, torch.Tensor] = {}
         round_logits: Dict[str, torch.Tensor] = {}
         round_confidences: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
         round_score_vecs: Dict[str, torch.Tensor] = {}  # C12: 评分投影向量
-        round_domain_logits: Dict[str, torch.Tensor] = {}  # C13: 域判别 logit（round 1）
+        round_quality_logits: Dict[str, torch.Tensor] = {}  # C15: 预测质量 logit（round 1）
 
         # 快照隔离：调用方（forward/forward_train）传入 nmap，缺省用 self.neurons
         nmap = nmap if nmap is not None else self.neurons
@@ -967,9 +968,9 @@ class ResonanceEnsemble:
                 # C12: 提取评分投影向量
                 if "score_vec" in results[nid]:
                     round_score_vecs[nid] = results[nid]["score_vec"]
-                # C13: 提取域判别 logit（round 1 独立前向，无场耦合）
-                if round_num == 1 and "domain_logit" in results[nid]:
-                    round_domain_logits[nid] = results[nid]["domain_logit"]
+                # C15: 提取预测质量 logit（round 1 独立前向，无场耦合）
+                if round_num == 1 and "quality_logit" in results[nid]:
+                    round_quality_logits[nid] = results[nid]["quality_logit"]
                 if return_logits_filter(nid):
                     round_logits[nid] = results[nid]["logits"]
         else:
@@ -986,13 +987,13 @@ class ResonanceEnsemble:
                 # C12: 提取评分投影向量
                 if "score_vec" in result:
                     round_score_vecs[nid] = result["score_vec"]
-                # C13: 提取域判别 logit（round 1 独立前向，无场耦合）
-                if round_num == 1 and "domain_logit" in result:
-                    round_domain_logits[nid] = result["domain_logit"]
+                # C15: 提取预测质量 logit（round 1 独立前向，无场耦合）
+                if round_num == 1 and "quality_logit" in result:
+                    round_quality_logits[nid] = result["quality_logit"]
                 if need_logits:
                     round_logits[nid] = result["logits"]
 
-        return round_vecs, round_logits, round_confidences, round_score_vecs, round_domain_logits
+        return round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits
 
     def forward(
         self,
@@ -1120,7 +1121,7 @@ class ResonanceEnsemble:
         def round1_logits_filter(nid):
             return round1_return_logits
 
-        round_vecs, round_logits, round_confidences, round_score_vecs_r1, round_domain_logits_r1 = self._parallel_forward(
+        round_vecs, round_logits, round_confidences, round_score_vecs_r1, round_quality_logits_r1 = self._parallel_forward(
             active_ids,
             shared_embeddings,
             field_state=None,
@@ -1304,7 +1305,7 @@ class ResonanceEnsemble:
                     self._logits_keep_ids is None or nid in self._logits_keep_ids
                 )
 
-            round_vecs, round_logits, round_confidences, _round_score_vecs, _round_domain_logits = self._parallel_forward(
+            round_vecs, round_logits, round_confidences, _round_score_vecs, _round_quality_logits = self._parallel_forward(
                 active_ids,
                 shared_embeddings,
                 field_state=self.field.get_normalised_state() if field_conditioning else None,
@@ -1542,16 +1543,16 @@ class ResonanceEnsemble:
                             [scores.get(nid, 0.0) for nid in nids],
                             dtype=ref.dtype, device=ref.device,
                         )
-                        # C13: 推理也优先用域判别 logit（round 1 独立前向，无场耦合）
-                        domain_t = None
-                        if round_domain_logits_r1:
-                            dl = [round_domain_logits_r1[nid] for nid in nids if nid in round_domain_logits_r1]
+                        # C15: 推理也优先用预测质量 logit（round 1 独立前向，无场耦合）
+                        quality_t = None
+                        if round_quality_logits_r1:
+                            dl = [round_quality_logits_r1[nid] for nid in nids if nid in round_quality_logits_r1]
                             if len(dl) == len(nids):
-                                domain_t = torch.stack(dl).mean(dim=1).squeeze(-1)  # [N]
+                                quality_t = torch.stack(dl).mean(dim=1).squeeze(-1)  # [N]
                         fused, rw = self._confidence_routing_fusion(
                             proj, native_list, nids, "general",
                             scores=scores_t,
-                            domain_logits=domain_t,
+                            quality_logits=quality_t,
                         )
                         result["weighted_logits"] = fused
                         result["weights"] = rw.detach().cpu().tolist()
@@ -1761,14 +1762,14 @@ class ResonanceEnsemble:
         round_vecs_raw: Dict[str, torch.Tensor] = {}      # 原始 field_dim 维度
         round_vecs_unified: Dict[str, torch.Tensor] = {}  # unified 维度
         final_logits: Dict[str, torch.Tensor] = {}        # 最后一轮每个 neuron 的 logits
-        round_domain_logits_all: Dict[str, torch.Tensor] = {}  # C13: round 1 域判别 logit（全程保留）
+        round_quality_logits_all: Dict[str, torch.Tensor] = {}  # C15: round 1 预测质量 logit（全程保留）
 
         for round_num in range(1, n_rounds + 1):
             round_vecs_raw_new: Dict[str, torch.Tensor] = {}
             round_vecs_unified_new: Dict[str, torch.Tensor] = {}
             round_confidences_new: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
             round_score_vecs_new: Dict[str, torch.Tensor] = {}  # C12: 评分投影向量
-            # C13: 域判别 logit 只收集 round 1（写入循环外的 round_domain_logits_all，
+            # C15: 预测质量 logit 只收集 round 1（写入循环外的 round_quality_logits_all，
             # 避免 round 2 重新初始化清空）
 
             # 构建 side_signals（round 2+ 才有，per-pair synaptic 投影）
@@ -1830,9 +1831,9 @@ class ResonanceEnsemble:
                 # C12: 收集评分投影向量
                 if "score_vec" in result:
                     round_score_vecs_new[nid] = result["score_vec"]
-                # C13: 收集域判别 logit（round 1 独立前向，无场耦合）
-                if round_num == 1 and "domain_logit" in result:
-                    round_domain_logits_all[nid] = result["domain_logit"]
+                # C15: 收集预测质量 logit（round 1 独立前向，无场耦合）
+                if round_num == 1 and "quality_logit" in result:
+                    round_quality_logits_all[nid] = result["quality_logit"]
                 if round_num == n_rounds:
                     final_logits[nid] = result["logits"]
 
@@ -2033,13 +2034,18 @@ class ResonanceEnsemble:
                 # 交给最自信的 neuron = 分工。域内：原生 neuron 全位置胜出（≈个体，
                 # 无伤害）；跨域（zh 提问→code 输出）：zh token→zh、code token→code。
                 native_list = [final_logits[nid] for nid in active_ids]
-                # C13: domain_logits 优先于 scores（域判别 head，无 LOO 泄漏）
+                # C15: 预测质量 logits [N]（round 1 独立前向，batch 平均）。
+                # fusion 信任与 contrastive_loss 共用（监督 quality 对齐 NLL 排序）
+                quality_logits_t = None
+                if round_quality_logits_all:
+                    quality_logits_t = torch.stack([
+                        round_quality_logits_all[nid] for nid in active_ids
+                    ]).mean(dim=1).squeeze(-1)  # [N]
+                # C15: quality_logits 优先于 scores（预测质量 head，无 LOO 泄漏、无判别器尺度游戏）
                 fused_logits, route_weights = self._confidence_routing_fusion(
                     all_logits, native_list, active_ids, target_domain,
                     scores=scores,
-                     domain_logits=(torch.stack([
-                        round_domain_logits_all[nid] for nid in active_ids
-                    ]).mean(dim=1).squeeze(-1) if round_domain_logits_all else None),
+                    quality_logits=quality_logits_t,
                     trust_override=trust_override)  # trust_override: 上界诊断
                 weights = route_weights  # [N] batch 平均路由权重（监控）
                 # 路由权重由 logits 决定（非参数），balance_loss 梯度会反向干扰路由 → 置 0
@@ -2049,6 +2055,12 @@ class ResonanceEnsemble:
                 weights = F.softmax(scores / temperature, dim=0)  # [N]
                 fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
                 balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+                # C15: soft 模式也构造 quality_logits（contrastive_loss 监督用）
+                quality_logits_t = None
+                if round_quality_logits_all:
+                    quality_logits_t = torch.stack([
+                        round_quality_logits_all[nid] for nid in active_ids
+                    ]).mean(dim=1).squeeze(-1)  # [N]
 
         # ── 多样性 loss（field_vector 间余弦相似度，防退化相同）──
         if N >= 2:
@@ -2077,15 +2089,18 @@ class ResonanceEnsemble:
                 reduction="none",
             ).view(N, -1).mean(dim=1)  # [N]
 
-        # ── C12: 对比约束 loss（共振分与 per-neuron NLL 排序对齐）──
-        # 目标：让共振分预测"neuron 的实际贡献价值"，而非"对场状态的方向影响力"。
-        # 大神经元即使 NLL 高（答案错）也可能因主导场方向获高共振分；
-        # contrastive_loss 约束共振分与 NLL 排序对齐，让小神经元在它擅长的主题上获高权重。
-        if per_neuron_nll is not None and self.field_score_proj is not None:
-            # ideal: NLL 低的 neuron 应获高权重
+        # ── C15: 预测质量对比约束（D 方案，2026-08-08）──
+        # 目标：quality_head 输出对齐 per-neuron NLL 排序——"谁能预测好当前文本谁上"。
+        # 替代 C12 的 field_score_proj 条件（从未启用：训练时 score_dim=None → contrastive 恒 0）
+        # 和 C13/C14 的域标签判别（判别任务不对称 + 输入不可比 + 尺度游戏，三次失败）。
+        # NLL 是客观预测质量（训练时可得），quality_logit 推理时直接可用（round 1 独立）。
+        # actual 温度 1.0：softmax 分布对齐 ideal（softmax(-NLL/0.5)），
+        # logit 膨胀会让 KL 增大 → 天然防尺度游戏（对比 C14b 的 logit 8+ 爆炸）。
+        if per_neuron_nll is not None and quality_logits_t is not None:
+            # ideal: NLL 低的 neuron 应获高权重（预测质量排序）
             ideal_weights = F.softmax(-per_neuron_nll / 0.5, dim=0)  # tau=0.5 温度
-            # actual: 当前共振分驱动的权重
-            actual_weights = F.softmax(scores / temperature, dim=0)  # [N]
+            # actual: 预测质量 head 驱动的权重
+            actual_weights = F.softmax(quality_logits_t / 1.0, dim=0)  # [N] 温度 1.0
             # KL(actual || ideal) = Σ actual * log(actual/ideal)
             contrastive_loss = (
                 actual_weights * (actual_weights.clamp(min=1e-8).log() - ideal_weights.clamp(min=1e-8).log())
@@ -2122,15 +2137,15 @@ class ResonanceEnsemble:
             "n_rounds": n_rounds,
         }
 
-        # C13: 域判别 logits [N]（round 1 独立前向，batch 平均）
-        # 缺失时（旧 ckpt 无 domain_score_head）为 None，向后兼容 scores 路径
-        if round_domain_logits_all:
-            domain_logits = torch.stack([
-                round_domain_logits_all[nid] for nid in active_ids
+        # C15: 预测质量 logits [N]（round 1 独立前向，batch 平均）
+        # 缺失时（旧 ckpt 无 quality_head）为 None，向后兼容 scores 路径
+        if round_quality_logits_all:
+            ql = torch.stack([
+                round_quality_logits_all[nid] for nid in active_ids
             ]).mean(dim=1)  # [N, 1] -> mean over batch -> [N, 1]
-            result["domain_logits"] = domain_logits.squeeze(-1)  # [N]
+            result["quality_logits"] = ql.squeeze(-1)  # [N]
         else:
-            result["domain_logits"] = None
+            result["quality_logits"] = None
 
         if return_individual_logits:
             result["individual_logits"] = {nid: final_logits[nid] for nid in active_ids}
@@ -2270,7 +2285,7 @@ class ResonanceEnsemble:
         target_domain: str,
         router_temperature: float = 0.15,
         scores: Optional[torch.Tensor] = None,  # [N] 协作层校准的共振分（per-sample 信任）
-        domain_logits: Optional[torch.Tensor] = None,  # [N] C13 域判别 logit（优先于 scores）
+        quality_logits: Optional[torch.Tensor] = None,  # [N] C15 预测质量 logit（优先于 scores）
         trust_override: Optional[torch.Tensor] = None,  # [N] 实验：直接指定信任系数（覆盖 scores）
     ):
         """跨 vocab 分工融合：per-position **硬路由**，置信度 = min(原生, 投影后) max-prob。
@@ -2317,13 +2332,14 @@ class ResonanceEnsemble:
         if trust_override is not None:
             # 上界诊断：trust 直接给定（如"已知域"硬门控），跳过 scores 软校准
             trust = trust_override.to(conf.dtype).to(conf.device).clamp(min=1e-9)
-        elif domain_logits is not None:
-            # C13（2026-08-07，优先）：域判别 head 输出——每个 neuron 学习"我擅长什么
-            # 样本"（round 1 独立前向，梯度无跨 neuron 泄漏）。信任系数 =
-            # softmax(domain_logits/temp)。替代 scores（LOO cosine）：scores 依赖场
-            # 状态 → ① 梯度经 round 2 场条件化跨 neuron 泄漏；② 强 neuron 主导场方向
-            # → cosine 天然偏向它们，弱 neuron 抢位。
-            trust = F.softmax(domain_logits / max(router_temperature, 1e-6), dim=0)  # [N]
+        elif quality_logits is not None:
+            # C15（2026-08-08，优先）：预测质量 head 输出——每个 neuron 学习"我对当前
+            # 样本的预测质量"（round 1 独立前向，梯度无跨 neuron 泄漏），监督 = NLL 排序
+            # （ensemble.contrastive_loss）。信任系数 = softmax(quality_logits/temp)。
+            # 替代 C13/C14 域标签判别（判别任务不对称：math/code 是英文 → en 覆盖；
+            # 判别器输入各自 round1 表征不可比；softmax CE 无尺度约束 → logit 膨胀作弊）
+            # 和 scores（LOO cosine：梯度经 round 2 场条件化泄漏 + 强 neuron 主导场方向）。
+            trust = F.softmax(quality_logits / max(router_temperature, 1e-6), dim=0)  # [N]
         elif scores is not None:
             # 协作层校准：信任系数 = softmax(scores/temp)（归一化 <1，乘后缩小但相对
             # 放大协作层认可 neuron）→ 修正跨空间原生 max-prob 系统性不可比

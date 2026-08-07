@@ -140,30 +140,23 @@ class ResonanceNeuron(nn.Module):
         else:
             self.score_proj = None
 
-        # ── C13: 域判别 head（2026-08-07）──
-        # 输出"当前样本属于本 neuron 域"的 logit（round 1 独立前向，无场注入）。
-        # 用作路由信任信号：训练时 routing_loss 监督本 batch 域 neuron logit 最高，
-        # 推理时 trust = softmax(domain_logits/temp)。
-        # 替代 LOO cosine 作为域判别信号——LOO cosine 依赖场状态：
-        # ① 梯度经 round 2 场条件化跨 neuron 泄漏（实测 RL→其他 8 neuron 梯度是
-        #    自身 3.8 倍，batch 轮转下互相拉锯）；② 强 neuron（general 高锐度）
-        #    主导场方向 → cosine 天然偏向它们。domain_score_head 是可学习判别器，
-        #    梯度只流向自身 neuron，直接学习"我擅长什么样本"。
-        # ── C14: 升级为 MLP + mean/max 双 pooling（2026-08-08）──
-        # diag_route_errors 发现 C13 单 Linear(hidden→1) 判别器只能学到"表面语言"：
-        # 英文 GSM8K 数学题全判给 en（en logit 0.29-1.25 vs math -0.30-0.26）、
-        # en 对纯中文 zh 文本也给 0.79-1.26 高分（偏置学成默认赢家）。
-        # 2 层 MLP + mean/max 双 pooling 提供非线性判别容量：
-        # mean 捕获全局分布、max 捕获强信号 token，才能学到"域语义"（数学推理/
-        # 代码语法）而非"文本语言"。
-        self.domain_score_head = nn.Sequential(
+        # ── C15: 预测质量 head（2026-08-08，D 方案：预测质量路由）──
+        # 替代 C13/C14 的 domain_score_head（域标签判别，三次迭代均失败：
+        # ① math/code 文本是英文 → en 的"英文性"覆盖它们，判别任务不对称；
+        # ② 各判别器输入自己的 round 1 表征（不同空间）→ softmax 不可比；
+        # ③ softmax CE 只约束排序不约束尺度 → lr 高时 logit 膨胀作弊）。
+        # quality_head 不再预测"属于哪个域"，而是预测"我对当前样本的预测质量"
+        # （round 1 独立前向，无场注入）。监督目标 = 各 neuron 的真实 NLL 排序
+        # （ensemble.contrastive_loss：softmax(quality/temp) 对齐 softmax(-NLL/tau)）
+        # ——NLL 是客观预测质量，训练时可得，推理时 quality_logit 直接可用。
+        # 结构与 C14 MLP 相同（mean 全局分布 + max 强信号 token，2 层非线性）。
+        self.quality_head = nn.Sequential(
             nn.Linear(c.hidden_size * 2, 128),
             nn.GELU(),
             nn.Linear(128, 1, bias=False),
         )
-        # 第一层 xavier（GELU MLP 标准）；末层小初始化（输出 logit 量级 ~0.1-1，
-        # 与 C13 单层尺度相当，softmax 路由温度下可区分）
-        for m in self.domain_score_head:
+        # 第一层 xavier（GELU MLP 标准）；末层小初始化（logit 量级 ~0.1-1）
+        for m in self.quality_head:
             if isinstance(m, nn.Linear) and m.out_features > 1:
                 nn.init.xavier_uniform_(m.weight)
             elif isinstance(m, nn.Linear):
@@ -760,14 +753,15 @@ class ResonanceNeuron(nn.Module):
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
 
-        # ── C13/C14: 域判别 logit（2026-08-07/08）──
+        # ── C15: 预测质量 logit（2026-08-08，D 方案）──
         # 只在 round 1 计算：round 1 独立前向（无 field_state 注入、无 side_signals），
-        # h 是纯自身能力输出 → domain_logit 的梯度只流向自身 neuron（无跨 neuron 泄漏）。
-        # round 2+ 的 h 经场条件化/侧通道调制（携带他人信息），不适合做域判别。
-        # C14: mean/max 双 pooling 拼接 → MLP（mean 全局分布 + max 强信号 token）。
-        if round_num == 1 and self.domain_score_head is not None:
+        # h 是纯自身能力输出 → quality_logit 梯度只流向自身 neuron（无跨 neuron 泄漏）。
+        # round 2+ 的 h 经场条件化/侧通道调制（携带他人信息），不适合做质量评估。
+        # mean/max 双 pooling → MLP（mean 全局分布 + max 强信号 token）。
+        # 监督由 ensemble.contrastive_loss 提供（对齐 per-neuron NLL 排序）。
+        if round_num == 1 and self.quality_head is not None:
             h_pool = torch.cat([h.mean(dim=1), h.max(dim=1).values], dim=-1)  # [B, 2H]
-            result["domain_logit"] = self.domain_score_head(h_pool)  # [B, 1]
+            result["quality_logit"] = self.quality_head(h_pool)  # [B, 1]
 
         # ── R7: 中间表示（蒸馏用）──
         if return_intermediate:

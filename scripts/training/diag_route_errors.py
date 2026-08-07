@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""诊断 domain_logits 路由错误模式（collab_v3_c13，2026-08-07）。
+"""诊断 quality_logits 路由错误模式（collab_v3_c15，2026-08-08）。
 
-背景：C13 完整训练后负 EMERGE 收窄但未消除（code -17.7% / math -28.2% / zh -19.0%），
-且 [4b] 门控上界显示 code/math/en ≈ +0.5%（融合无损）、zh -3.5%（融合有损）。
+背景：C15（D 方案：预测质量路由）用 quality_head 替代 domain_score_head 域判别——
+quality 监督 = per-neuron NLL 排序（谁能预测好当前文本谁上）。
 本脚本逐条文本（seed 42，与 verify_collab_mixed 同批）对比：
-  - domain_logits 软路由权重（argmax 是谁？正确吗？）
+  - quality_logits 软路由权重（argmax 是谁？正确吗？）
   - soft 融合 PPL vs 已知域门控 PPL vs 全 9 neuron solo 最优 PPL
 逐条分类：
-  - 路由错误：门控 ≈ solo 最优、soft 显著差 → 判别器没选对人（可训练修复）
+  - 路由错误：门控 ≈ solo 最优、soft 显著差 → quality 没选对人（可训练修复）
   - 融合有损：门控也显著差于 solo → 融合/转译本身有损（zh 案例，训练修不了）
   - 正常：soft ≈ 门控 ≈ solo
 
@@ -192,14 +192,14 @@ def main():
         for t in random.sample(texts[src], args.n_eval):
             neuron_embeddings, targets, mask = encode_all(t, embeddings, general_sp)
 
-            # 1) soft 融合 + domain_logits
+            # 1) soft 融合 + quality_logits
             with torch.no_grad():
                 r_soft = ens.forward_train(
                     neuron_embeddings=neuron_embeddings, n_rounds=2,
                     fusion_mode="soft", targets=targets,
                     field_conditioning=True, target_domain="general",
                 )
-            dl = r_soft.get("domain_logits")  # [N] active_ids 顺序
+            dl = r_soft.get("quality_logits")  # [N] active_ids 顺序
             dl_rank = sorted(nids, key=lambda k: -dl[nids.index(k)].item())
             dl_argmax = dl_rank[0]
             soft_ppl = ppl_from_logits(r_soft["fused_logits"], targets, mask)

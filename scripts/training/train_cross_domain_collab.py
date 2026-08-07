@@ -44,6 +44,17 @@ v4（C14 MLP 判别器 + 温度校准，collab_v3_c14，2026-08-08）：
     同 v1 参数 + --routing-loss-weight 1.0 --routing-loss-temp 1.0 --save-name collab_v3_c14
     ① domain_score_head 升级为 MLP(hidden*2→128→1) + GELU + mean/max 双 pooling（学到"域语义"
     而非"表面语言"）；② routing_loss 温度 0.15→1.0（非赢家梯度不再消失，压平 en 系统性偏置）
+    ⚠️ 结果：zh 修好（-6.9%）、code 略降（-11.6%）、math 恶化（-60.2%）；c14b（判别器 lr 1e-3）
+    logit 膨胀到 8+ 全判给 en——域标签判别方案三次迭代（C13/C14/C14b）判定失败：
+    判别任务不对称（math/code 是英文→en 覆盖）+ 判别器输入各自 round1 表征不可比 + softmax CE 无尺度约束
+
+v5（C15 预测质量路由，collab_v3_c15，2026-08-08，D 方案）：
+    同 v1 参数 + --contrastive-weight 0.5 --save-name collab_v3_c15
+    domain_score_head 废弃 → quality_head（MLP 结构不变）：不预测"属于哪个域"，
+    预测"我对当前样本的预测质量"。监督 = contrastive_loss（quality softmax 对齐
+    softmax(-NLL/0.5)，NLL 是客观预测质量，训练时可得；推理时 quality_logit 直接可用）。
+    替代域标签判别（判别任务不对称）+ LOO cosine（梯度泄漏/强 neuron 主导）+ 尺度游戏。
+    所有域 batch 生效（含 dialogue）。quality_head 走 adamw 主 lr（快收敛）。
 
 注意：
 - --neuron-dir 必须是 general 基座目录（data/foundation_v1_general），默认 data/neurons 是旧的
@@ -310,16 +321,11 @@ def main():
                              "支持跨域组合：en/zh 理解指令 + code 生成代码）")
     parser.add_argument("--seq-len", type=int, default=128,
                         help="batch_align_and_embed 最大序列长度")
-    parser.add_argument("--routing-loss-weight", type=float, default=0.0,
-                        help="域判别路由 loss 权重（2026-08-07：直接约束本 batch 域 "
-                             "neuron 的 domain_logits 最高——修 LOO cosine 场耦合梯度泄漏 + "
-                             "强 neuron 主导场方向，消除域内负 EMERGE；仅 general_mode 的 4 "
-                             "域生效。C14 起与 --routing-loss-temp 配合）")
-    parser.add_argument("--routing-loss-temp", type=float, default=1.0,
-                        help="域判别路由 loss softmax 温度（C14，2026-08-08：0.15→1.0。"
-                             "诊断发现 0.15 极尖锐 → 非赢家 softmax≈0 → 梯度消失，en 系统性"
-                             "高偏置压不下去；1.0 让所有 neuron 都收到压偏置梯度。"
-                             "注意：这是训练温度，与推理 router_temperature 分离）")
+    parser.add_argument("--contrastive-weight", type=float, default=0.5,
+                        help="预测质量对比约束权重（C15/D 方案，2026-08-08：quality_head 输出"
+                             "对齐 per-neuron NLL 排序——谁能预测好当前文本谁上。替代 C13/C14 "
+                             "域标签判别 routing_loss（判别任务不对称 + 输入不可比 + 尺度游戏，"
+                             "三次失败）。所有域 batch 生效）")
     args = parser.parse_args()
 
     global DEVICE
@@ -432,9 +438,9 @@ def main():
                     p.requires_grad = True
             for p in neuron.get_field_write_parameters():
                 p.requires_grad = True
-            # C13: 域判别 head 解冻（routing_loss 监督本 batch 域 neuron logit 最高）
-            if hasattr(neuron, 'domain_score_head') and neuron.domain_score_head is not None:
-                for p in neuron.domain_score_head.parameters():
+            # C15: 预测质量 head 解冻（contrastive_loss 监督它对齐 per-neuron NLL 排序）
+            if hasattr(neuron, 'quality_head') and neuron.quality_head is not None:
+                for p in neuron.quality_head.parameters():
                     p.requires_grad = True
         neuron.train()
 
@@ -480,11 +486,12 @@ def main():
             if p.requires_grad and not any(
                 name.startswith(prefix) for prefix in ["excite_", "inhibit_"]
             ) and "scale_" not in name and "bias_" not in name:
-                # C14 fix（2026-08-08）：domain_score_head（域判别器）不走 body 低 lr。
-                # 诊断：判别器 lr=1e-4（body_lr_ratio=0.1）下 MLP 欠拟合——zh（语言差异粗信号）
-                # 勉强学到，math vs en（同为英文，需语义判别）学不到 → math 8/8 路由错误。
-                # 判别器是辅助域分类任务，走主 lr（args.lr，adamw 优化器）快速收敛。
-                if name.startswith("domain_score_head"):
+                # C15 fix（2026-08-08）：quality_head（预测质量头）不走 body 低 lr。
+                # C14 教训：判别器 lr=1e-4（body_lr_ratio=0.1）下 MLP 欠拟合；lr=1e-3 下
+                # softmax CE 无尺度约束 → logit 膨胀作弊（全判给 en）。D 方案用
+                # contrastive_loss（KL 对齐 NLL 排序）监督 quality_head——KL 天然防膨胀，
+                # quality_head 走主 lr（args.lr，adamw 优化器）快速收敛。
+                if name.startswith("quality_head"):
                     adamw_params.append(p)
                 else:
                     body_params.append(p)
@@ -629,22 +636,13 @@ def main():
                 ce_loss = ce_loss / n_tokens
 
                 total_loss = ce_loss + 0.01 * result["balance_loss"] + 0.05 * result["diversity_loss"]
-                # 域判别路由 loss（2026-08-07 v2）：直接约束本 batch 域 neuron 的
-                # domain_logits 最高。C13 域判别 head（round 1 独立前向）输出"当前样本
-                # 属于本 neuron 域"的 logit——梯度只流向自身 neuron（无 LOO cosine 的
-                # 场耦合泄漏：scores 依赖场状态 → 梯度经 round 2 场条件化跨 neuron
-                # 泄漏 80% + 强 neuron 主导场方向）。仅 4 个 general 域生效（dialogue
-                # 桶无单一目标 neuron 跳过）。domain_logits 缺失时（旧 ckpt）fallback scores。
-                if (args.routing_loss_weight > 0 and general_mode
-                        and domain in domains and result.get("domain_logits") is not None):
-                    nids_all = list(ensemble.neurons.keys())
-                    domain_idx = nids_all.index(domain)
-                    # C14: 温度 1.0（默认）——0.15 时非赢家 softmax≈0 梯度消失，
-                    # en 系统性高偏置压不下去（diag_route_errors 实证）
-                    routing_loss = -F.log_softmax(
-                        result["domain_logits"] / max(args.routing_loss_temp, 1e-6),
-                        dim=0)[domain_idx]
-                    total_loss = total_loss + args.routing_loss_weight * routing_loss
+                # C15（D 方案，2026-08-08）：预测质量对比约束——quality_head 输出对齐
+                # per-neuron NLL 排序（"谁能预测好当前文本谁上"）。替代 C13/C14 域标签
+                # 判别 routing_loss（判别任务不对称：math/code 是英文 → en 覆盖；判别器
+                # 输入各自 round1 表征不可比；softmax CE 无尺度约束 → logit 膨胀作弊）。
+                # contrastive_loss 由 ensemble.forward_train 计算（NLL 需 targets，训练时
+                # 可得；推理时 quality_logit 直接可用）。所有域 batch 生效（含 dialogue）。
+                total_loss = total_loss + args.contrastive_weight * result["contrastive_loss"]
 
                 total_loss.backward()
                 if muon_optimizer is not None:
