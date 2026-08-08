@@ -139,8 +139,11 @@ def batch_rounds(
     return neuron_embeddings, padded_ids, padded_am
 
 
-def save_head_checkpoint(path, epoch, total_steps, neurons, loss_history):
-    """保存 C20 产物：head_state（quality_head 分量，C18 注入格式兼容）。"""
+def save_head_checkpoint(path, epoch, total_steps, neurons, loss_history, phasor=None):
+    """保存 C20 产物：head_state（quality_head 分量，C18 注入格式兼容）。
+
+    C23-C：--enable-phasor 时额外保存 phasor_state（PhasorDynamics 可微相位）。
+    """
     head_state = {}
     for nid, neuron in neurons.items():
         if getattr(neuron, "quality_head", None) is not None:
@@ -153,6 +156,8 @@ def save_head_checkpoint(path, epoch, total_steps, neurons, loss_history):
         "saved_at": datetime.now().isoformat(),
         "c20_round_level": True,
     }
+    if phasor is not None:
+        ckpt["phasor_state"] = phasor.state_dict()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(ckpt, path)
 
@@ -181,6 +186,13 @@ def main():
                         help="C16 训练产物 collab_v3_c16.ckpt.pt：warm start quality_head")
     parser.add_argument("--save-name", default="collab_v3_c20")
     parser.add_argument("--device", default="cpu")
+    # C23-C：可微相位动力学（PhasorDynamics）——显式启用
+    parser.add_argument("--enable-phasor", action="store_true",
+                        help="启用可微相位动力学（PhasorDynamics）：相位绑结端到端可学")
+    parser.add_argument("--phasor-binding-scale", type=float, default=0.3,
+                        help="相位绑定强度 β（scores/场写入 × (1+β·binding)）")
+    parser.add_argument("--phasor-lr", type=float, default=1e-3,
+                        help="相位切向演化学习率（task_gradient_step）")
     args = parser.parse_args()
 
     global DEVICE
@@ -259,16 +271,42 @@ def main():
             for p in neuron.quality_head.parameters():
                 p.requires_grad = True
         neuron.train()
+
+    # C23-C：可微相位动力学（PhasorDynamics，显式启用）
+    # 相位绑结从启发式调制升级为端到端可学信号：forward_train 的可微绑定
+    # 参与计算图（梯度经 evolve 输出 → ω/K），每 step 后 task_gradient_step
+    # 黎曼切向更新 phasors（任务驱动"谁同相"）。同域同相作为先验初始相位。
+    phasor = None
+    if args.enable_phasor:
+        from taiji.resonance.phasor import PhasorDynamics
+        phasor = PhasorDynamics(binding_scale=args.phasor_binding_scale)
+        domain_to_nids = {}
+        for nid in neurons.keys():
+            d = nid.split("_")[0] if "_" in nid else nid
+            domain_to_nids.setdefault(d, []).append(nid)
+        phasor.assign_phase_by_domain(domain_to_nids)
+        phasor.to(args.device)
+        print(f"  [phasor] PhasorDynamics wired（{len(phasor.list_phases())} phases）", flush=True)
+
     qh_params = [p for n in neurons.values() if getattr(n, "quality_head", None) is not None
                  for p in n.quality_head.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(qh_params, lr=args.lr, weight_decay=0.01)
+    ph_params = []
+    if phasor is not None:
+        # ω/K 进 optimizer（可学）；phasors 用 task_gradient_step 切向更新（不进 optimizer，
+        # 普通 SGD 径向梯度会被单位归一化抹掉）
+        ph_params = [p for n, p in phasor.named_parameters() if n != "phasors"]
+    optimizer = torch.optim.AdamW(qh_params + ph_params, lr=args.lr, weight_decay=0.01)
     print(f"  quality_head 可训练参数: {len(qh_params)}", flush=True)
+    print(f"  phasor 可训练参数（ω/K）: {len(ph_params)}", flush=True)
 
     # 4. ensemble（field_dim 用 max，跨规格投影）
     print("\n[4] 创建 ensemble...", flush=True)
     max_field_dim = max(n.config.field_dim for n in neurons.values())
     field = ResonanceField(dim=max_field_dim)
-    ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=None)
+    ensemble = ResonanceEnsemble(
+        neurons, field, max_rounds=2, geometry=None,
+        gamma_oscillator=phasor,  # C23-C：可微相位动力学（None = 标量行为不变）
+    )
     ensemble.set_tokenizer_hub(hub)
 
     # 5. 数据（按源域分组：batch 内同域 → NLL 可比，C16d gate 才有意义。
@@ -318,6 +356,9 @@ def main():
                 total_loss = args.contrastive_weight * result["contrastive_loss"]
                 total_loss.backward()
                 optimizer.step()
+                if phasor is not None:
+                    # C23-C：相位黎曼切向演化（任务梯度驱动"谁同相"；ω/K 已由 optimizer 更新）
+                    phasor.task_gradient_step(lr=args.phasor_lr)
                 total_steps += 1
 
                 if total_steps % 10 == 0:
@@ -338,10 +379,10 @@ def main():
                     })
 
                 if total_steps % 500 == 0:
-                    save_head_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, loss_history)
+                    save_head_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, loss_history, phasor=phasor)
                     print(f"  [checkpoint] step {total_steps} 已保存", flush=True)
 
-        save_head_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, loss_history)
+        save_head_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, loss_history, phasor=phasor)
         print(f"  [Epoch {epoch+1} 完成] 耗时 {(time.time()-epoch_start)/60:.1f} min", flush=True)
 
     print("\n[7] 训练完成。", flush=True)

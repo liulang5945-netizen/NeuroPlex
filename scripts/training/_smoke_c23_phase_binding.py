@@ -253,6 +253,46 @@ def test_13_forward_train_differentiable_wired():
     check("forward_train differentiable 判断", "differentiable" in fwdtr_src)
 
 
+def test_14_omega_coupling_gradient():
+    """C23-C：ω/K 梯度路径打通——evolve 输出参与 loss → ω/K 收到梯度。"""
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(dt=0.2, binding_scale=0.3)
+    ph.register_neurons(["a", "b", "c"], phases=[0.0, 0.8, 2.4])
+    # 模拟 forward_train：可微演化 → 绑定（用 ev_p）→ scores → loss
+    new_p = ph.evolve(active_ids=["a", "b", "c"])          # 可微（ω/K 参与）
+    b = ph.binding_tensor(["a", "b", "c"], phasors=new_p)  # 可微绑定
+    scores = (1.0 + ph.binding_scale * b).sum()
+    scores.backward()
+    wg = ph.omega.grad.abs().sum().item() if ph.omega.grad is not None else 0.0
+    check("自然频率 ω 收到梯度（梯度路径打通）", wg > 0, f"|∇ω|={wg:.4f}")
+    kg = abs(ph.coupling_k.grad.item()) if ph.coupling_k.grad is not None else 0.0
+    check("耦合 K 收到梯度（梯度路径打通）", kg > 0, f"|∇K|={kg:.4f}")
+
+
+def test_15_task_driven_omega():
+    """C23-C：任务梯度驱动 ω 演化（ω 为可学习参数，loss 信号调整频差）。"""
+    import torch.optim as optim
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(dt=0.2, binding_scale=0.3)
+    ph.register_neurons(["zh_1", "zh_2", "zh_3", "en_1"],
+                        phases=[0.0, 0.5, -0.4, math.pi + 0.6])
+    opt = optim.SGD(
+        [p for n, p in ph.named_parameters() if n != "phasors"], lr=0.1
+    )
+    w0 = ph.omega.clone().detach()
+    for _ in range(5):
+        opt.zero_grad()
+        new_p = ph.evolve(active_ids=["zh_1", "zh_2", "zh_3", "en_1"])
+        b = ph.binding_tensor(["zh_1", "zh_2", "zh_3", "en_1"], phasors=new_p)
+        # 任务信号：最大化同相群体（zh）绑定
+        loss = - (b[0] + b[1] + b[2]) + b[3]
+        loss.backward()
+        opt.step()
+        ph.task_gradient_step(lr=0.1)
+    check("任务梯度驱动 ω 演化", (ph.omega - w0).abs().sum().item() > 1e-4,
+          f"Δω={(ph.omega - w0).abs().sum().item():.4f}")
+
+
 if __name__ == "__main__":
     test_1_same_phase_binding_positive()
     test_2_opposite_phase_binding_negative()
@@ -267,4 +307,6 @@ if __name__ == "__main__":
     test_11_task_driven_phase()
     test_12_phasor_interface_compat()
     test_13_forward_train_differentiable_wired()
-    print("\nC23 冒烟 13/13 PASS")
+    test_14_omega_coupling_gradient()
+    test_15_task_driven_omega()
+    print("\nC23 冒烟 15/15 PASS")

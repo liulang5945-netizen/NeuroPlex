@@ -334,6 +334,8 @@ class ResonanceEnsemble:
         self.maturity = maturity
         # KoPE/Kuramoto: 相位耦合（共激活强的 neuron 相位同步）
         self.gamma_oscillator = gamma_oscillator
+        # C23-C（2026-08-08）：最后一轮可微演化相位（forward_train 用，梯度到 ω/K）
+        self._last_evolved_phasors = None
 
         # ── RSGN 融合: 几何坐标空间（神经元距离衰减先验）──
         # S7: 优先使用外部传入的 geometry（与拓扑构建共享同一实例）
@@ -1974,7 +1976,17 @@ class ResonanceEnsemble:
             if gamma_oscillator is not None:
                 try:
                     gamma_oscillator.tick()
-                    if hasattr(gamma_oscillator, "kuramoto_step"):
+                    if getattr(gamma_oscillator, "differentiable", False):
+                        # C23-C：可微演化——最后一轮的可微 new_p 供 scores/场绑定
+                        # （梯度经 new_p → dtheta → ω/K，打通 ω/K 梯度路径）；
+                        # 状态推进由 kuramoto_step 内部 detach 完成
+                        self._last_evolved_phasors = gamma_oscillator.evolve(
+                            list(active_ids), coactivation=self.coaction,
+                        )
+                        gamma_oscillator.kuramoto_step(
+                            active_ids=active_ids, coactivation=self.coaction,
+                        )
+                    elif hasattr(gamma_oscillator, "kuramoto_step"):
                         gamma_oscillator.kuramoto_step(
                             coupling_strength=0.05,
                             active_ids=active_ids,
@@ -2026,10 +2038,17 @@ class ResonanceEnsemble:
                 bs = float(getattr(gamma_oscillator, "binding_scale", 0.0))
                 if bs != 0.0:
                     if getattr(gamma_oscillator, "differentiable", False):
-                        # C23-C：可微绑定（梯度经 binding → phasors/ω/K）
-                        bvec = gamma_oscillator.binding_tensor(
-                            list(active_ids), coactivation=self.coaction,
-                        ).to(all_vecs_weighted.device)
+                        # C23-C：可微绑定（用最后一轮可微演化相位 → ω/K 梯度路径）
+                        ev_p = getattr(self, "_last_evolved_phasors", None)
+                        if ev_p is not None and ev_p.shape[0] == len(active_ids):
+                            bvec = gamma_oscillator.binding_tensor(
+                                list(active_ids), coactivation=self.coaction,
+                                phasors=ev_p,
+                            ).to(all_vecs_weighted.device)
+                        else:
+                            bvec = gamma_oscillator.binding_tensor(
+                                list(active_ids), coactivation=self.coaction,
+                            ).to(all_vecs_weighted.device)
                     else:
                         # C23-B：标量绑定（GammaOscillator）
                         binding = gamma_oscillator.pairwise_binding(
@@ -2094,11 +2113,19 @@ class ResonanceEnsemble:
                 if bs != 0.0:
                     if getattr(gamma_oscillator, "differentiable", False):
                         # C23-C（2026-08-08）：可微相位绑定（PhasorDynamics）——
-                        # binding 张量参与计算图，任务梯度直接驱动相位演化（双驱动：
-                        # Kuramoto 物理牵引 + 反向任务信号）
-                        bvec = gamma_oscillator.binding_tensor(
-                            list(active_ids), coactivation=self.coaction,
-                        ).to(scores.device)
+                        # binding 用最后一轮可微演化相位（evolve 输出）：梯度经
+                        # binding → new_p → dtheta → ω/K（ω/K 梯度路径打通），
+                        # phasors 亦收到梯度（task_gradient_step 切向更新）
+                        ev_p = getattr(self, "_last_evolved_phasors", None)
+                        if ev_p is not None and ev_p.shape[0] == len(active_ids):
+                            bvec = gamma_oscillator.binding_tensor(
+                                list(active_ids), coactivation=self.coaction,
+                                phasors=ev_p,
+                            ).to(scores.device)
+                        else:
+                            bvec = gamma_oscillator.binding_tensor(
+                                list(active_ids), coactivation=self.coaction,
+                            ).to(scores.device)
                         scores = scores * (1.0 + bs * bvec)
                     else:
                         # C23（2026-08-08）：标量相位绑定（GammaOscillator）——

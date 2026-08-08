@@ -150,6 +150,7 @@ class PhasorDynamics(nn.Module):
         self,
         active_ids: Optional[List[str]] = None,
         coactivation: Optional[Any] = None,
+        phasors: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """可微平均相位绑定：[N] 张量，梯度可达 phasors/omega/coupling_k。
 
@@ -158,6 +159,8 @@ class PhasorDynamics(nn.Module):
         Args:
             active_ids: 本轮激活 neuron ID（None = 全部）
             coactivation: CoactivationTracker（pair 强度调制，与 Kuramoto 一致）
+            phasors: 外部相位张量 [N,2]（顺序 = active_ids，可微演化输出用）；
+                     None = 用 self.phasors
 
         Returns:
             [N] 张量（按 active_ids 顺序）
@@ -165,9 +168,12 @@ class PhasorDynamics(nn.Module):
         ids = active_ids if active_ids is not None else list(self._id_to_idx.keys())
         idxs = [self._id_to_idx[nid] for nid in ids if nid in self._id_to_idx]
         N = len(idxs)
-        if N == 0 or self.phasors is None or self.phasors.numel() == 0:
+        if N == 0 or (self.phasors is None and phasors is None):
             return torch.zeros(len(ids))
-        p = self.phasors[idxs]          # [N, 2]
+        p = phasors if phasors is not None else self.phasors[idxs]  # [N, 2]
+        if p.shape[0] != N:
+            # 外部相位顺序/数量不匹配 → 回退自身相位
+            p = self.phasors[idxs]
         sim = p @ p.t()                 # [N, N] cos(θ_i-θ_j)，可微
         if N >= 2 and coactivation is not None:
             c = torch.ones(N, N, device=sim.device)
@@ -183,27 +189,37 @@ class PhasorDynamics(nn.Module):
 
     # ── Kuramoto 演化（可微；in-place 状态推进）──
 
-    def kuramoto_step(
+    def evolve(
         self,
-        coupling_strength: Optional[float] = None,
         active_ids: Optional[List[str]] = None,
         coactivation: Optional[Any] = None,
         dt: Optional[float] = None,
-    ) -> None:
-        """可微 Kuramoto 相位耦合：p_i ← normalize(R(Δθ_i)·p_i)。
+        coupling_strength: Optional[float] = None,
+    ) -> torch.Tensor:
+        """可微 Kuramoto 演化：返回归一化后的新相位 [N,2]（梯度到 ω/K/phasors）。
+
+        与 kuramoto_step 的区别：**不 in-place 更新状态**，演化计算全可微——
+        ω/K 的梯度路径经此打通（任务 loss → binding → new_p → dtheta → ω/K）。
+        状态推进由调用方负责（kuramoto_step 内部 detach 推进；forward_train
+        用本方法的输出直接算绑定，梯度流完整）。
 
         Δθ_i = ω_i·dt + (K/N)·Σ_j det([p_i,p_j])·c_ij
-        det([p_i,p_j]) = p_i.x·p_j.y − p_i.y·p_j.x（可微叉积 = sin(θ_j−θ_i)）
 
-        状态推进用 no_grad（相位是动力学状态）；梯度经 det 项流向 ω/K，
-        反向任务梯度（optimizer）叠加在 Kuramoto 结果上 → 双驱动。
+        Args:
+            active_ids: 本轮激活 neuron ID（None = 全部）
+            coactivation: CoactivationTracker（pair 强度调制）
+            dt: 时间步长（None = self.dt）
+            coupling_strength: 覆盖耦合强度（None = self.coupling_k 参数）
+
+        Returns:
+            [N,2] 归一化新相位（顺序 = active_ids），可微
         """
         ids = active_ids if active_ids is not None else list(self._id_to_idx.keys())
         idxs = [self._id_to_idx[nid] for nid in ids if nid in self._id_to_idx]
         N = len(idxs)
-        if N < 2 or self.phasors is None or self.phasors.numel() == 0:
-            return
-        p = self.phasors[idxs]          # [N, 2]
+        if N == 0 or self.phasors is None or self.phasors.numel() == 0:
+            return torch.zeros(len(ids), 2)
+        p = self.phasors[idxs]          # Parameter [N,2]，可微
         dets = torch.zeros(N, N, device=p.device)
         for i in range(N):
             pi = p[i]
@@ -218,15 +234,41 @@ class PhasorDynamics(nn.Module):
             float(coupling_strength), device=p.device
         )
         step = dt if dt is not None else self.dt
-        dtheta = self.omega[idxs] * step + (K / N) * dets.sum(dim=1)  # [N]
+        dtheta = self.omega[idxs] * step + (K / N) * dets.sum(dim=1)  # [N] 可微
         cos_d, sin_d = torch.cos(dtheta), torch.sin(dtheta)
         new_x = p[:, 0] * cos_d - p[:, 1] * sin_d
         new_y = p[:, 0] * sin_d + p[:, 1] * cos_d
         new_p = F.normalize(torch.stack([new_x, new_y], dim=1), dim=-1)
+        return new_p  # [N,2]
+
+    def kuramoto_step(
+        self,
+        coupling_strength: Optional[float] = None,
+        active_ids: Optional[List[str]] = None,
+        coactivation: Optional[Any] = None,
+        dt: Optional[float] = None,
+    ) -> None:
+        """可微 Kuramoto 相位耦合（状态推进，no_grad）。
+
+        内部调用 evolve()（可微计算）+ detach 状态推进：
+        状态是动力学轨迹（buffer 语义），不参与计算图；梯度经 forward_train 的
+        evolve 输出（最后一轮）流向 ω/K。
+
+        注：完全对齐/反相是绑定驻点（det=0 时耦合无牵引），物理正确。
+        """
+        ids = active_ids if active_ids is not None else list(self._id_to_idx.keys())
+        idxs = [self._id_to_idx[nid] for nid in ids if nid in self._id_to_idx]
+        N = len(idxs)
+        if N < 2 or self.phasors is None or self.phasors.numel() == 0:
+            return
+        new_p = self.evolve(
+            active_ids=ids, coactivation=coactivation,
+            dt=dt, coupling_strength=coupling_strength,
+        )
         with torch.no_grad():
             self.phasors[idxs] = new_p
         self.global_phase = (
-            self.global_phase + float(self.omega[idxs].mean().item()) * step
+            self.global_phase + float(self.omega[idxs].mean().item()) * (dt if dt is not None else self.dt)
         ) % (2 * math.pi)
 
     def tick(self, dt: float = 1.0) -> float:

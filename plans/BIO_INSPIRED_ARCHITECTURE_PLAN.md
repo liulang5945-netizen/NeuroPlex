@@ -310,6 +310,16 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **✅ 冒烟 13/13 PASS**：binding 可微（梯度流经 phasors）；ω/K 驱动演化改变 binding（Δ=2.87）；演化保持单位范数；任务梯度驱动相位演化（Δ=1.18）+ 同相绑定提升（0.276→0.385）；接口兼容（assign_phase_by_domain/batch_gate_factors）；forward_train 可微分支接入
 - **遗留（下一阶段）**：ω/K 梯度路径（当前在 no_grad 演化中，需 evolve 可微化——演化输出直接参与 loss）；PhasorDynamics 接入训练脚本（train_round_level_quality 显式启用）
 
+**C23-C2 实施（ω/K 梯度路径打通 + PhasorDynamics 接入训练，2026-08-08 ✅ 冒烟 15/15）**：
+- **ω/K 梯度路径**：新增 `PhasorDynamics.evolve()`（可微 Kuramoto 演化，返回归一化新相位 [N,2]，不 in-place）；`kuramoto_step` 重构为 evolve + detach 状态推进（接口不变）；`binding_tensor` 加 `phasors` 外部相位参数
+- **forward_train 打通**：演化段对 PhasorDynamics 保存 `_last_evolved_phasors`（最后一轮可微演化输出）；scores 段 + 场构造段用该可微相位算绑定 → **任务 loss 梯度经 binding → new_p → dtheta → ω/K**（梯度路径打通）；phasors 亦收到梯度（task_gradient_step 切向更新）
+- **训练接入**（train_round_level_quality `--enable-phasor` 显式启用，默认关闭不破坏 C20 流程）：
+  - PhasorDynamics 创建 + `assign_phase_by_domain`（同域同相先验）→ 传 ensemble `gamma_oscillator`
+  - optimizer 含 ω/K（可学）；phasors 排除（用 `task_gradient_step` 黎曼切向更新）
+  - 每 step backward 后 `task_gradient_step`；checkpoint 含 `phasor_state` 分量
+- **✅ 冒烟 15/15 PASS**：ω 收到梯度 |∇ω|=0.21、K 收到梯度 |∇K|=0.49；任务驱动 ω 演化 Δω=0.07
+- **C23 全部完成**：共振权重（A）+ 场本体（B）+ 相位动力学端到端可学（C）——相位同步本体化闭环，从"装饰"变为"骨架"（缺口 R 核心项落地）
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
