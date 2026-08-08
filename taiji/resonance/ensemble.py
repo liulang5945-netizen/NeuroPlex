@@ -669,6 +669,29 @@ class ResonanceEnsemble:
             return self._cross_spec_projectors[nid](vec)
         return vec
 
+    # ── C23-B（2026-08-08）：相位绑定辅助（场写入按相位同步加权）──
+
+    def _phase_binding_map(self, active_ids) -> Optional[dict]:
+        """当前激活 neuron 的相位绑定图：{nid: binding ∈ [-1,1]}。
+
+        同相群体 → +1（绑结成知觉单元），异相 → -1（解绑）。
+        共激活调制与 Kuramoto 耦合一致（"共激活→相位同步→绑结"闭环）。
+        """
+        if self.gamma_oscillator is None:
+            return None
+        try:
+            return self.gamma_oscillator.pairwise_binding(
+                list(active_ids), coactivation=self.coaction,
+            )
+        except Exception:
+            return None
+
+    def _phase_binding_scale(self) -> float:
+        """绑定强度 β（GammaOscillator.binding_scale，0 = 关闭）。"""
+        if self.gamma_oscillator is None:
+            return 0.0
+        return float(getattr(self.gamma_oscillator, "binding_scale", 0.0))
+
     def _check_adaptive_stop(
         self,
         current_scores: Dict[str, float],
@@ -1148,6 +1171,9 @@ class ResonanceEnsemble:
         # P1-2: 从 NeuromodulatorState 读取 field_write_scale（去甲肾上腺素驱动）
         write_scale = (self.neuromodulator.get_field_write_scale()
                        if self.neuromodulator is not None else 1.0)
+        # C23-B（2026-08-08）：相位绑定写入——同相群体写入增强（场状态由相位同步塑造）
+        binding_map = self._phase_binding_map(active_ids)
+        binding_bs = self._phase_binding_scale()
         for nid in active_ids:
             # P0#3: 抑制性神经元走 write_inhibit（乘法衰减），兴奋性走 write（累加）
             neuron = nmap[nid]
@@ -1159,10 +1185,16 @@ class ResonanceEnsemble:
             # C1: 亚型写入增益（PV+ 强写入, SOM+ 弱写入等）
             vec = vec * neuron.write_gain
             if neuron.is_inhibitory:
+                # C23-B：抑制性 neuron 相位锁定 gamma（生物：PV+ 与兴奋群体同步发放），
+                # 同相 → 抑制增强（绑定单元内部抑制同样参与信息整合）
+                if binding_map and binding_bs != 0.0:
+                    vec = vec * (1.0 + binding_bs * binding_map.get(nid, 0.0))
                 self.field.write_inhibit(nid, vec, weight=maturity_w)
             else:
                 # C8: per-sample confidence 调制写入幅度（高置信度→大写入）
                 scale = write_scale * maturity_w * round_confidences[nid]
+                if binding_map and binding_bs != 0.0:
+                    scale = scale * (1.0 + binding_bs * binding_map.get(nid, 0.0))
                 self.field.write(nid, vec, scale=scale)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
             if self.stdp_tracker is not None:
@@ -1338,6 +1370,11 @@ class ResonanceEnsemble:
                 else:
                     writable_ids.append(nid)
 
+            # C23-B（2026-08-08）：每轮重算相位绑定（相位已随 Kuramoto 演化，
+            # 同相群体随轮次逐步绑结 → 写入增强；异相解绑 → 写入衰减）
+            binding_map = self._phase_binding_map(writable_ids)
+            binding_bs = self._phase_binding_scale()
+
             for nid in writable_ids:
                 # P0#3: 抑制性神经元走 write_inhibit，兴奋性走 update
                 neuron = nmap[nid]
@@ -1352,11 +1389,16 @@ class ResonanceEnsemble:
                     vec_mask = self._router_hard_mask[:, self._router_active_ids.index(nid)]  # [B]
                     vec = vec * vec_mask.unsqueeze(-1)
                 if neuron.is_inhibitory:
+                    # C23-B：抑制性 neuron 同相 → 抑制增强（与 round1 一致）
+                    if binding_map and binding_bs != 0.0:
+                        vec = vec * (1.0 + binding_bs * binding_map.get(nid, 0.0))
                     self.field.write_inhibit(nid, vec, weight=maturity_w)
                 else:
                     # P1-2: round 2+ 也应用 neuromodulator 调质
                     # C8: per-sample confidence 调制写入幅度
                     scale = write_scale * maturity_w * round_confidences[nid]
+                    if binding_map and binding_bs != 0.0:
+                        scale = scale * (1.0 + binding_bs * binding_map.get(nid, 0.0))
                     self.field.update(nid, vec, scale=scale)
                 nmap[nid].enter_refractory(
                     multiplier=neuromod_mult * nmap[nid].refractory_multiplier
@@ -1977,6 +2019,24 @@ class ResonanceEnsemble:
             round_confidences_new[nid] for nid in active_ids
         ])  # [N, B]
         all_vecs_weighted = all_vecs_norm * all_confidences.unsqueeze(-1)  # [N, B, D]
+        # C23-B（2026-08-08）：相位同步塑造训练场状态——同相群体写入增强、
+        # 异相解绑（与推理 forward 场写入一致；让相位绑结成为可学习信号）
+        if gamma_oscillator is not None:
+            try:
+                binding = gamma_oscillator.pairwise_binding(
+                    list(active_ids), coactivation=self.coaction,
+                )
+                bs = float(getattr(gamma_oscillator, "binding_scale", 0.0))
+                if binding and bs != 0.0:
+                    bvec = torch.tensor(
+                        [binding[nid] for nid in active_ids],
+                        dtype=torch.float32, device=all_vecs_weighted.device,
+                    )
+                    all_vecs_weighted = all_vecs_weighted * (
+                        1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)
+                    )  # [N, B, D]
+            except Exception:
+                pass
         # C7: 空间场扩散（评分时也用扩散后的 vectors，保持训练一致性）
         if self.spatial_diffuser is not None:
             all_vecs_weighted = self.spatial_diffuser.diffuse(

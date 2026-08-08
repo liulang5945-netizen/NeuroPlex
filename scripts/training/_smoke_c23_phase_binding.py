@@ -104,8 +104,56 @@ def test_6_wired_into_ensemble():
     from taiji.resonance import ensemble as en
     fwd_src = inspect.getsource(en.ResonanceEnsemble.forward)
     fwdtr_src = inspect.getsource(en.ResonanceEnsemble.forward_train)
-    check("forward 已接入 pairwise_binding", "pairwise_binding" in fwd_src)
+    check("forward 已接入 pairwise_binding（scores 调制）", "pairwise_binding" in fwd_src)
     check("forward_train 已接入 pairwise_binding", "pairwise_binding" in fwdtr_src)
+    # C23-B：场写入绑定
+    check("forward 场写入已按绑定调制（round1/2+ scale）",
+          "1.0 + binding_bs * binding_map.get(nid, 0.0)" in fwd_src)
+    check("forward_train 场状态已按绑定加权",
+          "1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)" in fwdtr_src)
+
+
+def test_7_write_scale_binding():
+    """写入 scale 绑定调制：同相群体（≥3）写入增强（scale 升）、异相衰减（scale 降）。"""
+    import torch
+    osc = GammaOscillator(binding_scale=0.3)
+    osc.assign_phase("zh_1", 0.0)
+    osc.assign_phase("zh_2", 0.0)
+    osc.assign_phase("zh_3", 0.0)
+    osc.assign_phase("en_1", math.pi)  # 反相
+    b = osc.pairwise_binding(["zh_1", "zh_2", "zh_3", "en_1"])
+    bs = osc.binding_scale
+    scale = torch.tensor(1.0)  # 基准写入 scale
+    scale_zh1 = float(scale * (1.0 + bs * b["zh_1"]))
+    scale_en1 = float(scale * (1.0 + bs * b["en_1"]))
+    check("同相写入增强、异相衰减",
+          scale_zh1 > 1.0 and scale_en1 < 1.0,
+          f"zh_1={scale_zh1:.3f}（增强） en_1={scale_en1:.3f}（衰减）")
+
+
+def test_8_train_field_binding_weight():
+    """forward_train 场构造加权：同相方向分量增强、异相衰减（[N,B,D] 乘法）。"""
+    import torch
+    osc = GammaOscillator(binding_scale=0.3)
+    osc.assign_phase("zh_1", 0.0)
+    osc.assign_phase("zh_2", 0.0)
+    osc.assign_phase("zh_3", 0.0)
+    osc.assign_phase("en_1", math.pi)
+    ids = ["zh_1", "zh_2", "zh_3", "en_1"]
+    b = osc.pairwise_binding(ids)
+    bs = osc.binding_scale
+    # 模拟 forward_train：all_vecs_weighted [N=4, B=1, D=4]
+    torch.manual_seed(0)
+    vecs = torch.randn(4, 1, 4)
+    vecs_orig = vecs.clone()
+    bvec = torch.tensor([b[n] for n in ids], dtype=torch.float32)
+    vecs = vecs * (1.0 + bs * bvec.unsqueeze(1).unsqueeze(2))  # [N,1,4]
+    # 同相群体（zh）写入分量变强
+    norm_zh = vecs[0].norm().item() / vecs_orig[0].norm().item()
+    norm_en = vecs[3].norm().item() / vecs_orig[3].norm().item()
+    check("同相群体写入分量增强、异相衰减",
+          norm_zh > 1.0 and norm_en < 1.0,
+          f"zh norm×{norm_zh:.3f}（增强） en norm×{norm_en:.3f}（衰减）")
 
 
 if __name__ == "__main__":
@@ -115,4 +163,6 @@ if __name__ == "__main__":
     test_4_kuramoto_binding_loop()
     test_5_binding_modulates_scores()
     test_6_wired_into_ensemble()
-    print("\nC23 冒烟 6/6 PASS")
+    test_7_write_scale_binding()
+    test_8_train_field_binding_weight()
+    print("\nC23 冒烟 8/8 PASS")

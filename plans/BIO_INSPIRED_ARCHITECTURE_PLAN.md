@@ -289,6 +289,16 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **安全性**：`_executive_route` 只消费 quality_head 聚合（不消费 final_scores）→ binding 不影响 C19-C21 已验证的回合级判定与 leader 生成；影响面 = fusion 融合权重 + 共振演化过滤（实验/协作路径）
 - **下一步（增量 B，未开始）**：场写入按相位绑定加权（同相 neuron 写入场上叠加增强），让相位同步直接塑造场状态形成；增量 C：相位可微化（2D 相位向量 + Kuramoto ODE 离散化），让 binding 参与训练梯度流
 
+**C23-B 实施（场写入按相位绑定加权，2026-08-08 ✅ 冒烟 8/8）**：
+- **目标**：让相位同步直接塑造场状态形成——"谁与谁同步"决定共享场的结构（增量 A 已让相位决定共振权重，本增量让相位决定场本身）
+- **实现**：
+  1. ensemble 新增辅助 `_phase_binding_map` / `_phase_binding_scale`（复用 C23 pairwise_binding）
+  2. 推理 `forward`：round1 写入 scale ×(1+β·binding)；round2+ 每轮重算 binding（相位随 Kuramoto 演化逐步绑结 → 写入逐轮增强）；抑制性 neuron 同相 → 抑制增强（生物：PV+ 相位锁定 gamma）
+  3. 训练 `forward_train`：场构造 `all_vecs_weighted ×(1+β·binding)`（同相群体写入分量增强），让相位绑结成为可学习信号
+- **✅ 冒烟 8/8 PASS**：同相写入 scale×1.100 / 异相×0.700；训练场同相分量 norm×1.100 / 异相×0.700
+- **语义闭环（C23 全）**：共激活 → Kuramoto 相位牵引 → binding 上升 → 共振分增强（增量 A）+ 场写入增强（增量 B）→ 绑结单元在场上主导、被解绑 neuron 退场——**共振本体（场）+ 共振权重（scores）都由相位同步驱动**
+- **下一步（增量 C，未开始）**：相位可微化——2D 相位向量（cosθ,sinθ）+ Kuramoto ODE 离散化，让 binding 参与训练梯度流（当前 binding 是离散标量，不直接可微；可微化后相位绑结成为端到端可学机制）
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
