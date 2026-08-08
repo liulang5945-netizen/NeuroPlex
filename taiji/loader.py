@@ -953,13 +953,26 @@ def _load_collab_weights_into_cortex(
         logger.info("[assemble_cortex] head_state 已应用: %d 个 quality_head", n_head)
 
     # 6. lora_state（C16：LoRA 尾层增量——body 冻结时的低秩适配）
+    # C21（2026-08-08）：词库多词表架构——LoRA 只注入输出空间与 C16 训练目标
+    # 一致的 neuron（general 256K 头）。zh 头（50K 域词表）neuron 的 C16 LoRA
+    # 是在 general 目标空间 + 转译投影下训练，对域词表能力是**扭曲**（验证：
+    # 注入后 dialogue zh 生成退化，清零后恢复流畅中文）。各 neuron 保域词表。
     n_lora = 0
+    n_lora_skip = 0
     lora_state = _pick("lora_state")
     if lora_state:
         for nid, sd in lora_state.items():
             if nid not in cortex.neurons:
                 continue
             neuron = cortex.neurons[nid]
+            _out_vocab = getattr(neuron.lm_head, "out_features", None) if neuron.lm_head is not None else None
+            if _out_vocab != 256000:
+                n_lora_skip += 1
+                logger.info(
+                    "[assemble_cortex] 跳过 %s 的 lora_state（lm_head=%s ≠ general 256K，"
+                    "域词表 neuron 保域能力）", nid, _out_vocab,
+                )
+                continue
             if len(neuron.lora_adapters) == 0:
                 # 先启用 LoRA（rank 从已保存 a.weight 推断，层默认最后 2 层）
                 rank = 0
@@ -972,7 +985,7 @@ def _load_collab_weights_into_cortex(
                 n_lora += 1
             except Exception as e:
                 logger.warning("[assemble_cortex] %s lora_state 加载失败: %s", nid, e)
-        logger.info("[assemble_cortex] lora_state 已应用: %d 个 neuron", n_lora)
+        logger.info("[assemble_cortex] lora_state 已应用: %d 个 neuron（跳过域词表 %d）", n_lora, n_lora_skip)
 
     logger.info(
         "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d, "

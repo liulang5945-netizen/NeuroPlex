@@ -1492,6 +1492,10 @@ class ResonanceEnsemble:
             "skip_reason": None,
             "adaptive_stopped": adaptive_stop_reason is not None,  # C9
             "adaptive_stop_reason": adaptive_stop_reason,  # C9
+            # C21（2026-08-08）：round1 独立 logits（无场条件化）——executive 模式
+            # leader 生成用（协作/共振分只用于任务模式判定，不污染 leader 的域
+            # 词表能力输出；round2 场条件化会注入混合域信号，稀释 dialogue 的 zh 能力）
+            "round1_logits": round_logits,  # {nid: [B, L, V]}（非 large_scale 时全量）
         }
 
         # C19（2026-08-08）：推理路径也暴露 round1 quality_logits（回合级聚合）

@@ -255,6 +255,19 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - **已知限制**：zh general neuron 是"全能型"（对多数文本 NLL 低）→ quality z 系统性偏高，靠 0.7σ 显著门防错误覆盖；生成质量仍碎片（C16 基座限制，非 C20 范围）
 - **产出**：collab_v3_c20.ckpt.pt（head_state 分量，C18 注入格式兼容）；验证脚本 verify_c20_round_quality.py
 
+**C21 实施（词库多词表架构正式化，2026-08-08 ✅ 核心目标达成）**：
+- **架构定位（用户核心需求）**：词库 = 多独立词表的可扩展集合（容量不限），neuron 绑定自己的词表，跨词表靠词库转译协作；新 neuron 自带词表可插拔接入。**反转 C19 的"全 general decode"**（把 5 个 dialogue neuron 的 zh 头当"第二空间"是历史残留，但统一到 256K 违背可插拔需求）。
+- **关键验证发现**：
+  - dialogue neuron 能力**未退化**：general 输入 + zh 头 + zh decode（v3 口径）能生成中文——碎片主因是 C19 用 general 词表解析 zh 空间 id（错位）
+  - **C16 LoRA 是 dialogue 负资产**：C16 在 general 目标空间 + 转译投影下训 LoRA，注入后 dialogue zh 生成退化；跳过（loader 按 lm_head 空间判断，256K 头才注入）后恢复流畅中文
+  - **round2 场污染**：装配后 dialogue 的 zh 输出被英文 neuron 的混合场污染 → 中英混合；leader 改用 **round1 独立 logits**（无场条件化，协作只用于判定）后生成干净
+- **代码落地**：
+  - [cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_generate_p7`：decode 按 leader 词表空间（general 256K → identity 回填；zh 50K → zh decode + domain→general 回填 v3 口径）；leader 用 `round1_logits`（无场）
+  - [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)：forward 暴露 `round1_logits`
+  - [loader.py](file:///e:/taiji-neuron/taiji/loader.py)：lora_state 按 lm_head 空间过滤（≠256K 跳过）
+- **✅ 验证**（verify_c21_generate.py）：回合级判定 5/5；dialogue executive 生成**流畅中文问答**（"，我会尽力给您。这些时间可以帮助您给出一个问题："）；code/math/zh/en 生成弱 = general 基座能力问题（foundation 600 步训练不足，非架构问题）
+- **遗留**：4 个 general neuron 的生成能力弱（zh 回显/math/en 碎片/code 简短）——后续用域目标空间训练增强（同 dialogue 修复路径）
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

@@ -1631,13 +1631,13 @@ class Cortex:
                 pass  # 共振探测失败，保留关键词路由结果
 
         # 3. Domain EOS
-        # C19（2026-08-08）：生成/decode 全程 general 256K 空间——所有 neuron
-        # 共享 general lm_head（2026-08-07 收敛），logits 原生在 general 空间。
-        # domain 只用于激活 neuron 选择（任务模式），不再用于 tokenizer/decode。
-        # 旧路径用 domain_sp 解析 general 空间 token id → OUT_OF_RANGE（domain
-        # vocab 10k-50k < general 256K），且 id 语义错配（同 id 跨词表意义不同）。
+        # C21（2026-08-08）：词库多词表架构——decode 按生成 logits 的词表空间。
+        # 默认 general 256K（general 头 neuron）；leader 是 zh 头 neuron（50K）时
+        # 切到 zh decode + domain→general 回填（v3 口径，自回归输入保持 general 空间）。
+        # C19 曾统一 general decode → zh 空间 id 被 general 词表错位解析 → dialogue 碎片。
         eos_id = hub.eos_token_id("general")
-        domain_sp = None  # decode 统一走 general_sp（见下方生成循环与最终 decode）
+        decode_sp = self._general_sp  # 当前生成词表空间（leader 分支可能覆盖为 zh）
+        domain_sp = None
         alignment_table = None
 
         generated_pieces = []
@@ -1743,10 +1743,38 @@ class Cortex:
                 else:
                     leader_nid = max(final_scores, key=final_scores.get)
                 if leader_nid in neuron_logits:
-                    logits = neuron_logits[leader_nid][:, -1, :] / temperature
+                    # C21（词库多词表）：leader 用 round1 独立 logits（无场条件化）——
+                    # round2 场注入混合域信号会稀释 leader 的域词表能力（dialogue 的
+                    # zh 输出被英文 neuron 的场污染 → 中英混合碎片）。协作/共振分只
+                    # 用于任务模式判定，生成用 leader 自身干净能力。fallback 到
+                    # neuron_logits（round1_logits 未提供时）。
+                    r1_logits = result.get("round1_logits") or {}
+                    if leader_nid in r1_logits:
+                        leader_logits_full = r1_logits[leader_nid]
+                    else:
+                        leader_logits_full = neuron_logits[leader_nid]
+                    logits = leader_logits_full[:, -1, :] / temperature
                 else:
                     # 族长 logits 未保留（large_scale top-K 过滤），取任意可用
-                    logits = next(iter(neuron_logits.values()))[:, -1, :] / temperature
+                    r1_logits = result.get("round1_logits") or {}
+                    if leader_nid in r1_logits:
+                        leader_logits_full = r1_logits[leader_nid]
+                    else:
+                        leader_logits_full = next(iter(neuron_logits.values()))
+                    logits = leader_logits_full[:, -1, :] / temperature
+                # C21（词库多词表）：decode 按 leader 词表空间——general 头（256K）
+                # → general decode（identity 回填）；zh 头（50K）→ zh decode +
+                # domain→general 回填（v3 口径）。词库容量不限定，新词表在此扩展。
+                _lv = leader_logits_full.shape[-1]
+                if _lv == 50000:
+                    _zh_sp = hub.get_tokenizer("zh") if "zh" in hub.list_domains() else None
+                    if _zh_sp is not None:
+                        decode_sp = _zh_sp
+                        eos_id = _zh_sp.eos_id() if hasattr(_zh_sp, "eos_id") else eos_id
+                    else:
+                        decode_sp = self._general_sp
+                else:
+                    decode_sp = self._general_sp
             elif result.get("weighted_logits") is not None:
                 # 优先用 ensemble 的 per-position routing（同 vocab 时由
                 # _compute_per_position_weights 算出，基于每位置 entropy/confidence
@@ -1832,26 +1860,35 @@ class Cortex:
             # （中文标点 .，！？ 等含全角形式，一并视为正常内容）
             if len(generated_ids_ordered) >= 4:
                 _cjk_or_punct = re.compile(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2014\u2018\u2019\u201c\u201d\u2026]')
-                last_pieces = [self._general_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
+                last_pieces = [decode_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
                 non_cjk = sum(1 for p in last_pieces if not _cjk_or_punct.search(p))
                 if non_cjk >= 3:
                     while generated_ids_ordered and not _cjk_or_punct.search(
-                        self._general_sp.id_to_piece(generated_ids_ordered[-1])
+                        decode_sp.id_to_piece(generated_ids_ordered[-1])
                     ):
                         generated_ids_ordered.pop()
                     break
 
-            # C19（2026-08-08）：general 空间恒等回填——neuron logits 原生在
-            # general 256K 空间，采样 token 直接作为下一轮输入（无需 domain→
-            # general 对齐表转译；旧路径 id 语义错配已废弃）。
-            generated_pieces.append(self._general_sp.id_to_piece(next_token))
-            general_ids.append(next_token)
+            # C21（2026-08-08）：词库多词表回填——按当前生成词表空间。
+            # - general 空间（256K）：恒等回填（neuron logits 原生在此空间）
+            # - zh 空间（50K）：domain token → 文本 → general ids 回填（v3 口径，
+            #   自回归输入保持 general 空间，避免 C19 的 id 语义错位）
+            if decode_sp is self._general_sp:
+                generated_pieces.append(self._general_sp.id_to_piece(next_token))
+                general_ids.append(next_token)
+            else:
+                _piece = decode_sp.id_to_piece(next_token)
+                generated_pieces.append(_piece)
+                _text = decode_sp.decode([next_token])
+                _new_general = self._general_sp.encode(_text)
+                if _new_general:
+                    general_ids.extend(_new_general)
 
-        # Decode with general tokenizer（logits 在 general 256K 空间）
+        # Decode with 当前词表空间 tokenizer（多词表架构）
         # P7-修复（2026-08-04）：用 DecodeIds 替代 "".join(pieces)
         # 旧拼接会把 byte fallback piece（如 <0x0A>）原样输出，DecodeIds 正确处理字节 token。
         if generated_ids_ordered:
-            result_text = self._general_sp.DecodeIds(generated_ids_ordered)
+            result_text = decode_sp.DecodeIds(generated_ids_ordered)
         elif generated_pieces:
             result_text = "".join(generated_pieces).replace("▁", " ")
         else:
