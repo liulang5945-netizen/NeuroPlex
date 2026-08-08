@@ -322,10 +322,13 @@ def main():
     for r in rounds:
         by_source.setdefault(r[2], []).append(r)
     sources = list(by_source.keys())
+    # C23-C4 fix（2026-08-08）：seed 必须在 shuffle 之前——原代码 seed(42) 在
+    # shuffle 之后，每次运行 batch 顺序不同，跨训练对比（C20 vs C23 phasor）
+    # 失去公平性，quality_head 学出的 ql 分布不可复现。
+    random.seed(42)
     for src, lst in by_source.items():
         random.shuffle(lst)
         print(f"  [{src}] {len(lst)} 回合", flush=True)
-    random.seed(42)
     total_steps_per_epoch = sum(
         max(1, (len(lst) - args.batch_size) // args.batch_size) for lst in by_source.values()
     )

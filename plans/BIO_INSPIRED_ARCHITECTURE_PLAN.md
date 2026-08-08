@@ -330,7 +330,8 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - **根因（监督污染链）**：forward_train 场构造段 binding 调制 `all_vecs_weighted×(1+β·bvec)` → field_state → round2 logits → `per_neuron_nll` → contrastive 监督目标（ideal）被相位自组织驱动漂移。phase_loss 的目标是 binding∥共振分（与 NLL 质量语义无关）→ **两个监督信号打架** → quality_head 学乱 → E2 段 contrastive 饱和 18.42（KL 上界，C20 零饱和）。冒烟训练太短未暴露，完整配方暴露。
   - **修复（分工修正）**：训练 forward_train 场构造**不再**按 binding 调制——监督测"谁能预测好"（纯净 NLL，与 C20 一致）；相位只经 scores 段调制共振分 + phase_loss 可微（ω/K 梯度路径保留）；**推理 forward 场写入 binding 本体化（C23-B）保留不动**。
   - **✅ 冒烟 15/15 PASS**（test_6/test_8 更新为新语义：训练场无调制断言 + scores 段可微保留）
-  - **验证中**：collab_v3_c23_c4 完整配方重训（2 epoch），对比 contrastive 饱和率/ql 分布/判定 5/5
+  - **✅ 同 seed 复现验证（60 条/域 1 epoch）**：C20 无 phasor 与 C23 有 phasor 的 ql 分布**完全一致**——C23-C4 修复后 phasor 对 quality_head 零干扰。此前 C20(5/5) vs C23_c4(3/5) 判定差异归因于 **seed bug**（`random.seed(42)` 在 shuffle 之后，两次完整训练数据顺序不同，对比不公）→ 已修复 seed 位置。
+  - **验证中**：c23_final_seeded（同 seed 完整配方 200 条/域 + 300 对话 2 epoch + phasor）端到端判定对比 C20 同 seed 基线
 - **遗留**：loader 推理仍用标量 GammaOscillator（PhasorDynamics 提升为默认装配可选）
 
 ---
