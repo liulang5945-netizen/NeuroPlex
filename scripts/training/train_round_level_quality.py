@@ -193,6 +193,8 @@ def main():
                         help="相位绑定强度 β（scores/场写入 × (1+β·binding)）")
     parser.add_argument("--phasor-lr", type=float, default=1e-3,
                         help="相位切向演化学习率（task_gradient_step）")
+    parser.add_argument("--phasor-weight", type=float, default=1.0,
+                        help="phase-binding loss 权重（绑定 vs 共振贡献对齐，驱动 ω/K 学习）")
     args = parser.parse_args()
 
     global DEVICE
@@ -354,6 +356,13 @@ def main():
                     target_domain="general",
                 )
                 total_loss = args.contrastive_weight * result["contrastive_loss"]
+                if args.enable_phasor:
+                    # C23-C2：phase-binding loss（绑定 vs 共振贡献对齐）——
+                    # contrastive_loss 只依赖 quality_logits/NLL（不经 binding），
+                    # 必须显式加此项 ω/K/phasors 才收到任务梯度
+                    pl = result.get("phase_loss")
+                    if pl is not None and pl.requires_grad:
+                        total_loss = total_loss + args.phasor_weight * pl
                 total_loss.backward()
                 optimizer.step()
                 if phasor is not None:

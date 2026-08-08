@@ -320,6 +320,12 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **✅ 冒烟 15/15 PASS**：ω 收到梯度 |∇ω|=0.21、K 收到梯度 |∇K|=0.49；任务驱动 ω 演化 Δω=0.07
 - **C23 全部完成**：共振权重（A）+ 场本体（B）+ 相位动力学端到端可学（C）——相位同步本体化闭环，从"装饰"变为"骨架"（缺口 R 核心项落地）
 
+**C23-C3 实施（训练验证发现 + phase-binding loss 修复，2026-08-08 ✅ 训练实测 ω/K 学习）**：
+- **验证发现（重要）**：带 --enable-phasor 跑 C20 训练（60 条/域 × 116 steps），checkpoint 显示 **ω/K 恒初始值**（0.7854/0.05）——**contrastive_loss 只依赖 quality_logits/NLL，完全不经过 binding 路径** → 相位绑定的梯度在真实训练中断（冒烟梯度通 ≠ 训练生效）。phases 全收敛 0.314 是 Kuramoto 物理牵引（同频+全激活共牵引），非任务信号。
+- **修复**：新增 **phase-binding loss**——`binding ∥ normalize(scores_pre)`（调制前共振分），语义"谁共振贡献大谁同相"（绑结与协作贡献对齐）。`forward_train` 计算并返回 `phase_loss`；train 脚本 `--phasor-weight`（默认 1.0）加入 total_loss。
+- **✅ 训练实测（30 条/域 × 56 steps）**：ω 分化 0.7854→[0.738,0.731,0.833,0.837]；K 学习 0.05→−0.0014；相位自组织分化（不再 Kuramoto 同化的全 0.314，而为 [−0.39,−0.27,0.76,1.11]）——**任务驱动的相位自组织验证成立**
+- **遗留**：phase_loss 未记录进 loss_history（诊断字段）；完整配方训练（200 条/域 + 对话）待跑；loader 推理仍用标量 GammaOscillator（PhasorDynamics 提升为默认装配可选）
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

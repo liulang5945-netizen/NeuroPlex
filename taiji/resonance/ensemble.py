@@ -336,6 +336,8 @@ class ResonanceEnsemble:
         self.gamma_oscillator = gamma_oscillator
         # C23-C（2026-08-08）：最后一轮可微演化相位（forward_train 用，梯度到 ω/K）
         self._last_evolved_phasors = None
+        # C23-C2：phase-binding loss（绑定 vs 共振贡献对齐，forward_train 计算）
+        self._phase_loss = torch.tensor(0.0)
 
         # ── RSGN 融合: 几何坐标空间（神经元距离衰减先验）──
         # S7: 优先使用外部传入的 geometry（与拓扑构建共享同一实例）
@@ -2126,6 +2128,13 @@ class ResonanceEnsemble:
                             bvec = gamma_oscillator.binding_tensor(
                                 list(active_ids), coactivation=self.coaction,
                             ).to(scores.device)
+                        # C23-C2（2026-08-08）：phase-binding loss——绑定与调制前
+                        # 共振分对齐（"谁共振贡献大谁同相"）。contrastive_loss 只
+                        # 依赖 quality_logits/NLL（不经 binding），若无此 loss 项，
+                        # ω/K/phasors 在训练中梯度恒为 0（C20 训练实测）。
+                        self._phase_loss = F.mse_loss(
+                            bvec, F.normalize(scores.detach(), dim=0)
+                        )
                         scores = scores * (1.0 + bs * bvec)
                     else:
                         # C23（2026-08-08）：标量相位绑定（GammaOscillator）——
@@ -2363,6 +2372,7 @@ class ResonanceEnsemble:
             "diversity_loss": diversity_loss,
             "contrastive_loss": contrastive_loss,  # C12
             "router_contrastive_loss": router_contrastive_loss,  # §4.0d
+            "phase_loss": self._phase_loss,  # C23-C2: 绑定 vs 共振贡献对齐（可微相位驱动）
             "per_neuron_nll": per_neuron_nll,  # C16b: 原始 NLL（诊断）
             "per_neuron_nll_z": nll_z,  # C16b: 标准化 z-score（诊断）
             "field_state": field_state_full,
