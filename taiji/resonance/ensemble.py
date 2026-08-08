@@ -2033,41 +2033,15 @@ class ResonanceEnsemble:
             round_confidences_new[nid] for nid in active_ids
         ])  # [N, B]
         all_vecs_weighted = all_vecs_norm * all_confidences.unsqueeze(-1)  # [N, B, D]
-        # C23-B（2026-08-08）：相位同步塑造训练场状态——同相群体写入增强、
-        # 异相解绑（与推理 forward 场写入一致；让相位绑结成为可学习信号）
-        if gamma_oscillator is not None:
-            try:
-                bs = float(getattr(gamma_oscillator, "binding_scale", 0.0))
-                if bs != 0.0:
-                    if getattr(gamma_oscillator, "differentiable", False):
-                        # C23-C：可微绑定（用最后一轮可微演化相位 → ω/K 梯度路径）
-                        ev_p = getattr(self, "_last_evolved_phasors", None)
-                        if ev_p is not None and ev_p.shape[0] == len(active_ids):
-                            bvec = gamma_oscillator.binding_tensor(
-                                list(active_ids), coactivation=self.coaction,
-                                phasors=ev_p,
-                            ).to(all_vecs_weighted.device)
-                        else:
-                            bvec = gamma_oscillator.binding_tensor(
-                                list(active_ids), coactivation=self.coaction,
-                            ).to(all_vecs_weighted.device)
-                    else:
-                        # C23-B：标量绑定（GammaOscillator）
-                        binding = gamma_oscillator.pairwise_binding(
-                            list(active_ids), coactivation=self.coaction,
-                        )
-                        bvec = None
-                        if binding:
-                            bvec = torch.tensor(
-                                [binding.get(nid, 0.0) for nid in active_ids],
-                                dtype=torch.float32, device=all_vecs_weighted.device,
-                            )
-                    if bvec is not None:
-                        all_vecs_weighted = all_vecs_weighted * (
-                            1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)
-                        )  # [N, B, D]
-            except Exception:
-                pass
+        # C23-B（2026-08-08）训练场调制→C23-C4 修复（2026-08-08）：
+        # 训练 forward_train **不再**用 binding 调制场构造。原因（完整配方训练实测）：
+        # binding 调制 field_state → round2 logits → per_neuron_nll → contrastive 监督
+        # 目标（ideal）被相位自组织驱动漂移；而 phase_loss 的目标是 binding∥共振分
+        # （与 NLL 质量语义无关）→ 两个监督信号打架 → quality_head 学乱（dialogue
+        # ql 膨胀到 50）→ E2 段 contrastive 饱和 18.42（C20 零饱和）。
+        # 分工修正：训练监督测"谁能预测好"（纯净 NLL，与 C20 一致）；相位只经
+        # scores 段调制共振分 + phase_loss 可微（ω/K 梯度路径保留）；推理 forward
+        # 场写入 binding 本体化（C23-B）保留不动。
         # C7: 空间场扩散（评分时也用扩散后的 vectors，保持训练一致性）
         if self.spatial_diffuser is not None:
             all_vecs_weighted = self.spatial_diffuser.diffuse(

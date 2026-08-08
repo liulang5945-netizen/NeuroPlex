@@ -325,7 +325,12 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **修复**：新增 **phase-binding loss**——`binding ∥ normalize(scores_pre)`（调制前共振分），语义"谁共振贡献大谁同相"（绑结与协作贡献对齐）。`forward_train` 计算并返回 `phase_loss`；train 脚本 `--phasor-weight`（默认 1.0）加入 total_loss。
 - **✅ 训练实测（30 条/域 × 56 steps）**：ω 分化 0.7854→[0.738,0.731,0.833,0.837]；K 学习 0.05→−0.0014；相位自组织分化（不再 Kuramoto 同化的全 0.314，而为 [−0.39,−0.27,0.76,1.11]）——**任务驱动的相位自组织验证成立**
 - **✅ phase_loss 记录进 loss_history**（2026-08-08 验证）：train 脚本 loss_history 增补 `phase_loss` 字段（result.get 容错），验证训练 7/7 条记录含 phase_loss，值 0.99→0.13 收敛；checkpoint 含 `phasor_state` 分量确认
-- **进行中**：完整配方训练（200 条/域 + 300 对话，2 epoch，--enable-phasor）对比开/关相位可微的 quality 收敛（collab_v3_c23_full）
+- **C23-C4 修复（完整配方训练暴露监督污染，2026-08-08）**：
+  - **现象**：collab_v3_c23_full（200 条/域 + 300 对话，2 epoch，--enable-phasor）训练完成后端到端判定退化——C20 判定 5/5 全对（math→math），C23 full 4/5（**math→zh**）。quality_logits 膨胀（zh_aug2_dialogue ql −4.2→50），head 权重差异 <0.08 却产生 54 级 ql 差。
+  - **根因（监督污染链）**：forward_train 场构造段 binding 调制 `all_vecs_weighted×(1+β·bvec)` → field_state → round2 logits → `per_neuron_nll` → contrastive 监督目标（ideal）被相位自组织驱动漂移。phase_loss 的目标是 binding∥共振分（与 NLL 质量语义无关）→ **两个监督信号打架** → quality_head 学乱 → E2 段 contrastive 饱和 18.42（KL 上界，C20 零饱和）。冒烟训练太短未暴露，完整配方暴露。
+  - **修复（分工修正）**：训练 forward_train 场构造**不再**按 binding 调制——监督测"谁能预测好"（纯净 NLL，与 C20 一致）；相位只经 scores 段调制共振分 + phase_loss 可微（ω/K 梯度路径保留）；**推理 forward 场写入 binding 本体化（C23-B）保留不动**。
+  - **✅ 冒烟 15/15 PASS**（test_6/test_8 更新为新语义：训练场无调制断言 + scores 段可微保留）
+  - **验证中**：collab_v3_c23_c4 完整配方重训（2 epoch），对比 contrastive 饱和率/ql 分布/判定 5/5
 - **遗留**：loader 推理仍用标量 GammaOscillator（PhasorDynamics 提升为默认装配可选）
 
 ---

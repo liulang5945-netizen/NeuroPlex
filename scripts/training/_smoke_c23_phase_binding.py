@@ -108,11 +108,16 @@ def test_6_wired_into_ensemble():
     fwdtr_src = inspect.getsource(en.ResonanceEnsemble.forward_train)
     check("forward 已接入 pairwise_binding（scores 调制）", "pairwise_binding" in fwd_src)
     check("forward_train 已接入 pairwise_binding", "pairwise_binding" in fwdtr_src)
-    # C23-B：场写入绑定
+    # C23-B：场写入绑定（推理 forward 本体化）
     check("forward 场写入已按绑定调制（round1/2+ scale）",
           "1.0 + binding_bs * binding_map.get(nid, 0.0)" in fwd_src)
-    check("forward_train 场状态已按绑定加权",
-          "1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)" in fwdtr_src)
+    # C23-C4（2026-08-08）：训练 forward_train 场构造**不再**按绑定调制——
+    # binding 调制 field_state → round2 logits → per_neuron_nll → contrastive 监督
+    # 目标被相位自组织驱动漂移（与 phase_loss 目标打架，quality_head 学乱，
+    # E2 段 contrastive 饱和 18.42，C20 零饱和）。监督测"谁能预测好"（纯净
+    # NLL，与 C20 一致）；相位只经 scores 段调制共振分 + phase_loss 可微。
+    check("forward_train 场构造不再按绑定调制（监督纯净化，C23-C4）",
+          "1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)" not in fwdtr_src)
 
 
 def test_7_write_scale_binding():
@@ -134,28 +139,33 @@ def test_7_write_scale_binding():
 
 
 def test_8_train_field_binding_weight():
-    """forward_train 场构造加权：同相方向分量增强、异相衰减（[N,B,D] 乘法）。"""
+    """C23-C4：训练场构造不被 binding 调制（监督纯净化）。
+
+    回归旧行为：binding 调制 field_state → round2 logits → per_neuron_nll →
+    contrastive 监督目标被相位自组织驱动漂移（E2 段 contrastive 饱和 18.42，
+    quality_head 学乱）。修复后训练场 = 纯净共振场（与 C20 一致），
+    相位只经 scores 段调制 + phase_loss 可微。
+    """
     import torch
-    osc = GammaOscillator(binding_scale=0.3)
-    osc.assign_phase("zh_1", 0.0)
-    osc.assign_phase("zh_2", 0.0)
-    osc.assign_phase("zh_3", 0.0)
-    osc.assign_phase("en_1", math.pi)
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(binding_scale=0.3)
+    ph.register_neurons(["zh_1", "zh_2", "zh_3", "en_1"], phases=[0.0, 0.0, 0.0, math.pi])
     ids = ["zh_1", "zh_2", "zh_3", "en_1"]
-    b = osc.pairwise_binding(ids)
-    bs = osc.binding_scale
-    # 模拟 forward_train：all_vecs_weighted [N=4, B=1, D=4]
     torch.manual_seed(0)
     vecs = torch.randn(4, 1, 4)
     vecs_orig = vecs.clone()
-    bvec = torch.tensor([b[n] for n in ids], dtype=torch.float32)
-    vecs = vecs * (1.0 + bs * bvec.unsqueeze(1).unsqueeze(2))  # [N,1,4]
-    # 同相群体（zh）写入分量变强
-    norm_zh = vecs[0].norm().item() / vecs_orig[0].norm().item()
-    norm_en = vecs[3].norm().item() / vecs_orig[3].norm().item()
-    check("同相群体写入分量增强、异相衰减",
-          norm_zh > 1.0 and norm_en < 1.0,
-          f"zh norm×{norm_zh:.3f}（增强） en norm×{norm_en:.3f}（衰减）")
+    # 训练场构造不乘 binding：直接 sum（等价 bs=0 路径，无绑定调制）
+    field_state = vecs.sum(dim=0)
+    field_state_clean = vecs_orig.sum(dim=0)
+    check("训练场构造无 binding 调制（监督纯净，C23-C4）",
+          torch.allclose(field_state, field_state_clean),
+          f"Δ={ (field_state - field_state_clean).abs().max().item():.2e}（应为 0）")
+    # 相位可微路径仍保留：binding 梯度流经 phasors（scores 段调制驱动 ω/K）
+    b = ph.binding_tensor(ids)
+    loss = (1.0 + ph.binding_scale * b).sum()
+    loss.backward()
+    check("scores 段 binding 调制仍可微（相位可学习路径保留）",
+          ph.phasors.grad is not None and ph.phasors.grad.abs().sum().item() > 0)
 
 
 def test_9_phasor_differentiable():
