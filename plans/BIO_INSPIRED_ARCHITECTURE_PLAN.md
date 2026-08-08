@@ -170,6 +170,79 @@ base 预训练 ──► dialogue fine-tune ──► cross_spec 协作层 ─�
 
 这是态极自主演化的完整闭环：**喂（数据）→ 睡（整合+新生+凋零）→ 醒（应用）**，无需手动训练脚本。IntegrateEngine 是最后一块拼图（当前缺口：新生 neuron 无整合、粗暴加入）。
 
+### 2.7 🔄 任务级路由设计（Executive Control Routing，C19，2026-08-08）
+
+**背景与动机**：C12-C16 四次路由迭代（LOO cosine / 域判别 head / quality_head NLL / gate+z-score）全部失败的共同根因 = **"统一空间 + 全局 token 级竞争"范式本身与生物机制相悖**：
+- NLL/cosine/logit 跨 neuron 天然不可比（native general vs 转译、英文 vs 中文匹配度、分布锐度）→ 每次修复（温度/gate/z-score）都是在不可比信号上打补丁
+- token 级 softmax 竞争导致回复频繁切换 neuron、风格与一致性断裂（C16 生成空洞乱码的直接表现）
+
+**人脑参照**（执行控制 + 结构分工）：
+1. **解剖结构分工**：面孔→梭状回（FFA）、语言→布罗卡/韦尼克区。分工是硬连线（发育期突触竞争+修剪固化），不是推理时动态学出来的
+2. **任务级执行切换**：前额叶执行控制网络（dorsolateral PFC）决定"当前任务模式"（task set），模式确定后整条通路激活直到任务结束——不在句子内逐字切换脑区
+3. **局部竞争**：winner-take-all（侧抑制）只发生在同功能内部（同皮层柱、同输入候选解释之间），天然可比；跨脑区不是竞争，是信息传递
+4. **层级流水线**：跨脑区协作 = 前馈预测 + 反馈误差（预测编码），串行/层级，非同一时刻 logits 融合
+
+**范式转变**：
+```
+token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，统一 256K 空间投影
+  ↓
+任务级（C19）：回合（用户消息）级判定任务模式 → 主导 neuron 回合内稳定生成，
+             不做 token 级竞争；quality_head 升级为回合级信号
+```
+
+**现有基础（可复用，无需重造）**：
+- `cortex._infer_domain(text)`：启发式回合级域判定（code>math>zh>en>general，关键词+结构），✅ 已实现
+- `cortex.generate(domain=...)` / `_generate_p7`：`domain` 参数直接指定回合级主导域，✅ 已实现
+- hybrid 共振校验（routing_mode）：domain 判定后 probe forward 校验/切换，✅ 已实现
+- `_fingerprint_route` / `_auto_topk_route`：prototype cosine 回合级 top-k，✅ 已实现
+- quality_head（C16 产物）：MLP 结构保留，监督目标升级为**回合级**
+- LoRA 保护 body（C16 原则）：body 冻结 + 低秩增量，零崩坏已验证，不变
+- C18 客户端链路：assemble_cortex + chat/feed/sleep，✅ 已实现
+
+**核心设计**：
+
+**组件 1：ExecutiveController（执行控制器，新）**
+```
+回合输入（用户消息 + 对话历史）
+  ├─ 信号 1: 启发式域判定 _infer_domain（快、可解释、回合级稳定）
+  ├─ 信号 2: quality_head 回合级聚合（learned：各 neuron round1 对回合文本
+  │          质量 logit → 回合级 [N]，融合置信度）
+  ├─ 信号 3: prototype cosine（_fingerprint_route，可选）
+  └─ 融合 → 主导任务模式 dominant_domain + 置信度
+```
+
+**组件 2：任务模式生成（回合内稳定）**
+- 主导 neuron 激活（+ general 辅助），其他 neuron 不参与
+- 回合内不做 token 级切换（风格/一致性；人脑任务模式激活直到任务结束）
+- 生成空间：保留统一 general 空间（C18 客户端链路不动，dominant 在 general 空间自回归）
+
+**组件 3：回合级监督训练（quality_head 升级，核心）**
+- 监督粒度：token 级 NLL 排序 → **回合级真实生成质量**
+- 机制：候选 neuron 轮流主导生成完整回复 → 对比回复质量 → 质量最优者获该回合标签 → 训练 quality_head（回合级 softmax 对齐）
+- **为什么能避免 C16 的不可比**：比较对象是"完整回复的优劣"（回合粒度、同一评估器、天然可比），而非 token 级 NLL（跨空间不可比）
+- 评估器候选：① 全量融合 NLL（dominant 回复为目标的 CE）；② 外部评估器（LLM 评分）；③ 启发式指标（长度/重复率/风格一致性）
+
+**关键决策点（2026-08-08 已确认）**：
+- A. ✅ 判定信号：**混合**（启发式 _infer_domain + quality_head 回合级聚合，置信度融合）
+- B. ✅ 回合级监督评估器：**融合 NLL 自监督**（候选轮流主导生成 → 全量融合 NLL 评估 → 标签训练 quality_head，免外部依赖）
+- C. 多阶段任务（zh 理解→code 生成→zh 表达）留作 v2，v1 先回合级稳定
+
+**实施进度（2026-08-08 冒烟验证通过，verify_c19_executive.py）**：
+
+| 验证项 | 结果 |
+|---|---|
+| round1 quality_logits 全收集 | ✅ 9/9（修复：final 聚合用 round1 快照，非共振过滤后 active_ids） |
+| 回合级判定（warmup 内启发式主导） | ✅ code→code / zh→zh / dialogue→zh / en→en；math→en 为启发式误判（C20 quality 修正场景） |
+| quality 混合信号 | ✅ per-neuron EMA z-score + 成熟度门（count<20 回退启发式，C20 训练后自动生效） |
+| executive 生成（40 token） | ✅ 无 OUT_OF_RANGE；leader 限定 dominant 域 |
+| fusion 生成 | ✅ 无 OUT_OF_RANGE |
+
+**关键架构收敛（本次实施发现的遗留问题）**：
+- 2026-08-07 所有 neuron 共享 general lm_head（logits 统一 256K 空间）后，`_generate_p7` 仍用 **domain tokenizer decode**（2026-07-31 per-neuron lm_head 时代的正确做法）→ general 空间 token id 被当 domain vocab 解析 → **OUT_OF_RANGE**。已收敛：生成/decode 全程 general 256K 空间（identity 回填），domain 只负责激活 neuron 选择。
+- quality_logit 跨 neuron 不可比（C16b 教训在 quality 域重演：未校准 code head 恒高 16.9 vs 其他 -2~-5）→ `_executive_route` 复用 C16b EMA z-score + warmup 成熟度门，未训练时回退启发式（回退安全）。
+
+**已知限制**：executive 生成质量仍为碎片（C16 基座训练限制，zh 域 neuron 在 general 空间中文能力弱），非 C19 机制问题——C20 回合级训练提升 quality 判定的同时，基座能力提升靠后续训练。
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

@@ -162,7 +162,7 @@
 
 ---
 
-## 📌 当前执行状态（2026-08-07 更新）
+## 📌 当前执行状态（2026-08-08 更新）
 
 **"共享 general lm_head 统一输出空间"：基座训练完成 ✅ + 产物验证 ✅ + 路由适配完成 ✅**
 
@@ -301,6 +301,11 @@
       - **C16c LOO 融合增益实验**：contrib=NLL(去i)-NLL(全)，全部 uniform——base 融合在 max-prob 路由下被转译 neuron 抢位质量差，边际贡献全负，信号不可用，弃
       - **C16d 最终方案：gate+z-score**——z-score（相对自身水平）解决 code 独占 + 绝对质量 gate（batch 最优 ×50 排除 NLL 基线巨大的转译 neuron）防 dialogue 抢英文。验证（verify_c16b_contrastive，25 步 EMA 预热）：code→code ✓ math→math ✓ zh/dialogue→zh_aug ✓ en→math（en 域数据不足致 math 相对提升更大，信号语义正确）。重训中（collab_v3_c16 覆盖，2.5-3h）
       - **经验固化**：NLL 跨 neuron 不可比是 C12/C14b/C16 三次失败的共同根因（跨空间地位：native general vs 转译；英文 vs 中文匹配度）。绝对 NLL 偏锐度、纯 z-score 偏高基线、LOO 依赖 base 融合质量——gate+z-score 是当前可用组合
+    - **🔴 范式转向（2026-08-08，用户决策：停止 token 级路由修补，转向任务级路由）**：
+      - **定性**：C12-C16 全部撞在同一堵墙——"统一空间 + 全局 token 级竞争"范式本身与生物机制相悖。人脑分工是**解剖结构**（面孔→梭状回/语言→布罗卡区），路由是**任务级**（前额叶执行控制切换任务模式），竞争只发生在**同功能内部**（侧抑制），跨脑区协作是**层级流水线**（前馈预测+反馈误差），从不做"跨脑区全局 token 竞争"
+      - **已终止**：C16d 重训（gate+z-score，刚起步 step 10）已停止，定时任务已删除。token 级融合训练线（train_cross_domain_collab.py 的 quality_head 路由）废弃
+      - **保留资产**：① LoRA 保护 body 原则（body 冻结 + 低秩增量，C16 已验证零崩坏）；② quality_head 结构（升级为**回合级**质量信号）；③ cortex 已有回合级判定基础设施（_infer_domain 启发式 + domain 参数 + hybrid 共振校验 + _fingerprint_route prototype）；④ C18 客户端链路（assemble_cortex + chat/feed/sleep）
+      - **下一步**：C19 任务级路由设计（见 BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.7 节）
 15. ✅ **C17 实施：新生神经元无缝衔接 IntegrateEngine（2026-08-08，设计→代码→冒烟）**：
     - **设计**：BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.6 节——人脑神经发生 4 阶段（静默→蒸馏→验证→固化/凋亡），参考"沉默突触/关键期可塑性/use-it-or-lose-it/关键期关闭"
     - **ensemble.py**：`_confidence_routing_fusion` 的 conf 乘 `maturity.get_resonance_weight`（新 neuron 融合权重 0.1→1.0 渐进，静默期不参与输出；成熟 neuron 返回 1.0 不受影响；maturity=None 时跳过向后兼容）
@@ -314,6 +319,14 @@
     - **assemble_cortex**：新增 `collab_name` 参数（默认 cross_spec_dialogue.pt，可指定 C16 训练 ckpt）
     - **验证**（verify_collab_runtime.py）：head 注入 5/6 ✓、lora 注入 5 个 b 非零 ✓、body 0 分量 ✓、生成不崩 ✓
     - **意义**：客户端端到端 = assemble_cortex(collab_name="collab_v3_c16.ckpt.pt") 后纯客户端驱动（chat/feed/sleep API），无需额外接线
+17. ✅ **C19 实施：任务级路由（Executive Control Routing）冒烟验证通过（2026-08-08，verify_c19_executive.py）**：
+    - **回合级判定**（[cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_executive_route`）：混合信号 = 启发式 `_infer_domain` 定基础域 + quality_head 回合级聚合（round1 全量 neuron 的 quality_logit → per-domain mean）→ 显著占优（>1.5×）切换。**复用 C16b 教训**：quality_logit 跨 neuron 不可比（未校准 code head 恒 16.9 vs 其他 -2~-5）→ per-neuron EMA z-score + 成熟度门（count<20 回退纯启发式，回退安全；C20 训练期间 EMA 自然积累后混合信号自动生效）
+    - **修复 blocker 1：quality_logits 只收集 1 个**（[ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)）——final 聚合误用共振过滤后的 `active_ids`（收敛后只剩最强 1 个）→ 改 round1 快照 `round1_active_ids`，9 个全收集 ✓
+    - **修复 blocker 2：生成 OUT_OF_RANGE**（[cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) `_generate_p7`）——**架构收敛遗留**：2026-08-07 共享 general lm_head 后 logits 统一 256K 空间，但 `_generate_p7` 仍用 domain tokenizer decode（2026-07-31 per-neuron lm_head 时代的正确做法）→ general 空间 id 越界 domain vocab。已收敛：生成/decode 全程 general 256K（identity 回填 + general_sp.DecodeIds），domain 只负责激活 neuron 选择
+    - **executive 生成**：leader 限定 dominant 域内最强 neuron（不跨域抢占），回合内稳定生成不融合
+    - **验证结果**：quality_logits 9/9 ✓；判定 code→code / zh→zh / dialogue→zh / en→en ✓（math→en 为启发式误判，C20 quality 修正场景）；executive/fusion 生成无 OUT_OF_RANGE ✓
+    - **已知限制**：executive 生成质量仍碎片（C16 基座在 general 空间中文能力弱，非 C19 机制问题），C20 回合级训练 + 基座能力提升解决
+    - **下一步（C20）**：回合级监督训练——候选 neuron 轮流主导生成完整回复 → 融合 NLL 评估 → 标签训练 quality_head（回合级对齐），使 quality 信号成熟并修正启发式误判（如 math→en）
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂

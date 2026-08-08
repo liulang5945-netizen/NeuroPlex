@@ -120,6 +120,15 @@ class Cortex:
         # Used for domain-specific lm_head targets and decoding.
         self._tokenizer_hub = None
 
+        # ── C19: 回合级 quality 判定 EMA（per-neuron 标准化）──
+        # quality_head 输出跨 neuron 不可比（C16b 教训：转译 neuron 基线巨大），
+        # _executive_route 用 per-neuron EMA z-score（相对自身水平）聚合域分。
+        # 样本数 < WARMUP 时不参与切换（回退纯启发式）；C20 训练 quality_head
+        # 期间 EMA 自然积累，成熟后混合信号自动生效。
+        self._quality_logit_ema: Dict[str, dict] = {}
+        self._quality_ema_warmup = 20
+        self._quality_ema_alpha = 0.05
+
         # ── Legacy tokenizer (for non-P7 paths) ──
         self._tokenizer = None
 
@@ -929,6 +938,9 @@ class Cortex:
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
                          - "per_position"（默认）：每位置按熵/置信度独立路由
                          - "residual"：族长完整预测 + 其他神经元残差修正
+            collab_mode: "fusion"（token 级融合，默认）/ "leader"（族长主导，不融合）
+                         / "executive"（C19 任务级：回合级执行控制判定 dominant 域 →
+                         任务模式激活 + 族长稳定生成，不做 token 级竞争）
 
         Returns:
             generated text string.
@@ -1163,6 +1175,96 @@ class Cortex:
         return _first_domain()
 
     @torch.no_grad()
+    def _executive_route(
+        self,
+        text: str,
+        quality_weight: float = 0.4,
+    ) -> tuple:
+        """C19 回合级任务模式判定（执行控制，2026-08-08）。
+
+        人脑参照：前额叶执行控制网络决定"当前任务模式"（task set），模式确定后
+        整条通路激活直到任务结束——不做 token 级竞争。取代 C12-C16 的 token 级
+        全局 softmax 路由（NLL/cosine/logit 跨 neuron 天然不可比，三次失败）。
+
+        混合信号：
+        1. 启发式域判定 _infer_domain（内容类型信号：代码关键字/数学符号/CJK）
+        2. quality_head 回合级聚合（learned：各 neuron round1 对回合文本的
+           预测质量 logit，按域聚合 mean）——C16 结构升级为回合级粒度
+
+        融合规则：启发式定基础域；quality 域分显著占优（>1.5× 基准）且与
+        启发式不同 → 切换（与 hybrid 共振校验同逻辑，回退安全）。
+
+        Returns:
+            (dominant_domain, confidence, per_domain_scores)
+        """
+        domain = self._infer_domain(text)
+        per_domain = {}  # {domain: mean quality z-score}
+        quality_ready = False
+        try:
+            if self._neuron_shared_embeddings and self._general_sp is not None:
+                general_ids = self._general_sp.encode(text)
+                if not general_ids:
+                    general_ids = [0]
+                ids_t = torch.tensor([general_ids], dtype=torch.long, device=self.device)
+                neuron_embeddings = {}
+                for nid, emb in self._neuron_shared_embeddings.items():
+                    neuron_embeddings[nid] = emb(ids_t)
+                probe = self.think(
+                    active_nids=list(self.neurons.keys()),
+                    neuron_embeddings=neuron_embeddings,
+                )
+                ql = probe.get("quality_logits")
+                if ql is not None:
+                    nids = list(self.neurons.keys())
+                    # 对齐校验：ql 顺序 = round1 active 顺序（active_nids 传全量时 == nids）
+                    # 长度不匹配（共振快照异常）→ 放弃 quality，回退纯启发式
+                    if len(ql) == len(nids):
+                        # per-neuron EMA 标准化（C16b 教训：quality logit 跨 neuron
+                        # 不可比，code 未校准 head 恒高 → 不做相对自身水平的 z-score
+                        # 会 code 独占）。EMA 纯统计（detach），不参与梯度。
+                        quality_ready = True
+                        zs = []
+                        for i, nid in enumerate(nids):
+                            v = float(ql[i].detach())
+                            s = self._quality_logit_ema.get(nid)
+                            if s is None:
+                                s = {"mean": v, "ms": v * v, "count": 1.0}
+                                self._quality_logit_ema[nid] = s
+                            else:
+                                s["count"] += 1.0
+                                a = min(self._quality_ema_alpha, 1.0 / s["count"])
+                                s["mean"] = (1 - a) * s["mean"] + a * v
+                                s["ms"] = (1 - a) * s["ms"] + a * v * v
+                            if s["count"] >= self._quality_ema_warmup:
+                                var = max(s["ms"] - s["mean"] ** 2, 1e-4)
+                                zs.append((float(ql[i]) - s["mean"]) / (var ** 0.5))
+                            else:
+                                zs.append(None)  # 未成熟，该 neuron 不参与
+                        # 只聚合成熟 neuron 的 z；全未成熟 → quality_ready=False
+                        for i, nid in enumerate(nids):
+                            if zs[i] is None:
+                                quality_ready = False
+                                break
+                        if quality_ready:
+                            for i, nid in enumerate(nids):
+                                d = nid.split("_")[0]
+                                per_domain.setdefault(d, []).append(zs[i])
+        except Exception:
+            pass  # probe 失败 → 纯启发式（回退安全）
+
+        per_domain_scores = {}
+        if quality_ready and per_domain:
+            per_domain_scores = {d: sum(v) / len(v) for d, v in per_domain.items()}
+            best_q_domain = max(per_domain_scores, key=per_domain_scores.get)
+            # 切换条件：quality 最优域与启发式不同，且显著占优（>1.5× 该域基线）
+            base = per_domain_scores.get(domain, 0.0)
+            if (best_q_domain != domain
+                    and per_domain_scores[best_q_domain] > base * 1.5 + 1e-6):
+                domain = best_q_domain
+        # 未成熟（warmup 内）或 probe 失败 → 纯启发式，quality 不主导（回退安全）
+        conf = 0.7 + 0.3 * (quality_weight if per_domain_scores else 0.0)
+        return domain, conf, per_domain_scores
+
     def _fingerprint_route(
         self,
         general_ids: List[int],
@@ -1440,7 +1542,14 @@ class Cortex:
         hub = self._tokenizer_hub
 
         # 1. Determine domain
-        if domain is None:
+        # C19（2026-08-08）：collab_mode="executive" = 回合级执行控制判定
+        # （混合信号：启发式 + quality_head 回合级聚合），取代 token 级竞争。
+        self._executive_confidence = 0.0
+        self._executive_domains: dict = {}
+        if domain is None and collab_mode == "executive":
+            domain, self._executive_confidence, self._executive_domains = \
+                self._executive_route(prompt)
+        elif domain is None:
             domain = self._infer_domain(prompt)
         if domain not in hub.list_domains():
             domain = hub.list_domains()[0] if hub.list_domains() else "general"
@@ -1516,14 +1625,14 @@ class Cortex:
                 pass  # 共振探测失败，保留关键词路由结果
 
         # 3. Domain EOS
-        eos_id = hub.eos_token_id(domain)
-
-        # Get domain tokenizer for decoding
-        domain_sp = hub.get_tokenizer(domain)
-
-        # S6: 构建 domain→general 对齐表（消除 re-encode 往返）
-        alignment_table = self._get_domain_to_general_alignment(domain, domain_sp)
-        pad_id = self._general_sp.pad_id() if (self._general_sp and hasattr(self._general_sp, 'pad_id')) else 0
+        # C19（2026-08-08）：生成/decode 全程 general 256K 空间——所有 neuron
+        # 共享 general lm_head（2026-08-07 收敛），logits 原生在 general 空间。
+        # domain 只用于激活 neuron 选择（任务模式），不再用于 tokenizer/decode。
+        # 旧路径用 domain_sp 解析 general 空间 token id → OUT_OF_RANGE（domain
+        # vocab 10k-50k < general 256K），且 id 语义错配（同 id 跨词表意义不同）。
+        eos_id = hub.eos_token_id("general")
+        domain_sp = None  # decode 统一走 general_sp（见下方生成循环与最终 decode）
+        alignment_table = None
 
         generated_pieces = []
         generated_token_ids = set()
@@ -1549,6 +1658,20 @@ class Cortex:
             # R1: resonance 模式优先使用共振分数选的 active_nids
             if resonance_active_nids is not None:
                 active_nids = resonance_active_nids
+            elif collab_mode == "executive":
+                # C19（2026-08-08）：任务模式激活 = dominant 域 neuron + general
+                # （回合内稳定生成，不做 token 级竞争；人脑"模式确定→整通路激活"）
+                domain_neurons = [
+                    k for k in self.neurons
+                    if k == domain or k.startswith(domain + "_")
+                ]
+                active_nids = domain_neurons
+                general_neurons = [
+                    k for k in self.neurons
+                    if (k == "general" or k.startswith("general_"))
+                ]
+                if general_neurons and domain not in general_neurons:
+                    active_nids.extend(general_neurons)
             elif routing_level >= 2:
                 # Level 2 prototype top-k 路由：用 prompt embedding vs domain_prototype cosine
                 active_nids = self._fingerprint_route(general_ids, top_k=2)
@@ -1594,11 +1717,25 @@ class Cortex:
             neuron_logits = result.get("neuron_logits", {})
             final_scores = result.get("final_scores", {})
 
-            if collab_mode == "leader" and final_scores and neuron_logits:
-                # 族长主导：选共振分最高的 neuron 的 logits（不融合）
+            if collab_mode in ("leader", "executive") and final_scores and neuron_logits:
+                # 族长主导（C19 executive 复用）：选共振分最高的 neuron 的 logits
+                # （不融合）——回合内稳定生成，避免异构 logit 融合干扰。
                 # 族长在 round 2+ 已读共振场（受其他 neuron 影响），
                 # 用自己 logits 干净输出，避免异构 logit 融合干扰（confidence陷阱）
-                leader_nid = max(final_scores, key=final_scores.get)
+                # C19（2026-08-08）：executive 模式下 leader 限定在 dominant 域内
+                # ——任务模式激活后由域内最强 neuron 稳定生成，不用跨域最强
+                #（否则回合级判定白做，leader 被其他域 neuron 抢占）。
+                if collab_mode == "executive" and domain:
+                    domain_scores = {
+                        k: v for k, v in final_scores.items()
+                        if k == domain or k.startswith(domain + "_")
+                    }
+                    if domain_scores:
+                        leader_nid = max(domain_scores, key=domain_scores.get)
+                    else:
+                        leader_nid = max(final_scores, key=final_scores.get)
+                else:
+                    leader_nid = max(final_scores, key=final_scores.get)
                 if leader_nid in neuron_logits:
                     logits = neuron_logits[leader_nid][:, -1, :] / temperature
                 else:
@@ -1689,38 +1826,26 @@ class Cortex:
             # （中文标点 .，！？ 等含全角形式，一并视为正常内容）
             if len(generated_ids_ordered) >= 4:
                 _cjk_or_punct = re.compile(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2014\u2018\u2019\u201c\u201d\u2026]')
-                last_pieces = [domain_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
+                last_pieces = [self._general_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
                 non_cjk = sum(1 for p in last_pieces if not _cjk_or_punct.search(p))
                 if non_cjk >= 3:
                     while generated_ids_ordered and not _cjk_or_punct.search(
-                        domain_sp.id_to_piece(generated_ids_ordered[-1])
+                        self._general_sp.id_to_piece(generated_ids_ordered[-1])
                     ):
                         generated_ids_ordered.pop()
                     break
 
-            # S6: 用对齐表替代 re-encode 往返（domain→text→general）
-            # 消除信息丢失和 text 往返开销
-            if domain_sp is not None and alignment_table:
-                piece = domain_sp.id_to_piece(next_token)
-                generated_pieces.append(piece)
-                # S6: 直接查对齐表，避免 text 往返信息丢失
-                new_general_ids = alignment_table.get(next_token, [pad_id])
-                general_ids.extend(new_general_ids)
-            elif domain_sp is not None:
-                # Fallback: 对齐表为空时走旧路径
-                piece = domain_sp.id_to_piece(next_token)
-                generated_pieces.append(piece)
-                new_general_ids = self._general_sp.encode(piece)
-                if new_general_ids:
-                    general_ids.extend(new_general_ids)
-            else:
-                general_ids.append(next_token)
+            # C19（2026-08-08）：general 空间恒等回填——neuron logits 原生在
+            # general 256K 空间，采样 token 直接作为下一轮输入（无需 domain→
+            # general 对齐表转译；旧路径 id 语义错配已废弃）。
+            generated_pieces.append(self._general_sp.id_to_piece(next_token))
+            general_ids.append(next_token)
 
-        # Decode with domain tokenizer
+        # Decode with general tokenizer（logits 在 general 256K 空间）
         # P7-修复（2026-08-04）：用 DecodeIds 替代 "".join(pieces)
         # 旧拼接会把 byte fallback piece（如 <0x0A>）原样输出，DecodeIds 正确处理字节 token。
-        if generated_ids_ordered and domain_sp is not None:
-            result_text = domain_sp.DecodeIds(generated_ids_ordered)
+        if generated_ids_ordered:
+            result_text = self._general_sp.DecodeIds(generated_ids_ordered)
         elif generated_pieces:
             result_text = "".join(generated_pieces).replace("▁", " ")
         else:

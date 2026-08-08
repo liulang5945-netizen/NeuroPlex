@@ -1122,6 +1122,9 @@ class ResonanceEnsemble:
         # N > top_K 时，round 1 不为所有 neuron 请求 logits（避免 O(N) 峰值内存）
         # 只取 field_vector 算分，然后只为 best_nid 重新 forward 获取 logits（用于 gating）
         # N ≤ top_K 时保持原行为（全部请求，因为都会保留）
+        # C19（2026-08-08）：快照 round1 全量 neuron（共振过滤会缩小 active_ids，
+        # 但回合级质量信号需要全部候选，final 聚合用此快照）
+        round1_active_ids = list(active_ids)
         large_scale = return_logits and len(active_ids) > self.logits_top_k
         round1_return_logits = return_logits and not large_scale
 
@@ -1490,6 +1493,20 @@ class ResonanceEnsemble:
             "adaptive_stopped": adaptive_stop_reason is not None,  # C9
             "adaptive_stop_reason": adaptive_stop_reason,  # C9
         }
+
+        # C19（2026-08-08）：推理路径也暴露 round1 quality_logits（回合级聚合）
+        # ——ExecutiveController（_executive_route）用 probe forward 拿回合级
+        # 质量信号做任务模式判定。此前只在 forward_train 收集（C15 训练监督用）。
+        # 聚合用 round1 快照（round1_active_ids），不用共振过滤后的 active_ids——
+        # 否则共振收敛只保留最强 neuron，回合级判定退化为单 neuron 信号。
+        if round_quality_logits_r1:
+            ql = torch.stack([
+                round_quality_logits_r1[nid] for nid in round1_active_ids
+                if nid in round_quality_logits_r1
+            ]).mean(dim=1)  # [N, 1]
+            result["quality_logits"] = ql.squeeze(-1)  # [N]（与 round1 顺序一致）
+        else:
+            result["quality_logits"] = None
 
         if return_logits and all_logits:
             # P7: 返回每 neuron 的原始 logits（域 vocab 空间可能不同）

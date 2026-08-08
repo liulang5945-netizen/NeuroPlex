@@ -207,6 +207,7 @@ def assemble_cortex(
     wire_bio_modules: bool = True,
     neuron_ids: Optional[list] = None,
     collab_name: str = "cross_spec_dialogue.pt",
+    extra_neurons_dir: Optional[str] = None,
 ) -> tuple[Any, Optional[Any], dict]:
     """统一装配 Cortex，接线所有 bio-inspired 模块。
 
@@ -259,6 +260,19 @@ def assemble_cortex(
         logger.warning(
             "[assemble_cortex] TokenizerHub 注册失败（非致命，P7 模式不可用）: %s", e,
         )
+
+    # Step 1.7: 额外 neuron 源加载（C19，2026-08-08）
+    # extra_neurons_dir（如 data/foundation_v1_general）含 general 基座 neuron
+    # （code/math/zh/en，unified general 空间），与 neurons_dir 的对话 neuron
+    # 组成完整 9 阵容。必须在 Step 1.6（per-neuron embedding 遍历 cortex.neurons）
+    # 之前加载，否则 general 4 的 embedding 无法注入。
+    # general 基座 ckpt 已剥离共享 lm_head，需注入 shared_lm_head.pt（general 256K）。
+    # cortex.neurons 与 ensemble.neurons 同一引用，直接写入即生效。
+    if extra_neurons_dir and os.path.isdir(extra_neurons_dir):
+        try:
+            _load_extra_neurons(cortex, extra_neurons_dir, device)
+        except Exception as e:
+            logger.warning("[assemble_cortex] extra neurons 加载失败（非致命）: %s", e)
 
     # Step 1.6: P7 shared_embedding + general tokenizer
     # generate() 走 _generate_p7 路径需要 _shared_embedding 和 _general_sp：
@@ -331,10 +345,18 @@ def assemble_cortex(
             # 训练（finetune_cross_spec）时每个神经元从各自 ckpt 的 shared_embedding_state
             # 独立加载 embedding，推理若用单个 data/shared_embedding.pt 则与训练不一致
             # → P7 generate 输出垃圾。这里从各 neuron ckpt 加载并注入 cortex。
+            # C19（2026-08-08）：extra_neurons_dir（如 foundation_v1_general）的
+            # general neuron 同样按 ckpt shared_embedding_state 加载。
             neuron_shared_embeddings: dict = {}
+            extra_dir = extra_neurons_dir or ""
             for nid in cortex.neurons:
-                n_ckpt_path = os.path.join(neurons_dir, f"neuron_{nid}.pt")
-                if not os.path.exists(n_ckpt_path):
+                n_ckpt_path = None
+                for d in (neurons_dir, extra_dir):
+                    p = os.path.join(d, f"neuron_{nid}.pt") if d else ""
+                    if p and os.path.exists(p):
+                        n_ckpt_path = p
+                        break
+                if n_ckpt_path is None:
                     continue
                 try:
                     n_ckpt = torch.load(
@@ -342,6 +364,19 @@ def assemble_cortex(
                     )
                     n_emb_state = n_ckpt.get("shared_embedding_state")
                     if n_emb_state is None:
+                        # general 基座 neuron（C16 阵容）：ckpt 无 per-neuron
+                        # embedding，fallback 到目录级 shared_embedding.pt
+                        # （训练时 general 4 共用同一共享 embedding）。
+                        for d in (neurons_dir, extra_dir):
+                            se_path = os.path.join(d, "shared_embedding.pt") if d else ""
+                            if se_path and os.path.exists(se_path):
+                                se = torch.load(se_path, map_location="cpu", weights_only=False)
+                                w = se["weight"] if isinstance(se, dict) and "weight" in se else se
+                                n_emb = torch.nn.Embedding(w.shape[0], w.shape[1])
+                                n_emb.weight.data.copy_(w)
+                                n_emb.to(device)
+                                neuron_shared_embeddings[nid] = n_emb
+                                break
                         continue
                     n_emb = torch.nn.Embedding(general_vocab, base_embed_dim)
                     n_emb.load_state_dict(n_emb_state)
@@ -717,6 +752,59 @@ def assemble_cortex(
 
 
 # ======================== 协作层权重加载（训练产物 → 运行时） ========================
+
+
+def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
+    """C19：从额外目录加载 neuron 加入 cortex（如 foundation_v1_general 的 4 general）。
+
+    general 基座 ckpt 已剥离共享 lm_head（_strip_shared_head），必须注入
+    shared_lm_head.pt（general 256K）才能在统一空间输出 logits。
+    cortex.neurons 与 ensemble.neurons 同一引用，直接写入即生效。
+
+    Returns:
+        新增 nid 列表。
+    """
+    import glob
+
+    from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
+
+    shared_lm_head = None
+    lm_head_path = os.path.join(extra_dir, "shared_lm_head.pt")
+    if os.path.exists(lm_head_path):
+        sd = torch.load(lm_head_path, map_location=device, weights_only=False)
+        w = sd["weight"] if isinstance(sd, dict) and "weight" in sd else sd
+        shared_lm_head = torch.nn.Linear(w.shape[1], w.shape[0], bias=False)
+        shared_lm_head.weight.data.copy_(w)
+        logger.info(
+            "[assemble_cortex] shared_lm_head 注入 extra neurons (%d×%d)", w.shape[0], w.shape[1],
+        )
+
+    added = []
+    for path in sorted(glob.glob(os.path.join(extra_dir, "neuron_*.pt"))):
+        name = os.path.basename(path)
+        if name.startswith("_"):
+            continue
+        nid = name[len("neuron_"):-len(".pt")]
+        if nid in cortex.neurons:
+            continue
+        try:
+            ckpt = torch.load(path, map_location=device, weights_only=False)
+            cfg = ckpt.get("neuron_config")
+            if cfg is None:
+                cfg = get_domain_neuron_config(nid, spec="compact")
+            cfg.unified_field_dim = None
+            neuron = ResonanceNeuron(cfg, shared_lm_head=shared_lm_head).to(device)
+            neuron.load_state_dict(ckpt["state_dict"], strict=False)
+            neuron.eval()
+            # 用 ensemble.add_neuron（自动补建跨规格投影层 + 几何空间注册）；
+            # cortex.neurons 与 ensemble.neurons 同一引用，一次调用两边生效。
+            cortex.ensemble.add_neuron(nid, neuron)
+            added.append(nid)
+        except Exception as e:
+            logger.warning("[assemble_cortex] extra neuron %s 加载失败: %s", nid, e)
+    if added:
+        logger.info("[assemble_cortex] extra neurons loaded: %s", added)
+    return added
 
 
 def _load_collab_weights_into_cortex(
