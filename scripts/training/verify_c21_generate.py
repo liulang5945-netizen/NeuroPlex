@@ -2,7 +2,9 @@
 
 验证目标：
 1. 多词表 decode（_generate_p7 按 leader 词表空间）下 executive 生成
-2. C16 LoRA 是否扭曲 dialogue neuron 的 zh 能力（--no-dialogue-lora 清零对比）
+2. C16 LoRA 是否扭曲 dialogue neuron 的 zh 能力（已由 loader 按 lm_head
+   空间过滤解决——≠256K 头的 lora_state 不注入；原 --no-dialogue-lora
+   清零逻辑会误伤 v3 微调自带的 LoRA，已废弃移除）
 """
 import os
 import sys
@@ -29,8 +31,6 @@ DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--no-dialogue-lora", action="store_true",
-                    help="清零 dialogue neuron 的 LoRA b（C16 负资产对比）")
     ap.add_argument("--ckpt20", default="data/neurons/collab_v3_c20.ckpt.pt")
     args = ap.parse_args()
 
@@ -49,17 +49,6 @@ def main():
         if nid in hs and getattr(neuron, "quality_head", None) is not None:
             neuron.quality_head.load_state_dict(hs[nid])
     print(f"  C20 head 注入 {len(hs)}")
-
-    # 可选：清零 dialogue neuron 的 LoRA b（消除 C16 general 目标训练的扭曲）
-    if args.no_dialogue_lora:
-        for nid in DIALOGUE_IDS:
-            neuron = cortex.neurons.get(nid)
-            if neuron is not None and getattr(neuron, "lora_adapters", None):
-                for layer_adapters in neuron.lora_adapters.values():
-                    for pair in layer_adapters.values():  # attn/ffn/blk → LoraPair
-                        for p in pair.b.parameters():
-                            p.data.zero_()
-        print("  [no-dialogue-lora] dialogue neuron LoRA b 已清零")
 
     # 预热 EMA（多样文本）
     for k in range(30):

@@ -109,6 +109,11 @@ C20  回合级监督训练：answer_mask + 同域 batch + z 绝对差门（验�
 C21  词库多词表架构正式化：decode 按 leader 词表空间、LoRA 按 lm_head 过滤、
       leader 用 round1 无场 logits（dialogue 流畅中文恢复）
       → 用户核心需求落地：词库=多独立词表集合（可插拔），neuron 绑定自己词表
+C22  路径收敛（2026-08-08）：executive 设为默认主路径（此前 API 仍走 C19 前
+      旧 fusion token 级路径）；executive 跳过 hybrid 共振校验消除双路径打架；
+      残留实验路径（fusion/leader/routing_mode/fusion_mode 多分支）仅显式实验用
+      → 用户"反复推翻留下多条路径"梳理落点
+      → 用户确认：振荡相位同步为设计本意，当前"场向量累加+相位门控"为实现偏移
 ```
 
 ---
@@ -165,7 +170,7 @@ C21  词库多词表架构正式化：decode 按 leader 词表空间、LoRA 按 
 | Tribal（部落压缩：Q=αβγ） | 皮层微柱/功能柱的汇聚输出 | 子群体压缩为上级单位向量 |
 | NeuromodulatorState | 神经调质（多巴胺/5-HT/去甲肾上腺素/乙酰胆碱） | 全局行为状态调制 |
 
-**关键差异**：人脑场协作的核心是**振荡相位关系**（神经元在特定相位同步发放实现绑结），态极的场是**静态向量累加**，伽马门控目前是 Optional 注入、非骨架（审查报告 S9 的缺口 R）。共振"轮次"对应生物的多轮重入，但生物是连续时间动力学，态极是离散轮次。
+**关键差异（⚠️ 设计本意 vs 实现偏移，2026-08-08 用户确认）**：振荡相位同步是态极的**设计本意**——共振的本体应是相位同步驱动（谁同相谁绑结成知觉单元，feature binding 本义）。但实现过程偏移为**共振场静态向量累加为主、gamma 相位仅作门控调制**：`GammaOscillator` 已完整实现（Kuramoto 相位耦合 L[gamma_oscillator.py](file:///e:/taiji-neuron/taiji/resonance/gamma_oscillator.py#L98-L144) + 写入门控 `apply_gamma_gate` + scores 门控 [ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py#L2002-L2008)），loader 装配时也真实注入（[loader.py](file:///e:/taiji-neuron/taiji/loader.py#L447-L463)），但相位只做**幅度调制**（gate_factor∈[0.2,1.0]），没有让"相位关系"本身成为共振的信息传递载体——主次颠倒：场向量累加是主调，相位是配角。共振"轮次"对应生物的多轮重入，但生物是连续时间动力学，态极是离散轮次。**相位同步本体化 = 当前态极 vs 人脑对照中最深的差距（缺口 R 核心）。**
 
 ### 2.4 路由与执行控制（_executive_route vs 前额叶执行控制）
 
@@ -254,7 +259,7 @@ C21  词库多词表架构正式化：decode 按 leader 词表空间、LoRA 按 
 | 3 | 突触连接 | side_channels | 突触权重 | ★★★☆ 中 |
 | 4 | 不应期 | refractory_counter | 动作电位不应期 | ★★★☆ 中（语义占位） |
 | 5 | 时序可塑性 | STDP tracker | STDP | ★★☆☆ 低（未驱动权重） |
-| 6 | 振荡绑结 | GammaOscillator | 伽马振荡 | ★★☆☆ 低（Optional） |
+| 6 | 振荡绑结 | GammaOscillator（Kuramoto + 门控） | 伽马振荡 | ★★★☆ 中（已接入但为门控角色；本意=相位驱动共振本体） |
 | 7 | 侧抑制 | field WTA / inhibitory mask | 皮层柱侧抑制 | ★★★☆ 中 |
 | 8 | 任务路由 | _executive_route | 前额叶 task set | ★★★★ 高 |
 | 9 | 竞争粒度 | 回合级 | 任务模式级 | ★★★★ 高 |
@@ -277,9 +282,9 @@ C21  词库多词表架构正式化：decode 按 leader 词表空间、LoRA 按 
 - 关键期/凋亡（MaturityTracker/ApoptosisTracker）
 - 侧抑制 WTA（field 层）
 
-**生物启发但当前是"装饰"（审查 S9 缺口 R）**：
+**生物启发但当前是"装饰"或"角色偏移"（审查 S9 缺口 R）**：
 - STDP（只追踪不驱动权重）
-- Gamma 振荡（Optional 门控）
+- Gamma 振荡（⚠️ 已接入训练/推理主路径，但角色偏移：作门控调制器而非共振本体——设计本意为相位同步驱动共振）
 - Sleep 重放（近似为离线训练，非逐条回放）
 - 神经调质（状态记录，未深度耦合训练）
 
@@ -303,9 +308,10 @@ C21  词库多词表架构正式化：decode 按 leader 词表空间、LoRA 按 
 - 多阶段任务（zh 理解→code 生成→zh 表达）留作 v2
 
 **架构层面的最高上限方向**（若延续"上限更高优先"原则）：
-1. 把 STDP/Gamma/调质从 Optional 装饰推进为 forward_train 骨架（缺口 R）——这是态极 vs 人脑对照中最深的差距
-2. 睡眠重放：实现真正的 forward 重放 + 经验回放训练（缺口 R 子项）
-3. 多阶段任务模式链（task-set 序列）——人脑"任务集切换"的完整版
+1. **振荡相位同步本体化**（用户设计本意恢复，缺口 R 核心）：让相位关系成为共振的信息传递载体——场写入/读取按相位相干调制（同相增强/异相解绑），Kuramoto 相位耦合驱动的激活选择替代静态 top-k，伽马相位作为轮次间信息传递的通道。这是态极 vs 人脑对照中最深的差距
+2. 把 STDP/调质从 Optional 装饰推进为 forward_train 骨架（缺口 R）
+3. 睡眠重放：实现真正的 forward 重放 + 经验回放训练（缺口 R 子项）
+4. 多阶段任务模式链（task-set 序列）——人脑"任务集切换"的完整版
 
 ---
 

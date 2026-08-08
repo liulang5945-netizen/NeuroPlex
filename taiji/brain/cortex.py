@@ -915,7 +915,7 @@ class Cortex:
         n_candidates: int = 1,
         routing_level: int = 1,
         active_nids: Optional[Union[str, List[str]]] = None,
-        collab_mode: str = "fusion",
+        collab_mode: str = "executive",
         fusion_mode: str = "soft",
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
@@ -938,9 +938,11 @@ class Cortex:
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
                          - "per_position"（默认）：每位置按熵/置信度独立路由
                          - "residual"：族长完整预测 + 其他神经元残差修正
-            collab_mode: "fusion"（token 级融合，默认）/ "leader"（族长主导，不融合）
-                         / "executive"（C19 任务级：回合级执行控制判定 dominant 域 →
-                         任务模式激活 + 族长稳定生成，不做 token 级竞争）
+            collab_mode: "executive"（C22 收敛默认，C19 任务级：回合级执行控制判定
+                         dominant 域 → 任务模式激活 + 族长稳定生成，不做 token 级竞争；
+                         C20 回合级监督 5/5、C21 词库多词表验证通过后设为默认）
+                         / "fusion"（token 级融合，C19 前旧范式，实验保留）
+                         / "leader"（族长主导，不融合，实验保留）
 
         Returns:
             generated text string.
@@ -1581,8 +1583,12 @@ class Cortex:
         # - "resonance": 共振分数软路由（probe → final_scores → top-k 激活，跨域协作）
         # R1 上限提升：resonance 模式让共振分数直接驱动激活，神经元自发协作决定"谁发言"，
         # 与 C12（可比分数）+ C9（自适应停止）+ C14（动态 shared 权重）形成完整闭环。
+        # C22（2026-08-08 收敛）：collab_mode="executive" 时跳过本块——executive 已有
+        # 回合级判定（_executive_route），再跑 token 级共振校验会造成双路径打架
+        # （共振校验可能覆盖 executive 的 dominant 判定）。
         resonance_active_nids: Optional[List[str]] = None  # resonance 模式填充
-        if len(self.neurons) > 1 and routing_mode != "keyword":
+        if (len(self.neurons) > 1 and routing_mode != "keyword"
+                and collab_mode != "executive"):
             try:
                 probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
                 probe_emb = self._shared_embedding(probe_ids)

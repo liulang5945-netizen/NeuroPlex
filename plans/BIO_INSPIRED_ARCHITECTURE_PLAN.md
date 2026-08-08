@@ -269,6 +269,17 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **✅ 验证**（verify_c21_generate.py）：回合级判定 5/5；dialogue executive 生成**流畅中文问答**（"，我会尽力给您。这些时间可以帮助您给出一个问题："）；code/math/zh/en 生成弱 = general 基座能力问题（foundation 600 步训练不足，非架构问题）
 - **遗留**：4 个 general neuron 的生成能力弱（zh 回显/math/en 碎片/code 简短）——后续用域目标空间训练增强（同 dialogue 修复路径）
 
+**C22 实施（路径收敛 + 设计本意确认，2026-08-08 ✅）**：
+- **背景（用户"梳理"的真实诉求）**：C12-C21 反复推翻与修改留下多条并存路径，默认入口指向旧范式 → 后续调用混乱。
+- **审计结论**：`generate()` 默认 `collab_mode="fusion"`（token 级，C19 已否定的范式），API（routes_taiji/senses/context_manager/test_api_dialogue）全部走默认 → **线上实际是旧路径**；executive（C19-C21 验证 5/5）需显式传参才启用；`routing_mode`（hybrid/resonance/keyword）+ `fusion_mode`（soft/residual/consensus/per_position/division/division_norm）+ 4 套路由方法（_executive_route/_fingerprint_route/_auto_topk_route/_infer_domain）并存；且 executive 模式下 hybrid 共振校验块仍会执行 → 可能覆盖 executive 判定（双路径打架）。
+- **收敛动作**：
+  1. `generate()` 默认 `collab_mode` → `"executive"`（C19-C21 验证过的正确范式默认化，旧 fusion/leader 保留为显式实验参数）
+  2. `_generate_p7` 中 `collab_mode=="executive"` 时跳过 hybrid 共振校验块（消除双路径打架）
+  3. **废弃 `verify_c21_generate.py --no-dialogue-lora`**：loader 已按 lm_head 空间过滤 C16 负资产 lora_state（zh 50K 头不注入），该参数清零的是 dialogue neuron **v3 微调自带的 LoRA**（域能力一部分）——实测清零后 zh/dialogue 生成退化（"我的眼�"乱码），移除参数后恢复流畅中文（"其中，当时间序列…"）。残留参数干扰调用的实例，已清理
+- **✅ 验证**：py_compile 通过；verify_c21_generate.py 重跑确认 executive 生成不受影响
+- **设计本意确认（用户）**：**振荡相位同步是态极设计本意**——共振本体应为相位同步驱动（谁同相谁绑结，feature binding 本义）；当前"共振场静态向量累加 + gamma 相位作门控调制"是实现偏移（GammaOscillator 已实现 Kuramoto 耦合并真实注入训练/推理，但相位只做幅度调制 ∈[0.2,1.0]，未成为信息传递载体）。→ **相位同步本体化 = 缺口 R 核心方向**（记录于 [TAIJI_VS_HUMAN_BRAIN_COMPARISON.md](file:///e:/taiji-neuron/plans/TAIJI_VS_HUMAN_BRAIN_COMPARISON.md) 2.3/2.10/2.12）
+- **残留实验路径（暂不删除）**：fusion/leader collab_mode、routing_mode 三态、fusion_mode 六态——均有验证脚本引用，保留为显式实验入口；后续若新范式稳定可归档。
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
