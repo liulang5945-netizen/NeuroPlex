@@ -382,10 +382,16 @@ def main():
                           f"per-neuron NLL: {nll_str} "
                           f"(ETA {(elapsed/max(total_steps,1))*(total_steps_per_epoch*args.epochs-total_steps)/60:.1f}min)",
                           flush=True)
-                    loss_history.append({
+                    rec = {
                         "step": total_steps, "epoch": epoch + 1, "source": source,
                         "contrastive_loss": float(result["contrastive_loss"].detach()),
-                    })
+                    }
+                    # C23-C3（2026-08-08）：phase-binding loss 记入训练历史
+                    # （诊断：验证相位自组织与共振贡献对齐的收敛曲线）
+                    pl = result.get("phase_loss")
+                    if pl is not None:
+                        rec["phase_loss"] = float(pl.detach())
+                    loss_history.append(rec)
 
                 if total_steps % 500 == 0:
                     save_head_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, loss_history, phasor=phasor)
