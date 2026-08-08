@@ -327,6 +327,14 @@
     - **验证结果**：quality_logits 9/9 ✓；判定 code→code / zh→zh / dialogue→zh / en→en ✓（math→en 为启发式误判，C20 quality 修正场景）；executive/fusion 生成无 OUT_OF_RANGE ✓
     - **已知限制**：executive 生成质量仍碎片（C16 基座在 general 空间中文能力弱，非 C19 机制问题），C20 回合级训练 + 基座能力提升解决
     - **下一步（C20）**：回合级监督训练——候选 neuron 轮流主导生成完整回复 → 融合 NLL 评估 → 标签训练 quality_head（回合级对齐），使 quality 信号成熟并修正启发式误判（如 math→en）
+18. ✅ **C20 实施：回合级质量监督训练（2026-08-08，验证通过 5/5）**：
+    - **监督粒度升级**（[ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) `forward_train` 新增 `answer_mask`）：per_neuron_nll 只对 answer（回复）部分算回合级 NLL——prompt 部分无区分度（输入即答案），answer 才是"谁能生成好这个回复"的回合粒度真实质量。C16d 全序列 NLL 被 prompt 稀释。
+    - **train_round_level_quality.py**：只训 quality_head（body/LoRA/side 冻结，C16 保护延续）；监督 = C16d 复用（per-neuron EMA z-score + 绝对质量 gate）作用于回合级 NLL；warm start 从 collab_v3_c16.ckpt.pt；**同域 batch**（混合域 batch 被低 NLL 域拉低 gate 阈值 → dialogue 转译 neuron 全排除，监督失效）
+    - **正式训练**：1100 steps（200 条/域 + 300 对话 × 2 epochs，~2h CPU）
+    - **✅ 验证**（verify_c20_round_quality.py）：C16 head code 恒高 16.91（未校准）→ C20 head 校准后回合级判定 **5/5**：code→code / math→math（修正 C19 误判）/ zh→zh / dialogue→zh / en→en
+    - **关键调优**：_executive_route 切换条件加 z 绝对差阈值（≥0.7σ）——纯 1.5× 比例对接近 0 的 z 太宽松（en 回合 zh 0.49 vs en 0.04 也满足 → 错误覆盖启发式正确的 en）；0.7σ 实测区分 math（差 0.95 切 ✓）/en（差 0.45 不切 ✓）
+    - **已知限制**：zh general 是"全能型"（多文本 NLL 低）→ quality z 系统性偏高，靠 0.7σ 显著门防错误覆盖；生成质量仍碎片（C16 基座限制，非 C20 范围）
+    - **产出**：collab_v3_c20.ckpt.pt（head_state 分量，C18 注入格式兼容）
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂

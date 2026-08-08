@@ -1655,6 +1655,11 @@ class ResonanceEnsemble:
         neuromodulator: Optional[Any] = None,
         return_individual_logits: bool = False,
         targets: Optional[torch.Tensor] = None,  # C12: per-neuron NLL 排序对比信号
+        # ── C20（2026-08-08）：回合级监督 answer_mask ──
+        # [B, L] bool，1=answer（回复）部分。per_neuron_nll 只对 answer 部分算
+        # 回合级 NLL——prompt 部分所有 neuron 都能续写（无区分度），answer 才是
+        # "谁能生成好这个回复"的回合粒度真实质量信号。None（默认）= 全序列（C16d 兼容）。
+        answer_mask: Optional[torch.Tensor] = None,
         # ── T9: field_conditioning warm-up ──
         # True（默认）= round 2+ 注入 field_state（向后兼容）
         # False = round 2+ 也不注入（warm-up 阶段，neuron 独立学习）
@@ -2103,16 +2108,28 @@ class ResonanceEnsemble:
 
         # ── per-neuron NLL（供 C12 共振分对比 + §4.0d Router 对比约束共用）──
         # targets=None 时不计算（向后兼容）
+        # C20（2026-08-08）：answer_mask 传入时只对 answer（回复）部分算回合级 NLL——
+        # prompt 部分无区分度（输入即答案），回合粒度真实质量 = "谁能生成好这个回复"。
         per_neuron_nll: Optional[torch.Tensor] = None
         if targets is not None and N >= 2:
             # all_logits: [N, B, L, V], targets: [B, L]
             shift_logits = all_logits[:, :, :-1, :].contiguous()  # [N, B, L-1, V]
             shift_targets = targets[:, 1:].contiguous()            # [B, L-1]
-            per_neuron_nll = F.cross_entropy(
+            nll_all = F.cross_entropy(
                 shift_logits.reshape(-1, shift_logits.size(-1)),
                 shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
                 reduction="none",
-            ).view(N, -1).mean(dim=1)  # [N]
+            ).view(N, -1)  # [N, B*(L-1)]
+            if answer_mask is not None:
+                # 只对 answer 位置求均值（回合级 NLL）；无 answer 位置时回退全序列
+                am_shift = answer_mask[:, 1:].contiguous().reshape(-1).bool()  # [B*(L-1)]
+                n_tok = int(am_shift.sum().item())
+                if n_tok > 0:
+                    per_neuron_nll = nll_all[:, am_shift].mean(dim=1)  # [N]
+                else:
+                    per_neuron_nll = nll_all.mean(dim=1)
+            else:
+                per_neuron_nll = nll_all.mean(dim=1)  # [N]（C16d 全序列口径）
 
         # ── C16b: per-neuron NLL z-score（2026-08-08，修复跨 neuron 不可比）──
         # 绝对 NLL 受 neuron 在 general 空间分布锐度主导（code 域=英文最匹配 →

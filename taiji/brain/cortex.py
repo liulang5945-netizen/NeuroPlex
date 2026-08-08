@@ -1256,10 +1256,16 @@ class Cortex:
         if quality_ready and per_domain:
             per_domain_scores = {d: sum(v) / len(v) for d, v in per_domain.items()}
             best_q_domain = max(per_domain_scores, key=per_domain_scores.get)
-            # 切换条件：quality 最优域与启发式不同，且显著占优（>1.5× 该域基线）
+            # 切换条件：quality 最优域与启发式不同，且显著占优。
+            # C20（2026-08-08）：z-score 下再加绝对差阈值（≥0.7σ）——纯比例
+            # （1.5×）对接近 0 的 z 太宽松（en 回合 zh 0.49 vs en 0.04 也满足
+            # 1.5×，错误覆盖启发式正确的 en）。0.7σ = 可观测的显著占优；
+            # 实测区分：math 回合 math 1.08 vs en 0.13（差 0.95，正确切）、
+            # en 回合 zh 0.49 vs en 0.04（差 0.45，不切保留 en）。
             base = per_domain_scores.get(domain, 0.0)
             if (best_q_domain != domain
-                    and per_domain_scores[best_q_domain] > base * 1.5 + 1e-6):
+                    and per_domain_scores[best_q_domain] > base * 1.5 + 1e-6
+                    and per_domain_scores[best_q_domain] - base >= 0.7):
                 domain = best_q_domain
         # 未成熟（warmup 内）或 probe 失败 → 纯启发式，quality 不主导（回退安全）
         conf = 0.7 + 0.3 * (quality_weight if per_domain_scores else 0.0)
