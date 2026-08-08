@@ -698,6 +698,7 @@ def main():
                     loss_history.append({
                         "step": total_steps, "epoch": epoch + 1, "domain": domain,
                         "loss": ce_loss.item(), "ppl": ppl,
+                        "contrastive_loss": float(result.get("contrastive_loss", 0.0)),  # C15/C16d 质量监督
                     })
 
                 if total_steps % 500 == 0:

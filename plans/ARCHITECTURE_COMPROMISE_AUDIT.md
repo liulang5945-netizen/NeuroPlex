@@ -289,7 +289,18 @@
     - **train_cross_domain_collab.py**：`--lora-rank`（默认 16）→ body 全部冻结（含 lm_head，body=0 可训练），LoRA + quality_head 走 adamw 主 lr；save_checkpoint 拆 `head_state`（quality_head）/`lora_state`，body_state 空
     - **gen_test_collab.py**：--inject 支持 head/lora 分量
     - **冒烟验证**（48 步）：loss 5.68→4.96 正常下降；ckpt head/lora_state 结构正确（lora b 非零=学到增量）；**生成测试：无重复崩坏（回显+句号，=原始 body 行为）+ 路由按语言正确（英文→en、中文→zh）**——对比 c14b 的 en 全抢占，C16 修复生效
-    - **正式训练进行中**（collab_v3_c16，全量 2 epoch，ETA ~4h）
+    - **正式训练数据规模决策（2026-08-08）**：首次全量配置（3000 条/域 + 1000 对话，seq128 batch4）实测 CPU 稳态 16s/step → 全训练 ~29h，远超验证目标。**决策：缩小至 200 条/域 + 300 对话**（C14 崩坏在 100 条/域时已完整复现，LoRA 保护是否避免崩坏无需大语料验证）→ 每 epoch 270 step × 2 ≈ 540 steps，预计 3-4h CPU。旧 ckpt（29h 配置 step 3000 遗留）已清理，重训覆盖 collab_v3_c16.ckpt.pt
+    - **✅ 正式训练完成 + 生成测试（2026-08-08）**：540 step × 2 epochs 完整完成（E2 完成 PPL≈743.9，耗时 73min/epoch）。ckpt 结构检查全过：9 阵容完整、body_state 空（保护生效）、head_state 9 个、lora b 全非零（学到真实增量）、cross 投影 8 组。
+    - **❌ 生成测试发现新问题：路由全 code 独占**——gen_test_collab（--inject side,scale,cross,head,lora，全 9 阵容）所有 prompt（code/math/zh/dialogue/en）路由权重 code=1.00，其余 0.00 → 生成空洞（zh/dialogue/en 乱码片段）。**但无 c14b 式重复崩坏**（clusters/colonial 无限重复消失）→ LoRA 保护 body 生效，问题在路由层
+    - **根因诊断（diag_c16_quality.py，逐文本 9 neuron quality_logit + NLL + maxprob 对照）**：
+      - **code quality_logit 爆炸（6.6~16.6），其余全 -2~-7** → trust=softmax(q/0.15) 下 code=1.000 one-hot
+      - **真实 NLL 列（shift 预测）code 全局最低**：math 文本 code=6.3 < math=24.4；中文对话 code=10.8 < zh_aug2=15.8；en 文本 code=3.5 < en=26.2
+      - **根因：C15 contrastive 监督（KL(softmax(q/1.0)‖softmax(-NLL/0.5))）的 NLL 跨 neuron 不可比**——共享 general 256K 空间英文主导，code 域=英文代码最匹配 + 分布最锐利 → code 对几乎所有文本（含中文对话）NLL 全局最低 → 监督目标天然 one-hot 偏 code → quality_head 忠实学到"code 永远质量最高"（并非学坏，是监督目标本身失效）。与 C12 跨空间不可比、C14b 判别器尺度爆炸同源（空间不对称）
+    - **修复方向（2026-08-08，用户跳过提问→自行收敛为 C16d）**：
+      - **C16b z-score 验证**（EMA per-neuron 标准化，[ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py)）：zh/dialogue 文本路由修复 ✓（code 不再独占），但 **math/en 英文文本被 dialogue neuron 抢**（转译 NLL 基线数百~上万，z 系统性负）
+      - **C16c LOO 融合增益实验**：contrib=NLL(去i)-NLL(全)，全部 uniform——base 融合在 max-prob 路由下被转译 neuron 抢位质量差，边际贡献全负，信号不可用，弃
+      - **C16d 最终方案：gate+z-score**——z-score（相对自身水平）解决 code 独占 + 绝对质量 gate（batch 最优 ×50 排除 NLL 基线巨大的转译 neuron）防 dialogue 抢英文。验证（verify_c16b_contrastive，25 步 EMA 预热）：code→code ✓ math→math ✓ zh/dialogue→zh_aug ✓ en→math（en 域数据不足致 math 相对提升更大，信号语义正确）。重训中（collab_v3_c16 覆盖，2.5-3h）
+      - **经验固化**：NLL 跨 neuron 不可比是 C12/C14b/C16 三次失败的共同根因（跨空间地位：native general vs 转译；英文 vs 中文匹配度）。绝对 NLL 偏锐度、纯 z-score 偏高基线、LOO 依赖 base 融合质量——gate+z-score 是当前可用组合
 15. ✅ **C17 实施：新生神经元无缝衔接 IntegrateEngine（2026-08-08，设计→代码→冒烟）**：
     - **设计**：BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.6 节——人脑神经发生 4 阶段（静默→蒸馏→验证→固化/凋亡），参考"沉默突触/关键期可塑性/use-it-or-lose-it/关键期关闭"
     - **ensemble.py**：`_confidence_routing_fusion` 的 conf 乘 `maturity.get_resonance_weight`（新 neuron 融合权重 0.1→1.0 渐进，静默期不参与输出；成熟 neuron 返回 1.0 不受影响；maturity=None 时跳过向后兼容）

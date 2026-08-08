@@ -472,6 +472,14 @@ class ResonanceEnsemble:
         # 可编辑词库规则层（AlignmentRules）：人工覆盖自动转译，见 set_alignment_rules
         self._alignment_rules = None
 
+        # ── C16b: per-neuron NLL EMA 统计（2026-08-08）──
+        # 解决 C15 contrastive 监督的 NLL 跨 neuron 不可比（general 256K 空间英文
+        # 主导 → code 域对几乎所有文本 NLL 全局最低 → quality_head 学到 code 独占）。
+        # 语义修正：ideal = softmax(-(NLL-μ)/σ / τ)——"谁相对自己通常水平预测更好
+        # 谁上"（per-neuron z-score），而非绝对 NLL 排序。推理路径不变。
+        # 结构 {nid: {"mean": float, "ms": float, "count": float}}，Welford/EMA 混合。
+        self._nll_ema: Dict[str, dict] = {}
+
     # =========================================================================
     # 任务级并行（人脑：多线程处理不同任务）——
     # 1) field 属性：推理 forward 期间返回本线程独立共振场（thread-local），
@@ -2089,18 +2097,66 @@ class ResonanceEnsemble:
                 reduction="none",
             ).view(N, -1).mean(dim=1)  # [N]
 
+        # ── C16b: per-neuron NLL z-score（2026-08-08，修复跨 neuron 不可比）──
+        # 绝对 NLL 受 neuron 在 general 空间分布锐度主导（code 域=英文最匹配 →
+        # NLL 全局最低 → C15 监督 one-hot 偏 code）。z-score = (NLL-μ)/σ（μ/σ 为
+        # 该 neuron 自身 NLL 的 EMA 统计）把监督转为"相对自身水平"：code 在中文
+        # 对话上 NLL 远超自身基线 → z 大 → 不再天然获胜；dialogue neuron 在自身
+        # 域文本上 NLL 接近基线 → z 小 → 获高权重。warmup（count<WARMUP）用原始
+        # NLL（统计未建立前避免噪声）。EMA 更新用 detach（纯统计，不参与梯度）。
+        NLL_EMA_ALPHA = 0.05
+        NLL_EMA_WARMUP = 20
+        nll_z: Optional[torch.Tensor] = None
+        if per_neuron_nll is not None:
+            zs = []
+            for i, nid in enumerate(active_ids):
+                v = float(per_neuron_nll[i].detach())
+                s = self._nll_ema.get(nid)
+                if s is None:
+                    s = {"mean": v, "ms": v * v, "count": 1.0}
+                    self._nll_ema[nid] = s
+                else:
+                    s["count"] += 1.0
+                    a = min(NLL_EMA_ALPHA, 1.0 / s["count"])  # 前期大步长收敛
+                    s["mean"] = (1 - a) * s["mean"] + a * v
+                    s["ms"] = (1 - a) * s["ms"] + a * v * v
+                if s["count"] >= NLL_EMA_WARMUP:
+                    var = max(s["ms"] - s["mean"] ** 2, 1e-4)
+                    zs.append((per_neuron_nll[i] - s["mean"]) / (var ** 0.5))
+                else:
+                    zs.append(per_neuron_nll[i])
+            nll_z = torch.stack(zs)  # [N]
+
+        # ── C16d: gate + z-score 质量监督（2026-08-08，最终方案）──
+        # C15 绝对 NLL 不可比 → code 独占（general 空间英文主导+code 分布锐利）；
+        # C16b 纯 z-score → 转译 dialogue neuron（NLL 基线数百~上万）z 系统性负
+        # → 抢英文文本；C16c LOO 融合增益 → base 融合被转译 neuron 抢位，边际贡献全负。
+        # 最终：z-score（相对自身水平）解决 code 独占 + 绝对质量 gate（batch 最优
+        # ×GATE_FACTOR 排除 NLL 基线巨大的转译 neuron）防止 dialogue 抢英文。
+        # 验证（verify_c16b_contrastive，gate=50）：code→code ✓ math→math ✓
+        # zh/dialogue→zh_aug ✓；en→math（en 域数据不足致 math 相对提升更大，信号语义正确）。
+        GATE_FACTOR = 50.0
+        nll_gated_z: Optional[torch.Tensor] = None
+        if nll_z is not None and per_neuron_nll is not None:
+            min_nll = per_neuron_nll.min()
+            gate_ok = per_neuron_nll < min_nll * GATE_FACTOR  # [N] 绝对质量 gate
+            nll_gated_z = nll_z.clone()
+            nll_gated_z[~gate_ok] = 1e9  # 排除者给极高 z（softmax 权重→0）
+
         # ── C15: 预测质量对比约束（D 方案，2026-08-08）──
         # 目标：quality_head 输出对齐 per-neuron NLL 排序——"谁能预测好当前文本谁上"。
         # 替代 C12 的 field_score_proj 条件（从未启用：训练时 score_dim=None → contrastive 恒 0）
         # 和 C13/C14 的域标签判别（判别任务不对称 + 输入不可比 + 尺度游戏，三次失败）。
         # NLL 是客观预测质量（训练时可得），quality_logit 推理时直接可用（round 1 独立）。
-        # actual 温度 1.0：softmax 分布对齐 ideal（softmax(-NLL/0.5)），
-        # logit 膨胀会让 KL 增大 → 天然防尺度游戏（对比 C14b 的 logit 8+ 爆炸）。
-        if per_neuron_nll is not None and quality_logits_t is not None:
-            # ideal: NLL 低的 neuron 应获高权重（预测质量排序）
-            ideal_weights = F.softmax(-per_neuron_nll / 0.5, dim=0)  # tau=0.5 温度
-            # actual: 预测质量 head 驱动的权重
-            actual_weights = F.softmax(quality_logits_t / 1.0, dim=0)  # [N] 温度 1.0
+        # actual 温度 1.0：softmax 分布对齐 ideal；logit 膨胀会让 KL 增大 → 天然防尺度游戏。
+        # C16b（2026-08-08）：ideal 用 per-neuron z-score（相对质量）而非绝对 NLL。
+        # C16d（2026-08-08）：z-score + 绝对质量 gate（最终方案，见上）。
+        if quality_logits_t is not None:
+            # actual: 预测质量 head 驱动的权重（温度 1.0）
+            actual_weights = F.softmax(quality_logits_t / 1.0, dim=0)  # [N]
+        if nll_gated_z is not None and quality_logits_t is not None:
+            # ideal: gated z-score 低（相对自身水平预测更好且绝对质量达标）者获高权重
+            ideal_weights = F.softmax(-nll_gated_z / 0.5, dim=0)  # tau=0.5 温度
             # KL(actual || ideal) = Σ actual * log(actual/ideal)
             contrastive_loss = (
                 actual_weights * (actual_weights.clamp(min=1e-8).log() - ideal_weights.clamp(min=1e-8).log())
@@ -2115,12 +2171,12 @@ class ResonanceEnsemble:
         # actual = Router soft_weights，KL(actual || ideal) 对齐
         router_contrastive_loss = torch.tensor(0.0, device=weights.device)
         if (
-            per_neuron_nll is not None
+            nll_z is not None
             and self._last_router_result is not None
         ):
             router_soft = self._last_router_result["soft_weights"]  # [B, N]
             actual_router = router_soft.mean(dim=0)  # [N] batch 平均
-            router_ideal = F.softmax(-per_neuron_nll / 0.5, dim=0)  # [N]
+            router_ideal = F.softmax(-nll_z / 0.5, dim=0)  # [N]
             router_contrastive_loss = (
                 actual_router * (actual_router.clamp(min=1e-8).log() - router_ideal.clamp(min=1e-8).log())
             ).sum()
@@ -2133,6 +2189,8 @@ class ResonanceEnsemble:
             "diversity_loss": diversity_loss,
             "contrastive_loss": contrastive_loss,  # C12
             "router_contrastive_loss": router_contrastive_loss,  # §4.0d
+            "per_neuron_nll": per_neuron_nll,  # C16b: 原始 NLL（诊断）
+            "per_neuron_nll_z": nll_z,  # C16b: 标准化 z-score（诊断）
             "field_state": field_state_full,
             "n_rounds": n_rounds,
         }
