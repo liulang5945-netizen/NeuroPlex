@@ -280,6 +280,15 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **设计本意确认（用户）**：**振荡相位同步是态极设计本意**——共振本体应为相位同步驱动（谁同相谁绑结，feature binding 本义）；当前"共振场静态向量累加 + gamma 相位作门控调制"是实现偏移（GammaOscillator 已实现 Kuramoto 耦合并真实注入训练/推理，但相位只做幅度调制 ∈[0.2,1.0]，未成为信息传递载体）。→ **相位同步本体化 = 缺口 R 核心方向**（记录于 [TAIJI_VS_HUMAN_BRAIN_COMPARISON.md](file:///e:/taiji-neuron/plans/TAIJI_VS_HUMAN_BRAIN_COMPARISON.md) 2.3/2.10/2.12）
 - **残留实验路径（暂不删除）**：fusion/leader collab_mode、routing_mode 三态、fusion_mode 六态——均有验证脚本引用，保留为显式实验入口；后续若新范式稳定可归档。
 
+**C23 实施（相位同步本体化·增量 A，2026-08-08 ✅ 冒烟 6/6）**：
+- **背景（设计本意恢复）**：振荡相位同步是态极最初的设计本意——共振本体应为相位同步驱动（谁同相谁绑结成知觉单元）。但实现偏移为"场向量累加 + 相位仅作标量门控"：推理路径 Kuramoto 相位演化无消费端（纯装饰）；训练路径仅对全局相位做幅度门控（gate_factor∈[0.2,1.0]），相位从未成为 neuron 之间的**关系度量**。
+- **核心机制**：`GammaOscillator.pairwise_binding` —— binding_i = mean_{j≠i}[cos(θ_i-θ_j)]（可选共激活调制，与 Kuramoto 一致）。同相群体 binding→+1（绑结），异相→-1（解绑）。
+- **接入**（推理 forward + 训练 forward_train 一致）：`scores = scores × (1 + binding_scale·binding)`，binding_scale 默认 0.3。相位从"对全局相位的标量门控"升级为"驱动共振强度的关系度量"——**相位同步直接决定谁参与共振、权重多少**。
+- **动态闭环**（冒烟验证）：共激活强 → Kuramoto 相位牵引（耦合 k∝coactivation）→ 相位差缩小 → binding 上升（b0=-0.375 → b1=0.900）→ 共振分增强。即"共激活 → 相位同步 → 绑结 → 共振增强"闭环。
+- **✅ 冒烟**（_smoke_c23_phase_binding.py）：6/6 PASS（同相 +1 / 异相 -1 / 混合 / Kuramoto 闭环 / 调制效果 / 双路径接入）
+- **安全性**：`_executive_route` 只消费 quality_head 聚合（不消费 final_scores）→ binding 不影响 C19-C21 已验证的回合级判定与 leader 生成；影响面 = fusion 融合权重 + 共振演化过滤（实验/协作路径）
+- **下一步（增量 B，未开始）**：场写入按相位绑定加权（同相 neuron 写入场上叠加增强），让相位同步直接塑造场状态形成；增量 C：相位可微化（2D 相位向量 + Kuramoto ODE 离散化），让 binding 参与训练梯度流
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

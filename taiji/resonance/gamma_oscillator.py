@@ -50,18 +50,23 @@ class GammaOscillator:
         omega: float = math.pi / 4,
         min_gate: float = 0.2,
         max_gate: float = 1.0,
+        binding_scale: float = 0.3,
     ):
         """
         Args:
             omega: 每轮 tick 的相位推进（默认 π/4，8 轮一个周期）
             min_gate: 最小门控因子（反相时也有最小写入，避免完全静默）
             max_gate: 最大门控因子（同相时增强上限）
+            binding_scale: 相位绑定强度（C23：共振分 × (1 + binding_scale·binding)）。
+                           >0 时相位同步度直接驱动共振强度（同相群体增强/异相解绑）；
+                           0 = 关闭绑定（仅保留写入门控，兼容旧行为）。
         """
         self.phases: Dict[str, float] = {}
         self.global_phase: float = 0.0
         self.omega = omega
         self.min_gate = min_gate
         self.max_gate = max_gate
+        self.binding_scale = binding_scale
 
     def assign_phase(self, neuron_id: str, phase: float) -> None:
         """为 neuron 分配 phase（弧度）。"""
@@ -170,6 +175,50 @@ class GammaOscillator:
             [self.gate_factor(nid) for nid in neuron_ids],
             dtype=torch.float32,
         )
+
+    def pairwise_binding(
+        self,
+        active_ids: Optional[list] = None,
+        coactivation: Optional[Any] = None,
+    ) -> Dict[str, float]:
+        """计算每个 neuron 与其他激活 neuron 的平均相位同步度（pairwise 关系）。
+
+        C23（2026-08-08）：相位同步本体化——相位不再是"对全局相位的标量门控"，
+        而是 neuron 之间的**关系度量**：同相 neuron 群体绑结成知觉单元
+        （binding → +1），异相解绑（binding → -1）。
+
+            binding_i = mean_{j≠i} [ cos(θ_i - θ_j) ]      ∈ [-1, 1]
+
+        可选共激活调制（与 Kuramoto 耦合一致：k *= max(ca, 0.01)）——
+        共激活强的 neuron 对相位相互牵引（逐渐同相），binding 随共振演化增强，
+        形成"共激活 → 相位同步 → 绑结"的动态闭环。
+
+        Args:
+            active_ids: 本轮激活的 neuron ID 列表（None=全部）
+            coactivation: CoactivationTracker（提供 pair 强度）
+
+        Returns:
+            {nid: binding ∈ [-1, 1]}（不足 2 个时全部 0.0）
+        """
+        if not self.phases:
+            return {}
+        ids = active_ids if active_ids is not None else list(self.phases.keys())
+        ids = [nid for nid in ids if nid in self.phases]
+        if len(ids) < 2:
+            return {nid: 0.0 for nid in ids}
+        result: Dict[str, float] = {}
+        for nid_i in ids:
+            theta_i = self.phases[nid_i]
+            total = 0.0
+            for nid_j in ids:
+                if nid_i == nid_j:
+                    continue
+                s = math.cos(theta_i - self.phases[nid_j])
+                if coactivation is not None and hasattr(coactivation, "get_coactivation"):
+                    s *= max(coactivation.get_coactivation(nid_i, nid_j), 0.01)
+                total += s
+            result[nid_i] = total / (len(ids) - 1)
+        return result
 
     def reset(self) -> None:
         """重置全局 phase 到 0（新输入开始时调用）。"""

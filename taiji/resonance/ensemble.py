@@ -1392,6 +1392,22 @@ class ResonanceEnsemble:
             scores = {}
             for nid in active_ids:
                 scores[nid] = self.field.score(self._project_vec(nid, round_vecs[nid]), neuron_id=nid)
+
+            # C23（2026-08-08）：相位同步本体化——pairwise binding 调制共振分
+            # 推理路径此前只做 Kuramoto 相位演化（无消费端，纯装饰）；现在
+            # 同相 neuron 群体（同 domain 同相位）binding 高 → 共振分增强 →
+            # 融合权重集中（绑结成知觉单元）；异相解绑。与 forward_train 一致。
+            if self.gamma_oscillator is not None:
+                try:
+                    binding = self.gamma_oscillator.pairwise_binding(
+                        list(active_ids), coactivation=self.coaction,
+                    )
+                    bs = getattr(self.gamma_oscillator, "binding_scale", 0.0)
+                    if binding and bs != 0.0:
+                        for nid in scores:
+                            scores[nid] = scores[nid] * (1.0 + bs * binding.get(nid, 0.0))
+                except Exception:
+                    pass  # 相位绑定失败不影响共振主流程
             self.round_scores.append(scores)
 
             # P0-2 fix: 每轮基于当前 scores 重新计算 _logits_keep_ids（原 bug：round 1 后冻结）
@@ -2004,6 +2020,19 @@ class ResonanceEnsemble:
             try:
                 gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
                 scores = scores * gate_factors.to(scores.device)
+                # C23（2026-08-08）：相位同步本体化——追加 pairwise binding
+                # （与推理 forward 一致）：同相群体增强/异相解绑。相位从"对全局
+                # 相位的标量门控"升级为 neuron 之间的关系度量（共振本体化）。
+                binding = gamma_oscillator.pairwise_binding(
+                    list(active_ids), coactivation=self.coaction,
+                )
+                bs = getattr(gamma_oscillator, "binding_scale", 0.0)
+                if binding and bs != 0.0:
+                    bvec = torch.tensor(
+                        [binding[nid] for nid in active_ids],
+                        dtype=torch.float32, device=scores.device,
+                    )
+                    scores = scores * (1.0 + bs * bvec)
             except Exception:
                 pass
 
