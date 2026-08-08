@@ -299,6 +299,17 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **语义闭环（C23 全）**：共激活 → Kuramoto 相位牵引 → binding 上升 → 共振分增强（增量 A）+ 场写入增强（增量 B）→ 绑结单元在场上主导、被解绑 neuron 退场——**共振本体（场）+ 共振权重（scores）都由相位同步驱动**
 - **下一步（增量 C，未开始）**：相位可微化——2D 相位向量（cosθ,sinθ）+ Kuramoto ODE 离散化，让 binding 参与训练梯度流（当前 binding 是离散标量，不直接可微；可微化后相位绑结成为端到端可学机制）
 
+**C23-C 实施（相位可微化：PhasorDynamics，2026-08-08 ✅ 冒烟 13/13）**：
+- **目标**：相位从"启发式调制"升级为"端到端可学机制"——谁同相/异相由任务学出，而非先验同域同相
+- **新模块** `taiji/resonance/phasor.py`：`PhasorDynamics(nn.Module)`
+  - 相位 = 2D 单位向量 p_i=(cosθ_i,sinθ_i)；binding = p_i·p_j（**可微点积**）；Kuramoto 牵引 = det([p_i,p_j])（**可微叉积**）
+  - 可学习：phasors（Parameter，任务梯度直接调相位）+ ω（自然频率）+ coupling_k（耦合强度）
+  - **双驱动相位动力学**：前向 Kuramoto 物理牵引（in-place 状态推进）+ 反向任务梯度（`task_gradient_step` 黎曼切向更新）
+- **关键工程发现**：相位是单位向量（流形约束），普通 SGD 径向梯度被归一化抹掉（完全对齐/反相是 binding 驻点，sin(Δθ)=0）；正确更新 = 切向投影 `tangent = g−(g·p)·p`（黎曼梯度下降）
+- **接入**：ensemble.forward_train 的 scores 段 + 场构造段加 `differentiable` 分支（binding_tensor 替代标量 dict 版）；loader 推理仍用标量 GammaOscillator（互不干扰）
+- **✅ 冒烟 13/13 PASS**：binding 可微（梯度流经 phasors）；ω/K 驱动演化改变 binding（Δ=2.87）；演化保持单位范数；任务梯度驱动相位演化（Δ=1.18）+ 同相绑定提升（0.276→0.385）；接口兼容（assign_phase_by_domain/batch_gate_factors）；forward_train 可微分支接入
+- **遗留（下一阶段）**：ω/K 梯度路径（当前在 no_grad 演化中，需 evolve 可微化——演化输出直接参与 loss）；PhasorDynamics 接入训练脚本（train_round_level_quality 显式启用）
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

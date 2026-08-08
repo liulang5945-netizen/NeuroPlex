@@ -2023,18 +2023,28 @@ class ResonanceEnsemble:
         # 异相解绑（与推理 forward 场写入一致；让相位绑结成为可学习信号）
         if gamma_oscillator is not None:
             try:
-                binding = gamma_oscillator.pairwise_binding(
-                    list(active_ids), coactivation=self.coaction,
-                )
                 bs = float(getattr(gamma_oscillator, "binding_scale", 0.0))
-                if binding and bs != 0.0:
-                    bvec = torch.tensor(
-                        [binding[nid] for nid in active_ids],
-                        dtype=torch.float32, device=all_vecs_weighted.device,
-                    )
-                    all_vecs_weighted = all_vecs_weighted * (
-                        1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)
-                    )  # [N, B, D]
+                if bs != 0.0:
+                    if getattr(gamma_oscillator, "differentiable", False):
+                        # C23-C：可微绑定（梯度经 binding → phasors/ω/K）
+                        bvec = gamma_oscillator.binding_tensor(
+                            list(active_ids), coactivation=self.coaction,
+                        ).to(all_vecs_weighted.device)
+                    else:
+                        # C23-B：标量绑定（GammaOscillator）
+                        binding = gamma_oscillator.pairwise_binding(
+                            list(active_ids), coactivation=self.coaction,
+                        )
+                        bvec = None
+                        if binding:
+                            bvec = torch.tensor(
+                                [binding.get(nid, 0.0) for nid in active_ids],
+                                dtype=torch.float32, device=all_vecs_weighted.device,
+                            )
+                    if bvec is not None:
+                        all_vecs_weighted = all_vecs_weighted * (
+                            1.0 + bs * bvec.unsqueeze(1).unsqueeze(2)
+                        )  # [N, B, D]
             except Exception:
                 pass
         # C7: 空间场扩散（评分时也用扩散后的 vectors，保持训练一致性）
@@ -2080,19 +2090,29 @@ class ResonanceEnsemble:
             try:
                 gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
                 scores = scores * gate_factors.to(scores.device)
-                # C23（2026-08-08）：相位同步本体化——追加 pairwise binding
-                # （与推理 forward 一致）：同相群体增强/异相解绑。相位从"对全局
-                # 相位的标量门控"升级为 neuron 之间的关系度量（共振本体化）。
-                binding = gamma_oscillator.pairwise_binding(
-                    list(active_ids), coactivation=self.coaction,
-                )
                 bs = getattr(gamma_oscillator, "binding_scale", 0.0)
-                if binding and bs != 0.0:
-                    bvec = torch.tensor(
-                        [binding[nid] for nid in active_ids],
-                        dtype=torch.float32, device=scores.device,
-                    )
-                    scores = scores * (1.0 + bs * bvec)
+                if bs != 0.0:
+                    if getattr(gamma_oscillator, "differentiable", False):
+                        # C23-C（2026-08-08）：可微相位绑定（PhasorDynamics）——
+                        # binding 张量参与计算图，任务梯度直接驱动相位演化（双驱动：
+                        # Kuramoto 物理牵引 + 反向任务信号）
+                        bvec = gamma_oscillator.binding_tensor(
+                            list(active_ids), coactivation=self.coaction,
+                        ).to(scores.device)
+                        scores = scores * (1.0 + bs * bvec)
+                    else:
+                        # C23（2026-08-08）：标量相位绑定（GammaOscillator）——
+                        # 同相群体增强/异相解绑（相位从"对全局相位的标量门控"
+                        # 升级为 neuron 之间的关系度量，共振本体化）
+                        binding = gamma_oscillator.pairwise_binding(
+                            list(active_ids), coactivation=self.coaction,
+                        )
+                        if binding:
+                            bvec = torch.tensor(
+                                [binding[nid] for nid in active_ids],
+                                dtype=torch.float32, device=scores.device,
+                            )
+                            scores = scores * (1.0 + bs * bvec)
             except Exception:
                 pass
 

@@ -31,6 +31,7 @@ from .lifecycle import LifecycleManager, ApoptosisTracker, MaturityTracker, Neur
 from .stdp import STDPTracker, STDPRule, FiringRecord
 from .neuro_modulation import NeuromodulatorState, SleepConsolidator
 from .gamma_oscillator import GammaOscillator, apply_gamma_gate
+from .phasor import PhasorDynamics
 from .geometry import NeuronGeometry
 from .topology import (
     build_topology, establish_topology_channels,
@@ -66,7 +67,7 @@ __all__ = [
     # 神经调质
     "NeuromodulatorState", "SleepConsolidator",
     # Gamma 同步
-    "GammaOscillator", "apply_gamma_gate",
+    "GammaOscillator", "apply_gamma_gate", "PhasorDynamics",
     # RSGN 几何
     "NeuronGeometry",
     # S7 拓扑

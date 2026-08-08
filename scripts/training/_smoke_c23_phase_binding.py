@@ -18,6 +18,8 @@ import sys
 os.environ.setdefault("TAIJI_TEST_MODE", "1")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+import torch
+
 from taiji.resonance.gamma_oscillator import GammaOscillator
 
 
@@ -156,6 +158,101 @@ def test_8_train_field_binding_weight():
           f"zh norm×{norm_zh:.3f}（增强） en norm×{norm_en:.3f}（衰减）")
 
 
+def test_9_phasor_differentiable():
+    """C23-C：PhasorDynamics 可微——phasors 任务可调（核心），ω/K 驱动演化（物理）。
+
+    - binding = p·p 点积可微 → loss 梯度直接驱动 phasors（任务决定"谁同相"）
+    - ω/K 出现在 Kuramoto 演化（no_grad 状态推进）→ 影响 binding 但不收任务梯度
+      （ω/K 的梯度路径需 evolve 可微化，记录为下一阶段）
+    """
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(binding_scale=0.3)
+    ph.register_neurons(["zh_1", "zh_2", "zh_3", "en_1"], phases=[0.0, 0.0, 0.0, math.pi])
+    # 模拟 scores 调制：loss = Σ scores，scores = (1 + bs·binding)
+    b = ph.binding_tensor(["zh_1", "zh_2", "zh_3", "en_1"])
+    scores = (1.0 + ph.binding_scale * b).sum()
+    scores.backward()
+    check("binding 可微（梯度流经 phasors）",
+          ph.phasors.grad is not None and ph.phasors.grad.abs().sum().item() > 0)
+    # ω/K 物理路径：有相位差 + 耦合牵引 → 相对相位演化 → binding 改变
+    # （同频且全对齐相位时 det=0，演化只是整体旋转，binding 不变——物理正确）
+    ph2 = PhasorDynamics(dt=0.2)
+    ph2.register_neurons(["a", "b", "c"], phases=[0.0, 0.8, 2.4])
+    b0 = ph2.binding_tensor(["a", "b", "c"]).clone()
+    for _ in range(40):
+        ph2.kuramoto_step(active_ids=["a", "b", "c"])
+    b1 = ph2.binding_tensor(["a", "b", "c"])
+    check("ω/K 驱动演化改变 binding（有相位差场景）", (b1 - b0).abs().sum().item() > 1e-3,
+          f"Δbinding={(b1-b0).abs().sum().item():.4f}")
+
+
+def test_10_kuramoto_unit_norm():
+    """C23-C：Kuramoto 演化保持单位范数（相位向量约束）。"""
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(dt=0.2)
+    ph.register_neurons(["a", "b", "c"], phases=[0.0, 1.0, 2.5])
+    for _ in range(20):
+        ph.kuramoto_step(active_ids=["a", "b", "c"])
+    norms = ph.phasors.norm(dim=1)
+    check("演化后相位向量仍为单位范数", torch.allclose(norms, torch.ones_like(norms), atol=1e-5),
+          f"norms={norms.detach().numpy().round(6)}")
+
+
+def test_11_task_driven_phase():
+    """C23-C：双驱动——任务梯度驱动相位演化（黎曼切向更新），且保持单位范数。
+
+    注意：完全对齐/反相是 binding 驻点（sin(Δθ)=0，梯度纯径向被流形吸收，
+    切向=0，无法演化）——从非最优配置出发才有切向梯度路径。
+    """
+    import torch.optim as optim
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics(binding_scale=0.5)
+    # 非最优初始相位：zh 群体有偏差（应被任务拉向同相），en 偏离反相
+    ph.register_neurons(["zh_1", "zh_2", "zh_3", "en_1"],
+                        phases=[0.0, 0.5, -0.4, math.pi + 0.6])
+    opt = optim.SGD(
+        [p for n, p in ph.named_parameters() if n != "phasors"], lr=0.1
+    )
+    p0 = ph.phasors.clone().detach()
+    b_zh0 = ph.binding_tensor(["zh_1", "zh_2", "zh_3", "en_1"])[:3].mean().item()
+    for _ in range(10):
+        opt.zero_grad()
+        b = ph.binding_tensor(["zh_1", "zh_2", "zh_3", "en_1"])
+        # 任务信号：最大化同相群体（zh）绑定 → 相位应向"同相"演化
+        loss = - (b[0] + b[1] + b[2]) + b[3]  # 抬 zh 群体、压 en
+        loss.backward()
+        opt.step()
+        ph.task_gradient_step(lr=0.1)
+    moved = (ph.phasors - p0).abs().sum().item() > 1e-3
+    b_zh1 = ph.binding_tensor(["zh_1", "zh_2", "zh_3", "en_1"])[:3].mean().item()
+    norms = ph.phasors.norm(dim=1)
+    check("任务梯度驱动相位演化（phasors 变化）", moved,
+          f"Δ={ (ph.phasors - p0).abs().sum().item():.4f}")
+    check("任务信号提升同相群体绑定", b_zh1 > b_zh0,
+          f"zh binding {b_zh0:.3f} → {b_zh1:.3f}")
+    check("演化后保持单位范数", torch.allclose(norms, torch.ones_like(norms), atol=1e-5))
+
+
+def test_12_phasor_interface_compat():
+    """C23-C：PhasorDynamics 兼容标量接口（loader 可用 assign_phase_by_domain）。"""
+    from taiji.resonance.phasor import PhasorDynamics
+    ph = PhasorDynamics()
+    ph.assign_phase_by_domain({"zh": ["zh_1", "zh_2"], "en": ["en_1"]})
+    b = ph.pairwise_binding(["zh_1", "zh_2", "en_1"])
+    gf = ph.batch_gate_factors(["zh_1", "zh_2", "en_1"])
+    check("assign_phase_by_domain + pairwise_binding 兼容", len(b) == 3 and "zh_1" in b)
+    check("batch_gate_factors 兼容", gf.shape[0] == 3 and 0.2 <= float(gf.min()) and float(gf.max()) <= 1.0)
+
+
+def test_13_forward_train_differentiable_wired():
+    """C23-C：forward_train 已接入可微分支（binding_tensor + differentiable 判断）。"""
+    import inspect
+    from taiji.resonance import ensemble as en
+    fwdtr_src = inspect.getsource(en.ResonanceEnsemble.forward_train)
+    check("forward_train 可微分支（binding_tensor）", "binding_tensor" in fwdtr_src)
+    check("forward_train differentiable 判断", "differentiable" in fwdtr_src)
+
+
 if __name__ == "__main__":
     test_1_same_phase_binding_positive()
     test_2_opposite_phase_binding_negative()
@@ -165,4 +262,9 @@ if __name__ == "__main__":
     test_6_wired_into_ensemble()
     test_7_write_scale_binding()
     test_8_train_field_binding_weight()
-    print("\nC23 冒烟 8/8 PASS")
+    test_9_phasor_differentiable()
+    test_10_kuramoto_unit_norm()
+    test_11_task_driven_phase()
+    test_12_phasor_interface_compat()
+    test_13_forward_train_differentiable_wired()
+    print("\nC23 冒烟 13/13 PASS")
