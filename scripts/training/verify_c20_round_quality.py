@@ -101,6 +101,24 @@ def main():
         q_str = ", ".join(f"{d}={v:.2f}" for d, v in sorted(per_dom.items()))
         print(f"[{tag:<8}] → {dom} (conf={conf:.2f}) | quality z: {q_str}")
 
+    # 5. C20 判定修正后的 executive 端到端生成（vs fusion）
+    print("\n=== 生成对比（40 token, temp 0.9）===")
+    for tag, prompt in PROMPTS:
+        try:
+            out_exec = cortex.generate(
+                prompt, max_tokens=40, temperature=0.9, top_k=50,
+                collab_mode="executive",
+            )
+            out_fusion = cortex.generate(
+                prompt, max_tokens=40, temperature=0.9, top_k=50,
+                collab_mode="fusion",
+            )
+            print(f"\n── [{tag}] {prompt}")
+            print(f"  executive: {out_exec}")
+            print(f"  fusion   : {out_fusion}")
+        except Exception as e:
+            print(f"\n── [{tag}] ERROR: {e}")
+
 
 if __name__ == "__main__":
     main()

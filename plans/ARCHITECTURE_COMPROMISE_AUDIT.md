@@ -335,6 +335,8 @@
     - **关键调优**：_executive_route 切换条件加 z 绝对差阈值（≥0.7σ）——纯 1.5× 比例对接近 0 的 z 太宽松（en 回合 zh 0.49 vs en 0.04 也满足 → 错误覆盖启发式正确的 en）；0.7σ 实测区分 math（差 0.95 切 ✓）/en（差 0.45 不切 ✓）
     - **已知限制**：zh general 是"全能型"（多文本 NLL 低）→ quality z 系统性偏高，靠 0.7σ 显著门防错误覆盖；生成质量仍碎片（C16 基座限制，非 C20 范围）
     - **产出**：collab_v3_c20.ckpt.pt（head_state 分量，C18 注入格式兼容）
+    - **🔴 端到端生成验证（2026-08-08）：碎片根因确认 = 统一空间收敛未完成**——executive 生成仍碎片（dialogue→zh 判定后 leader 输出 `clusters clicking deadline` 等）。逐 neuron lm_head 检查：**5 个 dialogue neuron lm_head vocab=50000（zh 域空间，C16 转译设计保留域头），4 个 general neuron=256000**。C19 生成已统一 general_sp decode → leader 选 dialogue neuron 时 zh 空间 id 用 general 词表解析 → **完全错位** → 碎片。且 zh general（general 空间）只会回显+句号（foundation 全文本续写训练，无 SFT 问答能力）。**没有任何 neuron 在 general 256K 空间拥有中文问答生成能力**。general tokenizer 中文覆盖 0 unk（词表无问题）。
+    - **修复方向（C21）**：dialogue neuron 迁移到 general 256K 空间——注入 shared_lm_head + general 输入表 + 中文 SFT（general 编码）训练 body，让对话能力在 general 空间表达；统一空间后转译层废弃，leader 生成空间自洽
 
 **✅ 多模态集成层收敛完成**（2026-08-07，commit 3e4efc0）：
 - **问题诊断**：`mm_lm_heads` 独立 codebook 输出头与"共享 general 256K lm_head"架构矛盾——输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂
