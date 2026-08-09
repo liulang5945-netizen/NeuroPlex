@@ -366,6 +366,23 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 
 ---
 
+**C25 对比问题解决（2026-08-09 用户指令：态极 vs 人脑对比中的问题开始解决；词库容量不限 + 实时编辑 → 不需要热插拔）**：
+- **背景**：[TAIJI_VS_HUMAN_BRAIN_COMPARISON.md](file:///e:/taiji-neuron/plans/TAIJI_VS_HUMAN_BRAIN_COMPARISON.md) 2.11 借鉴边界（装饰/角色偏移项）+ 2.12 最高上限方向。相位同步本体化（缺口 R 核心）已由 C23 闭环；剩余对比问题清单如下。
+- **C25-A ✅ 词库实时编辑（2026-08-09，用户决策落地）**：热插拔（态极工程简化）→ **词库不做限制 + 实时编辑**（人脑词汇加工：脑区词汇分工 + 词汇生长，无"拔插"）。
+  - `EditableVocabulary`（translator.py）：包装 SentencePiece，运行时 `add_tokens` 追加 token（id ≥ base vocab，base 已含自动复用 base id）；encode 扩展区前缀树最长匹配 + 剩余走 SP；decode/vocab_size/id_to_piece/piece_to_id 合并扩展区；扩展区持久化 JSON 可热加载。
+  - `TokenizerHub`：`to_editable`（幂等升级）/ `add_tokens`（实时追加 + 持久化）/ `unregister_domain`（集合级编辑）。
+  - `resize_linear_for_vocab` / `resize_lm_head_for_vocab`：neuron lm_head 随词表扩展，旧行权重保留、新行均值+噪声初始化（judge_lm_head 不受影响）。
+  - **下游自动重建**：tokenizer_fingerprint 的 vocab_size 变化 → 对齐/转译表缓存自动失效重建（端到端验证：12000×50000 → 12000×50002）。
+  - 冒烟：verify_c25_vocab_edit.py **27/27 PASS**。
+- **剩余对比问题清单（待办）**：
+  - C25-B：STDP 从"只追踪不驱动"推进为 forward_train 骨架（缺口 R）
+  - C25-C：神经调质深度耦合训练（当前仅状态记录，缺口 R）
+  - C25-D：睡眠重放（真正的 forward 重放 + 经验回放训练，缺口 R 子项）
+  - C25-E：连续时间动力学替代离散共振轮次（相位同步本体化剩余）
+  - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
+
+---
+
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
 
 ### 背景

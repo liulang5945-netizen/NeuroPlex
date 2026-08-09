@@ -350,6 +350,345 @@ class TokenizerHub:
         print(f"[TokenizerHub] loaded {len(loaded)} domain tokenizers: {loaded}")
         return hub
 
+    # ---- 词库实时编辑（C25，2026-08-09 用户决策：容量不限 + 实时编辑 → 不需要热插拔）----
+
+    def to_editable(self, domain: str, ext_path: Optional[str] = None) -> "EditableVocabulary":
+        """把域 tokenizer 升级为可实时编辑词表（幂等：已可编辑则返回自身）。
+
+        Args:
+            domain: 域名。
+            ext_path: 扩展区持久化路径（如 taiji/domains/zh/sp_zh_ext.json）。
+                      存在则自动加载已追加 token；None 仅包装不持久化。
+
+        Returns:
+            EditableVocabulary 实例（同时写回 hub 注册表，替换原 tokenizer）。
+        """
+        tok = self.get_tokenizer(domain)
+        if tok is None:
+            raise ValueError(f"No tokenizer for domain '{domain}'")
+        if isinstance(tok, EditableVocabulary):
+            if ext_path is not None and os.path.exists(ext_path):
+                tok.load_ext(ext_path)
+            return tok
+        ev = EditableVocabulary(tok, ext_path=ext_path)
+        self.tokenizers[domain] = ev
+        print(f"[TokenizerHub] {domain} tokenizer 已升级为可实时编辑（base={ev.base_vocab}）", flush=True)
+        return ev
+
+    def add_tokens(self, domain: str, pieces: List[str], ext_path: Optional[str] = None) -> List[int]:
+        """实时给域词表追加 token（不存在的才追加，返回各 piece 的 token id）。
+
+        新 token 的 id ≥ base vocab → 下游对齐/转译表（fingerprint 的
+        vocab_size 变化）自动失效重建；neuron lm_head 需配套 resize
+        （见 resize_lm_head_for_vocab / resize_embedding_for_vocab）。
+
+        Args:
+            domain: 域名。
+            pieces: 要追加的 piece 文本列表（与 SP 的 ▁ 词界约定一致）。
+            ext_path: 追加后持久化路径（None 仅内存生效）。
+
+        Returns:
+            每个 piece 对应的 token id（base 已存在返回 base id）。
+        """
+        ev = self.to_editable(domain, ext_path=ext_path)
+        ids = ev.add_tokens(pieces)
+        if ext_path is not None:
+            ev.save_ext(ext_path)
+        return ids
+
+    def unregister_domain(self, domain: str) -> bool:
+        """运行时移除一张域词表（集合级编辑；general fallback 不受影响）。"""
+        if domain not in self.tokenizers or domain == "general":
+            return False
+        del self.tokenizers[domain]
+        print(f"[TokenizerHub] unregistered {domain} tokenizer", flush=True)
+        return True
+
+
+class EditableVocabulary:
+    """可实时编辑词表：包装 SentencePieceProcessor，运行时增删 token。
+
+    背景（C25 词库收敛，2026-08-09 用户决策）：
+    - 词库不做限制（容量不限）+ 支持实时编辑 → 不再需要"热插拔"机制。
+    - SentencePiece 模型静态不可变 → 本类在其上叠加"扩展区"：
+      运行时 add_tokens 追加 piece（id = base_vocab + i），encode/decode
+      在扩展区与 base SP 之间自动合并。
+
+    设计（上限最高）：
+    - 扩展区以 piece 文本（可读、可编辑）为键，与 SP 的 ▁ 词界约定一致；
+      追加的 piece 若 base 已含则直接复用 base id（不重复占位）
+    - encode：扩展区前缀树最长匹配 + 剩余片段走 SP（贪心，base 语义不变；
+      新词注入必然改变切分，属预期）
+    - decode / id_to_piece / piece_to_id / vocab_size 合并扩展区 → 下游
+      对齐/转译表（tokenizer_fingerprint 的 vocab_size 变化）自动失效重建
+    - 持久化：扩展区存 JSON（如 sp_zh_ext.json），可热加载还原
+    - 接口兼容 SP：GetPieceSize / id_to_piece / encode / decode / eos_id 等
+
+    用法：
+        ev = EditableVocabulary(sp)
+        nid = ev.add_token("▁量子计算")        # 返回新 token id（≥ base）
+        ids = ev.encode("量子计算前沿")          # 新词优先整词编码
+        ev.save_ext("taiji/domains/zh/sp_zh_ext.json")
+        ev2 = EditableVocabulary(sp, ext_path=...)  # 还原
+
+    tokenizer_fingerprint(sp) 兼容本类：GetPieceSize / id_to_piece 已实现
+    → 加 token 后指纹变化 → build_logits_alignment_matrix 缓存自动重建。
+    """
+
+    def __init__(self, sp, ext_pieces: Optional[List[str]] = None,
+                 ext_path: Optional[str] = None):
+        self._sp = sp
+        self._ext_pieces: List[str] = []
+        self._ext_id: Dict[str, int] = {}
+        self._trie = None
+        self.ext_path = ext_path
+        if ext_path and os.path.exists(ext_path):
+            self.load_ext(ext_path)
+        if ext_pieces:
+            self.add_tokens(ext_pieces)
+
+    # ---- 基础属性 ----
+
+    @property
+    def base_vocab(self) -> int:
+        """base SP 原始 vocab 大小（不可变区）。"""
+        if callable(getattr(self._sp, "GetPieceSize", None)):
+            return int(self._sp.GetPieceSize())
+        return int(self._sp.vocab_size())
+
+    @property
+    def ext_pieces(self) -> List[str]:
+        return list(self._ext_pieces)
+
+    # ---- 实时编辑 ----
+
+    def add_token(self, piece: str) -> int:
+        """追加一个 token。base 已含则返回 base id；否则分配 ext id。"""
+        if piece in self._ext_id:
+            return self._ext_id[piece]
+        bid = self._sp.piece_to_id(piece)
+        if bid != self._sp.unk_id():
+            return int(bid)  # base 已含，直接复用（不重复占位）
+        new_id = self.base_vocab + len(self._ext_pieces)
+        self._ext_pieces.append(piece)
+        self._ext_id[piece] = new_id
+        self._trie = None  # 失效，下次 encode 重建
+        return new_id
+
+    def add_tokens(self, pieces: List[str]) -> List[int]:
+        """批量追加，返回各 piece 的 token id（保持输入顺序）。"""
+        return [self.add_token(p) for p in pieces]
+
+    def remove_token(self, piece: str) -> bool:
+        """移除一个扩展 token（⚠️ ext id 会重排——仅限未绑定 neuron 的编辑态使用）。
+
+        已持久化 / 已被 neuron lm_head 引用时移除会导致 id 错位，
+        建议通过词表重建（重训 SP + 清空 ext）而非运行时移除。
+        """
+        if piece not in self._ext_id:
+            return False
+        self._ext_pieces.remove(piece)
+        del self._ext_id[piece]
+        self._ext_id = {p: self.base_vocab + i for i, p in enumerate(self._ext_pieces)}
+        self._trie = None
+        print(f"[EditableVocabulary] removed token '{piece}'（ext 区 id 已重排）", flush=True)
+        return True
+
+    # ---- 编码 / 解码 ----
+
+    def _build_trie(self) -> None:
+        root = {}
+        for idx, piece in enumerate(self._ext_pieces):
+            node = root
+            for ch in piece:
+                node = node.setdefault(ch, {})
+            node[""] = self.base_vocab + idx  # 终端标记 → token id
+        self._trie = root
+
+    def encode(self, text) -> List[int]:
+        """编码：扩展区前缀树最长匹配 + 剩余片段走 base SP。"""
+        if isinstance(text, list):
+            ids: List[int] = []
+            for s in text:
+                ids.extend(self.encode(s))
+            return ids
+        if not text:
+            return []
+        if not self._ext_pieces:
+            return self._sp.encode(text)
+        if self._trie is None:
+            self._build_trie()
+        ids = []
+        buf: List[str] = []      # 未命中的普通字符缓冲
+        n = len(text)
+        i = 0
+        while i < n:
+            node = self._trie
+            match_id = -1
+            match_len = 0
+            j = i
+            while j < n and text[j] in node:
+                node = node[text[j]]
+                j += 1
+                if "" in node:
+                    match_id = node[""]
+                    match_len = j - i
+            if match_id >= 0:
+                if buf:
+                    ids.extend(self._sp.encode("".join(buf)))
+                    buf = []
+                ids.append(match_id)
+                i += match_len
+            else:
+                buf.append(text[i])
+                i += 1
+        if buf:
+            ids.extend(self._sp.encode("".join(buf)))
+        return ids
+
+    def decode(self, ids) -> str:
+        """解码：ext id → piece 文本；base id → SP decode。"""
+        if isinstance(ids, torch.Tensor):
+            ids = ids.tolist()
+        out: List[str] = []
+        base = self.base_vocab
+        n_ext = len(self._ext_pieces)
+        for i in ids:
+            i = int(i)
+            if i >= base and (i - base) < n_ext:
+                out.append(self._ext_pieces[i - base])
+            else:
+                out.append(self._sp.decode([i]))
+        return "".join(out)
+
+    # ---- 兼容 SP 接口（对齐表 / 转译表 / fingerprint 依赖） ----
+
+    def GetPieceSize(self) -> int:
+        return self.base_vocab + len(self._ext_pieces)
+
+    def vocab_size(self) -> int:
+        return self.GetPieceSize()
+
+    def id_to_piece(self, i: int) -> str:
+        i = int(i)
+        base = self.base_vocab
+        if i >= base and (i - base) < len(self._ext_pieces):
+            return self._ext_pieces[i - base]
+        return self._sp.id_to_piece(i)
+
+    def piece_to_id(self, piece: str) -> int:
+        if piece in self._ext_id:
+            return self._ext_id[piece]
+        return self._sp.piece_to_id(piece)
+
+    def eos_id(self) -> int:
+        return int(self._sp.eos_id())
+
+    def pad_id(self) -> int:
+        return int(self._sp.pad_id())
+
+    def unk_id(self) -> int:
+        return int(self._sp.unk_id())
+
+    def bos_id(self) -> int:
+        return int(self._sp.bos_id())
+
+    # ---- 持久化 ----
+
+    def save_ext(self, path: Optional[str] = None) -> str:
+        """扩展区持久化到 JSON（默认 self.ext_path）。"""
+        save_path = path or self.ext_path
+        if not save_path:
+            raise ValueError("EditableVocabulary.save_ext 需要 path")
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump({"ext_pieces": self._ext_pieces, "base_vocab": self.base_vocab},
+                      f, ensure_ascii=False, indent=2)
+        self.ext_path = save_path
+        print(f"[EditableVocabulary] 已保存 {len(self._ext_pieces)} 个扩展 token 到 {save_path}",
+              flush=True)
+        return save_path
+
+    def load_ext(self, path: Optional[str] = None) -> int:
+        """热加载扩展区（合并进现有扩展区，自动跳过重复）。"""
+        load_path = path or self.ext_path
+        if not load_path or not os.path.exists(load_path):
+            return 0
+        with open(load_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        pieces = data.get("ext_pieces", [])
+        added = 0
+        for p in pieces:
+            if p not in self._ext_id and self._sp.piece_to_id(p) == self._sp.unk_id():
+                self._ext_pieces.append(p)
+                self._ext_id[p] = self.base_vocab + len(self._ext_pieces) - 1
+                added += 1
+        self._trie = None
+        if added:
+            print(f"[EditableVocabulary] 已加载 {added} 个扩展 token（{load_path}）", flush=True)
+        return added
+
+    def __getattr__(self, name):
+        """其余属性透传 base SP（保持全接口兼容）。"""
+        return getattr(self._sp, name)
+
+
+def resize_linear_for_vocab(linear, new_vocab: int, init_std: float = 0.02):
+    """把 nn.Linear(hidden, old_vocab) resize 到 new_vocab（词表实时编辑配套）。
+
+    新增行用既有行的均值 + 小噪声初始化（比零初始化更快进入可用区），
+    旧行权重与 bias 原样保留——已学 token 的输出不受影响。
+
+    Args:
+        linear: nn.Linear（lm_head / embedding 权重矩阵形态均可，要求 out_features=vocab）。
+        new_vocab: 目标 vocab 大小（含扩展区）。
+        init_std: 新增行初始化噪声标准差。
+
+    Returns:
+        新的 nn.Linear（old_vocab >= new_vocab 时返回原对象）。
+    """
+    old_vocab = linear.out_features
+    if old_vocab >= new_vocab:
+        return linear
+    new_linear = torch.nn.Linear(linear.in_features, new_vocab,
+                                 bias=linear.bias is not None)
+    with torch.no_grad():
+        new_linear.weight.data[:old_vocab] = linear.weight.data
+        if old_vocab > 0:
+            mean = linear.weight.data.mean(dim=0, keepdim=True)
+        else:
+            mean = torch.zeros(1, linear.in_features)
+        new_linear.weight.data[old_vocab:] = (
+            mean + torch.randn(new_vocab - old_vocab, linear.in_features) * init_std
+        )
+        if linear.bias is not None:
+            new_linear.bias.data[:old_vocab] = linear.bias.data
+    return new_linear
+
+
+def resize_lm_head_for_vocab(neuron, new_vocab: int) -> bool:
+    """把 neuron 的域 lm_head resize 到 new_vocab（词库实时编辑配套）。
+
+    仅处理 neuron.lm_head（域词表头）；judge_lm_head（general 256K）不随
+    域词表扩展。shared+delta 低秩头（lm_head_rank>0）不 resize（v1 仅完整头）。
+
+    Args:
+        neuron: ResonanceNeuron。
+        new_vocab: 目标 vocab 大小（含扩展区）。
+
+    Returns:
+        是否执行了 resize。
+    """
+    head = getattr(neuron, "lm_head", None)
+    if head is None or getattr(neuron, "lm_head_rank", 0) > 0:
+        return False
+    if head.out_features >= new_vocab:
+        return False
+    neuron.lm_head = resize_linear_for_vocab(head, new_vocab)
+    print(f"[resize_lm_head_for_vocab] {neuron.config.neuron_id} lm_head "
+          f"{head.out_features} → {new_vocab}", flush=True)
+    return True
+
 
 # ============================================================================
 # Token alignment utility: domain token ↔ general token position mapping
