@@ -376,6 +376,8 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - 冒烟：verify_c25_vocab_edit.py **27/27 PASS**。
 - **剩余对比问题清单（待办）**：
   - C25-B：STDP 从"只追踪不驱动"推进为 forward_train 骨架（缺口 R）
+    - **现状盘点（2026-08-09）**：STDPTracker 已注入 ensemble（loader Step 2）+ 推理 record_firing + sleep 期 apply_all_updates（权重缩放 [0.5,2.0]）+ SleepConsolidator 弱连接修剪（weight<0.01）——**非纯装饰，但缺通道级结构可塑性（excite/inhibit_channels 条目修剪/生长）且不参与 forward_train**
+    - **设计（上限最高，突触生长/修剪本体化）**：① STDPTracker 增共激活统计累积（(pre,post)→count/sim/dt 持久化，跨会话）；② `apply_structure_updates`：长期低共激活通道条目修剪 + 高共激活缺失通道生长（邻居相似初始化）——连接层"突触可塑性"从权重缩放升级为结构演化；③ 时机：C20 重训完成后接入 sleep（离线路径，不碰 forward_train 监督，规避 C23-C4 式监督打架）
   - C25-C：神经调质深度耦合训练（当前仅状态记录，缺口 R）
   - C25-D：睡眠重放（真正的 forward 重放 + 经验回放训练，缺口 R 子项）
   - C25-E：连续时间动力学替代离散共振轮次（相位同步本体化剩余）
