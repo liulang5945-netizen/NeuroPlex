@@ -371,6 +371,8 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - **修复（C20v2，上限最高）**：executive 判定改用 **judge NLL 主信号**（C20 当年 5/5 的原始信号链，general 空间可比，无训练依赖、无膨胀）——`_parallel_forward`/`forward`/`think` 增 return_judge_logits 收集 round1 judge logits；`_executive_route` 算各 neuron judge NLL → 域聚合取最低 → 与启发式融合（NLL 差 ≥1.0 显著占优才切换，回退安全）；quality z-score 保留为 judge 不可用时回退
   - **✅ 端到端判定 5/5**（code→code/math→math/zh→zh/dialogue→zh/en→en，无回归）
   - **遗留（待办）**：quality_head 膨胀根因未修（learned proxy 被绕过）；C24 域生成能力仍碎片（code "def __[3,b]"/zh "。"——域 SFT 数据少，非架构问题）
+  - **域生成碎片根因闭环（2026-08-10，diag_c24_domain_generate）**：单独验证 4 个域头 neuron 生成能力（不经 ensemble/head，`--dir data/foundation_v1_dual`）——code→". a given range where a function is traination..."（乱码）、math→"for every triangular..."（乱码）、zh→"数列 函数已知的发现"（碎片）、en→空。**独立域头生成同样碎片 → 确认是训练数据不足（每域仅 3000 条短 QA），非推理/装配 bug**。数据源：`data/sft/{domain}_sft.pt`（如 code 第 1 条 instruction='Create an array of length 5...' response='arr = [2, 4, 6, 8, 10]'，短指令-响应对，过拟合片段、泛化差）。
+  - **待办（下一步候选）**：扩充域 SFT 数据（如从 pretrain 语料构造续写样本 + 多样化 QA，目标每域 1-3 万条）→ 重跑 `train_domain_target_sft.py --domains code,math,zh,en --epochs 6`。数据规模/预算需与用户确认后启动。
 
 ---
 
