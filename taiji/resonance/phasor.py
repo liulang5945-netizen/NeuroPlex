@@ -338,5 +338,21 @@ class PhasorDynamics(nn.Module):
     def list_phases(self) -> Dict[str, float]:
         return {nid: self.phase_of(nid) for nid in self._id_to_idx}
 
+    @property
+    def phases(self) -> Dict[str, float]:
+        """兼容标量 GammaOscillator 的 `phases` dict（{nid: 弧度}）。
+
+        apply_gamma_gate / cortex.set_gamma_oscillator / loader 日志都读取
+        `osc.phases`（成员判断 `nid in osc.phases`）。PhasorDynamics 的相位
+        状态在 phasors Parameter 里，这里动态推导为 dict 保持接口兼容。
+        """
+        return {nid: self.phase_of(nid) for nid in self._id_to_idx}
+
+    def get_phase(self, neuron_id: str) -> Optional[float]:
+        """兼容标量接口：返回相位弧度（None = 未注册）。"""
+        if neuron_id not in self._id_to_idx:
+            return None
+        return self.phase_of(neuron_id)
+
     def reset(self) -> None:
         self.global_phase = 0.0

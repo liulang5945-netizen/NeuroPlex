@@ -332,7 +332,17 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - **✅ 冒烟 15/15 PASS**（test_6/test_8 更新为新语义：训练场无调制断言 + scores 段可微保留）
   - **✅ 同 seed 复现验证（60 条/域 1 epoch）**：C20 无 phasor 与 C23 有 phasor 的 ql 分布**完全一致**——C23-C4 修复后 phasor 对 quality_head 零干扰。此前 C20(5/5) vs C23_c4(3/5) 判定差异归因于 **seed bug**（`random.seed(42)` 在 shuffle 之后，两次完整训练数据顺序不同，对比不公）→ 已修复 seed 位置。
   - **✅ c23_final_seeded 完整验证（同 seed 200 条/域 + 300 对话 2 epoch + phasor，2026-08-08）**：饱和 0/109（C23 full 曾 54/109）；phase_loss 收敛 0.77→0.105；端到端判定 **5/5 与 C20 基线一致**（code→code/math→math/zh→zh/dialogue→zh/en→en，无回归）；ω 全分化 [0.68~0.93]、K 学习 −0.083、相位自组织分化（角度覆盖 −164°~110°）——**C23 相位同步本体化闭环最终验证成立**
-  - **遗留**：loader 推理仍用标量 GammaOscillator（PhasorDynamics 提升为默认装配可选）
+
+**C23-C5 实施（PhasorDynamics 提升为 loader 默认装配，2026-08-08 ✅）**：
+- **目标**：推理与训练相位路径统一——训练用 --enable-phasor 学到的 ω/K/相位自组织，推理直接复用（此前推理用标量 GammaOscillator，相位动力学不一致，训练成果在生成路径未落地）。
+- **改动**：
+  - train 脚本 checkpoint `phasor_state` 附 `id_order`（训练 _id_to_idx 顺序）
+  - loader Step 6 默认装配 **PhasorDynamics**（替代标量）：① 协作层含 phasor_state → 按训练顺序（id_order，旧 ckpt 回退 head_state keys 顺序）**重排 phasors/omega 行到当前装配顺序**（推理 dialogue 在前、general 在后，防错位）→ load_state_dict 注入；② 无 phasor_state → assign_phase_by_domain 域先验（0/π/3/2π/3/π，与旧标量等价）；③ 装配失败 → 回退标量 GammaOscillator（非致命）
+  - 推理态冻结：gamma.eval() + requires_grad_(False)（推理 forward 只走 dict binding/gate 标量路径，Kuramoto 状态推进仍生效）
+  - cortex.set_gamma_oscillator：已有相位则跳过 assign（防止覆盖 loader 注入的训练相位）
+  - PhasorDynamics 补 `phases` property + `get_phase`（apply_gamma_gate/cortex 日志兼容标量接口）
+- **✅ 验证**：c23_final_seeded 装配 → 9 neuron 相位/ω/K 与训练一致（code=−55.3°/math=−90.3°/zh_aug0=74.7°/K=−0.0834）；collab_v3_c16（无 phasor_state）→ 域先验 0°/60°/120°/180°；端到端判定 5/5 无回归；冒烟 15/15 PASS
+- **✅ 全部完成**：C23 相位同步本体化（A 共振分 / B 场本体 / C 可微化 / C2 ω·K 梯度 / C3 phase-binding loss / C4 训练监督纯净化 / C5 默认装配）——训练-推理统一，闭环落地
 
 ---
 

@@ -444,23 +444,84 @@ def assemble_cortex(
     except Exception as e:
         logger.warning("[assemble_cortex] NeuromodulatorState 创建失败（非致命）: %s", e)
 
-    # Step 6: GammaOscillator（P1-4，feature binding）
+    # Step 6: GammaOscillator / PhasorDynamics（P1-4，feature binding）
+    # C23-C5（2026-08-08）：默认装配 PhasorDynamics（可微相位动力学）——推理与
+    # 训练统一（训练用 --enable-phasor 学 ω/K/相位自组织，推理注入 phasor_state）。
+    # 兼容路径：① 协作层含 phasor_state → 按训练 id_order 注册 + 注入权重；
+    # ② 无 phasor_state → assign_phase_by_domain 先验（同域同相，标量行为等价）；
+    # ③ 装配失败 → 回退标量 GammaOscillator（非致命，向后兼容）。
     try:
-        from taiji.resonance import GammaOscillator
-        gamma = GammaOscillator()
-        # 按已加载 neuron 的 domain 分配相位
+        from taiji.resonance.phasor import PhasorDynamics
+        gamma = PhasorDynamics()
+        # 按已加载 neuron 的 domain 分配相位（同域同相先验；phased state 注入前）
         domain_to_nids: dict[str, list[str]] = {}
         for nid in cortex.neurons.keys():
             domain = nid.split("_")[0] if "_" in nid else nid
             domain_to_nids.setdefault(domain, []).append(nid)
-        if domain_to_nids:
-            gamma.assign_phase_by_domain(domain_to_nids)
+        ps = getattr(cortex, "_phasor_state", None)
+        if ps is not None:
+            train_order = getattr(cortex, "_phasor_id_order", None) or []
+            if train_order and all(n in cortex.neurons for n in train_order):
+                # 按当前装配顺序重排相位行（训练 phasors 行序 = train_order）：
+                # phasor_state 张量行序 = 训练 _id_to_idx 序，与推理 cortex.neurons
+                # 顺序无必然对应（推理 dialogue 在前、general 在后），必须重排，
+                # 否则相位/ω 错位到错误 neuron。
+                gamma.register_neurons(
+                    list(cortex.neurons.keys()), phases=[0.0] * len(cortex.neurons)
+                )
+                idx_map = {n: i for i, n in enumerate(train_order)}
+                ps_reordered = dict(ps)
+                for key in ("phasors", "omega"):
+                    if key in ps_reordered:
+                        t = ps_reordered[key]  # [N,2] / [N]
+                        rows = [t[idx_map[n]] for n in cortex.neurons]
+                        ps_reordered[key] = torch.stack(rows)
+                gamma.load_state_dict(
+                    {k: v for k, v in ps_reordered.items() if k != "id_order"},
+                    strict=False,
+                )
+                logger.info(
+                    "[assemble_cortex] PhasorDynamics 注入训练 phasor_state "
+                    "(%d neurons, 顺序重排 %d→当前)",
+                    len(train_order), len(train_order),
+                )
+            else:
+                logger.warning(
+                    "[assemble_cortex] phasor_state 训练顺序与当前 neuron 集合不匹配"
+                    "（训练 %d vs 当前 %d），走同域同相先验",
+                    len(train_order), len(cortex.neurons),
+                )
+                if domain_to_nids:
+                    gamma.assign_phase_by_domain(domain_to_nids)
+        else:
+            if domain_to_nids:
+                gamma.assign_phase_by_domain(domain_to_nids)
         cortex.set_gamma_oscillator(gamma)
         modules["gamma_oscillator"] = gamma
-        logger.info("[assemble_cortex] GammaOscillator wired (%d phases)",
+        # 推理态：冻结可学相位参数（推理 forward 只走 dict binding/gate 标量路径，
+        # 无需梯度；Kuramoto 状态推进仍生效）
+        gamma.eval()
+        for _p in gamma.parameters():
+            _p.requires_grad_(False)
+        logger.info("[assemble_cortex] PhasorDynamics wired (%d phases)",
                     len(gamma.phases))
     except Exception as e:
-        logger.warning("[assemble_cortex] GammaOscillator 创建失败（非致命）: %s", e)
+        logger.warning("[assemble_cortex] PhasorDynamics 装配失败，回退标量 GammaOscillator: %s", e)
+        try:
+            from taiji.resonance import GammaOscillator
+            gamma = GammaOscillator()
+            domain_to_nids = {}
+            for nid in cortex.neurons.keys():
+                domain = nid.split("_")[0] if "_" in nid else nid
+                domain_to_nids.setdefault(domain, []).append(nid)
+            if domain_to_nids:
+                gamma.assign_phase_by_domain(domain_to_nids)
+            cortex.set_gamma_oscillator(gamma)
+            modules["gamma_oscillator"] = gamma
+            logger.info("[assemble_cortex] GammaOscillator wired (%d phases)",
+                        len(gamma.phases))
+        except Exception as e2:
+            logger.warning("[assemble_cortex] GammaOscillator 创建失败（非致命）: %s", e2)
 
     # Step 7: WorkingMemory（P1-4，上下文维持）
     try:
@@ -849,6 +910,21 @@ def _load_collab_weights_into_cortex(
     if not isinstance(ckpt, dict):
         logger.warning("[assemble_cortex] 协作层权重格式异常（非 dict），跳过")
         return False
+
+    # C23-C5（2026-08-08）：缓存 phasor_state（含 id_order）供 Step 6 装配
+    # PhasorDynamics 时注入——推理复用训练学到的 ω/K/相位自组织。cortex 上
+    # 无此键时 Step 6 走 assign_phase_by_domain 先验（同域同相）。
+    ps = ckpt.get("phasor_state")
+    if ps is not None:
+        cortex._phasor_state = ps
+        # 旧 ckpt（id_order 添加前）无 id_order：用 head_state 的 key 顺序作为
+        # 训练 neuron 顺序 fallback（train 脚本保存顺序 = neurons.items() 顺序，
+        # 与 phasor 注册顺序一致）。
+        id_order = ps.get("id_order") or list((ckpt.get("head_state") or {}).keys())
+        if id_order:
+            cortex._phasor_id_order = id_order
+        logger.info("[assemble_cortex] 协作层含 phasor_state（%d 分量，%d neurons），待注入",
+                    len(ps), len(id_order))
 
     def _pick(*keys):
         """key 兼容：训练 ckpt（_state 后缀）与 final artifact（无后缀）。"""

@@ -157,7 +157,13 @@ def save_head_checkpoint(path, epoch, total_steps, neurons, loss_history, phasor
         "c20_round_level": True,
     }
     if phasor is not None:
-        ckpt["phasor_state"] = phasor.state_dict()
+        # C23-C5（2026-08-08）：附 id_order——推理 loader 装配 PhasorDynamics 时
+        # 按训练时的 ID 顺序注册神经元，避免推理 neuron 顺序不同导致相位错位
+        # （phasor_state 的张量行序 = 训练时 _id_to_idx 顺序，与 cortex.neurons
+        # 顺序无必然对应）。
+        ps = phasor.state_dict()
+        ps["id_order"] = list(getattr(phasor, "_id_to_idx", {}).keys())
+        ckpt["phasor_state"] = ps
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(ckpt, path)
 

@@ -464,7 +464,11 @@ class Cortex:
             domain = nid.split("_")[0] if "_" in nid else nid
             domain_to_nids.setdefault(domain, []).append(nid)
 
-        oscillator.assign_phase_by_domain(domain_to_nids)
+        # C23-C5（2026-08-08）：loader 可能已注入训练 phasor_state（PhasorDynamics
+        # 已有相位）→ 跳过 assign，避免覆盖训练学到的相位自组织；无相位时
+        # （直接创建注入）才按 domain 先验分配。
+        if not oscillator.phases:
+            oscillator.assign_phase_by_domain(domain_to_nids)
         apply_gamma_gate(self.field, oscillator)
         self.gamma_oscillator = oscillator
         # KoPE/Kuramoto: 注入 ensemble，每轮共振后执行相位耦合
@@ -473,7 +477,6 @@ class Cortex:
         print(f"[Cortex] GammaOscillator enabled "
               f"({len(oscillator.phases)} neurons phased, "
               f"{len(domain_to_nids)} domains)")
-
     def tick_gamma(self) -> None:
         """P6-3: 推进 Gamma 振荡相位（每轮共振后调用）。"""
         if hasattr(self, 'gamma_oscillator') and self.gamma_oscillator is not None:
