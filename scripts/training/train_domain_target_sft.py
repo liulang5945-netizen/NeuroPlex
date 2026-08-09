@@ -154,10 +154,11 @@ def load_base_neuron(domain: str, device: str):
     sd = {k: v for k, v in ckpt["state_dict"].items() if not k.startswith("lm_head")}
     neuron.load_state_dict(sd, strict=False)
     # general 256K 共享头 → judge_lm_head（判定空间，C20 信号链）
+    # 维度从 shared_lm_head.pt 权重 shape 推断（general 词表实例值，非硬编码 256000）
     shared_head_path = os.path.join(BASE_DIR, "shared_lm_head.pt")
     if os.path.exists(shared_head_path):
         sh = torch.load(shared_head_path, map_location=device, weights_only=False)
-        judge_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False).to(device)
+        judge_head = torch.nn.Linear(cfg.hidden_size, sh["weight"].shape[0], bias=False).to(device)
         judge_head.weight.data.copy_(sh["weight"])
         # C24 双头：judge_lm_head 冻结——它是共享 general 判定头（C20 信号链），
         # 不应随单域 SFT 漂移；其梯度仍经 body 传播（gen_loss 约束 body 不破坏
@@ -172,10 +173,14 @@ def load_base_neuron(domain: str, device: str):
 
 
 def load_shared_embedding(device: str) -> torch.nn.Embedding:
-    """共享 general 256K embedding（C24 冻结，保留全局 token 语义）。"""
+    """共享 general embedding（C24 冻结，保留全局 token 语义）。
+
+    维度从 shared_embedding.pt 权重 shape 推断（general 词表实例值，非硬编码 256000）。
+    """
     path = os.path.join(BASE_DIR, "shared_embedding.pt")
-    emb = torch.nn.Embedding(256000, EMBED_DIM)
-    emb.weight.data.copy_(torch.load(path, map_location=device, weights_only=False))
+    w = torch.load(path, map_location=device, weights_only=False)
+    emb = torch.nn.Embedding(w.shape[0], EMBED_DIM)
+    emb.weight.data.copy_(w)
     emb.to(device)
     return emb
 
@@ -190,13 +195,13 @@ def verify_checkpoint(domain: str, eval_pairs: List[Tuple[str, str]],
     cfg.unified_field_dim = None
     neuron = ResonanceNeuron(cfg)
     neuron.load_state_dict(ckpt["state_dict"], strict=False)
-    # 回读 judge_lm_head（双头判定空间）
+    # 回读 judge_lm_head（双头判定空间，维度从 ckpt 权重 shape 推断）
     jh = ckpt.get("judge_lm_head_state")
     if jh is not None:
-        judge_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False)
+        judge_head = torch.nn.Linear(cfg.hidden_size, jh.shape[0], bias=False)
         judge_head.weight.data.copy_(jh)
         neuron.judge_lm_head = judge_head
-    emb = torch.nn.Embedding(256000, EMBED_DIM)
+    emb = torch.nn.Embedding(jh.shape[0], EMBED_DIM) if jh is not None else torch.nn.Embedding(256000, EMBED_DIM)
     emb.weight.data.copy_(torch.load(os.path.join(OUT_DIR, "shared_embedding.pt"), map_location="cpu"))
     neuron.eval()
     total_loss, total_tok = 0.0, 0

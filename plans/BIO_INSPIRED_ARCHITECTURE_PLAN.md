@@ -373,6 +373,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - `TokenizerHub`：`to_editable`（幂等升级）/ `add_tokens`（实时追加 + 持久化）/ `unregister_domain`（集合级编辑）。
   - `resize_linear_for_vocab` / `resize_lm_head_for_vocab`：neuron lm_head 随词表扩展，旧行权重保留、新行均值+噪声初始化（judge_lm_head 不受影响）。
   - **下游自动重建**：tokenizer_fingerprint 的 vocab_size 变化 → 对齐/转译表缓存自动失效重建（端到端验证：12000×50000 → 12000×50002）。
+  - **256K 去硬编码（2026-08-09，用户质疑"256k 怎么好像是个硬设计"）**：256K 是当前 general 词表（sp_general.model）的**实例值**，判定可比性的本质是"所有 neuron 共享同一投影空间"，不依赖 256K 数字。修复：判定头/共享表维度一律从权重 shape 推断（`judge_lm_head_state.shape[0]` / `shared_lm_head["weight"].shape[0]`），LoRA 过滤改用 `loader.general_vocab_size()`（从 sp_general.model 动态获取，失败回退 256000）——general 词表可重训/实时扩展（C25-A EditableVocabulary + resize 工具）而不破坏装配。验证：动态 256000 == ckpt 256000。
   - 冒烟：verify_c25_vocab_edit.py **27/27 PASS**。
 - **剩余对比问题清单（待办）**：
   - C25-B：STDP 从"只追踪不驱动"推进为 forward_train 骨架（缺口 R）

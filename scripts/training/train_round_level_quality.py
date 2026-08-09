@@ -239,11 +239,12 @@ def main():
                         map_location=DEVICE, weights_only=False)
         jh = ck.get("judge_lm_head_state")
         if jh is not None:
-            jh_head = torch.nn.Linear(n.config.hidden_size, 256000, bias=False).to(DEVICE)
+            # 维度从 ckpt 权重 shape 推断（general 词表实例值，非硬编码 256000）
+            jh_head = torch.nn.Linear(n.config.hidden_size, jh.shape[0], bias=False).to(DEVICE)
             jh_head.weight.data.copy_(jh)
             n.judge_lm_head = jh_head
         elif judge_fallback is not None:
-            jh_head = torch.nn.Linear(n.config.hidden_size, 256000, bias=False).to(DEVICE)
+            jh_head = torch.nn.Linear(n.config.hidden_size, judge_fallback["weight"].shape[0], bias=False).to(DEVICE)
             jh_head.weight.data.copy_(judge_fallback["weight"])
             n.judge_lm_head = jh_head
         neurons[nid] = n
@@ -258,9 +259,9 @@ def main():
         cfg.unified_field_dim = None
         n = ResonanceNeuron(cfg).to(DEVICE)
         n.load_state_dict(ck["state_dict"], strict=False)
-        # dialogue neuron 无自有判定头 → 共享 general 256K 判定头（C20 信号链）
+        # dialogue neuron 无自有判定头 → 共享 general 判定头（C20 信号链）
         if judge_fallback is not None:
-            jh_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False).to(DEVICE)
+            jh_head = torch.nn.Linear(cfg.hidden_size, judge_fallback["weight"].shape[0], bias=False).to(DEVICE)
             jh_head.weight.data.copy_(judge_fallback["weight"])
             n.judge_lm_head = jh_head
         neurons[nid] = n

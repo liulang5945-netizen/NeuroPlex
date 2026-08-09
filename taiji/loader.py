@@ -19,6 +19,35 @@ from .tokenizer_native_v2 import TaijiNativeTokenizerV2
 # 向后兼容别名
 ModelSelfTokenizer = TaijiNativeTokenizerV2
 
+# general 词表大小（判定/共享空间实例值，随 sp_general.model 动态获取，
+# 非架构硬编码——C25 用户决策"词库不做限制"，general 词表可重训/实时扩展）
+_GENERAL_VOCAB_CACHE: Optional[int] = None
+
+
+def general_vocab_size() -> int:
+    """当前 general 词表大小：从 sp_general.model 动态获取（失败回退 256000）。
+
+    所有判定头/共享表维度创建处应使用本函数，避免字面 256000 泄漏。
+    """
+    global _GENERAL_VOCAB_CACHE
+    if _GENERAL_VOCAB_CACHE is not None:
+        return _GENERAL_VOCAB_CACHE
+    try:
+        import sentencepiece as spm
+        sp_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "domains", "general", "sp_general.model",
+        )
+        if os.path.exists(sp_path):
+            sp = spm.SentencePieceProcessor()
+            sp.Load(sp_path)
+            _GENERAL_VOCAB_CACHE = int(sp.GetPieceSize())
+            return _GENERAL_VOCAB_CACHE
+    except Exception:
+        pass
+    _GENERAL_VOCAB_CACHE = 256000
+    return _GENERAL_VOCAB_CACHE
+
 logger = logging.getLogger("Taiji")
 
 
@@ -862,11 +891,12 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
             # （训练 answer 起点在 prompt+"\n" 之后，见 train_domain_target_sft.py）
             if ckpt.get("c24_domain_sft"):
                 c24_nids.append(nid)
-            # C24 双头（2026-08-09）：judge_lm_head（general 256K 判定头）——
+            # C24 双头（2026-08-09）：judge_lm_head（general 判定头）——
             # 判定信号走 general 空间投影 NLL（C20 信号链，跨 neuron 可比）。
+            # 维度从 ckpt 权重 shape 推断（general 词表实例值，非硬编码 256000）。
             jh = ckpt.get("judge_lm_head_state")
             if jh is not None:
-                judge_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False).to(device)
+                judge_head = torch.nn.Linear(cfg.hidden_size, jh.shape[0], bias=False).to(device)
                 judge_head.weight.data.copy_(jh)
                 neuron.judge_lm_head = judge_head
                 logger.info("[assemble_cortex] %s judge_lm_head 注入（general 256K 判定头）", nid)
@@ -1058,11 +1088,11 @@ def _load_collab_weights_into_cortex(
                 continue
             neuron = cortex.neurons[nid]
             _out_vocab = getattr(neuron.lm_head, "out_features", None) if neuron.lm_head is not None else None
-            if _out_vocab != 256000:
+            if _out_vocab != general_vocab_size():
                 n_lora_skip += 1
                 logger.info(
-                    "[assemble_cortex] 跳过 %s 的 lora_state（lm_head=%s ≠ general 256K，"
-                    "域词表 neuron 保域能力）", nid, _out_vocab,
+                    "[assemble_cortex] 跳过 %s 的 lora_state（lm_head=%s ≠ general %d，"
+                    "域词表 neuron 保域能力）", nid, _out_vocab, general_vocab_size(),
                 )
                 continue
             if len(neuron.lora_adapters) == 0:
