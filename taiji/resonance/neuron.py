@@ -66,6 +66,15 @@ class ResonanceNeuron(nn.Module):
         self.config = neuron_config
         c = neuron_config
 
+        # ── C24（2026-08-09）：判定头（general 256K 空间）──
+        # 双头架构：lm_head（域词表，生成）+ judge_lm_head（general 256K，判定）。
+        # 背景：C20 判定 5/5 依赖所有 neuron 共享 general 256K 空间（投影 NLL 可比）；
+        # C24 换域头后 native NLL 跨 neuron 不可比（en 16K 英文词表对英文回合 NLL 恒低
+        # → quality_logit 膨胀常数头 → 判定退化）。双头方案：域头负责生成（C24 目标），
+        # judge_lm_head 保留 general 空间判定信号（C20 信号链，天然可比）。
+        # 由 loader/train 脚本注入（不在 config 中声明，避免破坏既有 ckpt 加载）。
+        self.judge_lm_head: Optional[nn.Linear] = None
+
         # ── 神经元类型（人脑启发：兴奋性/抑制性分化）──
         # excitatory: 对场做正向贡献（默认）
         # inhibitory: 对场做负向贡献，抑制过度共振
@@ -516,6 +525,7 @@ class ResonanceNeuron(nn.Module):
         field_state: Optional[torch.Tensor] = None,
         round_num: int = 1,
         return_logits: bool = False,
+        return_judge_logits: bool = False,
         side_signals: Optional[Dict[int, torch.Tensor]] = None,
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
@@ -529,6 +539,8 @@ class ResonanceNeuron(nn.Module):
             field_state: [D] current field state vector (from round 2 onward)
             round_num: current resonance round (1 = independent, 2+ = conditioned)
             return_logits: if True, also return lm_head logits (for PPL)
+            return_judge_logits: C24 if True and judge_lm_head set, also return
+                                 general 256K judge logits（判定空间可比信号）
             side_signals: optional {neuron_id: vector} for side-channel communication
             temp_gain: S9 注意力温度增益（norepinephrine 驱动）。
                        >1 聚焦（logits 尖锐），<1 泛化（logits 分散），1.0 标准。
@@ -542,6 +554,7 @@ class ResonanceNeuron(nn.Module):
             - field_vector: [B, D] L2-normalised write vector
             - hidden_before_write: [B, hidden] for diversity loss
             - logits: [B, L, vocab] (only if return_logits=True)
+            - judge_logits: [B, L, 256000] (only if return_judge_logits=True and judge_lm_head set)
             - intermediate_hidden: [B, num_layers, L, hidden] (only if return_intermediate=True)
             - attn_weights: [B, num_layers, num_heads, L, L] (only if return_intermediate=True)
         """
@@ -792,6 +805,12 @@ class ResonanceNeuron(nn.Module):
         # 输入投影进 shared 空间、输出却跳去独立 codebook 空间，输入输出割裂）。
         if return_logits:
             result["logits"] = self.compute_logits(h)  # [B, L, vocab]
+
+        # ── C24: 判定头 logits（general 256K 空间，判定信号可比）──
+        # judge_lm_head 存在时输出 general 空间 logits——C20 判定 5/5 的信号链
+        # （所有 neuron 共享 general 256K 头 → 投影 NLL 跨 neuron 可比）。
+        if return_judge_logits and self.judge_lm_head is not None:
+            result["judge_logits"] = self.judge_lm_head(h)  # [B, L, 256000]
 
         # ── C15: 预测质量 logit（2026-08-08，D 方案）──
         # 只在 round 1 计算：round 1 独立前向（无 field_state 注入、无 side_signals），

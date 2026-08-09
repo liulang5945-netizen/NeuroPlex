@@ -223,8 +223,29 @@ def main():
     shared_lm_head = load_shared_lm_head(args.neuron_dir, 512, DEVICE)
     neurons = {}
     shared_embeddings = {}
+    # C24 双头（2026-08-09）：judge_lm_head（general 256K 判定头）——
+    # 判定监督回退 C20 general 空间投影 NLL（可比），不再需要 native NLL。
+    # C24 双头 neuron ckpt 自带 judge_lm_head_state；dialogue neuron（旧阵容）
+    # 无判定头 → 共享 foundation_v1_general 的 general 256K 头（C20 信号链）。
+    judge_fallback = None
+    if not os.path.exists(os.path.join(args.neuron_dir, "shared_lm_head.pt")):
+        gen_head_path = os.path.join(os.path.dirname(OUTPUT_DIR), "foundation_v1_general", "shared_lm_head.pt")
+        if os.path.exists(gen_head_path):
+            judge_fallback = torch.load(gen_head_path, map_location=DEVICE, weights_only=False)
     for nid in domains:
         n = load_neuron(nid, args.neuron_dir, DEVICE, shared_lm_head=shared_lm_head)
+        # C24 双头：从 ckpt 恢复 judge_lm_head（general 256K 判定头）
+        ck = torch.load(os.path.join(args.neuron_dir, f"neuron_{nid}.pt"),
+                        map_location=DEVICE, weights_only=False)
+        jh = ck.get("judge_lm_head_state")
+        if jh is not None:
+            jh_head = torch.nn.Linear(n.config.hidden_size, 256000, bias=False).to(DEVICE)
+            jh_head.weight.data.copy_(jh)
+            n.judge_lm_head = jh_head
+        elif judge_fallback is not None:
+            jh_head = torch.nn.Linear(n.config.hidden_size, 256000, bias=False).to(DEVICE)
+            jh_head.weight.data.copy_(judge_fallback["weight"])
+            n.judge_lm_head = jh_head
         neurons[nid] = n
         shared_embeddings[nid] = load_shared_embedding(args.neuron_dir, DEVICE)
     for nid in dialogue_ids:
@@ -237,6 +258,11 @@ def main():
         cfg.unified_field_dim = None
         n = ResonanceNeuron(cfg).to(DEVICE)
         n.load_state_dict(ck["state_dict"], strict=False)
+        # dialogue neuron 无自有判定头 → 共享 general 256K 判定头（C20 信号链）
+        if judge_fallback is not None:
+            jh_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False).to(DEVICE)
+            jh_head.weight.data.copy_(judge_fallback["weight"])
+            n.judge_lm_head = jh_head
         neurons[nid] = n
         emb = create_shared_embedding(DEVICE)
         ses = ck.get("shared_embedding_state", {})
@@ -246,6 +272,9 @@ def main():
             emb.weight.data.copy_(ses)
         shared_embeddings[nid] = emb
     print(f"  阵容: {list(neurons.keys())}", flush=True)
+    # C24 双头：确认判定头注入
+    n_judge = sum(1 for n in neurons.values() if getattr(n, "judge_lm_head", None) is not None)
+    print(f"  [C24 双头] judge_lm_head（general 256K 判定头）: {n_judge}/{len(neurons)}", flush=True)
 
     # warm start：C16 collab 产物的 quality_head
     if args.init_collab and os.path.exists(args.init_collab):
@@ -352,6 +381,10 @@ def main():
                 batch = lst[i:i + args.batch_size]
                 neuron_embeddings, targets, answer_mask = batch_rounds(
                     batch, general_sp, shared_embeddings, args.seq_len)
+                # C24 双头（2026-08-09）：判定监督回退 C20 general 空间投影 NLL——
+                # 各 neuron 的 judge_lm_head（general 256K）在共享空间算回合 NLL，
+                # 天然可比（native NLL 不可比：en 16K 英文词表对英文回合 NLL 恒低
+                # → quality_logit 膨胀常数头 → 判定退化）。不再构建 per_neuron_targets。
 
                 optimizer.zero_grad()
                 result = ensemble.forward_train(

@@ -1726,6 +1726,12 @@ class ResonanceEnsemble:
         # 回合级 NLL——prompt 部分所有 neuron 都能续写（无区分度），answer 才是
         # "谁能生成好这个回复"的回合粒度真实质量信号。None（默认）= 全序列（C16d 兼容）。
         answer_mask: Optional[torch.Tensor] = None,
+        # ── C24（2026-08-09）：native NLL 监督 ──
+        # per_neuron_targets: {nid: [B, L]} 各 neuron 在自己词表空间的回合目标。
+        # 词库多词表架构下 general 空间投影 NLL 被转译噪声淹没（C24 换域头后
+        # code neuron 对中文回合投影 NLL 反而低 → quality_head 学乱）。传入时
+        # per_neuron_nll 用各 neuron 的 final_logits（native 空间）+ 各自目标计算。
+        per_neuron_targets: Optional[Dict[str, torch.Tensor]] = None,
         # ── T9: field_conditioning warm-up ──
         # True（默认）= round 2+ 注入 field_state（向后兼容）
         # False = round 2+ 也不注入（warm-up 阶段，neuron 独立学习）
@@ -1858,6 +1864,7 @@ class ResonanceEnsemble:
         round_vecs_raw: Dict[str, torch.Tensor] = {}      # 原始 field_dim 维度
         round_vecs_unified: Dict[str, torch.Tensor] = {}  # unified 维度
         final_logits: Dict[str, torch.Tensor] = {}        # 最后一轮每个 neuron 的 logits
+        final_judge_logits: Dict[str, torch.Tensor] = {}  # C24 双头：最后一轮 general 256K 判定 logits
         round_quality_logits_all: Dict[str, torch.Tensor] = {}  # C15: round 1 预测质量 logit（全程保留）
 
         for round_num in range(1, n_rounds + 1):
@@ -1904,6 +1911,7 @@ class ResonanceEnsemble:
                     field_state=fs,
                     round_num=round_num,
                     return_logits=True,
+                    return_judge_logits=True,  # C24 双头：收集 general 256K 判定 logits
                     temp_gain=temp_gain,
                     ffn_gain=ffn_gain,
                 )
@@ -1932,6 +1940,9 @@ class ResonanceEnsemble:
                     round_quality_logits_all[nid] = result["quality_logit"]
                 if round_num == n_rounds:
                     final_logits[nid] = result["logits"]
+                    # C24 双头：收集 general 256K 判定 logits（判定空间可比信号）
+                    if "judge_logits" in result:
+                        final_judge_logits[nid] = result["judge_logits"]
 
             # 更新 field_state（可微加法，无 detach）
             # field_state = sum of (confidence * L2-normalized vecs) (unified 维度)
@@ -2233,26 +2244,85 @@ class ResonanceEnsemble:
         # targets=None 时不计算（向后兼容）
         # C20（2026-08-08）：answer_mask 传入时只对 answer（回复）部分算回合级 NLL——
         # prompt 部分无区分度（输入即答案），回合粒度真实质量 = "谁能生成好这个回复"。
+        # C24（2026-08-09）：per_neuron_targets 传入时用 native NLL——各 neuron 在
+        # 自己的词表空间算质量（词库多词表架构下 general 空间投影 NLL 被转译噪声淹没，
+        # code neuron 对中文回合投影 NLL 反而低 → quality_head 学乱）。
         per_neuron_nll: Optional[torch.Tensor] = None
         if targets is not None and N >= 2:
-            # all_logits: [N, B, L, V], targets: [B, L]
-            shift_logits = all_logits[:, :, :-1, :].contiguous()  # [N, B, L-1, V]
-            shift_targets = targets[:, 1:].contiguous()            # [B, L-1]
-            nll_all = F.cross_entropy(
-                shift_logits.reshape(-1, shift_logits.size(-1)),
-                shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
-                reduction="none",
-            ).view(N, -1)  # [N, B*(L-1)]
-            if answer_mask is not None:
-                # 只对 answer 位置求均值（回合级 NLL）；无 answer 位置时回退全序列
-                am_shift = answer_mask[:, 1:].contiguous().reshape(-1).bool()  # [B*(L-1)]
-                n_tok = int(am_shift.sum().item())
-                if n_tok > 0:
-                    per_neuron_nll = nll_all[:, am_shift].mean(dim=1)  # [N]
+            if len(final_judge_logits) == N:
+                # ── C24 双头：general 256K 空间投影 NLL（C20 信号链，可比）──
+                # 各 neuron 用自己的 judge_lm_head（general 256K 共享空间）对同一
+                # targets（general 编码）算回合级 NLL → 天然可比（C20 判定 5/5
+                # 的信号）。native NLL（per_neuron_targets）不可比（en 16K 英文词表
+                # 对英文回合 NLL 恒低 → quality_logit 膨胀常数头）→ 双头后废弃。
+                judge_logits_stack = torch.stack([
+                    final_judge_logits[nid] for nid in active_ids
+                ])  # [N, B, L, 256000]
+                shift_logits = judge_logits_stack[:, :, :-1, :].contiguous()
+                shift_targets = targets[:, 1:].contiguous()  # [B, L-1]
+                nll_all = F.cross_entropy(
+                    shift_logits.reshape(-1, shift_logits.size(-1)),
+                    shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
+                    reduction="none",
+                ).view(N, -1)  # [N, B*(L-1)]
+                if answer_mask is not None:
+                    am_shift = answer_mask[:, 1:].contiguous().reshape(-1).bool()
+                    n_tok = int(am_shift.sum().item())
+                    if n_tok > 0:
+                        per_neuron_nll = nll_all[:, am_shift].mean(dim=1)
+                    else:
+                        per_neuron_nll = nll_all.mean(dim=1)
                 else:
                     per_neuron_nll = nll_all.mean(dim=1)
+            elif per_neuron_targets is not None:
+                # ── native NLL：各 neuron 用自己的域目标（per_neuron_targets[nid]）──
+                nll_list = []
+                for nid in active_ids:
+                    nt = per_neuron_targets.get(nid)
+                    if nt is None or nid not in final_logits:
+                        # 缺该 neuron 目标：回退 general 投影路径
+                        lg = all_logits[active_ids.index(nid), :, :-1, :].contiguous()
+                        st = targets[:, 1:].contiguous()
+                        am = answer_mask[:, 1:].contiguous() if answer_mask is not None else None
+                        if am is not None and am.sum() > 0:
+                            st = st.clone(); st[~am] = -100
+                        else:
+                            am = torch.ones_like(st, dtype=torch.bool)
+                        l = F.cross_entropy(lg.view(-1, lg.size(-1)), st.view(-1),
+                                            ignore_index=-100, reduction="sum")
+                        n_tok = max(int((am.sum()).item()), 1)
+                        nll_list.append(l / n_tok)
+                        continue
+                    lg = final_logits[nid][:, :-1, :].contiguous()  # [B, L-1, V_nid]
+                    st = nt[:, 1:].clone().contiguous()             # [B, L-1]
+                    am = answer_mask[:, 1:].contiguous() if answer_mask is not None else None
+                    if am is not None and am.sum() > 0:
+                        st[~am] = -100
+                    l = F.cross_entropy(lg.view(-1, lg.size(-1)), st.view(-1),
+                                        ignore_index=-100, reduction="sum")
+                    n_tok = max(int((am.sum()).item()), 1)
+                    nll_list.append(l / n_tok)
+                per_neuron_nll = torch.stack(nll_list)
             else:
-                per_neuron_nll = nll_all.mean(dim=1)  # [N]（C16d 全序列口径）
+                # ── general 空间投影 NLL（C20 原版，向后兼容）──
+                # all_logits: [N, B, L, V], targets: [B, L]
+                shift_logits = all_logits[:, :, :-1, :].contiguous()  # [N, B, L-1, V]
+                shift_targets = targets[:, 1:].contiguous()            # [B, L-1]
+                nll_all = F.cross_entropy(
+                    shift_logits.reshape(-1, shift_logits.size(-1)),
+                    shift_targets.unsqueeze(0).expand(N, -1, -1).reshape(-1),
+                    reduction="none",
+                ).view(N, -1)  # [N, B*(L-1)]
+                if answer_mask is not None:
+                    # 只对 answer 位置求均值（回合级 NLL）；无 answer 位置时回退全序列
+                    am_shift = answer_mask[:, 1:].contiguous().reshape(-1).bool()  # [B*(L-1)]
+                    n_tok = int(am_shift.sum().item())
+                    if n_tok > 0:
+                        per_neuron_nll = nll_all[:, am_shift].mean(dim=1)  # [N]
+                    else:
+                        per_neuron_nll = nll_all.mean(dim=1)
+                else:
+                    per_neuron_nll = nll_all.mean(dim=1)  # [N]（C16d 全序列口径）
 
         # ── C16b: per-neuron NLL z-score（2026-08-08，修复跨 neuron 不可比）──
         # 绝对 NLL 受 neuron 在 general 空间分布锐度主导（code 域=英文最匹配 →

@@ -344,6 +344,26 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **✅ 验证**：c23_final_seeded 装配 → 9 neuron 相位/ω/K 与训练一致（code=−55.3°/math=−90.3°/zh_aug0=74.7°/K=−0.0834）；collab_v3_c16（无 phasor_state）→ 域先验 0°/60°/120°/180°；端到端判定 5/5 无回归；冒烟 15/15 PASS
 - **✅ 全部完成**：C23 相位同步本体化（A 共振分 / B 场本体 / C 可微化 / C2 ω·K 梯度 / C3 phase-binding loss / C4 训练监督纯净化 / C5 默认装配）——训练-推理统一，闭环落地
 
+**C24 实施（4 个 general neuron 域目标空间 SFT 增强，落地 C21 遗留，2026-08-09 ⏳ C24v2 双头重训中）**：
+- **目标**：C21 遗留——4 个 general neuron 生成能力弱（zh 回显/math/en 碎片/code 简短），根因 = foundation_v1_general 在 general 256K 空间（英文主导）续写训练 + 无 SFT QA 能力。修复路径（同 dialogue 修复，C21 已验证）：**域目标空间**——general 输入 + 域词表目标 + answer masking，让 neuron 在自己的词表空间表达域内容。
+- **v1 产物**：data/foundation_v1_sft/（从 foundation_v1 域头基座 SFT，6 epochs → train PPL code 2.1/math 2.1/zh 8.6/en 10.6）——**生成能力验证成立**（code 生成 `def Fib(n):` 结构），但 **端到端判定退化**（collab_v3_c24 1/5：code→en/math→en/zh→math/en→zh）。
+- **判定退化根因（2026-08-09 诊断闭环）**：
+  1. foundation_v1（C24 域头基座）body 在 general 256K 空间 **NLL 无对角**（code 回合 zh=14.85 反而最低）→ C20 head（general 空间校准）失配；
+  2. native NLL 监督（各 neuron 用自己的域词表算回合 NLL）**跨 neuron 不可比**——en 16K 英文专精词表对英文回合（code/math/en 占训练 55%）NLL 恒定低 → en z-score 恒负 → en quality_logit 膨胀常数头（17-38 vs 其他 -1~-7）→ 判定全错。
+  3. 对照：foundation_v1_general body + general 256K 头 NLL **完美对角 4/4**（code=1.16/math=3.13/zh=11.10/en=2.50）→ C20 当年判定 5/5 的信号链依赖 general 空间可比性。
+- **C24v2 双头架构（上限最高方案）**：neuron 同时保留 **judge_lm_head（general 256K 判定头，冻结，C20 信号链）+ 域头（生成，C24 目标）**。基座从 foundation_v1_general 出发（body 保留 general 判定能力），训练双 loss：域 SFT（answer PPL 收敛）+ general 空间保留（gen_loss，防 body 漂移破坏判定空间）。
+  - `ResonanceNeuron`：新增 `judge_lm_head` 属性 + `return_judge_logits`（forward 输出 general 256K logits）
+  - `train_domain_target_sft.py`：基座改 foundation_v1_general、双头加载、双 loss 训练、save/verify 含 judge_lm_head_state
+  - `ensemble.py forward_train`：per_neuron_nll 回退 C20 general 空间投影 NLL（judge_logits 直接在 256K 空间对齐 targets，无转译噪声）
+  - `train_round_level_quality.py`：移除 native NLL（build_per_neuron_targets 删除），dialogue neuron 注入共享 general 256K 判定头
+  - `loader.py`：识别 `judge_lm_head_state` 注入判定头
+  - 冒烟验证（60 步）：域头 answer PPL 收敛 + general 判定对角保留（code=3.65 最低）——**双头方案成立**
+- **⏳ 完整重训中（foundation_v1_dual，4 域 × 6 epochs，logs/domain_sft_dual_full.log）**：
+  - code ✅（best eval PPL 6.8）→ 训练后 general 判定对角保留（code=1.2/math=7.7/zh=15.8/en=5.1）
+  - math ✅（best eval PPL 5.5）→ 判定对角保留（code=9.7/math=2.7/zh=16.0/en=6.5）
+  - zh ⏳（PPL 缓慢收敛，best 488.9，CJK 域需更多轮次）/ en 未开始
+- **C20 判定重训脚本已改造完成**（train_round_level_quality.py：移除 native NLL，per_neuron_nll 走 judge_logits general 空间；dialogue neuron 注入共享 general 256K 判定头；loader 支持 judge_lm_head_state 恢复）→ 待 C24 训练完成后运行 → 端到端验证（verify_c21_generate.py 已默认指向 collab_v3_c24v2 + foundation_v1_dual）。
+
 ---
 
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）

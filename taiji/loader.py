@@ -841,6 +841,7 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
         )
 
     added = []
+    c24_nids = []
     for path in sorted(glob.glob(os.path.join(extra_dir, "neuron_*.pt"))):
         name = os.path.basename(path)
         if name.startswith("_"):
@@ -857,12 +858,27 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
             neuron = ResonanceNeuron(cfg, shared_lm_head=shared_lm_head).to(device)
             neuron.load_state_dict(ckpt["state_dict"], strict=False)
             neuron.eval()
+            # C24（2026-08-09）：域目标空间 SFT neuron——生成时输入需补 "\n"
+            # （训练 answer 起点在 prompt+"\n" 之后，见 train_domain_target_sft.py）
+            if ckpt.get("c24_domain_sft"):
+                c24_nids.append(nid)
+            # C24 双头（2026-08-09）：judge_lm_head（general 256K 判定头）——
+            # 判定信号走 general 空间投影 NLL（C20 信号链，跨 neuron 可比）。
+            jh = ckpt.get("judge_lm_head_state")
+            if jh is not None:
+                judge_head = torch.nn.Linear(cfg.hidden_size, 256000, bias=False).to(device)
+                judge_head.weight.data.copy_(jh)
+                neuron.judge_lm_head = judge_head
+                logger.info("[assemble_cortex] %s judge_lm_head 注入（general 256K 判定头）", nid)
             # 用 ensemble.add_neuron（自动补建跨规格投影层 + 几何空间注册）；
             # cortex.neurons 与 ensemble.neurons 同一引用，一次调用两边生效。
             cortex.ensemble.add_neuron(nid, neuron)
             added.append(nid)
         except Exception as e:
             logger.warning("[assemble_cortex] extra neuron %s 加载失败: %s", nid, e)
+    if c24_nids:
+        setattr(cortex, "_c24_domain_nids", set(c24_nids))
+        logger.info("[assemble_cortex] C24 域头 SFT neurons（生成补分隔符）: %s", c24_nids)
     if added:
         logger.info("[assemble_cortex] extra neurons loaded: %s", added)
     return added

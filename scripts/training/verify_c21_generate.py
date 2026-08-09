@@ -31,24 +31,23 @@ DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt20", default="data/neurons/collab_v3_c20.ckpt.pt")
+    ap.add_argument("--ckpt20", default="data/neurons/collab_v3_c24v2.ckpt.pt",
+                    help="collab ckpt（C24v2 双头重训产物，loader 自动加载 head_state/phasor_state）")
+    ap.add_argument("--extra-dir", default="data/foundation_v1_dual",
+                    help="C24v2: 双头 SFT neuron 目录（域头生成 + judge_lm_head general 256K 判定）")
     args = ap.parse_args()
 
+    # C24: collab ckpt 直接作为协作层加载（loader 自动注入 head_state/phasor_state，
+    # 不再需要 C16 + 手动注入 C20 head 的两段式）
+    collab_name = os.path.basename(args.ckpt20)
     cortex, tokenizer, modules = assemble_cortex(
         neurons_dir="data/neurons",
-        collab_name="collab_v3_c16.ckpt.pt",
-        extra_neurons_dir="data/foundation_v1_general",
+        collab_name=collab_name,
+        extra_neurons_dir=args.extra_dir,
         neuron_ids=DIALOGUE_IDS,
     )
     print(f"[assemble_cortex] neurons: {list(cortex.neurons.keys())}")
-
-    # 注入 C20 head（回合级判定校准）
-    ck20 = torch.load(args.ckpt20, map_location="cpu", weights_only=False)
-    hs = ck20.get("head_state", {})
-    for nid, neuron in cortex.neurons.items():
-        if nid in hs and getattr(neuron, "quality_head", None) is not None:
-            neuron.quality_head.load_state_dict(hs[nid])
-    print(f"  C20 head 注入 {len(hs)}")
+    print(f"[assemble_cortex] collab: {collab_name}")
 
     # 预热 EMA（多样文本）
     for k in range(30):

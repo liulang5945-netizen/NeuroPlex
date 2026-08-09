@@ -1644,8 +1644,11 @@ class Cortex:
         # 默认 general 256K（general 头 neuron）；leader 是 zh 头 neuron（50K）时
         # 切到 zh decode + domain→general 回填（v3 口径，自回归输入保持 general 空间）。
         # C19 曾统一 general decode → zh 空间 id 被 general 词表错位解析 → dialogue 碎片。
+        # C24（2026-08-09）：decode 域扩展——按 leader 词表尺寸匹配 hub 域 tokenizer
+        # （code 12K/math 10K/zh 50K/en 16K），替代 C21 硬编码 50000→zh。
         eos_id = hub.eos_token_id("general")
-        decode_sp = self._general_sp  # 当前生成词表空间（leader 分支可能覆盖为 zh）
+        decode_sp = self._general_sp  # 当前生成词表空间（leader 分支可能覆盖为域）
+        decode_domain = "general"     # 当前 decode 空间域（P7 CJK 截断仅对中文生效）
         domain_sp = None
         alignment_table = None
 
@@ -1706,6 +1709,11 @@ class Cortex:
                 if general_neurons and domain not in general_neurons:
                     active_nids.extend(general_neurons)
 
+        # C24（2026-08-09）：leader 是域目标空间 SFT neuron 时首次迭代补 "\n"
+        # 分隔符（见下方 leader 分支）——训练 answer 起点在 prompt+"\n" 之后。
+        _c24_prefixed = False
+        _c24_domain_nids = getattr(self, "_c24_domain_nids", None) or set()
+
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
             if len(general_ids) > 512:
@@ -1751,6 +1759,16 @@ class Cortex:
                         leader_nid = max(final_scores, key=final_scores.get)
                 else:
                     leader_nid = max(final_scores, key=final_scores.get)
+                # C24（2026-08-09）：leader 是域目标空间 SFT neuron 时，首次迭代
+                # 补输入分隔符 "\n" 重新 forward——训练时 answer 起点在 prompt+"\n"
+                # 之后（train_domain_target_sft.py build_sample），生成输入无 "\n"
+                # 会导致 first-token 概率 EOS > 换行 → 生成空/碎片。
+                if (not _c24_prefixed and leader_nid in _c24_domain_nids):
+                    _c24_prefixed = True
+                    _nl_ids = self._general_sp.encode("\n")
+                    if _nl_ids:
+                        general_ids = general_ids + _nl_ids
+                        continue  # 重新 forward（输入含换行分隔符）
                 if leader_nid in neuron_logits:
                     # C21（词库多词表）：leader 用 round1 独立 logits（无场条件化）——
                     # round2 场注入混合域信号会稀释 leader 的域词表能力（dialogue 的
@@ -1772,18 +1790,29 @@ class Cortex:
                         leader_logits_full = next(iter(neuron_logits.values()))
                     logits = leader_logits_full[:, -1, :] / temperature
                 # C21（词库多词表）：decode 按 leader 词表空间——general 头（256K）
-                # → general decode（identity 回填）；zh 头（50K）→ zh decode +
-                # domain→general 回填（v3 口径）。词库容量不限定，新词表在此扩展。
+                # → general decode（identity 回填）；域头（zh 50K/code 12K/math 10K/
+                # en 16K 等）→ 域 decode + domain→general 回填（v3 口径）。
+                # C24（2026-08-09）：按词表尺寸动态匹配 hub 域 tokenizer，
+                # 词库容量不限定，新词表在此自动扩展。
                 _lv = leader_logits_full.shape[-1]
-                if _lv == 50000:
-                    _zh_sp = hub.get_tokenizer("zh") if "zh" in hub.list_domains() else None
-                    if _zh_sp is not None:
-                        decode_sp = _zh_sp
-                        eos_id = _zh_sp.eos_id() if hasattr(_zh_sp, "eos_id") else eos_id
+                _general_vocab = getattr(self._general_sp, "GetPieceSize", lambda: 256000)()
+                if _lv != _general_vocab:
+                    _matched_dom = None
+                    for _dom in hub.list_domains():
+                        _sp = hub.get_tokenizer(_dom)
+                        if _sp is not None and getattr(_sp, "GetPieceSize", lambda: 0)() == _lv:
+                            _matched_dom = _dom
+                            break
+                    if _matched_dom is not None:
+                        decode_sp = hub.get_tokenizer(_matched_dom)
+                        decode_domain = _matched_dom
+                        eos_id = decode_sp.eos_id() if hasattr(decode_sp, "eos_id") else eos_id
                     else:
                         decode_sp = self._general_sp
+                        decode_domain = "general"
                 else:
                     decode_sp = self._general_sp
+                    decode_domain = "general"
             elif result.get("weighted_logits") is not None:
                 # 优先用 ensemble 的 per-position routing（同 vocab 时由
                 # _compute_per_position_weights 算出，基于每位置 entropy/confidence
@@ -1867,7 +1896,9 @@ class Cortex:
             # P7-修复：跑偏截断——连续 3+ 个非中文 token（英文/符号/数字碎片）
             # 视为模型长序列生成跑偏，回退到最后一个中文 token 后停止。
             # （中文标点 .，！？ 等含全角形式，一并视为正常内容）
-            if len(generated_ids_ordered) >= 4:
+            # C24（2026-08-09）：仅对 zh 域 decode 生效——code/math/en 域空间
+            # 输出天然非中文（代码/数字/公式），CJK 截断会误杀域生成。
+            if decode_domain == "zh" and len(generated_ids_ordered) >= 4:
                 _cjk_or_punct = re.compile(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2014\u2018\u2019\u201c\u201d\u2026]')
                 last_pieces = [decode_sp.id_to_piece(t) for t in generated_ids_ordered[-4:]]
                 non_cjk = sum(1 for p in last_pieces if not _cjk_or_punct.search(p))
