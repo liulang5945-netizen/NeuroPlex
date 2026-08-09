@@ -166,9 +166,13 @@ class SleepConsolidator:
         self,
         replay_buffer_size: int = 100,
         consolidation_interval: int = 1000,
+        downscale_factor: float = 0.98,
     ):
         self.replay_buffer_size = replay_buffer_size
         self.consolidation_interval = consolidation_interval
+        # 突触稳态下调（C25-D，人脑 NREM 慢波 downscaling）：睡眠期整体按比例
+        # 缩小 side_channels 权重，突出强信号（对比文档 2.6 关键差异修复）
+        self.downscale_factor = downscale_factor
 
         # 重放缓冲区：存储 high-resonance 场状态
         self._replay_buffer: deque = deque(maxlen=replay_buffer_size)
@@ -181,14 +185,20 @@ class SleepConsolidator:
         field_state: torch.Tensor,
         resonance_score: float,
         step: int,
+        active_nids: Optional[list] = None,
         threshold: float = 0.5,
     ) -> None:
         """记录一次高共振场状态（用于后续重放）。
+
+        C25-D：新增 active_nids（参与该共振的 neuron 集）——重放时据此
+        "再激活"共激活统计，驱动突触巩固（人脑海马回放 → 皮层再激活），
+        而非纯统计占位。
 
         Args:
             field_state: 场状态向量
             resonance_score: 本次共振的最高分数
             step: 当前步数
+            active_nids: 参与本次共振的 neuron ID 列表（供重放再激活）
             threshold: 共振分数阈值，高于此值才记录
         """
         if resonance_score > threshold:
@@ -196,6 +206,7 @@ class SleepConsolidator:
                 "state": field_state.detach().clone(),
                 "score": resonance_score,
                 "step": step,
+                "active_nids": list(active_nids) if active_nids else None,
             })
 
     def should_consolidate(self, current_step: int) -> bool:
@@ -226,16 +237,25 @@ class SleepConsolidator:
             "replayed_states": 0,
             "channels_reinforced": 0,
             "channels_pruned": 0,
+            "channels_downscaled": 0,
             "fingerprints_updated": 0,
             "pairs_forgotten": 0,
         }
 
-        # 1. 重放高共振场状态
+        # 1. 重放高共振场状态（C25-D 真重放）：重放时用记录的 active_nids
+        #    再激活共激活统计（人脑海马回放 → 皮层再激活）——重放真正驱动
+        #    突触巩固，而非纯统计占位。无 active_nids 的旧记录仅计数。
         for record in list(self._replay_buffer):
-            # 重放时不需要真正 forward，只是统计
             stats["replayed_states"] += 1
+            an = record.get("active_nids")
+            if an and len(an) >= 2 and coactivation_tracker is not None:
+                try:
+                    coactivation_tracker.update(an)
+                except Exception as e:
+                    logger.warning("重放共激活更新失败（非关键）: %s", e)
 
-        # 2. 强化 slow EMA 高的 side_channels
+        # 2. 强化 slow EMA 高的 side_channels（重放已更新共激活统计，
+        #    此处强化的 strong_pairs 已包含重放贡献）
         if coactivation_tracker is not None and hasattr(coactivation_tracker, "get_strong_pairs"):
             strong_pairs = coactivation_tracker.get_strong_pairs(threshold=0.2)
             for pre_id, post_id in strong_pairs:
@@ -246,6 +266,13 @@ class SleepConsolidator:
                         # 强化：权重 × 1.1
                         neuron.excite_channels[post_key].weight.data *= 1.1
                         stats["channels_reinforced"] += 1
+
+        # 2.5 突触稳态下调（C25-D，人脑 NREM 慢波 downscaling）：
+        # 全局整体按比例缩小 side_channels 权重——强信号净保留（强化×1.1 后
+        # 再 ×0.98 ≈ ×1.08），弱信号被进一步压低（×0.98），突出强连接。
+        # 与"修剪弱通道"互补：downscaling 是连续调节，修剪是离散清除。
+        downscaled = self._synaptic_downscaling(neurons, factor=self.downscale_factor)
+        stats["channels_downscaled"] = downscaled
 
         # 3. 修剪弱 side_channels
         for nid, neuron in neurons.items():
@@ -272,6 +299,34 @@ class SleepConsolidator:
         logger.info("睡眠巩固完成: %s", stats)
         return stats
 
+    @torch.no_grad()
+    def _synaptic_downscaling(self, neurons: dict, factor: float = 0.98) -> int:
+        """突触稳态下调（人脑 NREM 慢波 downscaling）。
+
+        睡眠期整体按比例缩小 side_channels 权重（excite + inhibit），
+        突出强信号、压低弱噪声——对比文档 2.6 "态极 sleep 是'拿累积样本
+        离线训练'，重放/下调是方向性借鉴，未实现生物意义上的'逐条回放 +
+        全局缩放'"的"全局缩放"部分。
+
+        Args:
+            neurons: {neuron_id: ResonanceNeuron}
+            factor: 缩放因子（<1 缩小；强通道因先前强化×1.1 净保留）
+
+        Returns:
+            被缩放的通道数
+        """
+        n = 0
+        for neuron in neurons.values():
+            for ch_dict in (getattr(neuron, "excite_channels", {}),
+                            getattr(neuron, "inhibit_channels", {})):
+                for linear in ch_dict.values():
+                    if hasattr(linear, "weight"):
+                        linear.weight.data *= factor
+                        n += 1
+        if n:
+            logger.info("  突触稳态下调: %d 个通道 ×%.3f", n, factor)
+        return n
+
     def get_stats(self) -> dict:
         """返回统计信息。"""
         return {
@@ -295,12 +350,14 @@ class SleepConsolidator:
             "last_consolidation_step": self._last_consolidation_step,
             "replay_buffer_size": self.replay_buffer_size,
             "consolidation_interval": self.consolidation_interval,
+            "downscale_factor": self.downscale_factor,
         }
 
     def load_state_dict(self, state: dict) -> None:
         """从 dict 恢复状态。"""
         self.replay_buffer_size = state.get("replay_buffer_size", self.replay_buffer_size)
         self.consolidation_interval = state.get("consolidation_interval", self.consolidation_interval)
+        self.downscale_factor = state.get("downscale_factor", self.downscale_factor)
         self._replay_buffer = deque(
             state.get("replay_buffer", []),
             maxlen=self.replay_buffer_size,

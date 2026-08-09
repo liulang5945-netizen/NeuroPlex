@@ -379,8 +379,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - C25-B：STDP 从"只追踪不驱动"推进为 forward_train 骨架（缺口 R）
     - **现状盘点（2026-08-09）**：STDPTracker 已注入 ensemble（loader Step 2）+ 推理 record_firing + sleep 期 apply_all_updates（权重缩放 [0.5,2.0]）+ SleepConsolidator 弱连接修剪（weight<0.01）——**非纯装饰，但缺通道级结构可塑性（excite/inhibit_channels 条目修剪/生长）且不参与 forward_train**
     - **设计（上限最高，突触生长/修剪本体化）**：① STDPTracker 增共激活统计累积（(pre,post)→count/sim/dt 持久化，跨会话）；② `apply_structure_updates`：长期低共激活通道条目修剪 + 高共激活缺失通道生长（邻居相似初始化）——连接层"突触可塑性"从权重缩放升级为结构演化；③ 时机：C20 重训完成后接入 sleep（离线路径，不碰 forward_train 监督，规避 C23-C4 式监督打架）
+  - C25-D ✅ 睡眠重放真重放 + 突触稳态下调（2026-08-09，对比文档 2.6/2.11 弱项"态极 sleep 是'拿累积样本离线训练'，重放/下调是方向性借鉴，未实现生物意义上的'逐条回放 + 全局缩放'"修复）：
+    - **真重放**：`record_high_resonance_state` 增 `active_nids`（PlayEngine 记录共振时传激活 neuron 集）；`consolidate` 重放时用 active_nids 再激活共激活统计（人脑海马回放 → 皮层再激活 → 突触巩固），取代"纯统计占位"假重放；旧格式记录（无 active_nids）兼容仅计数
+    - **突触稳态下调（downscaling）**：consolidate 新增全局 side_channels ×0.98（NREM 慢波全局缩放）——强通道净保留（强化×1.1 后 ×0.98 ≈ ×1.08）、弱信号整体下压，与弱通道修剪互补（连续调节 vs 离散清除）
+    - 冒烟：verify_c25_d_replay.py **17/17 PASS**
   - C25-C：神经调质深度耦合训练（当前仅状态记录，缺口 R）
-  - C25-D：睡眠重放（真正的 forward 重放 + 经验回放训练，缺口 R 子项）
   - C25-E：连续时间动力学替代离散共振轮次（相位同步本体化剩余）
   - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
 

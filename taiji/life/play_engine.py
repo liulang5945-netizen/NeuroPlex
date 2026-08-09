@@ -246,12 +246,14 @@ class PlayEngine:
             if self._sleep_consolidator is not None and max_score > 0.5:
                 try:
                     # 使用第一个激活神经元的 field_state 作为重放状态
+                    # C25-D：一并记录 active_ids（重放时据此再激活共激活统计）
                     for nid, neuron in self._cortex.neurons.items():
                         if hasattr(neuron, '_last_field_state'):
                             self._sleep_consolidator.record_high_resonance_state(
                                 field_state=neuron._last_field_state,
                                 resonance_score=max_score,
                                 step=self._play_step,
+                                active_nids=active_ids if len(activated_neurons) >= 2 else None,
                                 threshold=0.5,
                             )
                             break
