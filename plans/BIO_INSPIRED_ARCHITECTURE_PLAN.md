@@ -358,11 +358,19 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - `train_round_level_quality.py`：移除 native NLL（build_per_neuron_targets 删除），dialogue neuron 注入共享 general 256K 判定头
   - `loader.py`：识别 `judge_lm_head_state` 注入判定头
   - 冒烟验证（60 步）：域头 answer PPL 收敛 + general 判定对角保留（code=3.65 最低）——**双头方案成立**
-- **⏳ 完整重训中（foundation_v1_dual，4 域 × 6 epochs，logs/domain_sft_dual_full.log）**：
+- **⏳ 完整重训完成（foundation_v1_dual，4 域 × 6 epochs）**：
   - code ✅（best eval PPL 6.8）→ 训练后 general 判定对角保留（code=1.2/math=7.7/zh=15.8/en=5.1）
   - math ✅（best eval PPL 5.5）→ 判定对角保留（code=9.7/math=2.7/zh=16.0/en=6.5）
-  - zh ⏳（PPL 缓慢收敛，best 488.9，CJK 域需更多轮次）/ en 未开始
-- **C20 判定重训脚本已改造完成**（train_round_level_quality.py：移除 native NLL，per_neuron_nll 走 judge_logits general 空间；dialogue neuron 注入共享 general 256K 判定头；loader 支持 judge_lm_head_state 恢复）→ 待 C24 训练完成后运行 → 端到端验证（verify_c21_generate.py 已默认指向 collab_v3_c24v2 + foundation_v1_dual）。
+  - zh ✅（best eval PPL 319.1）/ en ✅（best eval PPL 167.3）
+- **C20 判定重训完成 + 判定 5/5 达成（collab_v3_c24v2，2026-08-10）**：
+  - C20 重训（train_round_level_quality.py，judge_logits general 空间监督）完成：per_neuron_nll 正常（dialogue 回合 zh=6.90 最低）
+  - **但端到端判定 1/5 失败** → 诊断（diag_c20v2_route）：
+    - judge NLL 完美对角 4/4（code=1.15/math=2.72/zh=11.36/en=1.72）——C24 双头信号链可靠
+    - **quality_head 学成常数偏移**（zh_aug2_dialogue ql 68-102 对任何回合内容无关；code≈-2/zh≈0 也内容无关）→ 膨胀根因：C23 时代已膨胀（−4.2→50），logit 大 → softmax 饱和 → KL(actual||ideal) 梯度消失 → 自增强压不住；C24v2 绝对 NLL 监督（nll_z=per_neuron_nll.clone()）也没救回
+    - dialogue neuron 推理时无 judge_lm_head（ckpt 无 judge_lm_head_state，loader 不注入）——训练有 fallback 头、推理没有，信号链断一环
+  - **修复（C20v2，上限最高）**：executive 判定改用 **judge NLL 主信号**（C20 当年 5/5 的原始信号链，general 空间可比，无训练依赖、无膨胀）——`_parallel_forward`/`forward`/`think` 增 return_judge_logits 收集 round1 judge logits；`_executive_route` 算各 neuron judge NLL → 域聚合取最低 → 与启发式融合（NLL 差 ≥1.0 显著占优才切换，回退安全）；quality z-score 保留为 judge 不可用时回退
+  - **✅ 端到端判定 5/5**（code→code/math→math/zh→zh/dialogue→zh/en→en，无回归）
+  - **遗留（待办）**：quality_head 膨胀根因未修（learned proxy 被绕过）；C24 域生成能力仍碎片（code "def __[3,b]"/zh "。"——域 SFT 数据少，非架构问题）
 
 ---
 

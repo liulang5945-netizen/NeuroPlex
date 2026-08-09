@@ -914,6 +914,7 @@ class ResonanceEnsemble:
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
         nmap: Optional[Dict] = None,
+        want_judge: bool = False,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """并行 forward 多个神经元（人脑启发：神经元并行工作）。
 
@@ -932,6 +933,10 @@ class ResonanceEnsemble:
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
             side_signals: {post_nid: {pre_nid: field_vector}} per-pair 突触信号
             temp_gain: S9 注意力温度增益（norepinephrine 驱动，所有 neuron 共享）
+            want_judge: C24 双头（2026-08-09）：收集各 neuron 的 judge_lm_head
+                （general 判定头）logits——executive 判定用 judge NLL（C20 原始
+                信号链，可比），替代会膨胀的 quality_head proxy。仅对已设置
+                judge_lm_head 的 neuron 收集（无则 neuron.forward 自动跳过）。
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
@@ -974,9 +979,14 @@ class ResonanceEnsemble:
                 temp_gain=temp_gain,
                 ffn_gain=ffn_gain,
             )
+            if want_judge:
+                # C24 双头：收集 judge logits（neuron 无 judge_lm_head 时自动跳过）
+                kwargs["return_judge_logits"] = True
             if side_signals is not None and nid in side_signals:
                 kwargs["side_signals"] = side_signals[nid]
             return nmap[nid].forward(emb, **kwargs)
+
+        round_judge_logits: Dict[str, torch.Tensor] = {}  # C24 双头：judge logits
 
         is_cuda = ref_tensor.is_cuda
         if is_cuda and len(active_ids) > 1:
@@ -1006,6 +1016,9 @@ class ResonanceEnsemble:
                 # C15: 提取预测质量 logit（round 1 独立前向，无场耦合）
                 if round_num == 1 and "quality_logit" in results[nid]:
                     round_quality_logits[nid] = results[nid]["quality_logit"]
+                # C24 双头：judge logits（general 判定空间）
+                if "judge_logits" in results[nid]:
+                    round_judge_logits[nid] = results[nid]["judge_logits"]
                 if return_logits_filter(nid):
                     round_logits[nid] = results[nid]["logits"]
         else:
@@ -1025,10 +1038,13 @@ class ResonanceEnsemble:
                 # C15: 提取预测质量 logit（round 1 独立前向，无场耦合）
                 if round_num == 1 and "quality_logit" in result:
                     round_quality_logits[nid] = result["quality_logit"]
+                # C24 双头：judge logits（general 判定空间）
+                if "judge_logits" in result:
+                    round_judge_logits[nid] = result["judge_logits"]
                 if need_logits:
                     round_logits[nid] = result["logits"]
 
-        return round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits
+        return round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits, round_judge_logits
 
     def forward(
         self,
@@ -1039,6 +1055,7 @@ class ResonanceEnsemble:
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         fusion_mode: str = "per_position",
         field_conditioning: bool = True,
+        return_judge_logits: bool = False,
     ) -> Dict:
         """Run the full resonance loop.
 
@@ -1063,6 +1080,10 @@ class ResonanceEnsemble:
                         - "division"：统一空间（同 vocab）max-prob 分工路由——每位置
                           直接交给 max-prob 最高的 neuron（共享 general lm_head 后置信度
                           天然尖锐，无转译投影稀释）
+            return_judge_logits: C24 双头（2026-08-09）：round1 额外收集各 neuron 的
+                judge_lm_head（general 判定头）logits → result["round1_judge_logits"]
+                （{nid: [B, L, 256K]}，仅对有判定头的 neuron）——executive 判定用
+                judge NLL（C20 原始信号链），替代会膨胀的 quality_head proxy。
 
         Returns:
             dict with:
@@ -1159,7 +1180,7 @@ class ResonanceEnsemble:
         def round1_logits_filter(nid):
             return round1_return_logits
 
-        round_vecs, round_logits, round_confidences, round_score_vecs_r1, round_quality_logits_r1 = self._parallel_forward(
+        round_vecs, round_logits, round_confidences, round_score_vecs_r1, round_quality_logits_r1, round_judge_logits_r1 = self._parallel_forward(
             active_ids,
             shared_embeddings,
             field_state=None,
@@ -1169,6 +1190,7 @@ class ResonanceEnsemble:
             temp_gain=temp_gain,
             ffn_gain=ffn_gain,
             nmap=nmap,
+            want_judge=return_judge_logits,  # C24 双头：round1 收集 judge logits
         )
 
         # Write round 1 to field
@@ -1352,7 +1374,7 @@ class ResonanceEnsemble:
                     self._logits_keep_ids is None or nid in self._logits_keep_ids
                 )
 
-            round_vecs, round_logits, round_confidences, _round_score_vecs, _round_quality_logits = self._parallel_forward(
+            round_vecs, round_logits, round_confidences, _round_score_vecs, _round_quality_logits, _round_judge = self._parallel_forward(
                 active_ids,
                 shared_embeddings,
                 field_state=self.field.get_normalised_state() if field_conditioning else None,
@@ -1573,6 +1595,14 @@ class ResonanceEnsemble:
             result["quality_logits"] = ql.squeeze(-1)  # [N]（与 round1 顺序一致）
         else:
             result["quality_logits"] = None
+
+        # C24 双头（2026-08-09）：暴露 round1 judge logits（general 判定空间）——
+        # executive 判定用 judge NLL（C20 原始信号链，可比），替代会膨胀的
+        # quality_head proxy（zh_aug2 ql 膨胀 68-102，EMA z-score 压不住）。
+        if return_judge_logits and round_judge_logits_r1:
+            result["round1_judge_logits"] = round_judge_logits_r1  # {nid: [B, L, 256K]}
+        else:
+            result["round1_judge_logits"] = None
 
         if return_logits and all_logits:
             # P7: 返回每 neuron 的原始 logits（域 vocab 空间可能不同）
@@ -2274,6 +2304,30 @@ class ResonanceEnsemble:
                         per_neuron_nll = nll_all.mean(dim=1)
                 else:
                     per_neuron_nll = nll_all.mean(dim=1)
+            elif len(final_judge_logits) > 0:
+                # ── C24v2 混合路径（2026-08-09）：部分 neuron 无判定头 ──
+                # zh_std0_dialogue（hidden=768 历史遗留）无法注入 general 512 判定头
+                # → 不能走全 judge 路径。有 judge_lm_head 的 neuron 用 general 256K
+                # judge logits（干净可比），无判定头的用 all_logits 转译投影
+                # （C20 矩阵，同为 general 空间）→ 全体仍可比，quality_head 不被
+                # dual 基座的 general 投影失配污染。
+                nll_list = []
+                for i, nid in enumerate(active_ids):
+                    if nid in final_judge_logits:
+                        lg = final_judge_logits[nid][:, :-1, :].contiguous()
+                    else:
+                        lg = all_logits[i][:, :-1, :].contiguous()
+                    st = targets[:, 1:].contiguous()
+                    am = answer_mask[:, 1:].contiguous() if answer_mask is not None else None
+                    if am is not None and am.sum() > 0:
+                        st = st.clone(); st[~am] = -100
+                    else:
+                        am = torch.ones_like(st, dtype=torch.bool)
+                    l = F.cross_entropy(lg.view(-1, lg.size(-1)), st.view(-1),
+                                        ignore_index=-100, reduction="sum")
+                    n_tok = max(int((am.sum()).item()), 1)
+                    nll_list.append(l / n_tok)
+                per_neuron_nll = torch.stack(nll_list)
             elif per_neuron_targets is not None:
                 # ── native NLL：各 neuron 用自己的域目标（per_neuron_targets[nid]）──
                 nll_list = []
@@ -2331,28 +2385,37 @@ class ResonanceEnsemble:
         # 对话上 NLL 远超自身基线 → z 大 → 不再天然获胜；dialogue neuron 在自身
         # 域文本上 NLL 接近基线 → z 小 → 获高权重。warmup（count<WARMUP）用原始
         # NLL（统计未建立前避免噪声）。EMA 更新用 detach（纯统计，不参与梯度）。
+        # C24v2（2026-08-09）：judge 空间（final_judge_logits 非空）下 NLL 已天然
+        # 可比（各 neuron 用 judge_lm_head 在同一 general 256K 空间对齐 targets，
+        # 无转译噪声）→ 跳过 z-score，直接用绝对 NLL 监督。否则 z-score 会反转
+        # 排序（code 自身 EMA mean 低 → code 回合 NLL 反而高于自身均值 → z 正 →
+        # 不 favor code；zh_aug3 自身 mean 高 → z 负 → 错误 favor）→ 学反。
         NLL_EMA_ALPHA = 0.05
         NLL_EMA_WARMUP = 20
         nll_z: Optional[torch.Tensor] = None
         if per_neuron_nll is not None:
-            zs = []
-            for i, nid in enumerate(active_ids):
-                v = float(per_neuron_nll[i].detach())
-                s = self._nll_ema.get(nid)
-                if s is None:
-                    s = {"mean": v, "ms": v * v, "count": 1.0}
-                    self._nll_ema[nid] = s
-                else:
-                    s["count"] += 1.0
-                    a = min(NLL_EMA_ALPHA, 1.0 / s["count"])  # 前期大步长收敛
-                    s["mean"] = (1 - a) * s["mean"] + a * v
-                    s["ms"] = (1 - a) * s["ms"] + a * v * v
-                if s["count"] >= NLL_EMA_WARMUP:
-                    var = max(s["ms"] - s["mean"] ** 2, 1e-4)
-                    zs.append((per_neuron_nll[i] - s["mean"]) / (var ** 0.5))
-                else:
-                    zs.append(per_neuron_nll[i])
-            nll_z = torch.stack(zs)  # [N]
+            if len(final_judge_logits) > 0:
+                # C24v2：judge 空间绝对 NLL 可比 → 监督直接用绝对 NLL（保留 gate）
+                nll_z = per_neuron_nll.clone()
+            else:
+                zs = []
+                for i, nid in enumerate(active_ids):
+                    v = float(per_neuron_nll[i].detach())
+                    s = self._nll_ema.get(nid)
+                    if s is None:
+                        s = {"mean": v, "ms": v * v, "count": 1.0}
+                        self._nll_ema[nid] = s
+                    else:
+                        s["count"] += 1.0
+                        a = min(NLL_EMA_ALPHA, 1.0 / s["count"])  # 前期大步长收敛
+                        s["mean"] = (1 - a) * s["mean"] + a * v
+                        s["ms"] = (1 - a) * s["ms"] + a * v * v
+                    if s["count"] >= NLL_EMA_WARMUP:
+                        var = max(s["ms"] - s["mean"] ** 2, 1e-4)
+                        zs.append((per_neuron_nll[i] - s["mean"]) / (var ** 0.5))
+                    else:
+                        zs.append(per_neuron_nll[i])
+                nll_z = torch.stack(zs)  # [N]
 
         # ── C16d: gate + z-score 质量监督（2026-08-08，最终方案）──
         # C15 绝对 NLL 不可比 → code 独占（general 空间英文主导+code 分布锐利）；

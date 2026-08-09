@@ -261,9 +261,18 @@ def main():
         n.load_state_dict(ck["state_dict"], strict=False)
         # dialogue neuron 无自有判定头 → 共享 general 判定头（C20 信号链）
         if judge_fallback is not None:
-            jh_head = torch.nn.Linear(cfg.hidden_size, judge_fallback["weight"].shape[0], bias=False).to(DEVICE)
-            jh_head.weight.data.copy_(judge_fallback["weight"])
-            n.judge_lm_head = jh_head
+            jh_w = judge_fallback["weight"]
+            if cfg.hidden_size == jh_w.shape[1]:
+                jh_head = torch.nn.Linear(cfg.hidden_size, jh_w.shape[0], bias=False).to(DEVICE)
+                jh_head.weight.data.copy_(jh_w)
+                n.judge_lm_head = jh_head
+            else:
+                # C24v2 修复（2026-08-09）：zh_std0_dialogue 为 hidden=768 的历史遗留
+                # neuron，无法注入 512 维 general 判定头 → 跳过注入，该 neuron 的
+                # per_neuron_nll 走 C20 已验证的 general 空间投影路径（ensemble 内
+                # len(final_judge_logits)!=N 时自动回退，见 forward_train）。
+                print(f"  ⚠️ {nid} hidden={cfg.hidden_size} ≠ judge head {jh_w.shape[1]}"
+                      f"，跳过判定头注入（C20 general 投影路径兜底）", flush=True)
         neurons[nid] = n
         emb = create_shared_embedding(DEVICE)
         ses = ck.get("shared_embedding_state", {})

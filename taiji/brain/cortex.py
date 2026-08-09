@@ -871,6 +871,7 @@ class Cortex:
         active_nids: Optional[List[str]] = None,
         fusion_mode: str = "soft",
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
+        return_judge_logits: bool = False,
     ) -> Dict:
         """Run one round of resonance thinking.
 
@@ -892,11 +893,16 @@ class Cortex:
                         - "residual"：族长完整预测 + 其他神经元残差修正（方向③，实验）
             neuron_embeddings: {nid: [B, L, base_embed_dim]} 每神经元预编码 embedding
                               （优先级高于 shared_embeddings，与 ensemble.forward 一致）
+            return_judge_logits: C24 双头（2026-08-09）：额外收集各 neuron 的
+                judge_lm_head（general 判定头）logits → result["round1_judge_logits"]。
+                executive 判定用 judge NLL（C20 原始信号链，可比）。
 
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
         """
         kwargs = dict(return_logits=True, active_nids=active_nids, fusion_mode=fusion_mode)
+        if return_judge_logits:
+            kwargs["return_judge_logits"] = True
         if neuron_embeddings is not None:
             kwargs["neuron_embeddings"] = {
                 k: v.to(self.device) for k, v in neuron_embeddings.items()
@@ -1205,6 +1211,7 @@ class Cortex:
         domain = self._infer_domain(text)
         per_domain = {}  # {domain: mean quality z-score}
         quality_ready = False
+        judge_nll: Optional[Dict[str, float]] = None
         try:
             if self._neuron_shared_embeddings and self._general_sp is not None:
                 general_ids = self._general_sp.encode(text)
@@ -1217,7 +1224,29 @@ class Cortex:
                 probe = self.think(
                     active_nids=list(self.neurons.keys()),
                     neuron_embeddings=neuron_embeddings,
+                    return_judge_logits=True,  # C24 双头：judge NLL 判定信号
                 )
+
+                # ── C24 双头（2026-08-09）：judge NLL 主信号 ──
+                # 各 neuron 的 judge_lm_head（general 256K 判定空间）对回合文本的
+                # NLL 天然可比（C20 当年 5/5 的原始信号链）。替代 quality_head proxy
+                # ——其 logit 会膨胀（zh_aug2 ql 68-102，softmax 饱和 → KL 梯度消失
+                # → 自我强化），EMA z-score 压不住。judge NLL 无训练依赖、无膨胀。
+                jl = probe.get("round1_judge_logits")
+                if jl:
+                    judge_nll = {}
+                    tgt = torch.tensor(general_ids[1:], dtype=torch.long, device=self.device)
+                    for nid, lg in jl.items():
+                        # lg: [1, L, V]；logits[:, :-1] 预测 ids[1:]（next-token）
+                        logp = torch.log_softmax(lg[:, :-1, :], dim=-1)  # [1, L-1, V]
+                        nll_tok = -logp[0].gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
+                        mask = (tgt != 1) & (tgt != 0)  # 忽略 unk/pad
+                        if mask.sum() == 0:
+                            continue
+                        judge_nll[nid] = float((nll_tok * mask).sum() / mask.sum().float())
+                if judge_nll is None:
+                    judge_nll = {}
+
                 ql = probe.get("quality_logits")
                 if ql is not None:
                     nids = list(self.neurons.keys())
@@ -1257,21 +1286,34 @@ class Cortex:
         except Exception:
             pass  # probe 失败 → 纯启发式（回退安全）
 
+        # ── C24 双头：judge NLL 域判定（主信号）──
+        # 判定 = judge NLL 最低域；与启发式不同且显著占优（NLL 差 ≥ 1.0，
+        # 诊断最小显著差 ~2）→ 切换（回退安全：judge 不显著时保留启发式）。
+        per_domain_nll: Optional[Dict[str, float]] = None
+        if judge_nll:
+            agg: Dict[str, List[float]] = {}
+            for nid, v in judge_nll.items():
+                d = nid.split("_")[0]
+                agg.setdefault(d, []).append(v)
+            per_domain_nll = {d: sum(v) / len(v) for d, v in agg.items()}
+            judge_domain = min(per_domain_nll, key=per_domain_nll.get)
+            base_nll = per_domain_nll.get(domain, float("inf"))
+            if judge_domain != domain and base_nll - per_domain_nll[judge_domain] >= 1.0:
+                domain = judge_domain
+
         per_domain_scores = {}
-        if quality_ready and per_domain:
+        if per_domain_nll is None and quality_ready and per_domain:
+            # judge 不可用 → quality z-score 回退（原 C20 逻辑）
             per_domain_scores = {d: sum(v) / len(v) for d, v in per_domain.items()}
             best_q_domain = max(per_domain_scores, key=per_domain_scores.get)
-            # 切换条件：quality 最优域与启发式不同，且显著占优。
-            # C20（2026-08-08）：z-score 下再加绝对差阈值（≥0.7σ）——纯比例
-            # （1.5×）对接近 0 的 z 太宽松（en 回合 zh 0.49 vs en 0.04 也满足
-            # 1.5×，错误覆盖启发式正确的 en）。0.7σ = 可观测的显著占优；
-            # 实测区分：math 回合 math 1.08 vs en 0.13（差 0.95，正确切）、
-            # en 回合 zh 0.49 vs en 0.04（差 0.45，不切保留 en）。
             base = per_domain_scores.get(domain, 0.0)
             if (best_q_domain != domain
                     and per_domain_scores[best_q_domain] > base * 1.5 + 1e-6
                     and per_domain_scores[best_q_domain] - base >= 0.7):
                 domain = best_q_domain
+        elif per_domain_nll is not None:
+            # 诊断信息：judge NLL 域分数（供验证输出/监控）
+            per_domain_scores = {d: -v for d, v in per_domain_nll.items()}
         # 未成熟（warmup 内）或 probe 失败 → 纯启发式，quality 不主导（回退安全）
         conf = 0.7 + 0.3 * (quality_weight if per_domain_scores else 0.0)
         return domain, conf, per_domain_scores
