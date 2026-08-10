@@ -89,7 +89,7 @@ class SparseRouter(nn.Module):
     - use_sparse_router=False（默认）时完全不启用，退化为稠密模式
     - Router 参数只在 use_sparse_router=True 时创建
 
-    详见 plans/ARCHITECTURE_COMPROMISE_AUDIT.md §4.0c
+    详见 plans/archive/ARCHITECTURE_COMPROMISE_AUDIT.md §4.0c
     """
 
     def __init__(

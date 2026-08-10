@@ -6,9 +6,8 @@
 > **📋 项目主 plan（活跃维护）**
 > 本文档是项目的状态总览和路线图。其他 plans/ 文件：
 > - `TRAINING_REFERENCE.md` — 训练准则参考（非 plan）
-> - `BODY_LIFE_BRAIN_INTEGRATION_PLAN.md` — body/life/brain 子系统设计参考
 > - `TAIJI_VS_HUMAN_BRAIN_COMPARISON.md` — 项目机理梳理 + 态极 vs 人脑机制详细对比（2026-08-08）
-> - `archive/` — 历史归档（COMPREHENSIVE v1.0、H1-H8 修复记录、side-channels 实现细节）
+> - `archive/` — 历史归档（COMPREHENSIVE v1.0、H1-H8 修复、side-channels 实现、架构妥协审计、body/life/brain 设计参考、hub neuron 草案）
 
 ---
 
