@@ -64,8 +64,12 @@ ENSEMBLE_DIALOGUE_IDS = ZH_COMPACT_DIALOGUE_IDS + [ZH_STD_DIALOGUE_ID]
 # 综合体基础版本（无对话能力，用于对照实验）
 ENSEMBLE_BASE_IDS = ZH_COMPACT_NEURON_IDS + [ZH_STD_NEURON_ID]
 
-# Shared Expert（如有）
-SHARED_EXPERT_ID = "zh_general"
+# Shared Expert（废弃 2026-08-10：shared_expert 机制从未被 assemble_cortex 启用
+# （cortex 创建 Ensemble 未传 shared_expert_id），zh_general 只是被全量扫描误加载的
+# 干扰 neuron（中文任务竞争者、训练最弱 PPL 257）。C24 双头后每个 neuron 自带
+# judge_lm_head（general 判定空间），single always-active 底座机制冗余。已删除
+# data/neurons/neuron_zh_general.pt，装配收敛为 9 阵容（5 对话 + 4 域）。
+# SHARED_EXPERT_ID = "zh_general"
 
 # ── 采样参数（生成阶段统一配置）──────────────────────────────────────────
 # 散落在 eval_single_dialogue / eval_aug_joint / eval_dialogue / finetune generate_sample

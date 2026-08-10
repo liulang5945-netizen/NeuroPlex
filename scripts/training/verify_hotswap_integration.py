@@ -55,16 +55,16 @@ def main():
     from taiji.life.sleep_engine import _clone_module
 
     print("=" * 60)
-    print("三机制真实集成验证（轻量：zh_general 单神经元）")
+    print("三机制真实集成验证（轻量：zh_std0_dialogue 单神经元）")
     print("=" * 60)
 
     # [1] 真实装配
-    print("\n[1] 装配真实 cortex（zh_general）...")
+    print("\n[1] 装配真实 cortex（zh_std0_dialogue）...")
     cortex, _ = create_cortex(
         neurons_dir="data/neurons",
         device="cpu",
         max_rounds=2,
-        neuron_ids=["zh_general"],
+        neuron_ids=["zh_std0_dialogue"],
     )
     nid = next(iter(cortex.neurons))
     neuron = cortex.neurons[nid]

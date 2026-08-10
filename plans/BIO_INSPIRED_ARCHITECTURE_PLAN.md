@@ -380,6 +380,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - 输出格式与 train_domain_target_sft.py 完全兼容（{instruction,input,response,prompt,full}，prompt 前缀匹配 answer 定位验证 OK）
   - **Smoke 链路验证通过（CPU）**：4 域新数据加载/训练/保存/回读一致；judge 判定对角保留（math: code=9.7/math=3.1/zh=16.2/en=5.9）——双头装配未被破坏。**全量重训在本机 CPU 执行**（无 4090D；此前 C24 完整重训亦为本机 CPU 3.4s/步）。
   - **⏳ 全量重训进行中（2026-08-10 启动）**：`train_domain_target_sft.py --domains code,math,zh,en --epochs 2`（数据量 ×10，epochs 从 6 降到 2 总样本量仍超原 6 epochs）。总步数 ~23700 ≈ 22h CPU。code 已启动：init PPL 23594，judge 对角保留。训练完成后 diag_c24_domain_generate 验证生成改善 + judge 对角保留。
+  - **zh_general 残留收敛（2026-08-10，用户确认 9 阵容）**：9 = 5 对话（zh_aug0-3_dialogue + zh_std0_dialogue）+ 4 域（code/math/zh/en）。查证：zh_general 设计为 SHARED_EXPERT_ID（experiment_config），但 **assemble_cortex/cortex 从未传 shared_expert_id → shared_expert 机制从未启用**；实际被 cortex 全量扫描误加载为普通 neuron（中文任务竞争者、训练最弱 PPL 257，verify_c19 注释"排除 zh_general 旧产物干扰"）。C24 双头后每 neuron 自带 judge_lm_head，single always-active 底座机制冗余 → **删除 data/neurons/neuron_zh_general.pt**，verify_hotswap_integration 改用 zh_std0_dialogue，experiment_config SHARED_EXPERT_ID 废弃注释。装配收敛为 9 阵容。
 
 ---
 
