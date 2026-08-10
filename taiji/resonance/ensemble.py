@@ -940,12 +940,14 @@ class ResonanceEnsemble:
             ffn_gain: S9 FFN 输出增益（dopamine 驱动，所有 neuron 共享）
 
         Returns:
-            (round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits)
+            (round_vecs, round_logits, round_confidences, round_score_vecs,
+             round_quality_logits, round_judge_logits)
             - round_vecs: {nid: [B, field_dim]} L2-normalized field vectors
             - round_logits: {nid: [B, L, vocab]} optional logits
             - round_confidences: {nid: [B]} C8 per-sample confidence ∈ [0, 1]
             - round_score_vecs: {nid: [B, score_dim]} C12 评分投影向量（score_dim=None 时为空 dict）
             - round_quality_logits: {nid: [B, 1]} C15 预测质量 logit（round 1，无场耦合）
+            - round_judge_logits: {nid: [B, L, 256K]} C24 判定头 logits（want_judge=True 且 neuron 有 judge_lm_head）
         """
         round_vecs: Dict[str, torch.Tensor] = {}
         round_logits: Dict[str, torch.Tensor] = {}
@@ -1053,7 +1055,7 @@ class ResonanceEnsemble:
         active_filter: bool = True,
         active_nids: Optional[List[str]] = None,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
-        fusion_mode: str = "per_position",
+        fusion_mode: str = "soft",
         field_conditioning: bool = True,
         return_judge_logits: bool = False,
     ) -> Dict:
@@ -1075,7 +1077,12 @@ class ResonanceEnsemble:
                         支持字符串模式：'auto_topK'/'auto_all'/'auto_top1'（稀疏激活）
             neuron_embeddings: P8 路径，{nid: [B, L, base_embed_dim]} 预编码 embedding
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
-                        - "per_position"（默认）：每位置按熵/置信度独立路由（向后兼容）
+                        - "soft"（默认，2026-08-10 统一）：共振分融合
+                          softmax(scores/temp)——与训练 forward_train 对齐（此前
+                          默认 "per_position" 与主路径/训练脱节，cortex 已显式
+                          传 soft，此处收敛默认值）
+                        - "per_position"：每位置按熵/置信度独立路由（旧路径，
+                          仅诊断用）
                         - "residual"：族长完整预测 + 其他神经元残差修正
                         - "division"：统一空间（同 vocab）max-prob 分工路由——每位置
                           直接交给 max-prob 最高的 neuron（共享 general lm_head 后置信度

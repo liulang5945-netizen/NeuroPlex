@@ -429,7 +429,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 
 - **产物**：[INTERFACE_REFERENCE.md](file:///e:/taiji-neuron/INTERFACE_REFERENCE.md)（根目录接口速查与易错点手册，基于 16 模块源码实读）
 - **核心发现（8 大陷阱）**：① `side_channels` 是 `excite_channels` 别名不含 inhibit；② `forward`（weighted_logits）vs `forward_train`（fused_logits）key 完全不同；③ `_parallel_forward` 返回 6 元组但 docstring 写 5；④ judge_lm_head（判定）vs lm_head（生成）双头；⑤ `get_ffn_gain==get_lr_multiplier`、`get_attention_temp_gain==get_field_write_scale` 同公式双语义；⑥ `batch_align_and_embed` 返回元数随 answer_marker 变化；⑦ `consolidate` 位置参数顺序（current_step vs stdp_tracker）易写反；⑧ `resize_embedding_for_vocab` 文档提到但不存在
-- **待办（文档级修复，低风险）**：修正 `_parallel_forward` docstring 5→6 元组；`forward` fusion_mode 默认值 `"per_position"` 与主路径 soft 脱节（统一默认或文档注明）；translator.py:383 修正不存在的 resize_embedding_for_vocab 引用；`get_strong_pairs` sorted 无方向与 consolidate (pre,post) 消费的隐式约定（加注释或改语义）
+- **✅ 文档级修复完成（2026-08-10，4 项）**：① `_parallel_forward` docstring 修正 5→6 元组（补 round_judge_logits）；② `forward` fusion_mode 默认值 `"per_position"`→`"soft"` 统一（与训练/cortex 对齐，无调用点依赖旧默认；per_position 降为诊断选项）；③ translator.py:383 修正不存在的 `resize_embedding_for_vocab` 引用（改 `resize_linear_for_vocab`）；④ `consolidate` 强 strong_pairs 改**精确双向强化**（pair (i,j) → 只强化 i→j 与 j→i，消除 sorted 字典序隐式约定 + 原"所有含 post_key 的 neuron"过宽误强化）。验证：C25-D 17/17、C25-B 21/21、C25-C 23/23 无回归；手册同步更新
 
 ---
 

@@ -37,9 +37,9 @@ neuron.inhibit_channels[pid]  # 抑制通道必须显式用这个
 | 融合结果 key | `weighted_logits`（跨 vocab 可能缺失！） | `fused_logits` |
 | 质量信号 | `quality_logits`（[N]，round1 聚合） | `quality_logits`（[N]）+ `per_neuron_nll` + `contrastive_loss` |
 | 判定信号 | `return_judge_logits=True` → `round1_judge_logits`（{nid:[B,L,256K]}） | 无独立 key（nll 内含 judge 空间投影） |
-| 默认 fusion_mode | `"per_position"`（**文档与默认值脱节**，实际主路径是 soft/score 共振分融合） | `"soft"` |
+| 默认 fusion_mode | `"soft"`（2026-08-10 已统一，与训练对齐；`per_position` 降为诊断选项） | `"soft"` |
 
-**推理要跟训练对齐**：显式传 `fusion_mode="soft"`（cortex.think/generate 已默认 soft；直接调 `ensemble.forward` 要自己传，否则走 entropy 启发式旧路径——PPL 2.2 vs 12.6 的教训，ensemble.py:1628-1633）。
+推理与训练默认已对齐（`forward` 默认 `fusion_mode="soft"`，cortex.think/generate 亦然）；`per_position`（entropy 启发式旧路径）仅诊断用，勿在生产推理中显式选。
 
 ### 2.3 judge_lm_head vs lm_head（双头）
 - `lm_head`：域词表生成头（code 12K/math 10K/zh 50K/en 16K）。
@@ -116,7 +116,7 @@ consolidate(neurons=..., coactivation_tracker=..., current_step=..., stdp_tracke
 ### 4.1 `_parallel_forward` 返回 6 元组（ensemble.py:1047）
 ```python
 round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_logits, round_judge_logits = \
-    self._parallel_forward(...)   # docstring 只写 5 个，按 5 个解包会错位
+    self._parallel_forward(...)   # docstring 已同步修正为 6 元组（2026-08-10）
 ```
 
 ### 4.2 `forward` 的 dict key 是条件性追加的

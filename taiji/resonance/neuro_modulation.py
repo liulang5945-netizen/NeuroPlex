@@ -288,13 +288,16 @@ class SleepConsolidator:
         #    此处强化的 strong_pairs 已包含重放贡献）
         if coactivation_tracker is not None and hasattr(coactivation_tracker, "get_strong_pairs"):
             strong_pairs = coactivation_tracker.get_strong_pairs(threshold=0.2)
-            for pre_id, post_id in strong_pairs:
-                post_key = str(post_id)
-                # 在 post_neuron 的 side_channels 中找到 pre_id 对应的通道
-                for nid, neuron in neurons.items():
-                    if hasattr(neuron, "excite_channels") and post_key in neuron.excite_channels:
-                        # 强化：权重 × 1.1
-                        neuron.excite_channels[post_key].weight.data *= 1.1
+            # 双向强化（2026-08-10 接口修复）：get_strong_pairs 返回 sorted pair
+            # （无方向），原实现按 (pre, post) 单向解包依赖 ID 字典序的隐式约定，
+            # 且"所有含 post_key 的 neuron"过宽（误强化无关 neuron 通道）。
+            # 修正：共激活 pair (i,j) → 只强化 i→j 与 j→i 两条通道（精确双向）。
+            for i, j in strong_pairs:
+                for src, dst in ((i, j), (j, i)):
+                    src_neuron = neurons.get(src)
+                    if (src_neuron is not None and hasattr(src_neuron, "excite_channels")
+                            and dst in src_neuron.excite_channels):
+                        src_neuron.excite_channels[dst].weight.data *= 1.1
                         stats["channels_reinforced"] += 1
 
         # 2.5 突触稳态下调（C25-D，人脑 NREM 慢波 downscaling）：

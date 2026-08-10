@@ -380,7 +380,7 @@ class TokenizerHub:
 
         新 token 的 id ≥ base vocab → 下游对齐/转译表（fingerprint 的
         vocab_size 变化）自动失效重建；neuron lm_head 需配套 resize
-        （见 resize_lm_head_for_vocab / resize_embedding_for_vocab）。
+        （见 resize_lm_head_for_vocab；Embedding 权重矩阵用 resize_linear_for_vocab）。
 
         Args:
             domain: 域名。
