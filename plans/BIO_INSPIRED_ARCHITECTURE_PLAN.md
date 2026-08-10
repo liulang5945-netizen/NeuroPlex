@@ -389,6 +389,12 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - zh（"写一个 Python 函数计算斐波那契数列"）→ "这是一个简单的我的斐波那契数列斐波那契数列斐波那契数列…" —— **较 v2 前（"."）改善为可读中文片段**，但重复无进展
     - en（"What is the capital of France?"）→ "by the United of the world." —— 较 v2 前（空输出）改善为短句，仍碎片
     - **结论：数据扩充 ×10 后生成从碎片/空输出→部分可读短片段（zh/en 明显改善），但未达流畅完整文本；code/math answer PPL 虽低（3.4/3.7）生成仍碎片（SFT 数据短 QA 过拟合片段）。**
+  - **复验（2026-08-11 06:01 定时任务第 2 次运行，随机采样）**：
+    - code → "to calculate the squres10thLocal a = . def __PSelect the fib1 and n is in range(2, ): = int(i"（仍碎片，含 def/fib 痕迹）
+    - math → "First find the number of miles theyatching to work: the speed: …dri to"（英文碎片可读、语义错乱）
+    - zh → "和，，然后然后打开一个一个直角三角形，，，然后将 将 将将 将将将 将 将 将将将…"（中文碎片重复无进展）
+    - en → "that are equal to the number of countries and China. .ZZQQ…"（短碎片）
+    - 结论：**第 2 次抽样同为碎片/短片段，结论稳健（生成未达流畅文本，zh/en 仅片段级改善）**。
   - **✅ judge 对角验证（训练前后 general 判定 NLL 对比）**：**3/4 保留，zh 例外**——
     - code neuron：前 code=1.1/math=8.0/zh=15.8/en=5.3 → 后 code=1.0/math=6.5/zh=14.0/en=4.2 ✅（code 最低）
     - math neuron：前 code=9.7/math=3.1/zh=16.2/en=5.9 → 后 code=8.5/math=2.6/zh=15.4/en=6.3 ✅（math 最低）
