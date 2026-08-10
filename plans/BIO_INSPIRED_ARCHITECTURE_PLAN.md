@@ -425,6 +425,14 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 
 ---
 
+## 📖 接口梳理（2026-08-10，用户痛点：经常用错接口）
+
+- **产物**：[INTERFACE_REFERENCE.md](file:///e:/taiji-neuron/INTERFACE_REFERENCE.md)（根目录接口速查与易错点手册，基于 16 模块源码实读）
+- **核心发现（8 大陷阱）**：① `side_channels` 是 `excite_channels` 别名不含 inhibit；② `forward`（weighted_logits）vs `forward_train`（fused_logits）key 完全不同；③ `_parallel_forward` 返回 6 元组但 docstring 写 5；④ judge_lm_head（判定）vs lm_head（生成）双头；⑤ `get_ffn_gain==get_lr_multiplier`、`get_attention_temp_gain==get_field_write_scale` 同公式双语义；⑥ `batch_align_and_embed` 返回元数随 answer_marker 变化；⑦ `consolidate` 位置参数顺序（current_step vs stdp_tracker）易写反；⑧ `resize_embedding_for_vocab` 文档提到但不存在
+- **待办（文档级修复，低风险）**：修正 `_parallel_forward` docstring 5→6 元组；`forward` fusion_mode 默认值 `"per_position"` 与主路径 soft 脱节（统一默认或文档注明）；translator.py:383 修正不存在的 resize_embedding_for_vocab 引用；`get_strong_pairs` sorted 无方向与 consolidate (pre,post) 消费的隐式约定（加注释或改语义）
+
+---
+
 ## 🎯 全神经元对话训练（2026-07-31，standard 已成功）
 
 ### 背景
