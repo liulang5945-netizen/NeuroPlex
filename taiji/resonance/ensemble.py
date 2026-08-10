@@ -1160,6 +1160,9 @@ class ResonanceEnsemble:
         # 调质为 None 时 gain=1.0（标准 Transformer，向后兼容）
         if self.neuromodulator is not None:
             temp_gain = float(self.neuromodulator.get_attention_temp_gain())
+            # C25-C：ACh 注意聚焦增益与 NE 警觉组合调制（互补不覆盖）
+            if hasattr(self.neuromodulator, "get_attention_focus_gain"):
+                temp_gain *= float(self.neuromodulator.get_attention_focus_gain())
             ffn_gain = float(self.neuromodulator.get_ffn_gain())
         else:
             temp_gain = 1.0
@@ -1865,6 +1868,9 @@ class ResonanceEnsemble:
         if neuromodulator is not None:
             try:
                 temp_gain = float(neuromodulator.get_attention_temp_gain())
+                # C25-C：ACh 注意聚焦增益与 NE 警觉组合调制
+                if hasattr(neuromodulator, "get_attention_focus_gain"):
+                    temp_gain *= float(neuromodulator.get_attention_focus_gain())
             except Exception:
                 temp_gain = 1.0
             try:
@@ -2426,6 +2432,10 @@ class ResonanceEnsemble:
         # 验证（verify_c16b_contrastive，gate=50）：code→code ✓ math→math ✓
         # zh/dialogue→zh_aug ✓；en→math（en 域数据不足致 math 相对提升更大，信号语义正确）。
         GATE_FACTOR = 50.0
+        # C25-G：quality_head 膨胀修复——actual softmax 温度 1.0（logit 经 std
+        # 标准化到 ~±2 后永不饱和，/1.0 即理想锐度；原 /1.0 直接作用裸 logit
+        # 会在 68-102 时完全饱和 → KL 梯度消失）
+        QUALITY_ACTUAL_TEMP = 1.0
         nll_gated_z: Optional[torch.Tensor] = None
         if nll_z is not None and per_neuron_nll is not None:
             min_nll = per_neuron_nll.min()
@@ -2441,9 +2451,17 @@ class ResonanceEnsemble:
         # actual 温度 1.0：softmax 分布对齐 ideal；logit 膨胀会让 KL 增大 → 天然防尺度游戏。
         # C16b（2026-08-08）：ideal 用 per-neuron z-score（相对质量）而非绝对 NLL。
         # C16d（2026-08-08）：z-score + 绝对质量 gate（最终方案，见上）。
+        # C25-G（2026-08-10）：quality_head 膨胀根因修复——actual 温度 1.0 下
+        # logit 68-102 → softmax 完全饱和（0/1 独热）→ KL(actual||ideal) 梯度
+        # 消失 → 自增强压不住（C23 时代膨胀 −4.2→50，C24v2 绝对 NLL 监督也没
+        # 救回）。修复：quality_logits **std 标准化**（减 detach 均值 ÷ detach
+        # 标准差）→ softmax 输入被归一化到 ~±2（尺度完全不变：绝对膨胀
+        # 1000 与 -2 同样处理），再 ÷ 温度 1.0——永不饱和、梯度恒非零。
+        # 语义：actual 只反映 neuron 间相对质量差异（与 ideal z-score 同构）。
         if quality_logits_t is not None:
-            # actual: 预测质量 head 驱动的权重（温度 1.0）
-            actual_weights = F.softmax(quality_logits_t / 1.0, dim=0)  # [N]
+            ql_std = quality_logits_t.detach().std() + 1e-6
+            ql_centered = (quality_logits_t - quality_logits_t.detach().mean()) / ql_std
+            actual_weights = F.softmax(ql_centered / QUALITY_ACTUAL_TEMP, dim=0)  # [N]
         if nll_gated_z is not None and quality_logits_t is not None:
             # ideal: gated z-score 低（相对自身水平预测更好且绝对质量达标）者获高权重
             ideal_weights = F.softmax(-nll_gated_z / 0.5, dim=0)  # tau=0.5 温度

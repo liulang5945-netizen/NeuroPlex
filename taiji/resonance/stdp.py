@@ -128,6 +128,17 @@ class STDPTracker:
         # neuron_id -> 发放历史 (deque, 最新在右)
         self._firing_history: dict = {}
 
+        # C25-B：持久化共激活统计（突触结构演化的驱动数据，跨会话）
+        # (pre_id, post_id) -> {"count": 累积共激活次数, "total_sim": sim 总和,
+        #                       "last_update": 最近一次统计的 round}
+        # 语义与 apply_updates 一致：pre 先于 post 发放 → (pre, post) 有向对
+        self._coactivation_stats: dict = {}
+        # 结构演化阈值（修剪/生长）
+        self.grow_count_threshold = 5      # 共激活次数 ≥ 此值 → 视为高共激活
+        self.grow_sim_threshold = 0.3      # 平均 sim ≥ 此值 → 视为方向一致
+        self.prune_count_threshold = 2     # 共激活次数 < 此值 → 视为低共激活
+        self.structure_last_updated: int = 0
+
     def record_firing(
         self,
         neuron_id: str,
@@ -144,6 +155,190 @@ class STDPTracker:
     def _get_history(self, neuron_id: str) -> list:
         """获取某神经元的发放历史。"""
         return list(self._firing_history.get(neuron_id, []))
+
+    def accumulate_coactivation(self) -> int:
+        """把本轮 firing_history 中的 (pre, post) 有向对累积进持久化统计。
+
+        语义与 STDP 规则一致：A 先于 B 发放（A.round < B.round）→ (A, B) 是
+        有向 pre→post 对，累积 count + 方向 sim（供结构生长/修剪判断）。
+
+        幂等：累积后 firing_history 由调用方 clear_history 清空，同一批发放
+        不会被重复累积。
+
+        Returns:
+            新增/更新的 (pre, post) 对数量
+        """
+        # 按 neuron 聚合发放记录，按 round 排序
+        by_neuron: dict = {}
+        for nid, hist in self._firing_history.items():
+            records = sorted(hist, key=lambda r: r.round_num)
+            by_neuron[nid] = records
+
+        added = 0
+        nids = list(by_neuron.keys())
+        for i, pre_id in enumerate(nids):
+            for post_id in nids[i:]:
+                if pre_id == post_id:
+                    continue
+                for pre_fire in by_neuron[pre_id]:
+                    for post_fire in by_neuron[post_id]:
+                        # 有向：pre 先于 post 发放才累积（LTP 方向）
+                        if pre_fire.round_num >= post_fire.round_num:
+                            continue
+                        # 方向 sim（cosine，与 STDPRule.compute_weight_update 一致）
+                        v_pre = pre_fire.field_vector
+                        v_post = post_fire.field_vector
+                        if v_pre.dim() == 1:
+                            v_pre = v_pre.unsqueeze(0)
+                        if v_post.dim() == 1:
+                            v_post = v_post.unsqueeze(0)
+                        sim = float(((v_pre * v_post).sum(dim=-1) /
+                                     (v_pre.norm(dim=-1) * v_post.norm(dim=-1) + 1e-8)).mean().item())
+                        key = (str(pre_id), str(post_id))
+                        entry = self._coactivation_stats.setdefault(
+                            key, {"count": 0, "total_sim": 0.0, "last_update": post_fire.round_num})
+                        entry["count"] += 1
+                        entry["total_sim"] += sim
+                        entry["last_update"] = max(entry["last_update"], post_fire.round_num)
+                        added += 1
+        return added
+
+    def get_coactivation_stats(self, pre_id: str, post_id: str) -> dict:
+        """查询 (pre, post) 的累积共激活统计。"""
+        key = (str(pre_id), str(post_id))
+        return self._coactivation_stats.get(key, {"count": 0, "total_sim": 0.0, "last_update": 0})
+
+    @torch.no_grad()
+    def apply_structure_updates(
+        self,
+        neurons: dict,
+        min_weight_prune: float = 0.01,
+    ) -> dict:
+        """突触结构演化：通道条目修剪 + 生长（C25-B，突触可塑性从权重缩放升级为结构演化）。
+
+        生物参考：睡眠期突触规模调节——长期高共激活的连接强化（已在 STDP
+        权重缩放 + SleepConsolidator 强化覆盖），长期低共激活的连接被修剪，
+        高共激活但缺失的连接长出新的（神经发生/突触生长）。
+
+        规则（保守、可逆性优先）：
+        - 修剪：通道存在但 (post_id, pre_id) 共激活 count < prune_count_threshold
+          **且** 通道权重 L1 均值 < min_weight_prune → 删除条目（弱连接 + 无
+          共激活证据 → 清除；权重大的通道即使统计低也保留，防误删已学习连接）
+        - 生长：peer 在 neurons 中、count ≥ grow_count_threshold 且
+          avg_sim ≥ grow_sim_threshold，但通道缺失 → 建立新通道（邻居相似
+          初始化：与目标 peer 共激活最相似的已有通道权重 + 小噪声）
+
+        Args:
+            neurons: {neuron_id: ResonanceNeuron}
+            min_weight_prune: 修剪的权重下限（L1 均值低于此值才可修剪）
+
+        Returns:
+            {"pruned": 修剪通道数, "grown": 生长通道数, "pruned_keys": [...], "grown_keys": [...]}
+        """
+        stats = {"pruned": 0, "grown": 0, "pruned_keys": [], "grown_keys": []}
+
+        # ── 1. 修剪：低共激活 + 弱权重通道条目删除 ──
+        for post_id, post_neuron in neurons.items():
+            for ch_dict, ctype in ((getattr(post_neuron, "excite_channels", {}), "excite"),
+                                   (getattr(post_neuron, "inhibit_channels", {}), "inhibit")):
+                for pre_id in list(ch_dict.keys()):
+                    cstat = self.get_coactivation_stats(pre_id, post_id)
+                    if cstat["count"] >= self.prune_count_threshold:
+                        continue
+                    linear = ch_dict[pre_id]
+                    w_mean = float(linear.weight.data.abs().mean().item())
+                    if w_mean >= min_weight_prune:
+                        continue  # 权重仍强 → 保留（防误删已学习连接）
+                    # 删除通道条目 + 关联 scale param / bias buffer
+                    del ch_dict[pre_id]
+                    for suffix in (f"{ctype}_scale_{pre_id}", f"{ctype}_bias_{pre_id}"):
+                        for reg_name in list(post_neuron._parameters.keys()):
+                            if reg_name == suffix:
+                                del post_neuron._parameters[reg_name]
+                        for reg_name in list(post_neuron._buffers.keys()):
+                            if reg_name == suffix:
+                                del post_neuron._buffers[reg_name]
+                    stats["pruned"] += 1
+                    stats["pruned_keys"].append(f"{post_id}<-{pre_id}({ctype})")
+
+        # ── 2. 生长：高共激活缺失通道建立（邻居相似初始化）──
+        # 预计算每个 post 已有通道 peer 列表（供"邻居"相似性匹配）
+        for post_id, post_neuron in neurons.items():
+            # 该 post 已有的所有通道 peer（excite + inhibit）
+            existing_peers = sorted(
+                set(getattr(post_neuron, "excite_channels", {}).keys())
+                | set(getattr(post_neuron, "inhibit_channels", {}).keys()))
+            # 已覆盖的 (pre, post) 对（两个方向都算，避免重复建通道）
+            covered = set()
+            for ch_dict in (getattr(post_neuron, "excite_channels", {}),
+                            getattr(post_neuron, "inhibit_channels", {})):
+                covered.update(ch_dict.keys())
+
+            for pre_id, cstat in list(self._coactivation_stats.items()):
+                pre, post = pre_id
+                if post != post_id or pre not in neurons:
+                    continue
+                if pre in covered:
+                    continue
+                if cstat["count"] < self.grow_count_threshold:
+                    continue
+                avg_sim = cstat["total_sim"] / max(cstat["count"], 1)
+                if avg_sim < self.grow_sim_threshold:
+                    continue
+                # 生长通道：邻居相似初始化
+                self._grow_channel(post_neuron, pre, neurons[pre], existing_peers)
+                covered.add(pre)
+                stats["grown"] += 1
+                stats["grown_keys"].append(f"{post_id}<-{pre}(excite)")
+
+        return stats
+
+    def _grow_channel(
+        self,
+        post_neuron: nn.Module,
+        pre_id: str,
+        pre_neuron: nn.Module,
+        existing_peers: list,
+    ) -> None:
+        """生长一条新通道（邻居相似初始化）。
+
+        若 post 已有指向其他 peer 的 excite 通道，找与目标 pre 共激活统计
+        最相似的已有 peer（共同 pre 的共激活模式），以其通道权重为初始值
+        + 小噪声；无邻居则标准 init_std 初始化。init_scale 沿用
+        establish_side_channel 默认（50.0）。
+        """
+        init_weight = None
+        if existing_peers:
+            # 邻居 = 与 pre 共享最多共激活统计的已有通道 peer
+            best_peer, best_score = None, -1.0
+            for peer in existing_peers:
+                if peer not in getattr(post_neuron, "excite_channels", {}):
+                    continue
+                # 相似度 = (peer, pre) 与 (peer, 目标) 的共激活重叠
+                overlap = 0.0
+                for (a, b), s in self._coactivation_stats.items():
+                    if a == peer:
+                        if b == pre_id:
+                            overlap += s["count"]
+                        else:
+                            overlap += s["count"] * 0.05  # 其他 peer 弱贡献
+                if overlap > best_score:
+                    best_score, best_peer = overlap, peer
+            if best_peer is not None:
+                init_weight = post_neuron.excite_channels[best_peer].weight.data.clone()
+
+        # 直接构造 Linear（维度：pre.field_dim → post.hidden_size）
+        src_dim = pre_neuron.config.field_dim
+        dst_dim = post_neuron.config.hidden_size
+        channel = nn.Linear(src_dim, dst_dim, bias=False)
+        if init_weight is not None and init_weight.shape == channel.weight.shape:
+            channel.weight.data = init_weight + torch.randn_like(init_weight) * 0.005
+        else:
+            nn.init.normal_(channel.weight, std=0.01)
+        post_neuron.excite_channels[pre_id] = channel
+        scale_param = nn.Parameter(torch.tensor(50.0))
+        post_neuron.register_parameter(f"excite_scale_{pre_id}", scale_param)
+        post_neuron.register_buffer(f"excite_bias_{pre_id}", torch.zeros(1))
 
     @torch.no_grad()
     def apply_updates(
@@ -235,4 +430,36 @@ class STDPTracker:
         return {
             "neurons_tracked": len(self._firing_history),
             "total_records": sum(len(h) for h in self._firing_history.values()),
+            "coactivation_pairs": len(self._coactivation_stats),
+            "coactivation_events": sum(s["count"] for s in self._coactivation_stats.values()),
         }
+
+    def get_state_dict(self) -> dict:
+        """C25-B：持久化共激活统计（突触结构演化的长期数据，跨会话）。
+
+        与 C25-D replay buffer 持久化同一模式：coactivation_stats 是结构
+        修剪/生长的依据，必须跨会话保留；firing_history 是短期运行时数据，
+        重启后重新积累。
+        """
+        return {
+            "coactivation_stats": {
+                f"{pre}|{post}": dict(v)
+                for (pre, post), v in self._coactivation_stats.items()
+            },
+            "grow_count_threshold": self.grow_count_threshold,
+            "grow_sim_threshold": self.grow_sim_threshold,
+            "prune_count_threshold": self.prune_count_threshold,
+            "structure_last_updated": self.structure_last_updated,
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """从 dict 恢复状态（C25-B：跨会话共激活统计恢复）。"""
+        self._coactivation_stats = {}
+        for k, v in (state.get("coactivation_stats") or {}).items():
+            pre, post = k.split("|", 1)
+            self._coactivation_stats[(pre, post)] = dict(v)
+        self.grow_count_threshold = state.get("grow_count_threshold", self.grow_count_threshold)
+        self.grow_sim_threshold = state.get("grow_sim_threshold", self.grow_sim_threshold)
+        self.prune_count_threshold = state.get("prune_count_threshold", self.prune_count_threshold)
+        self.structure_last_updated = state.get("structure_last_updated", 0)
+        # firing_history 不恢复（短期运行时数据）

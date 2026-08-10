@@ -370,7 +370,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - dialogue neuron 推理时无 judge_lm_head（ckpt 无 judge_lm_head_state，loader 不注入）——训练有 fallback 头、推理没有，信号链断一环
   - **修复（C20v2，上限最高）**：executive 判定改用 **judge NLL 主信号**（C20 当年 5/5 的原始信号链，general 空间可比，无训练依赖、无膨胀）——`_parallel_forward`/`forward`/`think` 增 return_judge_logits 收集 round1 judge logits；`_executive_route` 算各 neuron judge NLL → 域聚合取最低 → 与启发式融合（NLL 差 ≥1.0 显著占优才切换，回退安全）；quality z-score 保留为 judge 不可用时回退
   - **✅ 端到端判定 5/5**（code→code/math→math/zh→zh/dialogue→zh/en→en，无回归）
-  - **遗留（待办）**：quality_head 膨胀根因未修（learned proxy 被绕过）；C24 域生成能力仍碎片（code "def __[3,b]"/zh "。"——域 SFT 数据少，非架构问题）
+  - **遗留（已修 2026-08-10）**：~~quality_head 膨胀根因未修~~（C25-G std 标准化修复，见下）；C24 域生成能力仍碎片（code "def __[3,b]"/zh "。"——域 SFT 数据少，非架构问题，v2 数据扩充重训中）
   - **域生成碎片根因闭环（2026-08-10，diag_c24_domain_generate）**：单独验证 4 个域头 neuron 生成能力（不经 ensemble/head，`--dir data/foundation_v1_dual`）——code→". a given range where a function is traination..."（乱码）、math→"for every triangular..."（乱码）、zh→"数列 函数已知的发现"（碎片）、en→空。**独立域头生成同样碎片 → 确认是训练数据不足（每域仅 3000 条短 QA），非推理/装配 bug**。数据源：`data/sft/{domain}_sft.pt`（如 code 第 1 条 instruction='Create an array of length 5...' response='arr = [2, 4, 6, 8, 10]'，短指令-响应对，过拟合片段、泛化差）。
   - **待办（下一步候选）**：扩充域 SFT 数据（如从 pretrain 语料构造续写样本 + 多样化 QA，目标每域 1-3 万条）→ 重跑 `train_domain_target_sft.py --domains code,math,zh,en --epochs 6`。数据规模/预算需与用户确认后启动。
   - **数据扩充完成（2026-08-10，build_domain_sft_v2.py）**：用户确认"本地缓存组合 + 2-3 万条/域"。盘点发现 data/cache 有未利用的 HF 缓存标准 SFT 数据集 + 本地大语料：
@@ -393,9 +393,23 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - **256K 去硬编码（2026-08-09，用户质疑"256k 怎么好像是个硬设计"）**：256K 是当前 general 词表（sp_general.model）的**实例值**，判定可比性的本质是"所有 neuron 共享同一投影空间"，不依赖 256K 数字。修复：判定头/共享表维度一律从权重 shape 推断（`judge_lm_head_state.shape[0]` / `shared_lm_head["weight"].shape[0]`），LoRA 过滤改用 `loader.general_vocab_size()`（从 sp_general.model 动态获取，失败回退 256000）——general 词表可重训/实时扩展（C25-A EditableVocabulary + resize 工具）而不破坏装配。验证：动态 256000 == ckpt 256000。
   - 冒烟：verify_c25_vocab_edit.py **27/27 PASS**。
 - **剩余对比问题清单（待办）**：
-  - C25-B：STDP 从"只追踪不驱动"推进为 forward_train 骨架（缺口 R）
+  - C25-B ✅ STDP 突触生长/修剪本体化（2026-08-10，C20 重训完成后实施，缺口 R 修复）
     - **现状盘点（2026-08-09）**：STDPTracker 已注入 ensemble（loader Step 2）+ 推理 record_firing + sleep 期 apply_all_updates（权重缩放 [0.5,2.0]）+ SleepConsolidator 弱连接修剪（weight<0.01）——**非纯装饰，但缺通道级结构可塑性（excite/inhibit_channels 条目修剪/生长）且不参与 forward_train**
     - **设计（上限最高，突触生长/修剪本体化）**：① STDPTracker 增共激活统计累积（(pre,post)→count/sim/dt 持久化，跨会话）；② `apply_structure_updates`：长期低共激活通道条目修剪 + 高共激活缺失通道生长（邻居相似初始化）——连接层"突触可塑性"从权重缩放升级为结构演化；③ 时机：C20 重训完成后接入 sleep（离线路径，不碰 forward_train 监督，规避 C23-C4 式监督打架）
+    - **实施（2026-08-10，C20 判定 5/5 后启动）**：
+      - `STDPTracker.accumulate_coactivation()`：firing_history 按 round 排序，pre 先于 post 发放 → (pre,post) 有向对累积 count+total_sim（与 STDP 语义一致，幂等）
+      - `STDPTracker.apply_structure_updates(neurons)`：**修剪**——通道存在但 (post,pre) count < prune_count_threshold=2 **且** 权重 L1 均值 < 0.01 → 删除条目 + 关联 scale param/bias buffer 一并清理（防孤儿参数）；**生长**——count ≥ grow_count_threshold=5 且 avg_sim ≥ grow_sim_threshold=0.3 但通道缺失 → 建立新通道（邻居相似初始化：与目标 peer 共激活最相似的已有通道权重 + 0.005 噪声；无邻居则 init_std 标准初始化）；保守规则：强权重通道即使无共激活也保留（防误删已学习连接）
+      - `get_state_dict/load_state_dict`：共激活统计持久化跨会话（与 C25-D replay buffer 同一模式，firing_history 短期不持久化）
+      - `SleepConsolidator.consolidate` 增 `stdp_tracker` 参数（向后兼容）：步骤 2.6 结构演化（accumulate → apply_structure_updates），返回 channels_struct_pruned/channels_grown；sleep_engine REM 阶段调用传入 self._stdp_tracker
+      - 验证：verify_c25_b_stdp.py **21/21 PASS**（有向统计累积/修剪+param 清理/强权重保留/生长+邻居初始化/持久化/sleep 接入）；C25-D 无回归 17/17 PASS
+  - C25-C ✅ 神经调质深度耦合训练（2026-08-10，对比文档 2.11"调质状态记录未深度耦合训练"+ 171 行乙酰胆碱未实现修复）
+    - **现状盘点**：DA/5-HT/NE 已耦合 lr/refractory/field_write/attention 温度/FFN 增益（S9 冒烟过），但调质目标由 sleep 手工阈值规则更新（未形成可验证的训练闭环）；对比文档 171 行乙酰胆碱（attention 调制）缺失
+    - **实施（上限最高，DA=奖励 / ACh=新颖性互补）**：
+      - `NeuromodulatorState` 增 **acetylcholine**（0-1，默认 0.5=中性）+ `set_targets(acetylcholine=...)` + `step` EMA + 持久化（旧 ckpt 无 ACh → 默认中性兼容）
+      - `get_attention_focus_gain()`：ACh → attention 聚焦增益（映射 0.6+ACh×0.8 ∈ [0.6,1.4]，0.5→1.0 与 DA/NE/5-HT 中性约定一致）
+      - **ensemble 注入**（两处 temp_gain 路径）：`temp_gain = NE_temp × ACh_focus`——NE=警觉主调制、ACh=新颖性精细调节，互补不覆盖（hasattr 兼容旧实例）
+      - **训练闭环**（sleep_engine._update_neuromodulators）：loss 变化率同时驱动 DA 与 ACh——loss 上升（新颖/困难）→ ACh↑0.85（聚焦新输入）；停滞→中性；快速下降（熟悉）→ ACh↓0.35（习惯化）。DA=奖励预测误差、ACh=新颖性，同一 delta 双信号
+      - 验证：verify_c25_c_neuromod.py **23/23 PASS**（EMA/映射/组合调制/持久化+旧 ckpt 兼容/训练闭环 DA-ACh 联动/既有接口无回归）；C25-B 21/21、C25-D 17/17 无回归
   - C25-D ✅ 睡眠重放真重放 + 突触稳态下调（2026-08-09，对比文档 2.6/2.11 弱项"态极 sleep 是'拿累积样本离线训练'，重放/下调是方向性借鉴，未实现生物意义上的'逐条回放 + 全局缩放'"修复）：
     - **真重放**：`record_high_resonance_state` 增 `active_nids`（PlayEngine 记录共振时传激活 neuron 集）；`consolidate` 重放时用 active_nids 再激活共激活统计（人脑海马回放 → 皮层再激活 → 突触巩固），取代"纯统计占位"假重放；旧格式记录（无 active_nids）兼容仅计数
     - **突触稳态下调（downscaling）**：consolidate 新增全局 side_channels ×0.98（NREM 慢波全局缩放）——强通道净保留（强化×1.1 后 ×0.98 ≈ ×1.08）、弱信号整体下压，与弱通道修剪互补（连续调节 vs 离散清除）
@@ -403,6 +417,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - C25-C：神经调质深度耦合训练（当前仅状态记录，缺口 R）
   - C25-E：连续时间动力学替代离散共振轮次（相位同步本体化剩余）
   - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
+  - C25-G ✅ quality_head 膨胀根因修复（2026-08-10，C24 遗留闭环）
+    - **膨胀根因**（C23 时代诊断）：quality_head 学成常数偏移（zh_aug2 ql 68-102 内容无关）——logit 大 → actual=softmax(logit/1.0) 完全饱和（0/1 独热）→ KL(actual||ideal) 梯度消失 → 自增强压不住；C24v2 绝对 NLL 监督（nll_z）也没救回
+    - **修复（上限最高，std 标准化）**：C15 contrastive loss 的 actual 改为 **std 标准化**（减 detach 均值 ÷ detach 标准差）再 ÷ 温度 1.0——softmax 输入恒 ~±2，永不饱和、梯度恒非零；语义：actual 只反映 neuron 间相对质量差异（与 ideal z-score 同构）。尺度完全不变：logit 68 与 1000 训练行为一致（Adam 归一化 ÷std 因子无影响）
+    - **验证**：verify_c25_quality_fix.py **11/11 PASS**（原逻辑梯度 1e-2 显著小于修复后 0.12（饱和）/修复后一步梯度下降 KL 减小/actual 有熵不独热/×10+500、÷10-3、+1000 三尺度 KL 值一致+梯度下降行为一致）；C25-B/C/D 无回归
+    - **意义**：learned quality proxy 恢复可用（judge 不可用时回退），C24 重训完成后 C20 判定重训不再单点依赖 judge NLL
 
 ---
 

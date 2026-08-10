@@ -893,6 +893,22 @@ class SleepEngine:
                     f"dopamine_target={dopamine_target} → lr_mult={self._neuromodulator.get_lr_multiplier():.2f}"
                 )
 
+                # C25-C：乙酰胆碱（新颖性 → 注意聚焦）——与 DA 互补：DA=奖励
+                # （loss 下降），ACh=新颖性（loss 上升/波动 → 新输入 → 聚焦），
+                # 快速下降（熟悉）→ 习惯化（ACh 降低）。ACh 目标由同一 loss
+                # delta 驱动，无需额外信号源。
+                if delta > 0.05:
+                    ach_target = 0.85  # loss 上升：遇到新颖/困难输入 → 聚焦
+                elif delta > -0.05:
+                    ach_target = 0.5   # 停滞：中性
+                else:
+                    ach_target = 0.35  # 学习有效：习惯化 → 聚焦降低
+                self._neuromodulator.set_targets(acetylcholine=ach_target)
+                logger.info(
+                    f"  ACh 更新: Δ={delta:+.1%} → ach_target={ach_target} → "
+                    f"focus_gain={self._neuromodulator.get_attention_focus_gain():.2f}"
+                )
+
         # ── 慢速信号：每 N 轮评估准确率 → 血清素 ──
         self._eval_counter += 1
         if self._eval_counter >= self._eval_interval:
@@ -1653,6 +1669,7 @@ class SleepEngine:
             neurons=self.cortex.neurons,
             coactivation_tracker=coaction,
             current_step=self._current_step,
+            stdp_tracker=self._stdp_tracker,  # C25-B：结构演化（修剪/生长）
         )
 
         logger.info(

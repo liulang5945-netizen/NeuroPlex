@@ -38,11 +38,13 @@ class NeuromodulatorState:
     dopamine: float = 0.5      # 奖励/错误反馈驱动
     serotonin: float = 0.5     # 满足感/稳定度
     norepinephrine: float = 0.5  # 警觉/注意力
+    acetylcholine: float = 0.5   # C25-C：新颖性/注意聚焦（对比文档 171 行已列未实现）
 
     # 目标值（由外部信号设定，实际值缓慢趋近）
     _target_dopamine: float = 0.5
     _target_serotonin: float = 0.5
     _target_norepinephrine: float = 0.5
+    _target_acetylcholine: float = 0.5
 
     # EMA 趋近速率
     ema_alpha: float = 0.1
@@ -52,6 +54,7 @@ class NeuromodulatorState:
         dopamine: Optional[float] = None,
         serotonin: Optional[float] = None,
         norepinephrine: Optional[float] = None,
+        acetylcholine: Optional[float] = None,
     ) -> None:
         """设置目标调质水平（由外部信号驱动）。"""
         if dopamine is not None:
@@ -60,12 +63,15 @@ class NeuromodulatorState:
             self._target_serotonin = max(0.0, min(1.0, serotonin))
         if norepinephrine is not None:
             self._target_norepinephrine = max(0.0, min(1.0, norepinephrine))
+        if acetylcholine is not None:
+            self._target_acetylcholine = max(0.0, min(1.0, acetylcholine))
 
     def step(self) -> None:
         """EMA 趋近目标值（调质不会突变，而是缓慢调整）。"""
         self.dopamine += self.ema_alpha * (self._target_dopamine - self.dopamine)
         self.serotonin += self.ema_alpha * (self._target_serotonin - self.serotonin)
         self.norepinephrine += self.ema_alpha * (self._target_norepinephrine - self.norepinephrine)
+        self.acetylcholine += self.ema_alpha * (self._target_acetylcholine - self.acetylcholine)
 
     def get_lr_multiplier(self) -> float:
         """获取学习率倍数（多巴胺驱动）。
@@ -109,6 +115,21 @@ class NeuromodulatorState:
         """
         return 0.5 + self.norepinephrine * 1.0
 
+    def get_attention_focus_gain(self) -> float:
+        """C25-C：获取注意聚焦增益（乙酰胆碱驱动，与 NE 警觉互补）。
+
+        人脑：乙酰胆碱（ACh）在注意新刺激时升高（新颖性→注意聚焦），
+        习惯化时降低。作用于 attention 温度（与 NE 组合调制）：
+        - 高 ACh → focus_gain > 1 → logits 放大 → softmax 更尖锐（聚焦新输入）
+        - 低 ACh → focus_gain < 1 → logits 缩小 → softmax 更分散（习惯化）
+        - ACh = 0.5 → focus_gain = 1.0（中性）
+
+        映射范围 [0.6, 1.4]（比 NE 的 [0.5, 2.0] 温和——ACh 是精细调节，
+        不覆盖警觉的主调制；0.5=中性 → 1.0，与 DA/NE/5-HT 约定一致）。
+        ensemble forward 中与 NE temp_gain 相乘组合。
+        """
+        return 0.6 + self.acetylcholine * 0.8
+
     def get_ffn_gain(self) -> float:
         """S9: 获取 FFN 增益（dopamine 驱动）。
 
@@ -131,9 +152,11 @@ class NeuromodulatorState:
             "dopamine": self.dopamine,
             "serotonin": self.serotonin,
             "norepinephrine": self.norepinephrine,
+            "acetylcholine": self.acetylcholine,
             "_target_dopamine": self._target_dopamine,
             "_target_serotonin": self._target_serotonin,
             "_target_norepinephrine": self._target_norepinephrine,
+            "_target_acetylcholine": self._target_acetylcholine,
         }
 
     def load_state_dict(self, state: dict) -> None:
@@ -141,9 +164,11 @@ class NeuromodulatorState:
         self.dopamine = state.get("dopamine", 0.5)
         self.serotonin = state.get("serotonin", 0.5)
         self.norepinephrine = state.get("norepinephrine", 0.5)
+        self.acetylcholine = state.get("acetylcholine", 0.5)  # 旧 ckpt 无 → 默认中性
         self._target_dopamine = state.get("_target_dopamine", 0.5)
         self._target_serotonin = state.get("_target_serotonin", 0.5)
         self._target_norepinephrine = state.get("_target_norepinephrine", 0.5)
+        self._target_acetylcholine = state.get("_target_acetylcholine", 0.5)
 
 
 class SleepConsolidator:
@@ -219,6 +244,7 @@ class SleepConsolidator:
         neurons: dict,
         coactivation_tracker: Optional[Any] = None,
         current_step: int = 0,
+        stdp_tracker: Optional[Any] = None,
     ) -> dict:
         """执行一次睡眠巩固。
 
@@ -226,6 +252,8 @@ class SleepConsolidator:
             neurons: {neuron_id: ResonanceNeuron}
             coactivation_tracker: CoactivationTracker 实例
             current_step: 当前步数
+            stdp_tracker: STDPTracker 实例（C25-B：结构演化——共激活统计
+                累积 + 通道修剪/生长，突触可塑性从权重缩放升级为结构演化）
 
         Returns:
             巩固统计
@@ -238,6 +266,8 @@ class SleepConsolidator:
             "channels_reinforced": 0,
             "channels_pruned": 0,
             "channels_downscaled": 0,
+            "channels_struct_pruned": 0,
+            "channels_grown": 0,
             "fingerprints_updated": 0,
             "pairs_forgotten": 0,
         }
@@ -273,6 +303,22 @@ class SleepConsolidator:
         # 与"修剪弱通道"互补：downscaling 是连续调节，修剪是离散清除。
         downscaled = self._synaptic_downscaling(neurons, factor=self.downscale_factor)
         stats["channels_downscaled"] = downscaled
+
+        # 2.6 突触结构演化（C25-B，人脑突触规模调节）：STDP 共激活统计累积
+        # + 通道条目修剪/生长——连接层"突触可塑性"从权重缩放（STDP/
+        # downscaling）升级为结构演化（长期低共激活弱通道清除 + 高共激活
+        # 缺失通道生长，邻居相似初始化）。离线路径，不碰 forward_train 监督。
+        if stdp_tracker is not None:
+            try:
+                stdp_tracker.accumulate_coactivation()
+                struct_stats = stdp_tracker.apply_structure_updates(neurons)
+                stats["channels_struct_pruned"] = struct_stats.get("pruned", 0)
+                stats["channels_grown"] = struct_stats.get("grown", 0)
+                if struct_stats.get("pruned") or struct_stats.get("grown"):
+                    logger.info("  STDP 结构演化: 修剪 %d 通道, 生长 %d 通道",
+                                struct_stats.get("pruned", 0), struct_stats.get("grown", 0))
+            except Exception as e:
+                logger.warning("STDP 结构演化失败（非关键）: %s", e)
 
         # 3. 修剪弱 side_channels
         for nid, neuron in neurons.items():
