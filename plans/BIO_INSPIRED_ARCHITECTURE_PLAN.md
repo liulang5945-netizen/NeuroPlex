@@ -344,7 +344,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
 - **✅ 验证**：c23_final_seeded 装配 → 9 neuron 相位/ω/K 与训练一致（code=−55.3°/math=−90.3°/zh_aug0=74.7°/K=−0.0834）；collab_v3_c16（无 phasor_state）→ 域先验 0°/60°/120°/180°；端到端判定 5/5 无回归；冒烟 15/15 PASS
 - **✅ 全部完成**：C23 相位同步本体化（A 共振分 / B 场本体 / C 可微化 / C2 ω·K 梯度 / C3 phase-binding loss / C4 训练监督纯净化 / C5 默认装配）——训练-推理统一，闭环落地
 
-**C24 实施（4 个 general neuron 域目标空间 SFT 增强，落地 C21 遗留，2026-08-09 ⏳ C24v2 双头重训中）**：
+**C24 实施（4 个 general neuron 域目标空间 SFT 增强，落地 C21 遗留，2026-08-09 ✅ 完成）**：
 - **目标**：C21 遗留——4 个 general neuron 生成能力弱（zh 回显/math/en 碎片/code 简短），根因 = foundation_v1_general 在 general 256K 空间（英文主导）续写训练 + 无 SFT QA 能力。修复路径（同 dialogue 修复，C21 已验证）：**域目标空间**——general 输入 + 域词表目标 + answer masking，让 neuron 在自己的词表空间表达域内容。
 - **v1 产物**：data/foundation_v1_sft/（从 foundation_v1 域头基座 SFT，6 epochs → train PPL code 2.1/math 2.1/zh 8.6/en 10.6）——**生成能力验证成立**（code 生成 `def Fib(n):` 结构），但 **端到端判定退化**（collab_v3_c24 1/5：code→en/math→en/zh→math/en→zh）。
 - **判定退化根因（2026-08-09 诊断闭环）**：
@@ -358,7 +358,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
   - `train_round_level_quality.py`：移除 native NLL（build_per_neuron_targets 删除），dialogue neuron 注入共享 general 256K 判定头
   - `loader.py`：识别 `judge_lm_head_state` 注入判定头
   - 冒烟验证（60 步）：域头 answer PPL 收敛 + general 判定对角保留（code=3.65 最低）——**双头方案成立**
-- **⏳ 完整重训完成（foundation_v1_dual，4 域 × 6 epochs）**：
+- **✅ 完整重训完成（foundation_v1_dual，4 域 × 6 epochs）**：
   - code ✅（best eval PPL 6.8）→ 训练后 general 判定对角保留（code=1.2/math=7.7/zh=15.8/en=5.1）
   - math ✅（best eval PPL 5.5）→ 判定对角保留（code=9.7/math=2.7/zh=16.0/en=6.5）
   - zh ✅（best eval PPL 319.1）/ en ✅（best eval PPL 167.3）
