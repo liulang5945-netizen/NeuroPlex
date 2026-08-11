@@ -251,9 +251,16 @@ def main():
         if "shared_embedding_state" in ckpt and ckpt["shared_embedding_state"]:
             shared_emb.load_state_dict(ckpt["shared_embedding_state"])
         if "optimizer_state" in ckpt:
-            optimizer.load_state_dict(ckpt["optimizer_state"])
+            try:
+                optimizer.load_state_dict(ckpt["optimizer_state"])
+            except Exception as e:
+                # vocab 升级（20K→50K）/结构变更后 optimizer 参数组不匹配是正常的
+                print(f"  [warn] optimizer state 加载失败，重置优化器（权重已续）: {e}", flush=True)
         if "scheduler_state" in ckpt:
-            scheduler.load_state_dict(ckpt["scheduler_state"])
+            try:
+                scheduler.load_state_dict(ckpt["scheduler_state"])
+            except Exception as e:
+                print(f"  [warn] scheduler state 加载失败，重置调度器: {e}", flush=True)
         result = ckpt.get("result", {})
         best_val_loss = result.get("best_val_ppl", float('inf'))
         best_step = result.get("best_step", 0)

@@ -530,6 +530,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
         - **数据质量良好**：48K alpaca-zh 100% "问/答"格式统一、主题多样（健康/色彩/原子…）、长度 mean 251——**数据不是瓶颈**
         - **结论**：zh 生成碎片 = **欠训练**（非容量/数据/机制）；完整收敛需 12000+ 步（23h+/neuron CPU）
         - **续训方案**：`finetune_neuron_dialogue.py --resume` 续训（链路已验证：zh_std0 曾 1000→4000 多次 resume）；预估 PPL 95→50-60 需 ~4000-8000 步（8-16h/neuron CPU）；范围待确认（单 neuron 验证收益 → 再扩展）
+        - **🔄 全部 5 个续训已启动（2026-08-11 18:10，用户确认"全部 5 个"）**：并行 5 进程（--threads 3，--steps 8000，resume 4000→8000 步）
+          - **修复 1（base vocab）**：resume 需 base neuron（OUTPUT_DIR/neuron_{base_id}.pt），但 base 全在 pre_t12_backup 且 vocab=20000（旧 zh tokenizer），dialogue 是 50000——**无 50000 base**。解决：`--base_id` 直接用 dialogue 自身（cfg/vocab 与 target 一致，resume 权重覆盖）
+          - **修复 2（optimizer 容错）**：vocab 升级后 optimizer_state 参数组不匹配（ValueError）→ `finetune_neuron_dialogue.py` resume 分支 optimizer/scheduler 加载包 try/except（权重续训 + 优化器重置，改动已提交）
+          - **训练状态**：step 4000 恢复、best_val_ppl 保留、无 stderr 错误、5 进程存活；每 1000 步 eval+保存 ckpt（续训 4000 步 → 4 次保存 + best 更新）
+          - **注意**：训练期间 data/neurons 有临时 base 文件（neuron_zh_{aug0-3,std0}.pt，从 pre_t12_backup 复制），装配按 neuron_ids 过滤不受影响；**训练完成后需删除**（恢复目录干净）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
