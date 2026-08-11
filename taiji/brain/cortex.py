@@ -1000,6 +1000,68 @@ class Cortex:
             return candidates[0]
         return self._select_best_candidate(candidates)
 
+    # ── C25-F 多阶段任务模式链（2026-08-11）：task-set 序列 ──
+
+    def generate_staged(
+        self,
+        stages: List[Dict],
+        max_tokens_per_stage: int = 32,
+        temperature: float = 0.55,
+        top_k: int = 15,
+        repetition_penalty: float = 1.4,
+        fusion_mode: str = "soft",
+    ) -> List[str]:
+        """多阶段任务模式链（task-set 序列，人脑任务集切换）。
+
+        对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复：
+        一个任务 = 阶段序列，每阶段是一个 task-set（激活模式 + 判定约束），
+        阶段间显式传递中间输出——如"zh 理解 → code 生成 → zh 表达"。
+
+        Args:
+            stages: List[dict]，每阶段 = task-set：
+                - "prompt": 阶段指令。含 "{prev}" 时用上一阶段输出填充模板；
+                  无 "{prev}" 且已有 prev 时自动追加（"prompt\n上一阶段输出"）
+                - "mode": 任务模式 "executive"（默认，judge NLL 判定）/
+                  "continuous"（C25-E 连续时间共振）
+                - "domain": 可选 task-set 域约束（None = 模式判定）
+                - "max_tokens": 阶段级覆盖
+            max_tokens_per_stage: 默认阶段生成长度
+            temperature/top_k/repetition_penalty/fusion_mode: 透传给 generate
+
+        Returns:
+            List[str] 各阶段生成文本（与 stages 一一对应）
+        """
+        outputs: List[str] = []
+        prev = ""
+        for i, st in enumerate(stages):
+            tpl = st.get("prompt", "").strip()
+            if not tpl:
+                outputs.append("")
+                continue
+            if "{prev}" in tpl:
+                stage_prompt = tpl.format(prev=prev)
+            elif prev:
+                stage_prompt = f"{tpl}\n{prev}"
+            else:
+                stage_prompt = tpl
+            try:
+                text = self.generate(
+                    prompt=stage_prompt,
+                    max_tokens=st.get("max_tokens", max_tokens_per_stage),
+                    temperature=temperature,
+                    top_k=top_k,
+                    domain=st.get("domain"),
+                    repetition_penalty=repetition_penalty,
+                    collab_mode=st.get("mode", "executive"),
+                    fusion_mode=fusion_mode,
+                )
+            except Exception as e:
+                text = ""
+                logger.error(f"[Cortex] generate_staged 阶段 {i} 失败: {e}")
+            outputs.append(text)
+            prev = text
+        return outputs
+
     def _select_best_candidate(self, candidates: List[str]) -> str:
         """SMCS EPE 混合后验评分选最优候选。
 

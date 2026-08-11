@@ -465,7 +465,10 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
       - A/B 生成（max_tokens=20）：**continuous 在 dialogue/zh 质量优于 executive**（dialogue "对不起。" vs executive "。我非常开心…"；zh "下面是一个简单的 Python 代码斐波那契数列" vs executive "。"）——连续激活选择让 leader 更稳定；code/en 相当
     - **遗留（下一步增量）**：训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）；loader 默认装配（continuous 替换 executive 需 A/B 规模化验证后决策）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
-  - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
+  - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
+    - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
+    - **验证**：verify_c25_f_staged.py **18/18 PASS**（{prev} 模板/自动拼接/首阶段无拼接/task-set 参数透传（domain+mode+max_tokens）/空 prompt 跳过/异常隔离/zh→code→zh 三阶段编排）；py_compile OK
+    - **遗留**：9 神经元端到端多阶段任务（真实装配下三阶段生成 + 判定切换）待 C20 重训完成后与挂载验证一起执行
   - C25-G ✅ quality_head 膨胀根因修复（2026-08-10，C24 遗留闭环）
     - **膨胀根因**（C23 时代诊断）：quality_head 学成常数偏移（zh_aug2 ql 68-102 内容无关）——logit 大 → actual=softmax(logit/1.0) 完全饱和（0/1 独热）→ KL(actual||ideal) 梯度消失 → 自增强压不住；C24v2 绝对 NLL 监督（nll_z）也没救回
     - **修复（上限最高，std 标准化）**：C15 contrastive loss 的 actual 改为 **std 标准化**（减 detach 均值 ÷ detach 标准差）再 ÷ 温度 1.0——softmax 输入恒 ~±2，永不饱和、梯度恒非零；语义：actual 只反映 neuron 间相对质量差异（与 ideal z-score 同构）。尺度完全不变：logit 68 与 1000 训练行为一致（Adam 归一化 ÷std 因子无影响）
