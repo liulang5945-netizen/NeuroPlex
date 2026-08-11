@@ -450,8 +450,17 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - **真重放**：`record_high_resonance_state` 增 `active_nids`（PlayEngine 记录共振时传激活 neuron 集）；`consolidate` 重放时用 active_nids 再激活共激活统计（人脑海马回放 → 皮层再激活 → 突触巩固），取代"纯统计占位"假重放；旧格式记录（无 active_nids）兼容仅计数
     - **突触稳态下调（downscaling）**：consolidate 新增全局 side_channels ×0.98（NREM 慢波全局缩放）——强通道净保留（强化×1.1 后 ×0.98 ≈ ×1.08）、弱信号整体下压，与弱通道修剪互补（连续调节 vs 离散清除）
     - 冒烟：verify_c25_d_replay.py **17/17 PASS**
-  - C25-C：神经调质深度耦合训练（当前仅状态记录，缺口 R）
-  - C25-E：连续时间动力学替代离散共振轮次（相位同步本体化剩余）
+  - C25-E ✅ 连续时间动力学替代离散共振轮次（2026-08-11，对比文档 2.11"刻意简化：离散共振轮次替代连续动力学"修复）
+    - **核心**：`taiji/resonance/continuous.py`（ContinuousResonance）+ `ensemble.continuous_forward`（可选路径，不改变 forward/executive）——相位绑定驱动的连续激活替代不应期硬门轮替：
+      - 时间步进 T（默认 8）微步积分（dt=1/8）；每步相位 Kuramoto 演化（复用 PhasorDynamics.evolve）
+      - 激活强度 a_i(t) = σ(β·(binding_i(t)−b0)) 连续驱动"谁参与、权重多少"（同相强参与、异相退场）——替代 round1 全量 + 不应期硬门 + max_rounds 的离散轮替
+      - 场随时间积分 F(t+dt) = F(t) + dt·Σ a_i·project(v_i)·conf_i（confidence 只调制场写入）
+      - 融合权重 w_i = Σ_t dt·a_i（时间平均激活=参与度，与离散"共振分"对齐）
+      - 收敛 = 绑定分布 std 稳定（相位锁定，min_steps 后检查防单步假收敛）——连续版自适应停止
+      - **安全性边界（C23 同款）**：t=0 独立前向采集判定信号（judge NLL 主信号链），连续激活不进入判定路径
+    - **验证**：verify_c25_e_continuous.py **20/20 PASS**（激活单调/中性/连续无硬跳变/权重=Σdt·a·conf/收敛判据/Kuramoto→绑定→激活闭环/输出结构/同相权重 0.233>异相 0.068/场积分/判定信号保留/forward 无回归/确定性）；verify_c21_generate **判定 5/5 无回归**
+    - **遗留（下一步增量）**：continuous 接入 collab_mode="continuous"（显式启用）；训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）；loader 默认装配
+  - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
   - C25-G ✅ quality_head 膨胀根因修复（2026-08-10，C24 遗留闭环）
     - **膨胀根因**（C23 时代诊断）：quality_head 学成常数偏移（zh_aug2 ql 68-102 内容无关）——logit 大 → actual=softmax(logit/1.0) 完全饱和（0/1 独热）→ KL(actual||ideal) 梯度消失 → 自增强压不住；C24v2 绝对 NLL 监督（nll_z）也没救回

@@ -1,0 +1,143 @@
+"""ContinuousResonance — C25-E 连续时间共振（相位同步驱动的连续动力学）。
+
+替代离散共振轮次（round1 全量 + 不应期硬门 + max_rounds 限制）：
+- 时间步进 T 微步（dt），每步相位 Kuramoto 演化（复用 PhasorDynamics.evolve）
+- 激活强度 a_i(t) = σ(β·(binding_i(t) - b0)) 连续驱动"谁参与、权重多少"——
+  与当前共振主体同相 → 强激活持续参与；异相 → 弱激活退场。
+  **替代不应期硬门的信息轮替**：轮替由相位关系连续决定，无硬跳变。
+- 场随积分单调演化：F(t+dt) = F(t) + dt·Σ a_i(t)·project(v_i(t))
+- 融合权重 w_i = Σ_t dt·a_i(t)·confidence_i（时间平均激活）
+- 收敛：相位绑定分布稳定（锁定）或 T 步满
+
+安全性边界（C23 同款）：executive 判定（judge NLL 主信号，C20v2）不消费
+本模块输出——连续共振只作用于协作融合路径；t=0 独立前向采集判定信号，
+与离散 round1 语义一致。
+"""
+from __future__ import annotations
+
+import math
+from typing import Dict, List, Optional, Tuple
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class ContinuousResonance(nn.Module):
+    """连续时间共振核心（纯数学：激活 / 权重累积 / 收敛判据）。
+
+    ensemble.continuous_forward 负责编排（forward neuron、写场、logits），
+    本模块提供连续动力学的可测单元。
+    """
+
+    def __init__(
+        self,
+        steps: int = 8,
+        dt: float = 1 / 8,
+        act_temp: float = 1.5,
+        act_offset: float = 0.0,
+        min_activ: float = 0.05,
+        conv_tol: float = 0.02,
+        min_steps: int = 2,
+    ):
+        """
+        Args:
+            steps: 最大时间步数 T（替代 max_rounds 的连续版）
+            dt: 时间步长（积分精度；Σdt = 1）
+            act_temp: 激活温度 β——binding 差放大倍数（越高越接近硬门，越低越平滑）
+            act_offset: 激活偏置 b0（binding=b0 时 a=0.5）
+            min_activ: 参与门槛（activ < 该值的 neuron 本步退场，软过滤替代硬不应期）
+            conv_tol: 收敛容差（绑定 std 相邻步变化 < 该值视为锁定）
+            min_steps: 收敛检查最早步数（防止相位演化尚未推进时的单步假收敛）
+        """
+        super().__init__()
+        self.steps = steps
+        self.dt = dt
+        self.act_temp = act_temp
+        self.act_offset = act_offset
+        self.min_activ = min_activ
+        self.conv_tol = conv_tol
+        self.min_steps = min_steps
+
+    # ── 激活（连续替代不应期硬门）──
+
+    def activation(self, binding: torch.Tensor) -> torch.Tensor:
+        """激活强度：σ(act_temp·(binding - act_offset)) ∈ (0, 1)。
+
+        绑定 = cos 差 ∈ [-1,1]；同相群体 binding→+1 → a→1（强参与）；
+        异相 → -1 → a→0（退场）。连续、可微、无硬跳变。
+        """
+        return torch.sigmoid(self.act_temp * (binding - self.act_offset))
+
+    def activations_from_phasors(
+        self,
+        phasor,
+        ids: List[str],
+        coactivation=None,
+        phasors: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """由相位直接算激活（一步到位，供主循环用）。"""
+        binding = phasor.binding_tensor(ids, coactivation, phasors=phasors)
+        return self.activation(binding)
+
+    # ── 权重累积（时间平均激活）──
+
+    def weights_accum(
+        self,
+        weights: torch.Tensor,
+        activ: torch.Tensor,
+        confidence: torch.Tensor,
+        dt: float,
+    ) -> torch.Tensor:
+        """w += dt·a_i·conf_i（场/融合权重的时间积分）。"""
+        return weights + dt * activ * confidence
+
+    # ── 收敛判据（相位绑定锁定）──
+
+    def converged(
+        self,
+        binding_history: List[torch.Tensor],
+        tol: Optional[float] = None,
+    ) -> bool:
+        """绑定分布稳定 = 锁定（方差相邻步变化 < tol）。
+
+        相位锁定 → 绑定不变 → 激活不变 → 场/权重稳态——可提前停止
+        （连续时间版的"自适应停止"）。
+        """
+        tol = tol if tol is not None else self.conv_tol
+        if len(binding_history) < 2:
+            return False
+        b_prev, b_cur = binding_history[-2], binding_history[-1]
+        if b_prev.numel() != b_cur.numel() or b_prev.numel() == 0:
+            return False
+        delta = (b_cur.std() - b_prev.std()).abs()
+        return bool(delta.item() < tol)
+
+    # ── 锁定度（诊断）──
+
+    def lock_degree(self, binding: torch.Tensor) -> float:
+        """当前绑定锁定度：均值高 + 方差低 = 强锁定（共识强）。"""
+        if binding.numel() == 0:
+            return 0.0
+        m = float(binding.mean().item())
+        s = float(binding.std().item())
+        # 全同相 = 1，全异相 = -1；锁定 = |绑定均值| 高
+        return m
+
+    # ── 一步相位演化 + 激活（主循环原语）──
+
+    def step(
+        self,
+        phasor,
+        ids: List[str],
+        coactivation=None,
+        dt: Optional[float] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """推进相位（可微 Kuramoto）+ 返回本步激活。
+
+        Returns:
+            (new_phasors [N,2], activ [N])
+        """
+        new_p = phasor.evolve(ids, coactivation, dt=dt)
+        binding = phasor.binding_tensor(ids, coactivation, phasors=new_p)
+        return new_p, self.activation(binding)

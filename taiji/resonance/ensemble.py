@@ -29,6 +29,7 @@ from .field import ResonanceField
 from .neuron import ResonanceNeuron
 from .spatial_diffusion import SpatialDiffuser
 from .translator import build_logits_alignment_matrix
+from .continuous import ContinuousResonance
 
 
 class CrossSpecProjector(nn.Module):
@@ -1748,6 +1749,216 @@ class ResonanceEnsemble:
                 if self.shared_weight_mlp is not None:
                     result["shared_weight_per_sample"] = sw.detach().squeeze(-1)  # [B]
 
+        return result
+
+    # ── C25-E 连续时间共振（2026-08-11）：相位同步驱动的连续动力学 ──
+
+    def continuous_forward(
+        self,
+        shared_embeddings: Optional[torch.Tensor] = None,
+        return_logits: bool = False,
+        active_nids: Optional[List[str]] = None,
+        neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
+        return_judge_logits: bool = False,
+        ct: Optional[ContinuousResonance] = None,
+    ) -> Dict:
+        """C25-E 连续时间共振（可选路径，不改变 forward/executive 判定）。
+
+        离散轮次（round1 全量 → 不应期硬门 → max_rounds）的连续化替代：
+        - t=0 独立前向（无场）采集判定信号（judge/quality，同 round1 语义）
+        - 每步相位 Kuramoto 演化（复用 PhasorDynamics）→ 激活强度
+          a_i(t) = σ(β·binding_i(t)) 连续驱动"谁参与、权重多少"
+          （同相强参与、异相退场）——**替代不应期硬门的信息轮替**
+        - 场随时间积分：F(t+dt) = F(t) + dt·Σ a_i·project(v_i)·conf_i
+        - 融合权重 w_i = Σ_t dt·a_i（时间平均激活=参与度，与离散"共振分"对齐；
+          confidence 只调制场写入，不进入融合权重）
+        - 收敛：绑定分布稳定（相位锁定）→ 提前停止（连续版自适应停止）
+
+        安全性边界（C23 同款）：executive 判定（judge NLL 主信号，C20v2）
+        只消费 t=0 判定信号；连续激活不进入判定路径——判定 5/5 不受影响。
+
+        Returns（forward 兼容子集）:
+            field_state / final_scores / n_steps / continuous_weights /
+            neuron_logits / weighted_logits / round1_judge_logits / quality_logits
+        """
+        if shared_embeddings is None and neuron_embeddings is None:
+            raise ValueError(
+                "[ResonanceEnsemble.continuous_forward] 必须提供 shared_embeddings 或 neuron_embeddings"
+            )
+        if ct is None:
+            ct = ContinuousResonance()
+        nmap = self.neurons
+        if active_nids is None:
+            active_nids = sorted(nmap.keys())
+        ids = [nid for nid in active_nids if nid in nmap]
+        if not ids:
+            return {"field_state": None, "n_steps": 0, "continuous_weights": {}}
+        ref = (next(iter(neuron_embeddings.values()))
+               if neuron_embeddings else shared_embeddings)
+
+        self._get_task_field().reset(batch_size=ref.shape[0])
+        field = self.field
+        weights = torch.zeros(len(ids), device=ref.device)  # 时间平均激活
+        binding_history: List[torch.Tensor] = []
+        n_steps = 0
+        stopped = False
+        stop_reason: Optional[str] = None
+
+        def logits_filter(nid, keep_set):
+            return return_logits and (keep_set is None or nid in keep_set)
+
+        # ── t=0：独立前向（无场），采集判定信号 + 写场（同 round1 语义）──
+        vecs0, logits0, conf0, _sv, ql0, judge0 = self._parallel_forward(
+            ids, shared_embeddings, field_state=None, round_num=1,
+            return_logits_filter=lambda nid: return_logits,
+            neuron_embeddings=neuron_embeddings,
+            nmap=nmap, want_judge=return_judge_logits,
+        )
+        write_scale = (self.neuromodulator.get_field_write_scale()
+                       if self.neuromodulator is not None else 1.0)
+        for nid in ids:
+            neuron = nmap[nid]
+            maturity_w = (self.maturity.get_resonance_weight(nid)
+                          if self.maturity is not None else 1.0)
+            vec = self._project_vec(nid, vecs0[nid]) * neuron.write_gain
+            if neuron.is_inhibitory:
+                field.write_inhibit(nid, vec, weight=maturity_w)
+            else:
+                field.write(nid, vec, scale=write_scale * maturity_w * conf0[nid])
+        try:
+            field.lateral_inhibition_norm()
+        except Exception:
+            pass
+        # 连续路径的判定信号（t=0 快照，与离散 round1 等价）
+        round1_judge = judge0 if (return_judge_logits and judge0) else None
+        ql_agg = None
+        if ql0:
+            ql_agg = torch.stack([ql0[nid] for nid in ids if nid in ql0]).mean(dim=1).squeeze(-1)
+        # t=0 激活（初始绑定，无演化）
+        if self.gamma_oscillator is not None:
+            b0 = self.gamma_oscillator.binding_tensor(
+                ids, coactivation=self.coaction)
+            activ0 = ct.activation(b0)
+        else:
+            activ0 = torch.ones(len(ids), device=ref.device)
+        # 融合权重 = 时间平均激活（纯激活=参与度；confidence 只调制场写入）
+        weights = ct.weights_accum(weights, activ0, torch.ones(len(ids)), ct.dt)
+        binding_history.append(b0 if self.gamma_oscillator is not None else torch.zeros(len(ids)))
+
+        # ── 连续积分主循环（t=1..T）──
+        all_logits = dict(logits0)
+        keep_ids: Optional[set] = set(ids) if return_logits else None
+        for t in range(1, ct.steps + 1):
+            n_steps = t
+            # 1) 相位连续演化（状态推进）
+            if self.gamma_oscillator is not None and hasattr(self.gamma_oscillator, "kuramoto_step"):
+                try:
+                    self.gamma_oscillator.kuramoto_step(
+                        coupling_strength=0.05, active_ids=ids,
+                        coactivation=self.coaction, dt=ct.dt,
+                    )
+                except Exception:
+                    pass
+            # 2) 激活强度（相位绑定驱动，连续替代不应期）
+            if self.gamma_oscillator is not None:
+                b_t = self.gamma_oscillator.binding_tensor(ids, coactivation=self.coaction)
+                activ = ct.activation(b_t)
+            else:
+                b_t = torch.zeros(len(ids), device=ref.device)
+                activ = torch.ones(len(ids), device=ref.device)
+            binding_history.append(b_t.detach())
+            # 3) 软过滤（低激活退场；保留至少 1 个）
+            active_this = [ids[i] for i, a in enumerate(activ) if a > ct.min_activ]
+            if not active_this:
+                active_this = [ids[int(activ.argmax())]]
+            # 4) 场条件化 forward
+            round_vecs, round_logits, round_confs, _sv2, _ql2, _j2 = self._parallel_forward(
+                active_this, shared_embeddings,
+                field_state=field.get_normalised_state(),
+                round_num=t + 1,
+                return_logits_filter=lambda nid: logits_filter(nid, keep_ids),
+                neuron_embeddings=neuron_embeddings, nmap=nmap,
+            )
+            if round_logits:
+                all_logits.update(round_logits)
+            # 5) 场积分（时间步进；scale = dt·a_i·conf_i）
+            for nid in active_this:
+                i = ids.index(nid)
+                neuron = nmap[nid]
+                maturity_w = (self.maturity.get_resonance_weight(nid)
+                              if self.maturity is not None else 1.0)
+                vec = self._project_vec(nid, round_vecs[nid]) * neuron.write_gain
+                a_i = float(activ[i].item())
+                if neuron.is_inhibitory:
+                    field.write_inhibit(nid, vec, weight=maturity_w * a_i)
+                else:
+                    field.write(nid, vec, scale=ct.dt * write_scale * maturity_w * a_i * float(round_confs[nid].mean().item()))
+            try:
+                field.lateral_inhibition_norm()
+            except Exception:
+                pass
+            # 6) 权重累积（时间平均激活，纯参与度；conf 不进入融合权重）
+            weights = ct.weights_accum(weights, activ, torch.ones(len(ids)), ct.dt)
+            # 7) 收敛：绑定分布稳定（相位锁定）；最少步数后才检查（防单步假收敛）
+            if t >= ct.min_steps and ct.converged(binding_history):
+                stopped = True
+                stop_reason = "phase_lock"
+                break
+
+        # ── 最终输出（forward 兼容）──
+        # 推理路径：权重/分数 detach（连续积分本身可微，推理无需梯度）
+        final_scores = {nid: float(w.detach().item()) for nid, w in zip(ids, weights)}
+        result: Dict = {
+            "field_state": field.get_state(),
+            "final_scores": final_scores,          # 连续路径：时间平均激活即"共振分"
+            "n_steps": n_steps,
+            "n_rounds": n_steps + 1,               # 兼容字段（t=0 + 积分步）
+            "continuous_weights": {nid: float(w.detach().item()) for nid, w in zip(ids, weights)},
+            "phase_locked": stopped,
+            "stop_reason": stop_reason,
+            "skipped_resonance": False,
+            "skip_reason": None,
+            "round1_logits": all_logits,
+        }
+        if round1_judge is not None:
+            result["round1_judge_logits"] = round1_judge
+        else:
+            result["round1_judge_logits"] = None
+        result["quality_logits"] = ql_agg
+
+        if return_logits and all_logits:
+            result["neuron_logits"] = all_logits
+            vocab_sizes = [lg.shape[-1] for lg in all_logits.values()]
+            same_vocab = len(set(vocab_sizes)) == 1
+            w_t = weights.detach() / weights.detach().sum().clamp_min(1e-8)  # 归一化时间平均权重
+            if same_vocab and len(all_logits) >= 2:
+                stacked = torch.stack([all_logits[nid] * w_t[i]
+                                       for i, nid in enumerate(ids)
+                                       if nid in all_logits])
+                result["weighted_logits"] = stacked.sum(dim=0)
+            elif same_vocab:
+                nid0 = next(iter(all_logits))
+                result["weighted_logits"] = all_logits[nid0]
+            else:
+                # 跨 vocab：投影到 general + confidence routing（与 forward 同口径）
+                nids = [nid for nid in ids if nid in all_logits]
+                try:
+                    if self._tokenizer_hub is not None and len(nids) >= 2:
+                        proj = self._project_logits_to_target(all_logits, nids, "general")
+                        native_list = [all_logits[nid] for nid in nids]
+                        scores_t = torch.tensor(
+                            [final_scores.get(nid, 0.0) for nid in nids],
+                            device=ref.device,
+                        )
+                        trust = torch.softmax(scores_t / 0.5, dim=-1)  # 连续权重 → trust
+                        fused = torch.zeros_like(proj[0])
+                        for k, nid in enumerate(nids):
+                            fused = fused + trust[k] * proj[k]
+                        result["weighted_logits"] = fused
+                    else:
+                        result["weighted_logits"] = all_logits[nids[0]]
+                except Exception:
+                    result["weighted_logits"] = all_logits[nids[0]]
         return result
 
     def forward_train(
