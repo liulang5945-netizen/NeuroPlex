@@ -489,6 +489,10 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
       - **修复**：`continuous_forward` 新增 `round1_scores`（t=0 场共振分，field.score 口径与离散 forward 的 round_scores 一致）——质量信号有区分度（验证实测 max-min=0.70：zh_aug2=0.73 最高 / zh_std0=0.027 最低）；cortex `_generate_p7` continuous 分支 leader 改用 round1_scores 优先（fallback 时间平均激活）
       - **验证**：verify_c25_e_leader_quality.py **3/3 PASS**——continuous 挂载 8/8 非空（此前 5/8 空输出消除）+ round1_scores 有区分度 + executive 8/8 无回归；verify_c25_e_ab_scale.py 修复后 **continuous 22/22 非空 + 质量 17/22 ≥ executive**（三质量断言全过）
       - **注意（数据波动）**：单次 A/B 重复率方向不稳定（增量三 0.012<0.027，增量四后 0.039>0.021）——temperature 0.55 采样波动大，重复抑制优势需多次采样取均值确认，**默认装配保持 executive 的决策不变**（连续模式空输出已消除，质量不劣，可作显式可选；默认切换需更大样本统计支撑）
+      - **✅ 增量五：默认装配切换 continuous（2026-08-11，多次采样统计确认后落地）**：verify_c25_e_ab_stats.py（12 prompt × 3 次采样取均值）**4/4 PASS**——非空率 1.00 持平、重复率 **continuous 0.011 < executive 0.022**（3 次采样均值稳定，确认增量三/四单次反转是采样噪声）、逐 prompt 质量 **9 胜 2 负 1 平**。`cortex.generate` 默认 `collab_mode` 切换为 `"continuous"`：
+        - 判定 5/5 无回归（continuous 复用 executive 判定，judge NLL 主信号不受影响）
+        - 挂载实测（test_api_dialogue 默认参数）8/8 全非空，Q1 "你好" → "你好，很高兴！今天天气真美好的一天。"（流畅完整，空输出 5/8 问题彻底消除）
+        - **C25-E 全部增量闭环：核心机制 → cortex 接入 → 训练路径连续化 → leader 质量修复 → 默认装配切换**
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
