@@ -2001,6 +2001,17 @@ class ResonanceEnsemble:
         # 覆盖 _confidence_routing_fusion 的 trust（softmax(scores/temp)），
         # 直接指定 per-neuron 信任系数。None（默认）= 正常 scores 校准路径（向后兼容）。
         trust_override: Optional[torch.Tensor] = None,
+        # ── C25-E（2026-08-11）：训练路径连续化 ──
+        # continuous=True 时，round 2+ 的离散轮次替换为连续时间积分
+        # （相位演化 → 激活 σ(β·binding) → 软过滤 → 场条件化 forward → 场积分 →
+        # 权重累积 Σdt·a）。融合权重 = 时间平均激活（替代 softmax(scores/temp)）。
+        # C23-C4 纯净化：final_judge_logits/final_logits 用 round 1（t=0 独立前向）
+        # 采集——监督测"谁能预测好"（纯净 NLL，不被相位自组织驱动漂移）；
+        # 相位经 scores 段调制 + phase_loss 可微（ω/K 梯度路径保留）。
+        # 默认 False = 原离散路径（全部既有调用点零影响）。
+        continuous: bool = False,
+        # ContinuousResonance 实例（None = 默认参数新建）
+        ct: Optional[ContinuousResonance] = None,
     ) -> Dict[str, torch.Tensor]:
         """全可微多轮共振训练路径（S1 修复：让共振可端到端训练）。
 
@@ -2121,8 +2132,120 @@ class ResonanceEnsemble:
         final_logits: Dict[str, torch.Tensor] = {}        # 最后一轮每个 neuron 的 logits
         final_judge_logits: Dict[str, torch.Tensor] = {}  # C24 双头：最后一轮 general 256K 判定 logits
         round_quality_logits_all: Dict[str, torch.Tensor] = {}  # C15: round 1 预测质量 logit（全程保留）
+        # C25-E 连续化：时间平均激活融合权重（连续模式下替代 softmax(scores/temp)）
+        continuous_weights: Optional[torch.Tensor] = None
+        if ct is None and continuous:
+            ct = ContinuousResonance()
 
         for round_num in range(1, n_rounds + 1):
+            # ── C25-E 连续化：round 1（t=0 独立前向）后进入连续积分主循环 ──
+            # 替代 round 2+ 离散轮次（不应期硬门 + 全量重 forward）。
+            # C23-C4 纯净化：final_judge_logits/final_logits 在 round 1 采集
+            # （监督测"谁能预测好"，纯净 NLL），连续积分不污染判定信号。
+            if continuous and round_num >= 2:
+                # 连续积分主循环（t=1..T 微步，全部可微）
+                ref_dev = next(iter(round_vecs_unified.values())).device
+                w = torch.zeros(len(active_ids), device=ref_dev)
+                bhist: List[torch.Tensor] = []
+                # t=0 激活（round 1 结束时相位已演化过一次）
+                if gamma_oscillator is not None:
+                    b0 = gamma_oscillator.binding_tensor(
+                        list(active_ids), coactivation=self.coaction)
+                    a0 = ct.activation(b0)
+                else:
+                    b0 = torch.zeros(len(active_ids), device=ref_dev)
+                    a0 = torch.ones(len(active_ids), device=ref_dev)
+                w = ct.weights_accum(w, a0, torch.ones(len(active_ids), device=ref_dev), ct.dt)
+                bhist.append(b0.detach())
+                for t in range(1, ct.steps + 1):
+                    # 1) 相位连续演化（可微 Kuramoto；状态推进 detach 由内部完成）
+                    if gamma_oscillator is not None:
+                        try:
+                            if getattr(gamma_oscillator, "differentiable", False):
+                                self._last_evolved_phasors = gamma_oscillator.evolve(
+                                    list(active_ids), coactivation=self.coaction)
+                                gamma_oscillator.kuramoto_step(
+                                    active_ids=list(active_ids),
+                                    coactivation=self.coaction, dt=ct.dt)
+                            elif hasattr(gamma_oscillator, "kuramoto_step"):
+                                gamma_oscillator.kuramoto_step(
+                                    coupling_strength=0.05, active_ids=list(active_ids),
+                                    coactivation=self.coaction, dt=ct.dt)
+                        except Exception:
+                            pass
+                    # 2) 激活强度（相位绑定驱动，连续替代不应期硬门）
+                    if gamma_oscillator is not None:
+                        b_t = gamma_oscillator.binding_tensor(
+                            list(active_ids), coactivation=self.coaction)
+                        activ = ct.activation(b_t)
+                    else:
+                        b_t = torch.zeros(len(active_ids), device=ref_dev)
+                        activ = torch.ones(len(active_ids), device=ref_dev)
+                    bhist.append(b_t.detach())
+                    # 3) 软过滤（低激活退场；保留至少 1 个）
+                    active_this = [active_ids[i] for i, a in enumerate(activ)
+                                   if a > ct.min_activ]
+                    if not active_this:
+                        active_this = [active_ids[int(activ.argmax())]]
+                    # 4) 场条件化 forward（只 forward 激活的 neuron）
+                    side_signals_ct: Optional[Dict[str, Dict[str, torch.Tensor]]] = None
+                    if round_vecs_raw:
+                        side_signals_ct = {nid: {} for nid in active_this}
+                        for post_id in active_this:
+                            post_neuron = nmap[post_id]
+                            for pre_id in active_this:
+                                if post_id == pre_id:
+                                    continue
+                                if (pre_id in post_neuron.excite_channels or
+                                        pre_id in post_neuron.inhibit_channels):
+                                    side_signals_ct[post_id][pre_id] = round_vecs_raw[pre_id]
+                    t_vecs_raw: Dict[str, torch.Tensor] = {}
+                    t_vecs_uni: Dict[str, torch.Tensor] = {}
+                    t_conf: Dict[str, torch.Tensor] = {}
+                    for nid in active_this:
+                        emb = _get_emb(nid)
+                        fs = field_state if field_conditioning else None
+                        if fs is not None and nid in self._cross_spec_back_projectors:
+                            fs = self._cross_spec_back_projectors[nid](fs)
+                        kwargs: Dict[str, Any] = dict(
+                            field_state=fs,
+                            round_num=t + 1,
+                            return_logits=False,  # 积分步不更新 final_logits（监督纯净）
+                            temp_gain=temp_gain,
+                            ffn_gain=ffn_gain,
+                        )
+                        if side_signals_ct is not None:
+                            kwargs["side_signals"] = side_signals_ct[nid]
+                        r = nmap[nid].forward(emb, **kwargs)
+                        vr = r["field_vector"]
+                        t_vecs_raw[nid] = vr
+                        vu = self._project_vec(nid, vr)
+                        t_vecs_uni[nid] = vu
+                        t_conf[nid] = r.get(
+                            "field_confidence",
+                            torch.ones(vr.shape[0], device=vr.device))
+                    # 5) 场积分 F(t+dt) = F(t) + dt·Σ a_i·project(v_i)·conf_i
+                    #    （可微；激活直接驱动场演化——C25-E 核心）
+                    if t_vecs_uni:
+                        normed = F.normalize(
+                            torch.stack([t_vecs_uni[nid] for nid in active_this]),
+                            dim=-1)
+                        confs = torch.stack([t_conf[nid] for nid in active_this])
+                        act_sel = torch.stack([
+                            activ[active_ids.index(nid)] for nid in active_this])
+                        contrib = (normed * confs.unsqueeze(-1)
+                                   * act_sel.unsqueeze(-1).unsqueeze(-1)).sum(dim=0)
+                        fs_cur = field_state if field_state is not None else torch.zeros_like(contrib)
+                        field_state = fs_cur + ct.dt * contrib
+                    # 6) 权重累积 w += dt·a（时间平均激活=参与度）
+                    w = ct.weights_accum(
+                        w, activ, torch.ones(len(active_ids), device=ref_dev), ct.dt)
+                    # 7) 收敛：绑定分布稳定（相位锁定；最少步数防单步假收敛）
+                    if t >= ct.min_steps and ct.converged(bhist):
+                        break
+                continuous_weights = w
+                break  # round 2+ 已由连续积分替代，退出离散循环
+
             round_vecs_raw_new: Dict[str, torch.Tensor] = {}
             round_vecs_unified_new: Dict[str, torch.Tensor] = {}
             round_confidences_new: Dict[str, torch.Tensor] = {}  # C8: per-sample confidence
@@ -2193,7 +2316,9 @@ class ResonanceEnsemble:
                 # C15: 收集预测质量 logit（round 1 独立前向，无场耦合）
                 if round_num == 1 and "quality_logit" in result:
                     round_quality_logits_all[nid] = result["quality_logit"]
-                if round_num == n_rounds:
+                # C25-E 连续化：final_logits 在 round 1（t=0 独立前向）采集——
+                # 连续积分步不更新 final_logits（C23-C4 监督纯净）
+                if round_num == n_rounds or continuous:
                     final_logits[nid] = result["logits"]
                     # C24 双头：收集 general 256K 判定 logits（判定空间可比信号）
                     if "judge_logits" in result:
@@ -2412,9 +2537,22 @@ class ResonanceEnsemble:
             all_logits = torch.stack([final_logits[nid] for nid in active_ids])  # [N, B, L, V]
 
         # ── §4.0c: Sparse Router 融合（per-sample，STE 可微）──
-        # use_sparse_router=True 且有 router_result 时，用 Router 的 final_weights 融合
-        # 否则退化为原 soft/residual 融合（向后兼容）
-        if self._last_router_result is not None and fusion_mode != "residual":
+        # C25-E 连续化：continuous 模式融合权重 = 时间平均激活（替代
+        # softmax(scores/temp) 与 Router final_weights）——融合与推理
+        # continuous_forward 同口径（Σdt·a 归一化）。
+        # C15: quality_logits（contrastive_loss 监督用，round 1 独立）——
+        # 提前初始化，router/residual 分支不构造也安全（原代码该分支
+        # 未定义 → UnboundLocalError，基线缺陷）
+        quality_logits_t: Optional[torch.Tensor] = None
+        if round_quality_logits_all:
+            quality_logits_t = torch.stack([
+                round_quality_logits_all[nid] for nid in active_ids
+            ]).mean(dim=1).squeeze(-1)  # [N]
+        if continuous and continuous_weights is not None:
+            weights = continuous_weights / continuous_weights.sum().clamp_min(1e-8)
+            fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
+            balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
+        elif self._last_router_result is not None and fusion_mode != "residual":
             # 从 Router final_weights [B, N_round1] 中取当前 active_ids 对应列
             router_final_weights = self._last_router_result["final_weights"]  # [B, N_round1]
             router_load_balance_loss = self._last_router_result["load_balance_loss"]
@@ -2453,13 +2591,6 @@ class ResonanceEnsemble:
                 # 交给最自信的 neuron = 分工。域内：原生 neuron 全位置胜出（≈个体，
                 # 无伤害）；跨域（zh 提问→code 输出）：zh token→zh、code token→code。
                 native_list = [final_logits[nid] for nid in active_ids]
-                # C15: 预测质量 logits [N]（round 1 独立前向，batch 平均）。
-                # fusion 信任与 contrastive_loss 共用（监督 quality 对齐 NLL 排序）
-                quality_logits_t = None
-                if round_quality_logits_all:
-                    quality_logits_t = torch.stack([
-                        round_quality_logits_all[nid] for nid in active_ids
-                    ]).mean(dim=1).squeeze(-1)  # [N]
                 # C15: quality_logits 优先于 scores（预测质量 head，无 LOO 泄漏、无判别器尺度游戏）
                 fused_logits, route_weights = self._confidence_routing_fusion(
                     all_logits, native_list, active_ids, target_domain,
@@ -2474,12 +2605,7 @@ class ResonanceEnsemble:
                 weights = F.softmax(scores / temperature, dim=0)  # [N]
                 fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
                 balance_loss = -(weights * torch.log(weights + 1e-8)).sum()
-                # C15: soft 模式也构造 quality_logits（contrastive_loss 监督用）
-                quality_logits_t = None
-                if round_quality_logits_all:
-                    quality_logits_t = torch.stack([
-                        round_quality_logits_all[nid] for nid in active_ids
-                    ]).mean(dim=1).squeeze(-1)  # [N]
+                # C15: soft 模式 quality_logits 已在融合段前统一初始化
 
         # ── 多样性 loss（field_vector 间余弦相似度，防退化相同）──
         if N >= 2:
@@ -2721,6 +2847,7 @@ class ResonanceEnsemble:
             "per_neuron_nll_z": nll_z,  # C16b: 标准化 z-score（诊断）
             "field_state": field_state_full,
             "n_rounds": n_rounds,
+            "continuous_weights": continuous_weights,  # C25-E: 时间平均激活（continuous 模式）
         }
 
         # C15: 预测质量 logits [N]（round 1 独立前向，batch 平均）

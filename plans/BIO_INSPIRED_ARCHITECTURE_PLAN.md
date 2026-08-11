@@ -416,7 +416,15 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - **test_api_dialogue 装配升级为 9 阵容**（5 对话 + 4 域 + collab_v3_c24v2 + judge EMA 预热）实测：Q1 "你好" → **"你好！今天天气很好。有什么情况吗？"**（流畅完整）；Q3 → "我是一个人工智能助手，无法正文"（半流畅）；Q6 → "当然。这本书"（自然开头）；Q2/Q4/Q7/Q8 短碎（模型规模限制，培养期喂养渐进改善）；**符号乱码/混字消失**（原 5 neuron + 旧 collab 装配 Q8 出乱码 "漫步a 江莜れ赌博…"）
     - **根因修复：API 装配路径用旧协作层**——`load_model_on_startup` 默认 collab_name=`cross_spec_dialogue.pt`（2026-08-06 旧产物，非 C16-C24 验证链产物）→ 对话乱码。已修复：collab 显式用 `collab_v3_c24v2.ckpt.pt`（C20v2 判定重训，judge NLL 主信号）+ `extra_neurons_dir=data/foundation_v1_dual`（C24v2 双头域 neuron，9 阵容）；环境变量 `TAIJI_COLLAB_NAME`/`TAIJI_EXTRA_NEURONS_DIR` 可覆盖。`load_model_on_startup` 验证装配 9 神经元（5 对话 + code/en/math/zh）
     - **挂载就绪结论**：判定 5/5 + 对话链路（API 等价参数 temperature 0.55/top_k 15/rep 1.4）工作正常，对话质量达"培养起点"——可挂载客户端进入培养期（喂养数据渐进改善）；域生成能力（C24）留待培养期验证/喂养
-  - **C20 判定重训 v2（2026-08-11 启动，collab_v3_c24v2 重训）**：8/10 的 c24v2 quality_head 基于 **v1 域 neuron**（3000 条/域）重训；C24 v2 全量重训（2-3 万条/域）覆盖域 neuron 后 quality_head 与新域 neuron **失配**。判定 5/5 不受影响（C20v2 判定主信号 = judge NLL），但 C25-G 膨胀修复后的 **quality proxy 恢复闭环**需在新域 neuron 上重跑 C20 重训。已备份 `collab_v3_c24v2_v1.ckpt.pt`，重训命令 = `train_round_level_quality.py`（neuron-dir foundation_v1_dual + warm start 自 v1 + save-name c24v2 覆盖，~1090 步 ≈ 40-70min CPU）。定时任务 e1ec4a91（C24 完成后自动 C20 重训，描述 v1 场景）已删除（手动接管）。
+  - **✅ C20 判定重训 v2 完成 + 验证闭环（2026-08-11）**：8/10 的 c24v2 quality_head 基于 **v1 域 neuron**（3000 条/域）重训；C24 v2 全量重训（2-3 万条/域）覆盖域 neuron 后 quality_head 与新域 neuron **失配**。判定 5/5 不受影响（C20v2 判定主信号 = judge NLL），但 C25-G 膨胀修复后的 **quality proxy 恢复闭环**需在新域 neuron 上重跑 C20 重训。已备份 `collab_v3_c24v2_v1.ckpt.pt`，重训命令 = `train_round_level_quality.py`（neuron-dir foundation_v1_dual + warm start 自 v1 + save-name c24v2 覆盖，1090 步 ≈ 74min CPU）。定时任务 e1ec4a91（C24 完成后自动 C20 重训，描述 v1 场景）已删除（手动接管）。
+    - **v2 产物验证（全部通过）**：
+      1. `collab_v3_c24v2.ckpt.pt` 已覆盖为 v2（12:37，quality_head 9 neuron 全更新 + phasor 演化：phasors max|d|=1.82 近乎相位翻转、omega 差 0.245）
+      2. `verify_c21_generate.py`：**判定 5/5 无回归**（code→code/math→math/zh→zh/dialogue→zh/en→en）
+      3. `verify_c25_f_e2e.py`：**端到端 10/10 PASS**（判定链路 5/5 + 三阶段 {prev} 传递 + 异常隔离 + continuous 阶段可用）
+      4. `verify_c20_quality_fallback.py`：**3/3 PASS**（judge 失效时 quality z-score 回退不崩溃、判定合法域）
+    - **挂载生成无退化（diag_c20_v1_vs_v2.py 对比）**：v2 全 4 问产出完整句子（"你好，很高兴。"等）；v1 碎片更多（Q2"抱歉（"/Q3"1/ ("/Q4"我抱歉，"）——**v2 略优于 v1**。test_api_dialogue 单次抽样碎片为随机波动（temperature=0.55），非 phasor 大差异导致。
+    - **已知限制（记录不阻塞）**：quality proxy 回退判定与 judge NLL 一致率 **2/5**（math→en/zh→code 错判）——z-score 是"相对自身历史水平"的弱信号，跨 neuron 可比性架构性弱于 judge NLL（general 空间天然可比）；兜底场景（judge 完全不可用）可接受，挂载主路径 judge NLL 5/5 不受影响。C25-F 端到端阶段 2（code 域）在 prev 碎片污染时不出代码——模型能力上限（C24 zh PPL 70.2 高），diag_c25_f_stage2 确认无 prev 时中文/英文指令均出代码，编排机制正常。
+    - **C20 v2 完成 → C25-F 端到端验证闭环关闭；9 神经元挂载完全就绪（判定 5/5 + 生成无退化 + 回退路径存活）**
 
 ---
 
@@ -463,12 +471,19 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - **✅ 增量一：cortex 生成路径接入（2026-08-11）**：`collab_mode="continuous"` 显式启用——cortex.think 转发 ensemble.continuous_forward；_generate_p7 复用 executive 判定（judge NLL 主信号）+ domain 内 leader 选择（continuous_weights=时间平均激活）。verify_c25_e_collab_ab.py **20/20 PASS**：
       - 判定 5/5 两种模式一致（code→code/math→math/zh→zh/dialogue→zh/en→en）
       - A/B 生成（max_tokens=20）：**continuous 在 dialogue/zh 质量优于 executive**（dialogue "对不起。" vs executive "。我非常开心…"；zh "下面是一个简单的 Python 代码斐波那契数列" vs executive "。"）——连续激活选择让 leader 更稳定；code/en 相当
-    - **遗留（下一步增量）**：训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）；loader 默认装配（continuous 替换 executive 需 A/B 规模化验证后决策）
+    - **✅ 增量二：训练路径 forward_train 连续化（2026-08-11，C25-E 最后增量）**：`forward_train` 新增 `continuous: bool = False` 参数（默认 False = 原离散路径，全部既有调用点零影响）——round 1（t=0 独立前向）后进入连续积分主循环替代 round 2+ 离散轮次：
+      - 相位连续演化（可微 Kuramoto）→ 激活 σ(β·binding) → 软过滤（低激活退场，保留≥1）→ 场条件化 forward（只 forward 激活 neuron）→ 场积分 F(t+dt) = F(t) + dt·Σ a_i·project(v_i)·conf_i → 权重累积 Σdt·a
+      - **融合权重 = 时间平均激活归一化**（替代 softmax(scores/temp)），与推理 continuous_forward 同口径
+      - **C23-C4 监督纯净化**：final_judge_logits/final_logits 在 round 1 采集（`if round_num == n_rounds or continuous`），连续积分不更新 final_logits——监督测"谁能预测好"（纯净 NLL），相位不被自组织驱动漂移；phase_loss/scores 段保留（ω/K 梯度路径）
+      - 输出新增 `continuous_weights`（未归一化时间平均激活）
+      - 顺手修复基线缺陷：`quality_logits_t` 提前统一初始化（原 router/residual 融合分支未定义 → UnboundLocalError，verify_forward_train_diff 4/6→5/6）
+      - 验证：verify_c25_e_forward_train_continuous.py **25/25 PASS**（输出结构/权重=时间平均激活/融合权重归一化/监督纯净（per_neuron_nll round 1）/连续可微（phasors+omega+coupling_k 梯度全通）/离散无回归/相位演化推进）；verify_c25_e_continuous **20/20 无回归**；注意 [0,0,0,π] 是绑定驻点（det=0 无牵引）+ 同 omega 整体旋转不改变相对绑定——演化/梯度测试需非驻点相位 + 异质 omega
+    - **遗留（下一步增量）**：训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）✅ 已完成（见上）；loader 默认装配（continuous 替换 executive 需 A/B 规模化验证后决策）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
     - **验证**：verify_c25_f_staged.py **18/18 PASS**（{prev} 模板/自动拼接/首阶段无拼接/task-set 参数透传（domain+mode+max_tokens）/空 prompt 跳过/异常隔离/zh→code→zh 三阶段编排）；py_compile OK
-    - **遗留**：9 神经元端到端多阶段任务（真实装配下三阶段生成 + 判定切换）待 C20 重训完成后与挂载验证一起执行
+    - **✅ 端到端完成（2026-08-11，C20 重训 v2 完成后）**：verify_c25_f_e2e.py **10/10 PASS**（真实装配 9 神经元：判定链路 5/5 + 三阶段 zh→code→zh {prev} 传递 + 异常隔离 + continuous 阶段可用）。内容质量降级为信息性报告——diag_c25_f_stage2 定位：无 prev 时中文指令/英文 prompt 均出代码（domain/mode/判定正常），阶段 1 zh 碎片污染 prev 是模型能力上限（C24 zh PPL 70.2 高），非编排机制问题
   - C25-G ✅ quality_head 膨胀根因修复（2026-08-10，C24 遗留闭环）
     - **膨胀根因**（C23 时代诊断）：quality_head 学成常数偏移（zh_aug2 ql 68-102 内容无关）——logit 大 → actual=softmax(logit/1.0) 完全饱和（0/1 独热）→ KL(actual||ideal) 梯度消失 → 自增强压不住；C24v2 绝对 NLL 监督（nll_z）也没救回
     - **修复（上限最高，std 标准化）**：C15 contrastive loss 的 actual 改为 **std 标准化**（减 detach 均值 ÷ detach 标准差）再 ÷ 温度 1.0——softmax 输入恒 ~±2，永不饱和、梯度恒非零；语义：actual 只反映 neuron 间相对质量差异（与 ideal z-score 同构）。尺度完全不变：logit 68 与 1000 训练行为一致（Adam 归一化 ÷std 因子无影响）
