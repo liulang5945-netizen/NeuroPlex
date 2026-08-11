@@ -493,6 +493,15 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
         - 判定 5/5 无回归（continuous 复用 executive 判定，judge NLL 主信号不受影响）
         - 挂载实测（test_api_dialogue 默认参数）8/8 全非空，Q1 "你好" → "你好，很高兴！今天天气真美好的一天。"（流畅完整，空输出 5/8 问题彻底消除）
         - **C25-E 全部增量闭环：核心机制 → cortex 接入 → 训练路径连续化 → leader 质量修复 → 默认装配切换**
+  - **✅ 培养期端到端闭环验证（2026-08-11，C25-E 后下一阶段：喂养数据渐进改善落地）**
+    - **验证**：verify_feed_sleep_e2e.py **14/14 PASS**——"feed → sleep Phase 2 训练 → 影子写回 live → ckpt 保存 → 训练后推理"完整闭环（真实 9 神经元装配 + FeedEngine/SleepEngine 接线）：
+      - feed：zh 样本 8/8 消化（质量评估通过）→ `get_pending_samples_by_domain` 按域分类（{'zh': 8}）
+      - sleep 训练：样本被消费（training_samples_used=8）、loss 有限（5.39）、训练-训练互斥锁释放（可进入下一睡眠周期）
+      - 影子 COW 写回：zh lm_head + shared_embedding 训练前后权重变化（经验积累生效，live 推理稳定）
+      - ckpt：训练后自动保存 `cortex_state.pt`（968.5 MB，fp16 shared_embedding + per-neuron lm_head/embed_adapter）→ `load_state` 恢复成功（隔离临时目录验证，不污染生产）
+      - 训练后推理：code/zh generate 非空不崩（continuous 默认装配）
+    - **顺带修复（机制演化收敛）**：contrastive phase 混合规格维度崩溃——compact（field/hidden 512）与 standard（768）直接 stack/EMA → "size mismatch 512 vs 768" 每次睡眠训练都失败（被 try/except 压制）。修复（sleep_engine `_train_contrastive_phase`）：hidden 无统一投影层 → pad 到公共 max dim（pad 部分贡献 0，L2 归一化后 cosine 语义不变）；field → 优先用 ensemble 跨规格投影层（`_project_vec`，与推理路径一致）否则 pad；domain_prototype 更新与 route_loss 冷启动 → 用**原始维度** hidden（prototype 在 neuron 自身空间 512/768 各自）。修复后 contrastive **route=0.2048/proto=0.0214/align=0.0323，9 神经元全参与**，不再打 warning
+    - **结论**：培养期闭环可用——客户端可挂载，喂养数据在每次睡眠周期渐进改善 zh/en 生成（answer PPL ~70 → 喂养逐步下降）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）

@@ -1371,18 +1371,60 @@ class SleepEngine:
         if N < 2:
             return None
 
+        # ── 跨规格统一（培养期：512 compact + 768 standard 混合装配）──
+        # hidden 无统一投影层：pad 到公共 max dim（pad 部分贡献 0，
+        #   L2 归一化后 cosine 语义不变，仅修正广播/stack 的维度错配）
+        max_hidden_dim = 0
+        max_field_dim = 0
+        for d, nidmap in resp_hidden.items():
+            for h in nidmap.values():
+                if h is not None:
+                    max_hidden_dim = max(max_hidden_dim, h.size(-1))
+        for d, nidmap in resp_field.items():
+            for fv in nidmap.values():
+                if fv is not None:
+                    max_field_dim = max(max_field_dim, fv.size(-1))
+
+        # field 优先用 ensemble 跨规格投影层（与推理 _project_vec 一致），
+        # 投影结果统一到 field.dim；无投影层时 pad 到公共 max dim
+        ensemble = getattr(cortex, 'ensemble', None)
+        target_field_dim = max_field_dim
+        use_field_proj = False
+        if ensemble is not None and getattr(ensemble, '_cross_spec_projectors', None):
+            try:
+                first_proj = next(iter(ensemble._cross_spec_projectors.values()))
+                target_field_dim = first_proj.linear1.out_features
+                use_field_proj = True
+            except Exception:
+                pass
+
+        def _pad_last(vec, target_dim):
+            if vec.size(-1) >= target_dim:
+                return vec
+            return F.pad(vec, (0, target_dim - vec.size(-1)))
+
         # 每个 neuron 对自己域样本的响应（prototype 可训练代理）
-        self_hidden: Dict[str, torch.Tensor] = {}   # nid -> normed hidden [1, 768]
-        self_field: Dict[str, torch.Tensor] = {}    # nid -> normed field [1, D]
+        self_hidden: Dict[str, torch.Tensor] = {}   # nid -> normed hidden [1, H_common]
+        self_field: Dict[str, torch.Tensor] = {}    # nid -> normed field [1, D_common]
+        self_hidden_raw: Dict[str, torch.Tensor] = {}  # nid -> 原始维度 hidden（prototype 更新用）
         for nid in all_nids:
             d = _domain_of(nid)
             if d in resp_hidden and nid in resp_hidden[d]:
                 h = resp_hidden[d][nid]
                 h2 = h if h.dim() == 2 else h.unsqueeze(0)
+                self_hidden_raw[nid] = h2
+                h2 = _pad_last(h2, max_hidden_dim)
                 self_hidden[nid] = h2 / (h2.norm(dim=-1, keepdim=True) + 1e-8)
             if d in resp_field and nid in resp_field[d]:
                 fv = resp_field[d][nid]
                 fv2 = fv if fv.dim() == 2 else fv.unsqueeze(0)
+                if use_field_proj and nid in ensemble._cross_spec_projectors:
+                    try:
+                        fv2 = ensemble._cross_spec_projectors[nid](fv2)
+                    except Exception:
+                        fv2 = _pad_last(fv2, target_field_dim)
+                else:
+                    fv2 = _pad_last(fv2, target_field_dim)
                 self_field[nid] = fv2 / (fv2.norm(dim=-1, keepdim=True) + 1e-8)
 
         if len(self_hidden) < 2:
@@ -1408,7 +1450,9 @@ class SleepEngine:
                     proto = neuron.domain_prototype.detach()                   # [768]
                     if proto.norm() < 1e-6:
                         # 冷启动：prototype 全零，用 self_hidden 代理（有梯度方向）
-                        proto = self_hidden.get(nid, torch.zeros_like(proto)).squeeze(0).detach()
+                        # 注意用原始维度 hidden（prototype 是 neuron 自身维度）
+                        proto = self_hidden_raw.get(
+                            nid, torch.zeros_like(proto)).squeeze(0).detach()
                     proto_norm = proto / (proto.norm() + 1e-8)
                     sims[nid] = (proj_norm * proto_norm).sum()
                 except Exception:
@@ -1497,10 +1541,11 @@ class SleepEngine:
         optimizer.step()
 
         # 更新 domain_prototype（EMA）— 用 self hidden（对自己域样本的典型响应）
+        # 用原始维度 hidden：prototype 在 neuron 自身 hidden 空间（512/768 各自）
         for nid in all_nids:
-            if nid in self_hidden:
+            if nid in self_hidden_raw:
                 cortex.neurons[nid].update_domain_prototype(
-                    self_hidden[nid].detach()
+                    self_hidden_raw[nid].detach()
                 )
 
         # 恢复 neuron eval 模式
