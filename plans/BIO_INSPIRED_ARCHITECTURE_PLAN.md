@@ -53,7 +53,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 在线学习（培养期，已闭环）：Feed（喂养）→ Sleep（巩固+训练+调质+场固化）→ Wake（应用）
 ```
 
-### 1.3 当前状态（2026-08-11）
+### 1.3 当前状态（2026-08-12）
 
 | 环节 | 状态 | 关键产物 / 结果 |
 |------|------|----------------|
@@ -62,7 +62,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 回合级判定 | ✅ 5/5 | judge NLL 主信号（general 空间可比）+ 启发式融合；quality z-score 回退存活 |
 | 记忆（C26） | ✅ 场固化 | FieldMemoryBank + sleep Phase 1.5：跨会话检索 4/4 命中、跨重启恢复 |
 | 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%） |
-| 训练中 | 🔄 5 dialogue 续训 | 4000→8000 步（后台并行，日志 logs/resume_{aug0..3,std0}.log） |
+| 训练中 | 🔄 5 dialogue 续训 | 4000→8000 步（后台并行，日志 logs/finetune_dialogue_*_20260812_*.log） |
 | 遗留瓶颈 | ⚠️ zh/en 生成 | answer PPL ~70（词表大 + 响应长 + 51M 容量），域生成片段级；对话质量受欠训练限制（续训中） |
 
 ### 1.4 闭环缺口清单
@@ -97,7 +97,10 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 ### 2.2 下一步建议（当前活跃，按优先级）
 
-1. **dialogue 续训回归**（后台进行中）：4000→8000 步完成后，验证 val PPL 下降（目标 95→50-60）+ 重跑 verify_zh_leader_ab.py 对比生成质量；**同时回归 C26 记忆复述**（生成能力恢复后记忆标签应能进入输出）
+1. **dialogue 续训回归**（后台进行中，2026-08-12 重启）：4000→8000 步完成后，验证 val PPL 下降（目标 95→50-60）+ 重跑 verify_zh_leader_ab.py 对比生成质量；**同时回归 C26 记忆复述**（生成能力恢复后记忆标签应能进入输出）
+   - **T12 词表迁移**（2026-08-12）：dialogue neuron lm_head 仍 20K（08-01 训练），与当前 50K tokenizer 不匹配 → resume 崩溃 `Target 38070 out of bounds`。已用 hot_swap_vocab.py 迁移 5 个 dialogue + 5 个 base 共 10 个 ckpt 到 50K（精确 13427 + 子 piece 36573），backup 在 pre_t12_backup/
+   - **C26 lr 修复（补充）**：resume 后仅改 optimizer.lr 不够——LambdaLR.step() 用 scheduler.base_lrs（旧 5e-4）覆盖 → 首日志实测 lr=5e-4（大 lr 冲击已收敛权重）。已补充 `scheduler.base_lrs = [args.lr]*n`，验证通过（lr 保持 1e-4）
+   - **训练验证**：前向链路（50K tokenizer × 50K lm_head）+ save/load 往返（diff=0.0）+ 首日志 step 4200 PPL 277 lr=1e-4 全部通过
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）

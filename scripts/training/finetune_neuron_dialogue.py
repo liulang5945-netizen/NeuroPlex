@@ -261,6 +261,17 @@ def main():
                 scheduler.load_state_dict(ckpt["scheduler_state"])
             except Exception as e:
                 print(f"  [warn] scheduler state 加载失败，重置调度器: {e}", flush=True)
+        # C26 修复（2026-08-11）：checkpoint 的 scheduler/optimizer state 可能残留
+        # 旧训练的 lr（实测 5e-4，与 --lr 0.0001 不符）→ 续训实际 lr 被覆盖为旧值，
+        # 大 lr 冲击已收敛权重 → val PPL 一致恶化（88→174）。resume 后强制 lr=args.lr。
+        for _g in optimizer.param_groups:
+            _g["lr"] = args.lr
+            _g["initial_lr"] = args.lr
+        # C26 修复补充：LambdaLR.step() 用 scheduler.base_lrs 乘 lr_lambda 计算 lr，
+        # 仅改 optimizer.lr 会被 scheduler.step() 重新覆盖回旧 base_lrs（实测 5e-4）。
+        # 必须同时重置 scheduler.base_lrs，否则 WSD stable 段 lr = base_lr × 1.0 仍是旧值。
+        if hasattr(scheduler, "base_lrs"):
+            scheduler.base_lrs = [args.lr] * len(scheduler.base_lrs)
         result = ckpt.get("result", {})
         best_val_loss = result.get("best_val_ppl", float('inf'))
         best_step = result.get("best_step", 0)
