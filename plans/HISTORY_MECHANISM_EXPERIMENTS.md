@@ -142,6 +142,17 @@
 - **机制边界**：记忆"完整复述进生成"受 zh dialogue 欠训练限制（生成碎片），**续训完成后回归项**
 - **关键实现注意**：generate 的生成循环每 token 调 think() 结束即重置场，`cortex.field` 在生成后是空的——场快照必须从 `think()` 返回值（field_state）截获
 - **对比 Titans 定位评估**：态极完善后在**记忆生命周期维度可超越 Titans**（睡眠巩固/记忆→突触沉淀/群体协作是 Titans 缺失维度）；**最大差距 = 可学习写策略**（Titans 梯度驱动 memory-as-model vs 态极朴素场快照）
+- **C26 增量一：跨域语义锚点投影（缺口 L 落地，2026-08-11 ✅ verify_c26_field_alignment.py 8/8 PASS）**
+  - 诊断（diag_cross_domain_alignment.py）：共振场无自发对齐（同义 0.226 vs 错配 0.248，-0.022）；对齐冒烟（verify_c26_cross_domain_align.py 4/4）：**冻结场向量蕴含可提取的跨域语义**（P 空间 +0.547）→ 无需 hub 全套
+  - 产品化：`taiji/resonance/field_alignment.py`（AnchorProjector：field→128 2 层 MLP + 对比 margin loss 训练函数 + 持久化）+ cortex.set_anchor_projector/project_field_state（可选挂载，未挂载原样返回，不影响生成路径）
+  - 30 对双语术语训练后：同义 0.932 vs 错配 0.681（+0.251）；持久化/批量/归一化全过
+- **C26 增量二：可学习写策略（缺口 K 落地，2026-08-11 ✅ verify_c26_write_gate.py 8/8 PASS）**
+  - `FieldMemoryBank` 增 WriteGate（输入 = 场向量 + 与既有记忆最近邻 sim → P(值得写入)），consolidate 支持 gate（学习门控替代硬阈值，None 回退阈值向后兼容）
+  - **门控优于硬阈值实证**：硬阈值 0.92 会误收 sim=0.9 的模糊重复；门控（训练负样本覆盖 0.88-0.98）学会拒绝——学习写策略的直接收益
+  - 注意：训练正样本 sim 区间须覆盖实测主题间场基线（0.57-0.72），否则门控误拒新主题（首跑 added=2/4 → 修正区间后 4/4）
+- **C26 增量三：多频段振荡 theta-gamma 嵌套（缺口 R 项，2026-08-11 ✅ verify_c26_theta_gamma.py 9/9 PASS）**
+  - ContinuousResonance 增 theta_omega/theta_amp/theta_init（**默认 0 不启用，零回归**）：theta 慢相位单调推进、包络 1+A·cos(θ(t)) 周期复原、gamma 激活振幅被 theta 包络调制（调幅嵌套，Lisman 嵌套编码）
+  - 真实装配 think 无回归（默认路径不受影响）
 
 ---
 

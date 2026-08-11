@@ -39,6 +39,10 @@ class ContinuousResonance(nn.Module):
         min_activ: float = 0.05,
         conv_tol: float = 0.02,
         min_steps: int = 2,
+        # 缺口 R：多频段振荡——theta-gamma 嵌套（人脑：慢 theta 相位调制 gamma 振幅包络）
+        theta_omega: float = 0.0,   # theta 频率（rad/单位时间；0 = 不启用，向后兼容）
+        theta_amp: float = 0.2,     # 包络调制幅度（theta_omega=0 时无效果）
+        theta_init: float = 0.0,    # 初始 theta 相位
     ):
         """
         Args:
@@ -49,6 +53,9 @@ class ContinuousResonance(nn.Module):
             min_activ: 参与门槛（activ < 该值的 neuron 本步退场，软过滤替代硬不应期）
             conv_tol: 收敛容差（绑定 std 相邻步变化 < 该值视为锁定）
             min_steps: 收敛检查最早步数（防止相位演化尚未推进时的单步假收敛）
+            theta_omega: theta 慢振荡频率（0 = 不启用嵌套，与旧行为完全一致）
+            theta_amp: theta 包络调制幅度（gamma 激活振幅被 theta 相位调制）
+            theta_init: theta 初始相位
         """
         super().__init__()
         self.steps = steps
@@ -58,6 +65,9 @@ class ContinuousResonance(nn.Module):
         self.min_activ = min_activ
         self.conv_tol = conv_tol
         self.min_steps = min_steps
+        self.theta_omega = theta_omega
+        self.theta_amp = theta_amp
+        self.theta_init = theta_init
 
     # ── 激活（连续替代不应期硬门）──
 
@@ -123,6 +133,28 @@ class ContinuousResonance(nn.Module):
         s = float(binding.std().item())
         # 全同相 = 1，全异相 = -1；锁定 = |绑定均值| 高
         return m
+
+    # ── 缺口 R：多频段振荡——theta-gamma 嵌套（2026-08-11）──
+    # 人脑机制：慢 theta 振荡（4-8Hz）相位调制快 gamma 振荡（30-100Hz）振幅包络
+    # （Lisman theta-gamma 嵌套编码）——theta 相位决定 gamma 活动窗口（长距绑定/刷新）。
+    # 默认 theta_omega=0（不启用），与 C25-E 旧行为逐元素一致（零回归）。
+
+    def theta_phase_at(self, t: float) -> float:
+        """t 时刻的 theta 慢振荡相位（rad）。"""
+        return self.theta_init + self.theta_omega * t
+
+    def theta_envelope(self, t: float) -> float:
+        """theta 包络：1 + theta_amp·cos(theta_phase(t)) ∈ [1-A, 1+A]。
+
+        theta_omega=0 时恒 1.0（无嵌套，与旧行为一致）。
+        """
+        if self.theta_omega == 0:
+            return 1.0
+        return 1.0 + self.theta_amp * math.cos(self.theta_phase_at(t))
+
+    def theta_modulate(self, activ: torch.Tensor, t: float) -> torch.Tensor:
+        """theta-gamma 嵌套：gamma 激活振幅 × theta 慢振荡包络（调幅）。"""
+        return activ * self.theta_envelope(t)
 
     # ── 一步相位演化 + 激活（主循环原语）──
 

@@ -72,8 +72,9 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | A-H | ✅ 已修复 | 混合规格装配 / 协作权重加载 / shared_embedding / 域路由 / fusion_mode bug / SpecSelector / diagnose_domain / Play→Coactivation 链路（详见 HISTORY C17-C24） |
 | I | ✅ 已挂载 | 综合体接入聊天接口：API 装配 9 阵容（collab_v3_c24v2 + foundation_v1_dual），test_api_dialogue 对话流畅；环境变量 TAIJI_COLLAB_NAME / TAIJI_EXTRA_NEURONS_DIR 可覆盖 |
 | J | ⏳ 训练中 | dialogue neuron 欠训练（4000 步预算截断非收敛平台）→ 续训 4000→8000 步 |
-| K | ⏳ 待实施 | C26 增量一：**可学习写策略**（场记忆 vs Titans 最大差距）——写门控由检索回报训练 |
-| L | ✅ 已验证（待落地） | **跨域语义对齐**：诊断无自发对齐（幅度 -0.022）→ 对齐冒烟 verify_c26_cross_domain_align.py **4/4 PASS**：可学锚点投影 P（冻结场向量 → 128 维）对比训练后**同义 0.728 vs 错配 0.181（幅度 +0.547，原始 -0.022）**→ **场向量蕴含可提取的跨域语义结构，缺口 L 走「轻量锚点投影 + 场级对比约束」，无需 hub 全套**。另：场维度规格 = compact 2048 / standard 3072 / **expert 4096**（config.py，用户确认设计一致） |
+| K | ✅ 已验证 | **可学习写策略（WriteGate）**：verify_c26_write_gate.py **8/8 PASS**——门控（场向量+最近邻 sim → P(值得写入)）可学习；**门控优于硬阈值**（拒绝 sim=0.9 模糊重复，硬阈值 0.92 漏判）；consolidate(gate) 集成 + 检索 4/4 不降 + 硬阈值路径回归 |
+| L | ✅ 已落地 | **跨域语义对齐（锚点投影）**：verify_c26_field_alignment.py **8/8 PASS**——AnchorProjector 产品化（taiji/resonance/field_alignment.py）+ cortex.set_anchor_projector/project_field_state 挂载；30 对双语术语训练后同义 0.932 vs 错配 0.681（+0.251）；持久化/批量/归一化/未挂载原样返回全过 |
+| M | ✅ 已验证 | **多频段振荡 theta-gamma 嵌套（缺口 R 项）**：verify_c26_theta_gamma.py **9/9 PASS**——ContinuousResonance 增 theta_omega/theta_amp（默认 0 不启用，零回归）；theta 相位单调推进、包络周期复原、嵌套调制在 [base×(1-A), base×(1+A)] 内、真实装配 think 无回归 |
 
 ---
 
@@ -99,7 +100,8 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
-5. **缺口 L 落地：场级锚点投影正式化**（冒烟已验证 ✅，见缺口清单 L）：把 AlignProj 从冒烟组件转产品组件（挂在 ensemble 场读出侧），用跨域平行语料做场级对比约束；冒烟指标已达标（同义 0.728 vs 错配 0.181）
+5. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套，见缺口清单 K/L/M）
+6. **锚点投影/写门控进装配**：把 AnchorProjector（可选）与 WriteGate（可选）接入 sleep 场固化主流程（默认关闭，可开关），让跨域对齐与可学习写成为产品路径的一部分
 
 ### 2.3 中期：跨域协作（上限优先版）
 
@@ -111,7 +113,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 - 记忆向量直接条件化 leader 生成（打通"场影响生成"这条遗留路径——协作目前只在判定层）
 - 记忆 → 突触沉淀：高频场模式写入神经元权重（LoRA 增量），海马→皮层两层记忆
-- 多频段振荡（theta-gamma 嵌套）+ 跨频耦合
+- ~~多频段振荡（theta-gamma 嵌套）+ 跨频耦合~~ ✅ 嵌套机制已验证（缺口 M），跨频耦合待续
 - 真正睡眠重放（forward 重放 + 经验回放训练，C25-D 已落地首步）
 - 自组织新生（从经验生长，非 teacher 蒸馏）
 - 多阶段任务模式链 v2（task-set 序列完整版，C25-F 已落地首步）

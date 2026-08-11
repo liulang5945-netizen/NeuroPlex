@@ -2291,6 +2291,27 @@ class Cortex:
         """Get current resonance field state (consciousness snapshot)."""
         return self.field.get_state()
 
+    # ── 缺口 L：跨域语义锚点投影（2026-08-11，可选挂载，不影响生成路径）──
+
+    def set_anchor_projector(self, projector) -> None:
+        """挂载跨域语义锚点投影（AnchorProjector）。
+
+        只作用在场读出侧（field_state → 锚点空间），不改变场写入/判定/生成；
+        未挂载时 project_field_state 原样返回（零影响）。
+        """
+        self._anchor_projector = projector
+
+    def project_field_state(self, field_state) -> torch.Tensor:
+        """把场状态投影到跨域语义锚点空间（未挂载时原样返回）。"""
+        proj = getattr(self, "_anchor_projector", None)
+        if proj is None or field_state is None:
+            return field_state
+        fs = field_state
+        if fs.dim() == 1:
+            fs = fs.unsqueeze(0)
+        out = proj(fs)
+        return out.squeeze(0) if field_state.dim() == 1 else out
+
     def get_dominant_domain(self) -> Optional[str]:
         """Identify which domain is dominating the current thought."""
         if not self.field.scores:

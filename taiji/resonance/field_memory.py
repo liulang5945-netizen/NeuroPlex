@@ -25,38 +25,104 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import torch
+import torch.nn as nn
+
+
+class WriteGate(nn.Module):
+    """可学习写门控（缺口 K：场记忆 vs Titans 最大差距的第 1 步）。
+
+    Titans 的写是梯度驱动的 memory-as-model；态极 C26 第 0 格是朴素场快照 +
+    硬阈值去重（cosine_threshold=0.92）。本门控把"是否值得写入"变成可学习的：
+    输入 = [场向量, 与既有记忆的最近邻相似度] → 输出 P(值得写入)。
+
+    训练信号 = 检索回报近似：新信息样本（与既有记忆 sim 低）标签 1（值得写），
+    冗余样本（sim 高）标签 0（不值得）——门控学"什么值得记"，替代硬阈值。
+    """
+
+    def __init__(self, in_dim: int):
+        super().__init__()
+        self.in_dim = in_dim
+        self.net = nn.Sequential(
+            nn.Linear(in_dim + 1, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, field_vec: torch.Tensor,
+                nearest_sim: torch.Tensor) -> torch.Tensor:
+        """写门控打分。
+
+        Args:
+            field_vec: [..., in_dim] 场向量
+            nearest_sim: [...] 与既有记忆的最近邻余弦
+
+        Returns:
+            [..., 1] sigmoid 概率（>0.5 = 值得写入）
+        """
+        x = torch.cat([field_vec, nearest_sim.unsqueeze(-1)], dim=-1)
+        return torch.sigmoid(self.net(x))
+
+    def save(self, path: str) -> None:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        torch.save({"in_dim": self.in_dim, "state_dict": self.state_dict()}, path)
+
+    def load(self, path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            payload = torch.load(path, map_location="cpu", weights_only=False)
+        except Exception:
+            return False
+        self.in_dim = int(payload.get("in_dim", self.in_dim))
+        self.load_state_dict(payload["state_dict"])
+        return True
 
 
 class FieldMemoryBank:
     """持久场记忆库：固化 → 检索 → 保存/加载。"""
 
-    def __init__(self, dim: int = 4096, cosine_threshold: float = 0.92):
+    def __init__(self, dim: int = 4096, cosine_threshold: float = 0.92,
+                 gate: Optional[WriteGate] = None):
         self.dim = dim
         # 去重阈值：与现存记忆余弦 > threshold 视为重复（只保留显著新模式）
         self.cosine_threshold = cosine_threshold
+        # 缺口 K：可学习写门控（替代/增强硬阈值；None = 纯硬阈值向后兼容）
+        self.gate = gate
         self.entries: List[Dict] = []
 
     # ─── 固化 ───────────────────────────────────────────
 
     def consolidate(self, vectors: List[torch.Tensor],
-                    labels: List[str]) -> int:
-        """固化一批场记忆：L2 归一化 + 余弦去重后追加。
+                    labels: List[str],
+                    gate: Optional[WriteGate] = None) -> int:
+        """固化一批场记忆：L2 归一化 + 去重决策后追加。
+
+        去重决策（二选一）：
+        - gate 给定（或 self.gate）：学习门控 P(值得写入) > 0.5 才写入
+        - 否则：硬阈值（与既有记忆最近邻 sim > cosine_threshold 跳过）
 
         Args:
             vectors: 场状态快照列表（每个 [D] 或 [1, D]）
             labels: 与向量一一对应的文本标签
+            gate: 本次调用显式指定的写门控（None → 用 self.gate）
 
         Returns:
-            added: 实际新增的条目数（重复条目被跳过）
+            added: 实际新增的条目数（被门控/阈值拒绝的条目跳过）
         """
         if len(vectors) != len(labels):
             raise ValueError(f"vectors({len(vectors)}) 与 labels({len(labels)}) 数量不一致")
+        gate = gate if gate is not None else self.gate
         added = 0
         for vec, label in zip(vectors, labels):
             v = self._normalize(vec)
             if v is None:
                 continue
-            if self._is_duplicate(v):
+            sim = self._max_sim(v)
+            if gate is not None:
+                keep = float(gate(v, torch.tensor(sim, dtype=v.dtype)).item()) > 0.5
+            else:
+                keep = sim <= self.cosine_threshold
+            if not keep:
                 continue
             self.entries.append({
                 "vector": v,
@@ -75,12 +141,15 @@ class FieldMemoryBank:
             return None
         return v / norm
 
-    def _is_duplicate(self, v: torch.Tensor) -> bool:
+    def _max_sim(self, v: torch.Tensor) -> float:
+        """与既有记忆的最近邻余弦（写门控的关键输入特征）。"""
         if not self.entries:
-            return False
+            return 0.0
         stack = torch.stack([e["vector"] for e in self.entries])
-        sims = stack @ v
-        return float(sims.max().item()) > self.cosine_threshold
+        return float((stack @ v).max().item())
+
+    def _is_duplicate(self, v: torch.Tensor) -> bool:
+        return self._max_sim(v) > self.cosine_threshold
 
     # ─── 检索 ───────────────────────────────────────────
 
