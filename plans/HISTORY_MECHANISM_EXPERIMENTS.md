@@ -153,6 +153,11 @@
 - **C26 增量三：多频段振荡 theta-gamma 嵌套（缺口 R 项，2026-08-11 ✅ verify_c26_theta_gamma.py 9/9 PASS）**
   - ContinuousResonance 增 theta_omega/theta_amp/theta_init（**默认 0 不启用，零回归**）：theta 慢相位单调推进、包络 1+A·cos(θ(t)) 周期复原、gamma 激活振幅被 theta 包络调制（调幅嵌套，Lisman 嵌套编码）
   - 真实装配 think 无回归（默认路径不受影响）
+- **C26 产品闭环：组件接入 sleep 场固化（2026-08-11 ✅ verify_c26_field_memory_product.py 11/11 PASS）**
+  - `FieldMemoryBank` 增 `projector`（AnchorProjector）：consolidate 存锚点副本、retrieve 在跨域语义锚点空间检索（对齐语义而非原始场方向）；save/load 含 anchor
+  - `SleepEngine.get_field_memory` **自动装配**：data_dir 存在 write_gate.pt/anchor_projector.pt（train_field_memory_components.py 产物）→ 自动挂载到记忆库（学习门控 + 锚点检索）；无产物回退硬阈值 + 场空间（向后兼容）
+  - 全链路验证：训练产物保存 → 自动装配 → 门控固化（4 写入 + 重复拒）→ 锚点检索 4/4 → 重启恢复（组件+记忆+检索）→ 空目录回退兼容
+  - **产品路径就绪**：运行 `train_field_memory_components.py` 一次（~5min CPU）即让 sleep 场固化进入"可学习写 + 跨域对齐"模式
 
 ---
 

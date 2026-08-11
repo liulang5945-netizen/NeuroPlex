@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -82,12 +82,16 @@ class FieldMemoryBank:
     """持久场记忆库：固化 → 检索 → 保存/加载。"""
 
     def __init__(self, dim: int = 4096, cosine_threshold: float = 0.92,
-                 gate: Optional[WriteGate] = None):
+                 gate: Optional[WriteGate] = None,
+                 projector: Optional[Any] = None):
         self.dim = dim
         # 去重阈值：与现存记忆余弦 > threshold 视为重复（只保留显著新模式）
         self.cosine_threshold = cosine_threshold
         # 缺口 K：可学习写门控（替代/增强硬阈值；None = 纯硬阈值向后兼容）
         self.gate = gate
+        # 缺口 L：跨域语义锚点投影（AnchorProjector）——检索在锚点空间进行
+        # （跨域语义对齐的共享语义空间，而非原始场空间）；None = 场空间检索
+        self.projector = projector
         self.entries: List[Dict] = []
 
     # ─── 固化 ───────────────────────────────────────────
@@ -124,8 +128,14 @@ class FieldMemoryBank:
                 keep = sim <= self.cosine_threshold
             if not keep:
                 continue
+            # 缺口 L：若挂了锚点投影，同时保存锚点副本（检索在锚点空间进行）
+            anchor = None
+            if self.projector is not None:
+                with torch.no_grad():
+                    anchor = self.projector(v.unsqueeze(0)).squeeze(0).detach()
             self.entries.append({
                 "vector": v,
+                "anchor": anchor,
                 "label": label,
                 "ts": datetime.now().isoformat(timespec="seconds"),
             })
@@ -157,6 +167,11 @@ class FieldMemoryBank:
                  top_k: int = 1) -> List[Tuple[str, float]]:
         """用查询向量对记忆库做余弦 top-k 检索。
 
+        检索空间（二选一）：
+        - 挂了锚点投影（projector）：记忆锚点副本 + query 投影后在**跨域语义
+          锚点空间**余弦（对齐语义而非原始场方向）
+        - 否则：原始场空间余弦
+
         Args:
             query_vector: 查询向量（如新会话的场状态快照）
             top_k: 返回最相似的 k 条记忆
@@ -166,10 +181,23 @@ class FieldMemoryBank:
         """
         if not self.entries:
             return []
-        q = self._normalize(query_vector)
-        if q is None:
+        q_raw = self._normalize(query_vector)
+        if q_raw is None:
             return []
-        stack = torch.stack([e["vector"] for e in self.entries])
+        if self.projector is not None:
+            with torch.no_grad():
+                q = self.projector(q_raw.unsqueeze(0)).squeeze(0)
+            anchors = [e["anchor"] for e in self.entries
+                       if e.get("anchor") is not None]
+            if anchors:
+                stack = torch.stack(anchors)
+            else:
+                # 旧库无锚点副本 → 回退场空间（query 也不投影）
+                stack = torch.stack([e["vector"] for e in self.entries])
+                q = q_raw
+        else:
+            q = q_raw
+            stack = torch.stack([e["vector"] for e in self.entries])
         sims = stack @ q
         k = min(top_k, len(self.entries))
         idx = torch.topk(sims, k).indices.tolist()
@@ -182,7 +210,12 @@ class FieldMemoryBank:
             "dim": self.dim,
             "cosine_threshold": self.cosine_threshold,
             "entries": [
-                {"vector": e["vector"].cpu(), "label": e["label"], "ts": e["ts"]}
+                {
+                    "vector": e["vector"].cpu(),
+                    "anchor": e.get("anchor").cpu() if e.get("anchor") is not None else None,
+                    "label": e["label"],
+                    "ts": e["ts"],
+                }
                 for e in self.entries
             ],
         }
@@ -205,8 +238,10 @@ class FieldMemoryBank:
             norm = v.norm()
             if norm < 1e-8:
                 continue
+            a = e.get("anchor")
             self.entries.append({
                 "vector": v / norm,
+                "anchor": a.float().flatten() if a is not None else None,
                 "label": e.get("label", ""),
                 "ts": e.get("ts", ""),
             })

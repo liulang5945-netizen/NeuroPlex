@@ -466,9 +466,16 @@ class SleepEngine:
         self.pending_field_memories.append((vector.detach().clone(), label))
 
     def get_field_memory(self) -> Any:
-        """C26: 获取持久场记忆库（懒加载：首次从 data_dir/field_memory.pt 恢复）。"""
+        """C26: 获取持久场记忆库（懒加载：首次从 data_dir/field_memory.pt 恢复）。
+
+        产品装配（存在即用，无则回退）：若 data_dir 存在训练好的
+        write_gate.pt / anchor_projector.pt（train_field_memory_components.py
+        产物），自动挂载到记忆库——睡眠场固化用可学习写门控、检索在跨域
+        语义锚点空间进行；无产物时保持硬阈值 + 场空间检索（向后兼容）。
+        """
         if self._field_memory is None:
-            from taiji.resonance.field_memory import FieldMemoryBank
+            from taiji.resonance.field_memory import FieldMemoryBank, WriteGate
+            from taiji.resonance.field_alignment import AnchorProjector
             # 记忆空间 = 真实场空间（维度随装配规格动态匹配，避免硬编码错配）
             dim = 4096
             if self.cortex is not None and hasattr(self.cortex, "field"):
@@ -478,6 +485,25 @@ class SleepEngine:
                 self._field_memory.load(os.path.join(self.data_dir, "field_memory.pt"))
             except Exception as e:
                 logger.debug(f"FieldMemoryBank 恢复失败（首用空库）: {e}")
+            # 产品组件装配（缺口 K/L 落地路径）
+            gate_path = os.path.join(self.data_dir, "write_gate.pt")
+            if os.path.exists(gate_path):
+                try:
+                    g = WriteGate(dim)
+                    g.load(gate_path)
+                    self._field_memory.gate = g
+                    logger.info(f"  场记忆挂载可学习写门控（{gate_path}）")
+                except Exception as e:
+                    logger.debug(f"write_gate 加载失败（回退硬阈值）: {e}")
+            proj_path = os.path.join(self.data_dir, "anchor_projector.pt")
+            if os.path.exists(proj_path):
+                try:
+                    p = AnchorProjector(dim)
+                    p.load(proj_path)
+                    self._field_memory.projector = p
+                    logger.info(f"  场记忆挂载跨域语义锚点投影（{proj_path}）")
+                except Exception as e:
+                    logger.debug(f"anchor_projector 加载失败（回退场空间检索）: {e}")
         return self._field_memory
 
     def _sleep_phase_field_consolidation(self, report: SleepReport) -> None:
