@@ -514,6 +514,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
         - **结论**：样本量加倍 + 主题混合**不改变平台模式** → **容量饱和是主因**（51M compact 在 zh 50K 词表上的阶段性上限，PPL 平台 ~500-600 区间 16 条口径），非样本量不足。突破上限需基座级升级（更大模型/C24 数据扩充），喂养只提供"快速逼近上限"的路径
         - **培养期量产参数（据此定标）**：每轮 16-24 条混合主题喂养即可，2-3 轮内达容量上限；长期无脑喂养收益趋零，后续改善应走基座升级而非加大喂养
         - **评估规范**：held-out 评估集 ≥16 条且与训练同分布（8 条小样本噪声大，轮 4-5 的 393→448 部分为噪声）
+      - **✅ zh 基座升级前置诊断（2026-08-11，diag_zh_leader + diag_zh_capacity）——general zh 升级优先级下调**
+        - **规格盘点**（diag_neuron_specs）：general 基座（code/math/zh/en）全部 hidden 512（51M compact，field 2048）；dialogue 仅 zh_std0 是 hidden 768（134M standard，field 3072）；无现成 768 general 基座，升级需 spec-up + C24 重训（大任务）
+        - **leader 脱节实证**（diag_zh_leader，5 zh prompts）：round1_scores（t=0 场共振分）leader 统计——zh_aug2 3 次/zh_aug3 1 次/zh 1 次/**zh_std0（134M）0 次且分数最低档**——场共振分衡量"输入与场方向匹配"而非生成能力，134M 容量被闲置
+        - **容量 vs 质量实证**（diag_zh_capacity，单 neuron 生成 4 prompts）：zh_std0（134M）非空 4/4 均长 77 最流畅（"答："结构）> zh_aug2（51M）4/4 均长 69 碎片 > zh（51M general）4/4 均长 35 重复严重最差——**容量确有收益但非质变，zh 生成瓶颈=对话数据质量 > 容量**
+        - **结论**：① general zh 基座升级（51M→134M spec-up）**优先级下调**——leader 仅 1/5 + 单生成最差（重复严重），它需要的是对话级数据重训而非容量；② 正确提升路径 = **leader 信号改进**（让 134M zh_std0 上位，A/B 验证生成提升）+ **C24 dialogue 数据扩充重训**（zh_aug*/zh_std0 共用数据瓶颈）；③ 机制改进优先于容量升级（数据驱动）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
