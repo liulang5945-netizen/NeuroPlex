@@ -1830,6 +1830,18 @@ class ResonanceEnsemble:
             field.lateral_inhibition_norm()
         except Exception:
             pass
+        # C25-E 增量四（2026-08-11）：t=0 场共振分（质量信号）——与离散 forward
+        # 的 round_scores 同口径（field.score 场余弦），供 cortex continuous
+        # leader 选择（时间平均激活=参与度不区分强弱，同相群体权重均分 →
+        # leader 选到弱响应 neuron → zh 对话空输出；场共振分区分强弱）。
+        round1_scores: Dict[str, float] = {}
+        try:
+            for nid in ids:
+                round1_scores[nid] = float(
+                    field.score(self._project_vec(nid, vecs0[nid]), neuron_id=nid)
+                )
+        except Exception:
+            pass
         # 连续路径的判定信号（t=0 快照，与离散 round1 等价）
         round1_judge = judge0 if (return_judge_logits and judge0) else None
         ql_agg = None
@@ -1912,6 +1924,7 @@ class ResonanceEnsemble:
         result: Dict = {
             "field_state": field.get_state(),
             "final_scores": final_scores,          # 连续路径：时间平均激活即"共振分"
+            "round1_scores": round1_scores,        # C25-E 增量四：t=0 场共振分（质量信号）
             "n_steps": n_steps,
             "n_rounds": n_steps + 1,               # 兼容字段（t=0 + 积分步）
             "continuous_weights": {nid: float(w.detach().item()) for nid, w in zip(ids, weights)},

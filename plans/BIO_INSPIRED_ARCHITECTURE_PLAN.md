@@ -484,6 +484,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
       - **装配实测反转（关键）**：默认切 continuous 后 test_api_dialogue 8 问空输出 5/8（Q2-Q6 全空）→ 回退默认 executive。根因诊断（diag_c25_e_default_empty.py）：**连续模式多 neuron 协作不稳定**——zh 对话激活 5 个 dialogue neuron（zh_aug0-3 + zh_std0），连续激活时间平均权重均分（同相群体绑定→权重近均等）→ leader 选到弱响应 neuron → 空输出/短碎；executive 用 LOO 共振分能区分 neuron 强弱 → 稳定。单 neuron 域（code/math/en 各 1 neuron）无协作问题 → continuous 稳定（A/B 多数 prompt 落此场景，掩盖了 zh 协作缺陷）
       - **决策：loader 默认保持 executive**；continuous 留作显式可选（collab_mode="continuous"）。**遗留修复方向**：continuous leader 选择需融合质量信号（如连续权重 × round1 共振分/NLL 质量）防止弱 neuron 独占——待后续增量
       - 已知限制（与模式无关，同源判定）：判定正确率 18/22 (81.8%)——中文 code/math 指令判到 zh（zh 域 5 neuron 聚合优势），挂载培养期可数据喂养改善
+    - **✅ 增量四：continuous leader 质量信号修复（2026-08-11，增量三遗留落地）**：
+      - **根因**：continuous leader 用时间平均激活（final_scores=continuous_weights）选，同相群体权重均分（验证实测 5 个 dialogue neuron 全 ~0.29）→ leader 选到弱响应 neuron → zh 对话空输出 5/8
+      - **修复**：`continuous_forward` 新增 `round1_scores`（t=0 场共振分，field.score 口径与离散 forward 的 round_scores 一致）——质量信号有区分度（验证实测 max-min=0.70：zh_aug2=0.73 最高 / zh_std0=0.027 最低）；cortex `_generate_p7` continuous 分支 leader 改用 round1_scores 优先（fallback 时间平均激活）
+      - **验证**：verify_c25_e_leader_quality.py **3/3 PASS**——continuous 挂载 8/8 非空（此前 5/8 空输出消除）+ round1_scores 有区分度 + executive 8/8 无回归；verify_c25_e_ab_scale.py 修复后 **continuous 22/22 非空 + 质量 17/22 ≥ executive**（三质量断言全过）
+      - **注意（数据波动）**：单次 A/B 重复率方向不稳定（增量三 0.012<0.027，增量四后 0.039>0.021）——temperature 0.55 采样波动大，重复抑制优势需多次采样取均值确认，**默认装配保持 executive 的决策不变**（连续模式空输出已消除，质量不劣，可作显式可选；默认切换需更大样本统计支撑）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）

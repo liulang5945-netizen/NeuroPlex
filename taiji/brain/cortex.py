@@ -1873,15 +1873,31 @@ class Cortex:
                 # ——任务模式激活后由域内最强 neuron 稳定生成，不用跨域最强
                 #（否则回合级判定白做，leader 被其他域 neuron 抢占）。
                 # C25-E：continuous 用时间平均激活权重（continuous_weights）选 leader。
+                # C25-E 增量四（2026-08-11）：continuous leader 用 round1_scores
+                # （t=0 场共振分，质量信号）优先——时间平均激活=参与度不区分强弱，
+                # 同相群体权重均分 → leader 选到弱响应 neuron → zh 对话空输出；
+                # 场共振分区分强弱（与 executive 同口径）。
                 if collab_mode in ("executive", "continuous") and domain:
-                    domain_scores = {
-                        k: v for k, v in final_scores.items()
-                        if k == domain or k.startswith(domain + "_")
-                    }
-                    if domain_scores:
-                        leader_nid = max(domain_scores, key=domain_scores.get)
+                    if collab_mode == "continuous":
+                        # 质量信号优先，fallback 时间平均激活
+                        qual_scores = result.get("round1_scores") or final_scores
+                        domain_scores = {
+                            k: v for k, v in qual_scores.items()
+                            if k == domain or k.startswith(domain + "_")
+                        }
+                        if domain_scores:
+                            leader_nid = max(domain_scores, key=domain_scores.get)
+                        else:
+                            leader_nid = max(qual_scores, key=qual_scores.get)
                     else:
-                        leader_nid = max(final_scores, key=final_scores.get)
+                        domain_scores = {
+                            k: v for k, v in final_scores.items()
+                            if k == domain or k.startswith(domain + "_")
+                        }
+                        if domain_scores:
+                            leader_nid = max(domain_scores, key=domain_scores.get)
+                        else:
+                            leader_nid = max(final_scores, key=final_scores.get)
                 else:
                     leader_nid = max(final_scores, key=final_scores.get)
                 # C24（2026-08-09）：leader 是域目标空间 SFT neuron 时，首次迭代
