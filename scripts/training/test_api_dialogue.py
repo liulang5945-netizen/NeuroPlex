@@ -12,8 +12,13 @@ import time
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
-from taiji.core.model_loader import _resolve_neuron_ids  # noqa: E402
 from taiji.loader import assemble_cortex  # noqa: E402
+
+# 9 神经元阵容（用户确认 2026-08-10）：5 对话 + 4 域（C24v2 双头）
+DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
+                "zh_aug3_dialogue", "zh_std0_dialogue"]
+COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"      # C20v2 判定重训产物（judge NLL 主信号）
+EXTRA_NEURONS_DIR = "data/foundation_v1_dual"  # C24v2 双头域 neuron（生成 + judge 判定）
 
 # 日常对话问题（贴近真实使用场景）
 QUESTIONS = [
@@ -41,18 +46,25 @@ def main():
           % (MAX_TOKENS, TEMPERATURE, TOP_K, REPETITION_PENALTY), flush=True)
     print("=" * 60, flush=True)
 
-    print("[1] 装配 Cortex（对话综合体）...", flush=True)
-    neuron_ids = _resolve_neuron_ids()
-    print(f"  神经元: {neuron_ids}", flush=True)
+    print("[1] 装配 Cortex（9 神经元：5 对话 + 4 域）...", flush=True)
     cortex, tokenizer, modules = assemble_cortex(
         neurons_dir="data/neurons",
+        collab_name=COLLAB_NAME,
+        extra_neurons_dir=EXTRA_NEURONS_DIR,
         device="cpu",
         max_rounds=3,
         wire_bio_modules=True,
-        neuron_ids=neuron_ids,
+        neuron_ids=DIALOGUE_IDS,
     )
     print(f"  装配完成: {list(cortex.neurons.keys())}", flush=True)
     print(f"  装配耗时: {time.time() - t0:.1f}s", flush=True)
+
+    # 预热 judge NLL EMA（executive 判定主信号，verify_c21_generate 同款 30 次）
+    warm_prompts = ["你好", "帮我写代码", "解一道数学题", "What is this?", "写一首诗"]
+    for _ in range(30):
+        for wp in warm_prompts:
+            cortex._executive_route(wp)
+    print(f"  judge EMA 预热完成", flush=True)
 
     print("\n[2] 日常对话...", flush=True)
     for i, q in enumerate(QUESTIONS):

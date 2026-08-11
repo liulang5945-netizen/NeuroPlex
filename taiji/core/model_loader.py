@@ -63,8 +63,13 @@ def load_model_on_startup() -> None:
         from taiji.loader import assemble_cortex
         neurons_dir = os.environ.get("TAIJI_NEURONS_DIR", "data/neurons")
         neuron_ids = _resolve_neuron_ids()
+        # 9 神经元挂载阵容（2026-08-11 收敛）：collab 用 C20v2 判定重训产物
+        # （judge NLL 主信号；默认 cross_spec_dialogue.pt 为 8/6 旧协作层，
+        # 实测对话乱码），域 neuron 从 C24v2 双头目录 extra 加载（生成 + judge 判定）。
         cortex, tokenizer, modules = assemble_cortex(
             neurons_dir=neurons_dir,
+            collab_name=os.environ.get("TAIJI_COLLAB_NAME", "collab_v3_c24v2.ckpt.pt"),
+            extra_neurons_dir=os.environ.get("TAIJI_EXTRA_NEURONS_DIR", "data/foundation_v1_dual"),
             device=device,
             max_rounds=3,
             wire_bio_modules=True,
