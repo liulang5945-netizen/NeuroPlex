@@ -1,17 +1,22 @@
-# 机制实验与里程碑记录
+# 机制迭代与实验记录（Mechanism Experiments & Iteration History）
 
-> **拆分文档**（2026-08-10）：从 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 按内容拆分。
-> 记录机制实验的里程碑与结论（EMERGE 确认、aux-free balancing、shared expert 负向）。
-> 当前项目状态、路线图与接口梳理以主 plan 为准。
+> **归档文档**（2026-08-11 重组织）：**C 编号 = 机制演进迭代代号（工程版本号）**，按时间顺序递增。
+> 本文档是 C 编号记录的**唯一边集**；主 plan（[BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md)）只保留"当前状态 + 下一步 + C 编号索引"，不再展开实施细节。
+> 早期里程碑（2026-07-29 EMERGE 时代）保留在本文档开头。
 
-**内容**：
-- 重大里程碑：EMERGE 现象确认（2026-07-29）
-- Auxiliary-loss-free balancing 实施（2026-07-29）
-- Shared Expert 机制实施（2026-07-29，负向结论）
+## 编号规范
+
+| 编号 | 含义 | 存放位置 |
+|---|---|---|
+| `C16`-`C26` | 机制演进迭代代号（工程版本号），记录范式转变与验证 | 本文档（唯一边集） |
+| `x.y`（如 1.1/2.1） | 文档结构章节号 | 主 plan 内 |
+| `日期`（2026-08-xx） | 时间戳 | 仅出现于本文档与 HISTORY 系列 |
 
 ---
 
-### 实验结果
+## 早期里程碑（2026-07-29）
+
+### EMERGE 现象确认（4 神经元协作）
 
 **4 神经元协作 side_channels 微调（6 epochs，14950 步，~14 小时）**
 
@@ -23,190 +28,121 @@
 | zh_aug3 | 246.9 | 0.066 |
 | **协作** | **62.6** | - |
 
-### 关键指标
+- **EMERGE 幅度: 协作比最强个体好 45.3%**（协作 PPL 62.6 vs 最强个体 114.6）
+- 配置：4× compact（36M/个）、side_channels 12.58M + scale 12、Muon 优化器、field_conditioning=False、max_rounds=2、simple_zh 10000 条 6 epochs
+- 意义：**多个小型神经元通过 side_channels 协作涌现超越最强个体的能力**——验证"小神经元协同工作匹配大模型"核心理念
+- 产物：`data/neurons/side_channels_finetuned.pt`（v2 baseline, PPL=62.6）+ `_v2_baseline.pt` 备份
+- 生成质量：top-k sampling (k=40) + rep penalty (1.2) + temp (0.8) 消除机械重复，但语义仍不连贯——根因 = compact 神经元训练不充分（非架构问题）
 
-- **协作 PPL: 62.6**
-- **最强个体 PPL: 114.6**
-- **EMERGE 幅度: 协作比最强个体好 45.3%**
+### Auxiliary-loss-free balancing 实施（2026-07-29）
 
-### 技术配置
+借鉴 DeepSeek V3：非梯度启发式 bias 更新平衡各 channel 利用率，解决"死通道"。`neuron.py` 添加 `_channel_usage` 统计 + `update_channel_bias(update_rate=0.1)`；训练脚本每 50 步触发 + usage 诊断。端到端测试通过；短训练验证（300 条 74 步）bias 更新正常、无死通道（dead=0/12）。**结论**：死通道已被 v2 修复解决，此机制作为"保险"存在，PPL 影响可忽略。
 
-- 神经元规格：4× compact（36M 参数/个，共 144M）
-- 可训练参数：side_channels 12.58M + scale 12 个
-- 优化器：Muon（ns_steps=5, momentum=0.95, nesterov=True）
-- 学习率调度：warmup(100步) + constant + cosine decay(最后 20%)
-- side_channels 调制：乘性门控 `h = h * (1 + tanh(proj))`
-- field_conditioning：False（跳过未训练的 field_read_layers）
-- max_rounds：2（round 1 独立，round 2 带 side_signals）
-- 数据：simple_zh 10000 条，6 epochs
+### Shared Expert 机制实施（2026-07-29，负向结论）
 
-### 意义
-
-这是态极架构的**关键验证点**：多个小型神经元通过 side_channels 协作，涌现出超越最强个体的能力。验证了"小神经元协同工作匹配大模型"的核心设计理念。
-
-### 生成质量
-
-PPL 指标确认协作有效，但生成文本仍有重复（所有神经元共性问题）。原因是 compact 神经元训练不充分（CPU 限制，数据/参数比不足）。后续需要：
-1. 更充分的神经元训练（更多数据，更多步数）
-2. 改进生成策略（sampling, repetition penalty）
-3. 扩大规模（更多神经元，更大规格）
-
-### 生成质量评估（2026-07-29，top-k sampling 改进后）
-
-**PPL 结果**（v2 baseline，已恢复）：
-- 个体 [zh_aug0]: PPL=211.6
-- 个体 [zh_aug1]: PPL=114.6（最强个体）
-- 个体 [zh_aug2]: PPL=225.3
-- 个体 [zh_aug3]: PPL=246.9
-- **协作 PPL=62.6**（EMERGE 协作比最强个体好 45.3%）
-
-**生成质量观察**：
-- top-k sampling (k=40) + repetition penalty (1.2) + temperature (0.8) **消除了机械重复**
-  （之前是"天气天气天气..."纯重复，现在是有变化的生成）
-- 但生成文本仍**语义不连贯**，有乱码、断裂、混合多种风格
-- 这是典型的"PPL 好但生成差"问题，根因是 compact 神经元训练不充分
-
-**根本瓶颈确认**：神经元训练不充分是当前所有生成质量问题的根因。架构改进（side_channels、
-Auxiliary-loss-free balancing、sampling 策略）已到位，但无法弥补神经元本身能力不足。
-
-### 产物
-
-- 微调权重：`data/neurons/side_channels_finetuned.pt`（v2 baseline, PPL=62.6）
-- v2 baseline 备份：`data/neurons/side_channels_finetuned_v2_baseline.pt`
-- 训练历史：`logs/finetune_side_channels_history.json`（299 条记录）
-- 评估日志：`logs/eval_aug_joint_sampling_20260729_132638.log`
+借鉴 Kimi K3 / DeepSeek V3 的 always-active general 专家。实施完成（general 神经元 best_val_PPL=148.80 + ensemble `shared_expert_weight=0.3`），但评估**负向**：协作 PPL 62.6 → 108.6（恶化 +73.6%）。根因：zh_general 训练不充分（评估 PPL 257.5，比所有 aug 神经元都差），30% 固定权重稀释了 zh_aug1 主导作用。**教训**：借鉴机制不能盲目照搬，机制有效性依赖前置条件（general ≥ 域特定能力）；暂不启用，后续可动态权重重启。
 
 ---
 
-## 🔧 Auxiliary-loss-free balancing 实施（2026-07-29）
+## 迭代记录（C15-C26，2026-08-08 起）
 
-### 背景
+### C15/C16/C16b/C16d/C17/C18 早期迭代（提及记录，细节散见于后续迭代）
 
-EMERGE 已确认（协作 PPL 62.6 << 最强个体 114.6），但 plans 中标记的"Auxiliary-loss-free balancing"
-此前只是框架（scale + bias buffer 已注册，但**启发式 bias 更新逻辑未实现**）。本次完成完整实施。
+- **C15**：quality_head + contrastive loss（回合级路由监督）
+- **C16**：LoRA 保护 body（冻结 + 低秩增量）→ **个体能力零破坏原则确立**；quality_head 升级 + 对比学习
+- **C16b**：per-neuron EMA z-score + 绝对质量 gate（quality 信号归一化，C16 教训：未校准 head 跨 neuron 不可比）
+- **C16d**：全序列 NLL 监督（后被 C20 的 answer_mask 回合级取代）
+- **C17**：神经发生（MaturityTracker：幼稚 0.1 → 成熟 1.0 ramp、lr 3×→1×）
+- **C18**：客户端链路（assemble_cortex + chat/feed/sleep 接线）
 
-### 借鉴来源
+### C19 任务级路由（Executive Control Routing，2026-08-08 ✅ 范式转变）
 
-DeepSeek V3 的 Auxiliary-loss-free Load Balancing：不通过辅助损失，而是用非梯度启发式更新
-bias 项，动态平衡各专家（channel）利用率，解决"死通道"问题。
+**背景**：C12-C16 四次路由迭代（LOO cosine / 域判别 head / quality_head NLL / gate+z-score）全部失败——共同根因 = **"统一空间 + 全局 token 级竞争"范式与生物机制相悖**（NLL/cosine/logit 跨 neuron 天然不可比；token 级 softmax 竞争导致回复频繁切换 neuron、风格断裂）。
 
-### 实施细节
+**人脑参照**：解剖结构分工（面孔→梭状回）+ 前额叶执行控制（task set 确定后整条通路激活到任务结束）+ 局部竞争（WTA 只发生在同功能内部，跨脑区是信息传递）。
 
-**`taiji/resonance/neuron.py`**：
-1. `__init__`：添加 `_channel_usage: Dict[str, float]` 运行时统计字段（不持久化）
-2. `forward` Step 4：side_signal 处理时记录 `proj.detach().abs().mean().item()` 到 `_channel_usage`
-3. 新增 `update_channel_bias(update_rate=0.1)`：根据 usage 偏离平均的程度更新 bias
-   - `delta = update_rate * (avg_usage - channel_usage)`
-   - 低 usage → 正 bias（鼓励激活）
-   - 高 usage → 负 bias（抑制过度激活）
-4. 新增 `get_channel_usage_stats()`：返回当前 usage 统计（用于日志/诊断）
+**范式转变**：token 级（C12-C16，失败）→ **任务级（C19）：回合级判定任务模式 → 主导 neuron 回合内稳定生成，不做 token 级竞争**。
 
-**`scripts/training/finetune_side_channels.py`**：
-1. 每 50 步（`BIAS_UPDATE_EVERY=50`）调用 `update_channel_bias(update_rate=0.1)`
-2. 每 50 步（`LOG_EVERY`）输出 channel usage 诊断：avg/min/max/dead count
-   - 死通道判定：`usage < avg * 0.1`
+**实施**（`cortex._executive_route`）：混合信号 = 启发式 `_infer_domain`（快）+ quality_head 回合级聚合（learned，per-neuron EMA z-score + 成熟度门 count<20 回退启发式 + z 绝对差门 ≥0.7σ）；leader 限定 dominant 域。冒烟验证通过（verify_c19_executive.py）。
 
-### 验证
+**关键收敛**：所有 neuron 共享 general lm_head 后，`_generate_p7` 仍用 domain tokenizer decode → OUT_OF_RANGE；收敛为生成/decode 全程 general 256K 空间（identity 回填），domain 只负责激活选择。
 
-端到端测试通过：
-- 单 channel：avg=usage → delta=0（预期，无竞争）
-- 双 channel（强/弱信号）：强 channel 获得负 bias (-8.65)，弱 channel 获得正 bias (+8.65)
+### C20 回合级监督训练（2026-08-08 ✅ 验证 5/5）
 
-### 短训练验证（2026-07-29）
+- **answer_mask**（`forward_train` 新增）：per_neuron_nll 只对 answer（回复）部分算回合级 NLL——prompt 无区分度，answer 才是"谁能生成好这个回复"的真实质量信号
+- **同域 batch 决策**：batch 内同域回合（NLL 可比），否则 dialogue neuron 转译 NLL 基线巨大被 gate 全排除
+- **验证**（verify_c20_round_quality.py）：C20 head 不再 code 独占；回合级判定 **5/5**（code→code/math→math/zh→zh/dialogue→zh/en→en，修正 C19 的 math→en 误判）；z 绝对差门（≥0.7σ）防"全能型"错误覆盖
+- **产物**：collab_v3_c20.ckpt.pt
 
-运行 300 条文本 × 1 epoch（74 步）验证 bias 更新机制：
+### C21 词库多词表架构正式化（2026-08-08 ✅ 用户核心需求落地）
 
-```
-[bias update] step 50: 12 channels, total_delta=0.0104
-Epoch 1/1 step 50: loss=5.0741 PPL=159.8 [50/74 ETA 1.9min]
-  [channels] usage avg=0.3926 min=0.3683 max=0.4160 dead=0/12
-```
+- **架构定位**：词库 = 多独立词表的可扩展集合（容量不限），neuron 绑定自己词表，跨词表靠词库转译协作；反转 C19 的"全 general decode"
+- **关键发现**：① dialogue neuron 能力未退化（general 输入 + zh 头 + zh decode v3 口径能生成中文）；② **C16 LoRA 是 dialogue 负资产**（general 目标空间训练，注入后 zh 退化）→ loader 按 lm_head 空间过滤（256K 头才注入）；③ **round2 场污染**（装配后 zh 输出被英文 neuron 混合场污染 → 中英混合）→ leader 改用 round1 独立 logits（无场条件化，协作只用于判定）
+- **验证**（verify_c21_generate.py）：回合级判定 5/5；dialogue executive 生成**流畅中文问答**
+- **遗留**：4 个 general neuron 生成能力弱（→ C24 解决）
 
-**关键发现**：
-1. ✅ bias 更新机制工作正常（step 50 触发，delta 计算 correct）
-2. ✅ channel usage 诊断输出正常（avg/min/max/dead count）
-3. ✅ **当前无死通道**（dead=0/12）—— v2 修复（scale=50 + post-norm）已解决死通道问题
-4. ✅ bias 更新在 usage 均匀时幅度很小（total_delta=0.0104），不会破坏已训练的平衡
+### C22 路径收敛（2026-08-08 ✅）
 
-**结论**：死通道问题已被 v2 修复解决，Auxiliary-loss-free balancing 作为"保险"机制存在，
-在当前 usage 分布均匀的情况下对 PPL 影响可忽略。无需为此重新完整训练（保留 v2 baseline PPL=62.6）。
+- **审计结论**：`generate()` 默认 collab_mode="fusion"（token 级，C19 已否定的范式）→ **线上实际是旧路径**；executive 需显式传参；多条实验路径并存（routing_mode/fusion_mode 多态）
+- **收敛动作**：默认 collab_mode → executive；executive 模式跳过 hybrid 共振校验（消除双路径打架）；废弃 `--no-dialogue-lora`（残留参数干扰调用）
+- **设计本意确认（用户）**：**振荡相位同步是态极设计本意**——共振本体应为相位同步驱动；当前"场向量累加 + 相位仅作门控"是实现偏移 → 缺口 R 核心方向（→ C23）
 
----
+### C23 相位同步本体化（2026-08-08 ✅ 闭环，缺口 R 核心落地）
 
-## 🧠 Shared Expert 机制实施（2026-07-29，已完成，结论：负向）
+- **C23-A 共振权重**：`GammaOscillator.pairwise_binding`（binding_i = mean_{j≠i}[cos(θ_i-θ_j)]，同相绑结/异相解绑）；`scores = scores × (1 + binding_scale·binding)`。冒烟 6/6
+- **C23-B 场本体**：场写入按相位绑定加权（round1 写入 scale ×(1+β·binding)，round2+ 逐轮重算）——相位同步直接塑造场状态。冒烟 8/8
+- **C23-C 相位可微化**：新模块 `taiji/resonance/phasor.py`（PhasorDynamics）：2D 相位向量 p=(cosθ,sinθ)、可微点积 binding、可微叉积 Kuramoto 牵引、双驱动（前向物理牵引 + 反向任务梯度黎曼切向更新）。**关键工程发现**：相位是单位向量流形，普通 SGD 径向梯度被归一化抹掉 → 正确更新 = 切向投影 `tangent = g−(g·p)·p`。冒烟 13/13
+- **C23-C2 ω/K 梯度打通 + 训练接入**：`PhasorDynamics.evolve()`（可微 Kuramoto，不 in-place）；forward_train 演化段保存 `_last_evolved_phasors` → 任务 loss 梯度经 binding → ω/K；train_round_level_quality `--enable-phasor` 显式启用。冒烟 15/15
+- **C23-C3 phase-binding loss**：验证发现 checkpoint 显示 **ω/K 恒初始值**（contrastive_loss 完全不经过 binding 路径，冒烟梯度通 ≠ 训练生效）→ 新增 phase-binding loss（binding ∥ normalize(scores_pre)）。训练实测 ω 分化 [0.738..0.837]、K 学习、相位自组织分化——**任务驱动相位自组织验证成立**
+- **C23-C4 监督纯净化（关键修复）**：完整配方训练暴露**监督污染**（C20 判定 5/5 → C23 full 4/5，quality_logits 膨胀）——根因：forward_train 场构造段 binding 调制污染 per_neuron_nll → contrastive 目标被相位自组织驱动漂移。修复：**训练场构造不再按 binding 调制**（监督测"谁能预测好"纯净 NLL），相位只经 scores 段 + phase_loss 可微；推理 forward 场写入 binding 本体化保留。另发现 **seed bug**（random.seed 在 shuffle 之后，两次训练数据顺序不同）→ 修复 seed 位置。最终 c23_final_seeded 完整验证：饱和 0/109、phase_loss 收敛 0.77→0.105、端到端判定 5/5 与 C20 一致
+- **C23-C5 loader 默认装配**：train checkpoint `phasor_state` 附 `id_order`；loader Step 6 默认装配 PhasorDynamics（按训练顺序重排 phasors/omega 行 → load_state_dict 注入；无 phasor_state → 域先验 0°/60°/120°/180°；失败回退标量 GammaOscillator）。验证 15/15 + 判定 5/5 无回归
 
-### 背景
+### C24 域目标空间 SFT + 判定修复 + 9 神经元挂载（2026-08-09~11 ✅）
 
-生成质量评估确认根本瓶颈：compact 神经元训练不充分导致生成不连贯（PPL 好但生成差）。
-借鉴 Kimi K3 / DeepSeek V3 的 Shared Expert 机制，添加 always-active 的 general 神经元
-提供基础语言能力，与域特定神经元互补。
+- **目标**：C21 遗留——4 个 general neuron 生成能力弱（根因 = general 256K 空间续写训练无 SFT QA 能力）。修复路径（同 dialogue）：**域目标空间**（general 输入 + 域词表目标 + answer masking）
+- **v1 失败 → 根因诊断**：foundation_v1 body 在 general 空间 NLL 无对角 + **native NLL 跨 neuron 不可比**（en 16K 专精词表对英文回合 NLL 恒定低 → en z-score 恒负 → en quality_logit 膨胀常数头）→ 判定全错。对照：foundation_v1_general body + 256K 头 NLL 完美对角 4/4
+- **C24v2 双头架构（上限最高）**：neuron 同时保留 **judge_lm_head（general 256K 判定头，冻结，C20 信号链）+ 域头（生成）**；基座从 foundation_v1_general 出发，双 loss 训练（域 SFT + general 空间保留 gen_loss 防 body 漂移）。`train_domain_target_sft.py` + `ResonanceNeuron.judge_lm_head` + loader 注入
+- **全量重训**（foundation_v1_dual，4 域 × 6 epochs）：code/math 判定对角保留；zh/en best PPL 319.1/167.3
+- **C20 判定重训 v2**（collab_v3_c24v2）：quality_head 膨胀（C23 时代已膨胀 −4.2→50，softmax 饱和梯度消失自增强）→ **executive 判定改用 judge NLL 主信号**（C20 原始信号链，general 空间可比、无训练依赖）；端到端判定 **5/5 无回归**
+- **域生成质量**：数据扩充 ×10（code 17599/math 22264/zh 30000/en 30000 条）重训后：code=3.4/math=3.7/zh=70.2/en=69.9 answer PPL；生成从碎片/空 → 有结构片段（zh markdown 代码块）；**zh/en 仍高（~70）**——词表大 + 响应长 + 51M 容量限制，非单点可解
+- **zh_general 残留收敛**：shared_expert 机制从未启用（assemble_cortex 未传 shared_expert_id）→ 删除 neuron_zh_general.pt，装配收敛为 **9 阵容**（5 对话 + 4 域）
+- **9 神经元挂载就绪**：API 装配路径用旧协作层 cross_spec_dialogue.pt（乱码）→ 显式用 collab_v3_c24v2 + foundation_v1_dual；test_api_dialogue 实测对话流畅（"你好！今天天气很好…"），符号乱码/混字消失
+- **C20 v2 重训完成**（v1 域 neuron 上训的 head 与 v2 域 neuron 失配 → 重训 1090 步）：判定 5/5 无回归 + verify_c25_f_e2e 10/10 + quality 回退 3/3
 
-### 借鉴来源
+### C25 对比问题解决（2026-08-09~11 ✅）
 
-Kimi K3 / DeepSeek V3 的 Shared Expert：一个 always-active 的通用专家，与稀疏激活的
-域特定专家协同，提供基础能力保障。
+- **C25-A 词库实时编辑**（热插拔 → 词库不做限制 + 实时编辑）：`EditableVocabulary`（SentencePiece 包装，运行时 add_tokens 扩展区 + 持久化 JSON）、`TokenizerHub.to_editable/add_tokens/unregister_domain`、`resize_linear_for_vocab`；**256K 去硬编码**（判定头/共享表维度从权重 shape 推断）。verify_c25_vocab_edit.py **27/27 PASS**
+- **C25-B STDP 突触生长/修剪本体化**：STDPTracker 增共激活统计累积（跨会话持久化）+ `apply_structure_updates`（低共激活通道修剪 + 高共激活缺失通道生长，邻居相似初始化；强权重通道保留防误删）+ sleep 接入。verify_c25_b_stdp.py **21/21 PASS**
+- **C25-C 神经调质深度耦合训练**：新增 **acetylcholine**（DA=奖励 / ACh=新颖性互补，attention 聚焦增益映射 0.6+ACh×0.8）；训练闭环：loss 变化率同时驱动 DA 与 ACh（loss 上升 → ACh↑ 聚焦新输入）。verify_c25_c_neuromod.py **23/23 PASS**
+- **C25-D 睡眠重放真重放 + 突触稳态下调**：`record_high_resonance_state` 增 active_nids（重放时再激活共激活统计，取代"纯统计占位"假重放）；consolidate 新增全局 side_channels ×0.98（NREM 慢波全局缩放——强通道净保留、弱信号整体下压）。verify_c25_d_replay.py **17/17 PASS**
+- **C25-E 连续时间动力学**（对比文档"离散共振轮次替代连续动力学"修复）：
+  - **核心**：`taiji/resonance/continuous.py`（ContinuousResonance）+ `ensemble.continuous_forward`——相位绑定驱动的连续激活替代不应期硬门轮替：时间步进 T=8 微步积分、激活 a_i(t)=σ(β·(binding_i−b0))、场积分 F(t+dt)=F(t)+dt·Σa_i·project(v_i)·conf_i、权重=时间平均激活、收敛=绑定分布 std 稳定；t=0 独立前向采集判定信号（监督纯净化）
+  - **增量一（cortex 接入）**：collab_mode="continuous" 显式启用；A/B 显示 continuous 在 dialogue/zh 质量优于 executive
+  - **增量二（forward_train 连续化）**：`forward_train` 增 `continuous: bool=False`（默认离散，既有调用零影响）；监督纯净（final_judge_logits round 1 采集）；顺手修复 quality_logits_t UnboundLocalError
+  - **增量三（默认装配决策 → 回退）**：A/B 规模化 22 prompt continuous 全面不劣，但装配实测 **8 问空输出 5/8** → 回退默认 executive。根因：**连续模式多 neuron 协作不稳定**——zh 激活 5 个 dialogue neuron，同相群体绑定 → 时间平均激活权重均分 → leader 选到弱响应 neuron
+  - **增量四（leader 质量信号修复）**：`continuous_forward` 新增 `round1_scores`（t=0 场共振分，有区分度 max-min=0.70）→ continuous 分支 leader 用 round1_scores 优先；空输出 5/8 消除
+  - **增量五（默认装配切换 continuous）**：多次采样统计（12 prompt × 3 次）确认——非空率 1.00 持平、重复率 0.011 < 0.022、质量 9 胜 2 负 1 平 → `cortex.generate` 默认 collab_mode 切换为 "continuous"。挂载实测 8/8 全非空（"你好！今天天气真美好的一天。"）
+  - **C25-E 全部增量闭环**
+- **培养期端到端闭环**（C25-E 后，verify_feed_sleep_e2e.py **14/14 PASS**）："feed → sleep Phase 2 训练 → 影子 COW 写回 live → ckpt 保存 → 训练后推理"完整闭环；顺带修复 contrastive phase 混合规格维度崩溃（compact 512 vs standard 768 → pad 到公共 max dim + 跨规格投影层）
+- **渐进改善验证 + 破坏性更新修复**（verify_feed_sleep_progressive.py **24/24 PASS**）：5 轮"feed 8 条 → sleep 训练"循环，held-out PPL **2161 → 972 → 489 → 384 → 393 → 448（末轮降 79%）**。首跑 FAIL 根因 = 灾难性遗忘（小样本 × 高 lr × 共享大嵌入表）→ **分层学习率修复**：shared_embedding lr 1e-5（慢速积累）、lm_head/embed_adapter 3e-4、epoch 3→1
+- **PPL 口径修正**（diag_zh_ppl_masks.py）：提问式评估集分布偏移 PPL 虚高（10761）→ 基座在 zh_sft 同分布仅 ~199；评估集必须与训练同分布且 ≥16 条
+- **平台期定性：容量饱和**（verify_feed_sleep_scale.py **11/11 PASS**）：两个独立实验同模式（前 2-3 轮大幅改善后斜率骤降）→ **51M compact 在 zh 50K 词表上的阶段性上限**（PPL 平台 ~500-600）；突破需基座级升级，喂养只提供"快速逼近上限"
+- **zh 基座升级前置诊断**：规格盘点（general 全 512/51M，仅 zh_std0 768/134M）；leader 脱节实证（134M zh_std0 0/5 当选且分数最低档——场共振分衡量"输入-场方向匹配"非生成能力）；容量 vs 质量实证（134M 生成最流畅但非质变）→ **general zh 升级优先级下调，主线 = 对话数据**
+- **zh leader 信号 A/B 确认**（verify_zh_leader_ab.py）：强制 134M 仅轻微占优（长度 +11%、主题命中 +18% 但逐 prompt 波动大）→ **容量非主要杠杆**
+- **dialogue 欠训练根因诊断**（diag_dialogue_data.py）：5 个 dialogue neuron 全部只训 4000 步（预算截断非收敛平台，val PPL 89-102 且日志仍下行），数据质量良好（48K alpaca-zh 统一格式）→ **碎片根因 = 欠训练**
+- **🔄 全部 5 个 dialogue neuron 续训已启动**（2026-08-11 18:10，--steps 8000，resume 4000→8000）：修复 base vocab 错配（--base_id 直接用 dialogue 自身）+ optimizer/scheduler 容错；日志 logs/resume_{aug0..3,std0}.log
+- **C25-F 多阶段任务模式链**（2026-08-11 ✅，verify_c25_f_e2e.py **10/10 PASS**）：`cortex.generate_staged(stages)`——每阶段 = task-set（prompt + mode + domain + max_tokens），阶段间显式传递中间输出（{prev} 模板），异常阶段隔离；zh→code→zh 三阶段编排可用
+- **C25-G quality_head 膨胀根因修复**（2026-08-10 ✅，verify_c25_quality_fix.py **11/11 PASS**）：quality_head 学成常数偏移（logit 大 → softmax 饱和 → KL 梯度消失 → 自增强压不住）→ **actual 改 std 标准化**（减 detach 均值 ÷ detach 标准差再 ÷ 温度 1.0）——softmax 输入恒 ~±2 永不饱和、梯度恒非零；learned quality proxy 恢复可用
 
-### 实施进度
+### C26 场固化（可写记忆第 0 格，2026-08-11 ✅ verify_c26_field_memory.py 11/11 PASS）
 
-**1. general 神经元训练**（✅ 已完成）
-- 数据：`shared_core.jsonl`（236K 条通用核心数据）
-- 规格：36M compact，train 模式（保存自己的 shared_embedding）
-- 训练参数：4000 步，batch 8×grad_accum 4=32，lr=1e-3，dropout=0.2
-- 结果：best_val_PPL=148.80@step4000，耗时 57.8min
-- 训练日志：`logs/train_zh_general_20260729.log`
-
-**2. ensemble Shared Expert 架构**（✅ 已完成）
-- `ResonanceEnsemble.__init__` 添加 `shared_expert_id` 和 `shared_expert_weight` 参数
-- `forward()` 中 shared expert 始终加入 `active_ids`（不受路由/精简模式影响）
-- 最终融合后重新加权：`final = sw * shared_logits + (1-sw) * original_fused`
-- 默认 `shared_expert_weight=0.3`（general 神经元获得 30% 固定权重）
-
-**3. 评估脚本支持**（✅ 已完成）
-- `eval_aug_joint.py` 添加 `--shared_expert` 和 `--shared_expert_weight` 参数
-- `load_aug_neurons()` 支持 `include_shared_expert` 加载 general 神经元
-- `eval_ppl()` 和 `eval_generation()` 传递 shared_expert 配置到 ensemble
-
-### 评估结果（2026-07-29，负向）
-
-运行命令：`python -u scripts/training/eval_aug_joint.py --shared_expert --shared_expert_weight 0.3`
-评估日志：`logs/eval_shared_expert_20260729_145858.log`
-
-**PPL 对比**：
-
-| 模式 | 协作 PPL | 对比 baseline |
-|------|---------|--------------|
-| 无 Shared Expert（v2 baseline） | 62.6 | - |
-| **Shared Expert (w=0.3)** | **108.6** | **恶化 +73.6%** |
-
-**个体 PPL**：
-- zh_aug0: 211.6 | zh_aug1: 114.6（最强个体）| zh_aug2: 225.3 | zh_aug3: 246.9
-- **zh_general: 257.5（最弱）** ← 关键问题
-
-**融合权重**：zh_aug1:0.320, zh_general:0.300, zh_aug0:0.122, zh_aug2:0.062, zh_aug3:0.032
-
-### 结论与教训
-
-**Shared Expert 机制在当前实施下负向**，反而降低了协作质量。
-
-**根本原因**：Shared Expert 机制的前提是 general 神经元必须足够强（提供基础能力保障），
-但实际 zh_general 神经元训练不充分（best_val_PPL=148.80，评估 PPL=257.5），反而比所有
-aug 神经元都差。强制给它 30% 固定权重稀释了 zh_aug1（最强个体）的主导作用。
-
-**关键教训**：
-1. **借鉴机制不能盲目照搬**：Shared Expert 在 Kimi K3/DeepSeek V3 中有效，是因为它们的
-   general 专家训练充分（数万亿 token）。在小规模 compact 神经元（36M, 4000 步）上，
-   general 神经元反而成为最弱环节
-2. **机制有效性依赖前置条件**：Shared Expert 要求 general ≥ 域特定神经元的能力，
-   否则会拖累整体
-3. **固定权重的风险**：30% 固定权重缺乏自适应，无论 general 神经元质量如何都会强制分配，
-   应该改为基于神经元实际能力的动态权重
-
-### 后续方向
-
-Shared Expert 机制暂不启用（保持 v2 baseline PPL=62.6 作为最佳协作结果）。
-若要重新启用，需要：
-1. 大幅增加 general 神经元训练数据量和步数（达到或超过 aug 神经元水平）
-2. 改为动态权重（基于 general 神经元实际 PPL 自适应调整）
-3. 或放弃固定权重，让 general 神经元参与正常的共振评分竞争
+- **背景（架构审视结论）**：共振场（推理时可写的共享状态）已是"可写记忆"形态，但缺"写后不固化"
+- **实现**：`taiji/resonance/field_memory.py`（FieldMemoryBank：固化 = L2 归一化 + 余弦去重 0.92（突触稳态下调的工程简化）、检索 = 余弦 top-k、持久化 .pt）+ sleep_engine Phase 1.5 场固化挂载（record_field_memory 队列 → 睡眠沉淀 → field_memory.pt）
+- **验证（真实装配 9 神经元）**：睡眠固化 4 条 / 重复固化去重 / **跨会话检索 top-1 全命中 4/4**（sim 0.45-0.69）/ 注入管线 4/4 + 注入改变生成输出 4/4 / 重启恢复 / sleep() 主流程挂载
+- **机制边界**：记忆"完整复述进生成"受 zh dialogue 欠训练限制（生成碎片），**续训完成后回归项**
+- **关键实现注意**：generate 的生成循环每 token 调 think() 结束即重置场，`cortex.field` 在生成后是空的——场快照必须从 `think()` 返回值（field_state）截获
+- **对比 Titans 定位评估**：态极完善后在**记忆生命周期维度可超越 Titans**（睡眠巩固/记忆→突触沉淀/群体协作是 Titans 缺失维度）；**最大差距 = 可学习写策略**（Titans 梯度驱动 memory-as-model vs 态极朴素场快照）
 
 ---
+
+*本记录基于主 plan 2026-08-11 前内容浓缩归档，忠于实施事实；后续 C 迭代记录继续追加于此。*
