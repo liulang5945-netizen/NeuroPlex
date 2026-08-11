@@ -73,6 +73,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | I | ✅ 已挂载 | 综合体接入聊天接口：API 装配 9 阵容（collab_v3_c24v2 + foundation_v1_dual），test_api_dialogue 对话流畅；环境变量 TAIJI_COLLAB_NAME / TAIJI_EXTRA_NEURONS_DIR 可覆盖 |
 | J | ⏳ 训练中 | dialogue neuron 欠训练（4000 步预算截断非收敛平台）→ 续训 4000→8000 步 |
 | K | ⏳ 待实施 | C26 增量一：**可学习写策略**（场记忆 vs Titans 最大差距）——写门控由检索回报训练 |
+| L | 📋 已诊断 | **跨域语义对齐（hub neuron）**：diag_cross_domain_alignment.py 实测——同义跨域对场余弦 0.226 vs 错配对 0.248（**幅度 -0.022，无有效对齐**，自相似基准 1.000 采集稳定）→ 共振场未自发对齐跨域语义，跨域协作依赖词库转译（token 级）；**hub/场级对比对齐有明确上马必要**。另：场维度实测 3072（zh_std0 3072 / 其余 2048），**设计文档 4096 与实现不符，需修正** |
 
 ---
 
@@ -98,6 +99,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
+5. **场级跨域对比对齐冒烟**（缺口 L 数据决策落地）：独立对齐 phase——用跨域同义对（zh"函数"↔en"function"）做对比 loss（同义对场方向拉近、异义对推开），只作用于场构造、不污染判定监督（C23-C4 教训）。冒烟指标：同义对余弦 0.226 → >0.4，对齐幅度 -0.022 → +0.15
 
 ### 2.3 中期：跨域协作（上限优先版）
 
