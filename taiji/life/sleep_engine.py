@@ -1095,12 +1095,14 @@ class SleepEngine:
 
         # 收集可训练参数：lm_head + embed_adapter + shared_embedding
         # shared_embedding 是感官层，与神经元协同学习（经验驱动，非蒸馏）
-        trainable_params = list(neuron.lm_head.parameters())
+        lm_head_params = list(neuron.lm_head.parameters())
         if hasattr(neuron, 'embed_adapter'):
-            trainable_params.extend(neuron.embed_adapter.parameters())
-        trainable_params.extend(shared_embedding.parameters())
+            adapter_params = list(neuron.embed_adapter.parameters())
+        else:
+            adapter_params = []
+        shared_emb_params = list(shared_embedding.parameters())
 
-        if not trainable_params:
+        if not (lm_head_params or adapter_params or shared_emb_params):
             logger.warning(f"  [{domain}] 无可训练参数，跳过")
             return None, None
 
@@ -1119,7 +1121,20 @@ class SleepEngine:
             except Exception:
                 pass
         adaptive_lr = base_lr * lr_mult
-        optimizer = torch.optim.AdamW(trainable_params, lr=adaptive_lr)
+        # 分层学习率（2026-08-11，培养期破坏性更新修复）：
+        # verify_feed_sleep_progressive 实证——8 样本×3 epoch 直接训练
+        # shared_embedding(256K vocab) + lm_head，held-out zh PPL 单调爆炸
+        # 10761 → 342100（训练 loss 却单调降 5.04→2.44，灾难性遗忘/过拟合）。
+        # 修复：感官层 shared_embedding 共享于 9 neuron，lr 降 100 倍慢速渐进
+        # 积累（经验驱动本质是长期缓变）；lm_head/embed_adapter 用温和 lr。
+        head_lr = min(adaptive_lr, 3e-4)
+        shared_emb_lr = 1e-5
+        param_groups = []
+        if lm_head_params or adapter_params:
+            param_groups.append({"params": lm_head_params + adapter_params, "lr": head_lr})
+        if shared_emb_params:
+            param_groups.append({"params": shared_emb_params, "lr": shared_emb_lr})
+        optimizer = torch.optim.AdamW(param_groups)
 
         # 提取训练文本
         texts = []
@@ -1150,9 +1165,9 @@ class SleepEngine:
         total_loss = 0.0
         trained_steps = 0
 
-        # 多 epoch 训练：少量样本需要重复学习才能有效更新权重
-        # 从随机初始化学习需要更多训练次数（非微调）
-        NUM_EPOCHS = 3
+        # 训练轮数：培养期小样本（8~64 条）单 epoch 即可，重复学习加深过拟合
+        # （verify_feed_sleep_progressive 实证：3 epoch 下训练 loss 降但 held-out PPL 爆）
+        NUM_EPOCHS = 1
         domain_sp = tokenizer_hub.get_tokenizer(domain)
         for epoch in range(NUM_EPOCHS):
             for text in texts:
