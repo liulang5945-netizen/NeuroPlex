@@ -1760,6 +1760,7 @@ class ResonanceEnsemble:
         active_nids: Optional[List[str]] = None,
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         return_judge_logits: bool = False,
+        fusion_mode: str = "soft",  # 接口兼容（连续路径固定时间平均激活融合）
         ct: Optional[ContinuousResonance] = None,
     ) -> Dict:
         """C25-E 连续时间共振（可选路径，不改变 forward/executive 判定）。

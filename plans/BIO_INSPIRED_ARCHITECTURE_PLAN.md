@@ -459,7 +459,10 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
       - 收敛 = 绑定分布 std 稳定（相位锁定，min_steps 后检查防单步假收敛）——连续版自适应停止
       - **安全性边界（C23 同款）**：t=0 独立前向采集判定信号（judge NLL 主信号链），连续激活不进入判定路径
     - **验证**：verify_c25_e_continuous.py **20/20 PASS**（激活单调/中性/连续无硬跳变/权重=Σdt·a·conf/收敛判据/Kuramoto→绑定→激活闭环/输出结构/同相权重 0.233>异相 0.068/场积分/判定信号保留/forward 无回归/确定性）；verify_c21_generate **判定 5/5 无回归**
-    - **遗留（下一步增量）**：continuous 接入 collab_mode="continuous"（显式启用）；训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）；loader 默认装配
+    - **✅ 增量一：cortex 生成路径接入（2026-08-11）**：`collab_mode="continuous"` 显式启用——cortex.think 转发 ensemble.continuous_forward；_generate_p7 复用 executive 判定（judge NLL 主信号）+ domain 内 leader 选择（continuous_weights=时间平均激活）。verify_c25_e_collab_ab.py **20/20 PASS**：
+      - 判定 5/5 两种模式一致（code→code/math→math/zh→zh/dialogue→zh/en→en）
+      - A/B 生成（max_tokens=20）：**continuous 在 dialogue/zh 质量优于 executive**（dialogue "对不起。" vs executive "。我非常开心…"；zh "下面是一个简单的 Python 代码斐波那契数列" vs executive "。"）——连续激活选择让 leader 更稳定；code/en 相当
+    - **遗留（下一步增量）**：训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）；loader 默认装配（continuous 替换 executive 需 A/B 规模化验证后决策）
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F：多阶段任务模式链（task-set 序列，对比文档 v2 项）
   - C25-G ✅ quality_head 膨胀根因修复（2026-08-10，C24 遗留闭环）

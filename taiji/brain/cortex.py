@@ -872,6 +872,7 @@ class Cortex:
         fusion_mode: str = "soft",
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         return_judge_logits: bool = False,
+        collab_mode: str = "fusion",
     ) -> Dict:
         """Run one round of resonance thinking.
 
@@ -896,6 +897,9 @@ class Cortex:
             return_judge_logits: C24 双头（2026-08-09）：额外收集各 neuron 的
                 judge_lm_head（general 判定头）logits → result["round1_judge_logits"]。
                 executive 判定用 judge NLL（C20 原始信号链，可比）。
+            collab_mode: C25-E（2026-08-11）："continuous" = 连续时间共振
+                （ensemble.continuous_forward：相位绑定驱动的连续动力学替代离散轮次，
+                融合权重 = 时间平均激活）。其余值走离散 forward（不变）。
 
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
@@ -909,7 +913,11 @@ class Cortex:
             }
         elif shared_embeddings is not None:
             kwargs["shared_embeddings"] = shared_embeddings.to(self.device)
-        result = self.ensemble.forward(**kwargs)
+        if collab_mode == "continuous":
+            # C25-E：连续时间共振（相位绑定驱动，融合权重 = 时间平均激活）
+            result = self.ensemble.continuous_forward(**kwargs)
+        else:
+            result = self.ensemble.forward(**kwargs)
         return result
 
     @torch.no_grad()
@@ -950,6 +958,9 @@ class Cortex:
             collab_mode: "executive"（C22 收敛默认，C19 任务级：回合级执行控制判定
                          dominant 域 → 任务模式激活 + 族长稳定生成，不做 token 级竞争；
                          C20 回合级监督 5/5、C21 词库多词表验证通过后设为默认）
+                         / "continuous"（C25-E：同 executive 判定，但共振为连续时间
+                        动力学——相位绑定驱动的连续激活替代离散轮次，leader 用
+                        时间平均激活权重选）
                          / "fusion"（token 级融合，C19 前旧范式，实验保留）
                          / "leader"（族长主导，不融合，实验保留）
 
@@ -1597,9 +1608,11 @@ class Cortex:
         # 1. Determine domain
         # C19（2026-08-08）：collab_mode="executive" = 回合级执行控制判定
         # （混合信号：启发式 + quality_head 回合级聚合），取代 token 级竞争。
+        # C25-E（2026-08-11）："continuous" 复用 executive 判定（judge NLL 主信号），
+        # 仅生成路径换为连续时间共振。
         self._executive_confidence = 0.0
         self._executive_domains: dict = {}
-        if domain is None and collab_mode == "executive":
+        if domain is None and collab_mode in ("executive", "continuous"):
             domain, self._executive_confidence, self._executive_domains = \
                 self._executive_route(prompt)
         elif domain is None:
@@ -1630,10 +1643,10 @@ class Cortex:
         # 与 C12（可比分数）+ C9（自适应停止）+ C14（动态 shared 权重）形成完整闭环。
         # C22（2026-08-08 收敛）：collab_mode="executive" 时跳过本块——executive 已有
         # 回合级判定（_executive_route），再跑 token 级共振校验会造成双路径打架
-        # （共振校验可能覆盖 executive 的 dominant 判定）。
+        # （共振校验可能覆盖 executive 的 dominant 判定）。C25-E "continuous" 同。
         resonance_active_nids: Optional[List[str]] = None  # resonance 模式填充
         if (len(self.neurons) > 1 and routing_mode != "keyword"
-                and collab_mode != "executive"):
+                and collab_mode not in ("executive", "continuous")):
             try:
                 probe_ids = torch.tensor([general_ids], dtype=torch.long, device=self.device)
                 probe_emb = self._shared_embedding(probe_ids)
@@ -1718,9 +1731,10 @@ class Cortex:
             # R1: resonance 模式优先使用共振分数选的 active_nids
             if resonance_active_nids is not None:
                 active_nids = resonance_active_nids
-            elif collab_mode == "executive":
+            elif collab_mode in ("executive", "continuous"):
                 # C19（2026-08-08）：任务模式激活 = dominant 域 neuron + general
                 # （回合内稳定生成，不做 token 级竞争；人脑"模式确定→整通路激活"）
+                # C25-E：continuous 同 executive 激活（判定信号链一致）
                 domain_neurons = [
                     k for k in self.neurons
                     if k == domain or k.startswith(domain + "_")
@@ -1773,16 +1787,18 @@ class Cortex:
                 result = self.think(
                     active_nids=active_nids, fusion_mode=fusion_mode,
                     neuron_embeddings=neuron_embeddings,
+                    collab_mode=collab_mode,
                 )
             else:
                 shared_emb = self._shared_embedding(ids_tensor)
-                result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode)
+                result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode,
+                                    collab_mode=collab_mode)
 
             # Get logits: 协作模式选择
             neuron_logits = result.get("neuron_logits", {})
             final_scores = result.get("final_scores", {})
 
-            if collab_mode in ("leader", "executive") and final_scores and neuron_logits:
+            if collab_mode in ("leader", "executive", "continuous") and final_scores and neuron_logits:
                 # 族长主导（C19 executive 复用）：选共振分最高的 neuron 的 logits
                 # （不融合）——回合内稳定生成，避免异构 logit 融合干扰。
                 # 族长在 round 2+ 已读共振场（受其他 neuron 影响），
@@ -1790,7 +1806,8 @@ class Cortex:
                 # C19（2026-08-08）：executive 模式下 leader 限定在 dominant 域内
                 # ——任务模式激活后由域内最强 neuron 稳定生成，不用跨域最强
                 #（否则回合级判定白做，leader 被其他域 neuron 抢占）。
-                if collab_mode == "executive" and domain:
+                # C25-E：continuous 用时间平均激活权重（continuous_weights）选 leader。
+                if collab_mode in ("executive", "continuous") and domain:
                     domain_scores = {
                         k: v for k, v in final_scores.items()
                         if k == domain or k.startswith(domain + "_")
