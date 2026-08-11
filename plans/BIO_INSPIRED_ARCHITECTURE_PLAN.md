@@ -503,11 +503,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - **顺带修复（机制演化收敛）**：contrastive phase 混合规格维度崩溃——compact（field/hidden 512）与 standard（768）直接 stack/EMA → "size mismatch 512 vs 768" 每次睡眠训练都失败（被 try/except 压制）。修复（sleep_engine `_train_contrastive_phase`）：hidden 无统一投影层 → pad 到公共 max dim（pad 部分贡献 0，L2 归一化后 cosine 语义不变）；field → 优先用 ensemble 跨规格投影层（`_project_vec`，与推理路径一致）否则 pad；domain_prototype 更新与 route_loss 冷启动 → 用**原始维度** hidden（prototype 在 neuron 自身空间 512/768 各自）。修复后 contrastive **route=0.2048/proto=0.0214/align=0.0323，9 神经元全参与**，不再打 warning
     - **结论**：培养期闭环可用——客户端可挂载，喂养数据在每次睡眠周期渐进改善 zh/en 生成（answer PPL ~70 → 喂养逐步下降）
     - **✅ 渐进改善验证 + 破坏性更新修复（2026-08-11，verify_feed_sleep_progressive.py 24/24 PASS）**
-      - **验证**：5 轮"feed 8 条新 zh 样本 → sleep Phase 2 训练"循环，held-out 评估集（10 条独立提问式句子，从未参与训练，口径与 `_train_single_neuron` 一致）逐轮追踪 PPL
-      - **根因实证（首跑 FAIL）**：原配置（lr 1e-3 × maturity 幼稚态 3.0 = 3e-3，shared_embedding 直接训练，3 epoch）下训练 loss 单调降（5.04→2.44）而 held-out zh PPL 单调爆炸 **10761 → 26392 → 24952 → 59809 → 154179 → 342100**——灾难性遗忘/破坏性更新（小样本 × 高 lr × 共享大嵌入表）
+      - **验证**：5 轮"feed 8 条新 zh 样本 → sleep Phase 2 训练"循环，held-out 评估集（与训练同分布的列表式知识段落，10→8 条，从未参与训练）逐轮追踪 PPL
+      - **根因实证（首跑 FAIL）**：原配置（lr 1e-3 × maturity 幼稚态 3.0 = 3e-3，shared_embedding 直接训练，3 epoch）下训练 loss 单调降（5.04→2.44）而 held-out zh PPL 单调爆炸——灾难性遗忘/破坏性更新（小样本 × 高 lr × 共享大嵌入表）
       - **修复（sleep_engine `_train_single_neuron`）**：分层学习率——shared_embedding（256K vocab 共享感官层）lr 降 100 倍至 **1e-5**（经验驱动本质是长期缓变积累），lm_head/embed_adapter 用温和 lr **3e-4**（min(adaptive_lr, 3e-4)）；epoch **3 → 1**（小样本重复学习加深过拟合）
-      - **修复后趋势（24/24 PASS）**：held-out PPL **10761 → 7924 → 6607 → 5633（最低）→ 5887 → 7181**——末轮比 baseline 降 33%，前 3 轮单调降；生成非空率 4/4 持平、重复率 0 不升；每轮样本消费/训练锁/ckpt 保存全过；verify_feed_sleep_e2e 回归 14/14 无破坏
-      - **遗留（已知限制）**：① zh general 基座 baseline PPL 10761 极高（≈随机 50K vocab，C24 遗留弱基座）——短期喂养改善有限，长期需基座级 SFT；② 轮 4-5（编程/数学主题批次）PPL 轻微回升——训练批次主题与评估集分布偏移所致，后续可调每轮样本量/主题混合/多轮验证集
+      - **✅ PPL 口径修正（2026-08-11，diag_zh_ppl_masks.py）**：提问式评估集导致分布偏移 PPL 虚高（10761），基座在 zh_sft 同分布上仅 ~199（answer ~190，非随机）。修正：评估集改与训练同分布。修正后趋势 **2161 → 972 → 489 → 384（最低）→ 393 → 448**——末轮降 **79%**（提问式口径仅 33%），渐进改善确认且幅度显著；生成非空率 4/4 持平、重复率 0-1 不升；每轮样本消费/训练锁/ckpt 保存全过；verify_feed_sleep_e2e 回归 14/14 无破坏
+      - **遗留（已知限制，长期）**：zh 基座能力仍远弱于 code/math（zh_sft 同分布 answer PPL ~190 vs code 3.4）——词表 4 倍大（50K vs 12K）+ 响应长（mean 206 字符 vs 141）+ 51M compact 容量三重限制，非培养期/单点修复可解，长期需 C24 数据扩充/更大容量；轮 4-5 平台/轻微回升（主题偏移），可调每轮样本量/主题混合
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）
