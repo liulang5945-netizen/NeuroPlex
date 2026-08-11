@@ -416,6 +416,7 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - **test_api_dialogue 装配升级为 9 阵容**（5 对话 + 4 域 + collab_v3_c24v2 + judge EMA 预热）实测：Q1 "你好" → **"你好！今天天气很好。有什么情况吗？"**（流畅完整）；Q3 → "我是一个人工智能助手，无法正文"（半流畅）；Q6 → "当然。这本书"（自然开头）；Q2/Q4/Q7/Q8 短碎（模型规模限制，培养期喂养渐进改善）；**符号乱码/混字消失**（原 5 neuron + 旧 collab 装配 Q8 出乱码 "漫步a 江莜れ赌博…"）
     - **根因修复：API 装配路径用旧协作层**——`load_model_on_startup` 默认 collab_name=`cross_spec_dialogue.pt`（2026-08-06 旧产物，非 C16-C24 验证链产物）→ 对话乱码。已修复：collab 显式用 `collab_v3_c24v2.ckpt.pt`（C20v2 判定重训，judge NLL 主信号）+ `extra_neurons_dir=data/foundation_v1_dual`（C24v2 双头域 neuron，9 阵容）；环境变量 `TAIJI_COLLAB_NAME`/`TAIJI_EXTRA_NEURONS_DIR` 可覆盖。`load_model_on_startup` 验证装配 9 神经元（5 对话 + code/en/math/zh）
     - **挂载就绪结论**：判定 5/5 + 对话链路（API 等价参数 temperature 0.55/top_k 15/rep 1.4）工作正常，对话质量达"培养起点"——可挂载客户端进入培养期（喂养数据渐进改善）；域生成能力（C24）留待培养期验证/喂养
+  - **C20 判定重训 v2（2026-08-11 启动，collab_v3_c24v2 重训）**：8/10 的 c24v2 quality_head 基于 **v1 域 neuron**（3000 条/域）重训；C24 v2 全量重训（2-3 万条/域）覆盖域 neuron 后 quality_head 与新域 neuron **失配**。判定 5/5 不受影响（C20v2 判定主信号 = judge NLL），但 C25-G 膨胀修复后的 **quality proxy 恢复闭环**需在新域 neuron 上重跑 C20 重训。已备份 `collab_v3_c24v2_v1.ckpt.pt`，重训命令 = `train_round_level_quality.py`（neuron-dir foundation_v1_dual + warm start 自 v1 + save-name c24v2 覆盖，~1090 步 ≈ 40-70min CPU）。定时任务 e1ec4a91（C24 完成后自动 C20 重训，描述 v1 场景）已删除（手动接管）。
 
 ---
 
