@@ -396,14 +396,20 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
     - en → "that are equal to the number of countries and China. .ZZQQ…"（短碎片）
     - 结论：**第 2 次抽样同为碎片/短片段，结论稳健（生成未达流畅文本，zh/en 仅片段级改善）**。
   - **复验 2（2026-08-11 08:01 定时任务第 3 次运行）**：code → "in the range. by using a list…def _____(n):"（含 def/list 痕迹）；math → "First let the to run the pool…60 miles: hour.3 hours"（英文碎片）；zh → "中中包含…下面是一个简单的斐波那契数列 斐波那契数列斐波那契数列…"（可读中文片段+重复循环）；en → "in terms of the country, and the country. and the city is an average.-�.�&&>^"（英文碎片+乱码尾）。**结论与第 1/2 次一致：生成从碎片/空→片段级改善（zh 可读），未达流畅文本。**
+  - **复验 3（2026-08-11 09:40，人工诊断：diag 输入格式 bug 修复）**：发现 diag_c24_domain_generate.py 生成输入未按训练格式补 "\n"——训练样本 = prompt+"\n"+response（answer 起点在 prompt+'\n' 之后，ckpt 标记 c24_domain_sft=True 已注明"生成时输入需补 \n"）。修复（prompt+"\n"）后生成显著改善：
+    - code → "def Fib (n):  a = (n - -1)) Fib i fib i 0, (n - - n - -"（def 结构+函数体痕迹，较修复前 "fib, fib. fibub." 结构化）
+    - zh → "下面是一个 Python code\n```python的函数\n```\ndefport = 1\nfout = ="（**markdown 代码块结构**，较修复前碎片重复大幅改善）
+    - en → "The author of America is that India... is is the capital of ..."（英文句子结构，较修复前空输出改善）
+    - math → 仍有碎片
+    - **结论：定时任务 3 次复验的"碎片"结论部分受 diag 输入格式错误影响（未补 \n）；修复后生成从"碎片/空"→"有结构代码/中文/英文片段"，长程连贯仍有限（模型规模 + SFT 短 QA 数据限制，非架构问题）**
   - **✅ judge 对角验证（训练前后 general 判定 NLL 对比）**：**3/4 保留，zh 例外**——
     - code neuron：前 code=1.1/math=8.0/zh=15.8/en=5.3 → 后 code=1.0/math=6.5/zh=14.0/en=4.2 ✅（code 最低）
     - math neuron：前 code=9.7/math=3.1/zh=16.2/en=5.9 → 后 code=8.5/math=2.6/zh=15.4/en=6.3 ✅（math 最低）
     - zh neuron：前 code=10.0/math=8.9/zh=11.2/en=7.1 → 后 code=7.8/math=6.9/zh=7.4/en=6.2 ❌（**en=6.2 < zh=7.4，训练前后均非对角**——zh 基座 general 空间中文 NLL 天然偏高（C24v1 已记录），本次重训 gen_loss 未保护住）
     - en neuron：前 code=6.5/math=5.3/zh=17.6/en=2.2 → 后 code=2.5/math=4.2/zh=15.0/en=2.1 ✅（en 最低）
-    - **风险**：judge NLL 是 executive 判定主信号（C20v2），zh neuron 非对角 → 中文回合存在被误判为 en 的风险（端到端 5/5 需重验）
-  - **✅ C24 验证使命完成（2026-08-11 08:01，定时任务共运行 3 次，结论一致收敛）**：生成碎片→片段级改善、judge 对角 3/4 保留（zh 例外）均已在计划记录。**定时任务建议暂停/删除（使命已完成）**；若需复验生成，手动运行 `diag_c24_domain_generate.py --dir data/foundation_v1_dual` 即可。
-  - **⏳ 待办（下一步候选）**：① 修复 zh 域判定对角（zh SFT 训练扰动 general 空间，可调低 zh SFT loss 权重/提高 gen_loss 权重，或先清洗 alpaca-zh 噪声数据）+ 重验端到端判定；② 提升 zh/en 生成质量（answer PPL ~70 远高于 code/math，SFT 数据/训练配置待调优）。
+    - **风险（已重验解除，2026-08-11）**：judge NLL 是 executive 判定主信号（C20v2），zh neuron 非对角 → 中文回合存在被误判为 en 的风险。**verify_c21_generate 重验（9 神经元装配 collab_v3_c24v2 + foundation_v1_dual）：端到端判定 5/5 无回归**（code→code/math→math/zh→zh/dialogue→zh/en→en）——zh 回合时 5 个 dialogue neuron（zh 空间）参与域聚合，zh 域仍最低，判定安全。
+  - **✅ C24 验证使命完成（2026-08-11 08:01，定时任务共运行 3 次，结论一致收敛）**：生成碎片→片段级改善、judge 对角 3/4 保留（zh 例外）均已在计划记录。**定时任务建议暂停/删除（使命已完成）**；若需复验生成，手动运行 `diag_c24_domain_generate.py --dir data/foundation_v1_dual` 即可（已修复输入格式，prompt 自动补 "\n"）。
+  - **⏳ 待办（下一步候选）**：① ~~修复 zh 域判定对角~~（2026-08-11 端到端判定 5/5 重验保持——zh 单 neuron 非对角被 dialogue 域聚合覆盖，非阻断，长期可调 zh SFT/gen_loss 权重）；② 提升 zh/en 生成质量（answer PPL ~70 远高于 code/math，SFT 数据/训练配置待调优；挂载后培养期喂养数据渐进改善）。
   - **zh_general 残留收敛（2026-08-10，用户确认 9 阵容）**：9 = 5 对话（zh_aug0-3_dialogue + zh_std0_dialogue）+ 4 域（code/math/zh/en）。查证：zh_general 设计为 SHARED_EXPERT_ID（experiment_config），但 **assemble_cortex/cortex 从未传 shared_expert_id → shared_expert 机制从未启用**；实际被 cortex 全量扫描误加载为普通 neuron（中文任务竞争者、训练最弱 PPL 257，verify_c19 注释"排除 zh_general 旧产物干扰"）。C24 双头后每 neuron 自带 judge_lm_head，single always-active 底座机制冗余 → **删除 data/neurons/neuron_zh_general.pt**，verify_hotswap_integration 改用 zh_std0_dialogue，experiment_config SHARED_EXPERT_ID 废弃注释。装配收敛为 9 阵容。
 
 ---

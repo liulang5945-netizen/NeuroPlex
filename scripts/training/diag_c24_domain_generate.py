@@ -43,7 +43,9 @@ def load_neuron(domain: str, out_dir: str = OUT_DIR):
 
 
 def generate(neuron, emb, domain_sp, general_sp, prompt, max_tokens=40):
-    general_ids = general_sp.encode(prompt)
+    # C24 训练样本 = prompt + "\n" + response（answer 起点在 prompt+'\n' 之后，
+    # ckpt 标记 c24_domain_sft=True）。生成输入必须补 "\n"，否则模型未见该模式。
+    general_ids = general_sp.encode(prompt + "\n")
     ids = torch.tensor([general_ids], dtype=torch.long, device=DEVICE)
     eos_id = domain_sp.eos_id() if hasattr(domain_sp, "eos_id") else 3
     out_ids = []
