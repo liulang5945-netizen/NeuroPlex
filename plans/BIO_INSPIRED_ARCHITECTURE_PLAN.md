@@ -479,11 +479,11 @@ token 级（C12-C16，失败）：每 token 位置 softmax 竞争选 winner，�
       - 顺手修复基线缺陷：`quality_logits_t` 提前统一初始化（原 router/residual 融合分支未定义 → UnboundLocalError，verify_forward_train_diff 4/6→5/6）
       - 验证：verify_c25_e_forward_train_continuous.py **25/25 PASS**（输出结构/权重=时间平均激活/融合权重归一化/监督纯净（per_neuron_nll round 1）/连续可微（phasors+omega+coupling_k 梯度全通）/离散无回归/相位演化推进）；verify_c25_e_continuous **20/20 无回归**；注意 [0,0,0,π] 是绑定驻点（det=0 无牵引）+ 同 omega 整体旋转不改变相对绑定——演化/梯度测试需非驻点相位 + 异质 omega
     - **遗留（下一步增量）**：训练路径 forward_train 连续化（可微积分，C23-C4 监督纯净化模式）✅ 已完成（见上）；loader 默认装配（continuous 替换 executive 需 A/B 规模化验证后决策）
-    - **✅ 增量三：loader 默认装配决策依据（2026-08-11，A/B 规模化验证）**：verify_c25_e_ab_scale.py（22 混合域 prompt：zh 对话 8/code 5/math 4/en 3/zh 域 2，固定参数 temperature 0.55/top_k 15/max_tokens 32）——**continuous 全面不劣且质量占优**：
-      - 非空率 22/22 持平；平均重复率 **continuous 0.012 < executive 0.027**（连续激活抑制重复）
-      - 逐 prompt 质量（长度+低重复率加权）**continuous 10 胜 > executive 6 胜**（6 平，16/22 ≥60% 判定通过）
-      - **结论：规模化 A/B 支持 continuous 替换 executive 为 loader 默认装配**（后续实施待用户确认）
-      - 已知限制（与 continuous/executive 无关，同源判定）：判定正确率 **18/22 (81.8%)**——4 个误判全为中文 code/math 指令（"写一个 Python 函数计算斐波那契数列"/"写一个冒泡排序的代码"/"一个三角形三边分别是3,4,5"/"What is 15 percent of 200?" 判到 zh/en）→ 中文域指令判定弱点（zh 域 5 neuron 聚合优势），挂载培养期可数据喂养改善
+    - **✅ 增量三：loader 默认装配决策（2026-08-11，A/B 规模化 + 装配实测后**回退**）**：
+      - **A/B 规模化（verify_c25_e_ab_scale.py，22 混合域 prompt）**：continuous 全面不劣且质量占优——非空率 22/22 持平；平均重复率 continuous 0.012 < executive 0.027；逐 prompt 质量 continuous 10 胜 > executive 6 胜（6 平）
+      - **装配实测反转（关键）**：默认切 continuous 后 test_api_dialogue 8 问空输出 5/8（Q2-Q6 全空）→ 回退默认 executive。根因诊断（diag_c25_e_default_empty.py）：**连续模式多 neuron 协作不稳定**——zh 对话激活 5 个 dialogue neuron（zh_aug0-3 + zh_std0），连续激活时间平均权重均分（同相群体绑定→权重近均等）→ leader 选到弱响应 neuron → 空输出/短碎；executive 用 LOO 共振分能区分 neuron 强弱 → 稳定。单 neuron 域（code/math/en 各 1 neuron）无协作问题 → continuous 稳定（A/B 多数 prompt 落此场景，掩盖了 zh 协作缺陷）
+      - **决策：loader 默认保持 executive**；continuous 留作显式可选（collab_mode="continuous"）。**遗留修复方向**：continuous leader 选择需融合质量信号（如连续权重 × round1 共振分/NLL 质量）防止弱 neuron 独占——待后续增量
+      - 已知限制（与模式无关，同源判定）：判定正确率 18/22 (81.8%)——中文 code/math 指令判到 zh（zh 域 5 neuron 聚合优势），挂载培养期可数据喂养改善
   - C25-C：神经调质深度耦合训练（✅ 已完成 2026-08-10，见上，此条目残留清理）
   - C25-F ✅ 多阶段任务模式链（task-set 序列，2026-08-11，对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复）
     - **实现**：`cortex.generate_staged(stages)`——每阶段 = task-set（"prompt" 指令 + "mode" 任务模式 executive/continuous + 可选 "domain" 域约束 + "max_tokens" 覆盖）；阶段间显式传递中间输出（"{prev}" 模板填充或自动拼接），如"zh 理解 → code 生成 → zh 表达"；异常阶段隔离（输出空串，后续继续）

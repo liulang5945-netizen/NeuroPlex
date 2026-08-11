@@ -955,12 +955,16 @@ class Cortex:
             fusion_mode: 推理融合模式（方向③ 残差预测编码）
                          - "per_position"（默认）：每位置按熵/置信度独立路由
                          - "residual"：族长完整预测 + 其他神经元残差修正
-            collab_mode: "executive"（C22 收敛默认，C19 任务级：回合级执行控制判定
-                         dominant 域 → 任务模式激活 + 族长稳定生成，不做 token 级竞争；
-                         C20 回合级监督 5/5、C21 词库多词表验证通过后设为默认）
-                         / "continuous"（C25-E：同 executive 判定，但共振为连续时间
-                        动力学——相位绑定驱动的连续激活替代离散轮次，leader 用
-                        时间平均激活权重选）
+            collab_mode: "executive"（默认，C19 任务级：回合级执行控制判定 dominant
+                         域 → 任务模式激活 + 族长稳定生成；C20 回合级监督 5/5。
+                         C25-E continuous 曾拟替换默认（A/B 规模化 22 prompt 质量
+                         占优），但 9 neuron 装配实测多 neuron 协作不稳定（zh 对话
+                         5 dialogue neuron 空输出/短碎风险，见 diag_c25_e_default_empty）
+                         → 回退 executive 为默认，continuous 留作显式可选）
+                         / "continuous"（C25-E：同 executive 判定（judge NLL 主
+                         信号），共振为连续时间动力学——相位绑定驱动的连续激活
+                         替代离散轮次，leader 用时间平均激活权重选；单 neuron 域
+                         （code/math/en）稳定，多 neuron 协作待修复）
                          / "fusion"（token 级融合，C19 前旧范式，实验保留）
                          / "leader"（族长主导，不融合，实验保留）
 
