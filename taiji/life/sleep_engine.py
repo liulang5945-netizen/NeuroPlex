@@ -91,6 +91,8 @@ class SleepReport:
     user_patterns_updated: int = 0
     health_status: str = "unknown"
     recommendations: List[str] = field(default_factory=list)
+    # C26: 场固化（Phase 1.5）——本次睡眠沉淀的场记忆条数
+    field_memories_consolidated: int = 0
 
 
 @dataclass
@@ -157,6 +159,9 @@ class SleepEngine:
         self._stdp_tracker: Optional[Any] = None  # STDPTracker
         self._feed_engine: Optional[Any] = None  # FeedEngine
         self._current_step: int = 0  # 全局步数计数器（供 SleepConsolidator）
+        # C26（2026-08-11）：场记忆库——睡眠把场状态沉淀为持久记忆（可写记忆第 0 格）
+        self._field_memory: Optional[Any] = None  # FieldMemoryBank（懒加载）
+        self.pending_field_memories: list = []  # 待固化的 (vector, label)
         # P1-2: 神经调质状态（多巴胺/血清素/去甲肾上腺素）
         # 自主进化核心：双信号驱动调质，自动调节学习率
         if NeuromodulatorState is not None:
@@ -293,6 +298,14 @@ class SleepEngine:
             logger.info("  Phase 1: Memory consolidation ✅")
         except Exception as e:
             logger.warning(f"  Phase 1 failed: {e}")
+
+        # Phase 1.5: 场固化 — 高频场状态沉淀为持久记忆（C26，可写记忆第 0 格）
+        try:
+            self._sleep_phase_field_consolidation(report)
+            report.phases_completed.append("field_consolidation")
+            logger.info("  Phase 1.5: Field consolidation ✅")
+        except Exception as e:
+            logger.warning(f"  Phase 1.5 failed: {e}")
         
         # Phase 2: 深睡眠 — 模型训练
         if self.config.training_enabled:
@@ -439,6 +452,54 @@ class SleepEngine:
     
     # ─── 睡眠阶段实现 ──────────────────────────────
     
+    # ─── C26: 场记忆（可写记忆第 0 格）─────────────────────────
+
+    def record_field_memory(self, vector, label: str) -> None:
+        """C26: 记录一条待固化的场记忆（场状态快照 + 文本标签）。
+
+        会话中产生的高频场状态（如知识样本前向后的 field state）先入队，
+        睡眠 Phase 1.5 统一固化进持久场记忆库。标签供注入消费（记忆条件化
+        生成的文本通道）。
+        """
+        if vector is None:
+            return
+        self.pending_field_memories.append((vector.detach().clone(), label))
+
+    def get_field_memory(self) -> Any:
+        """C26: 获取持久场记忆库（懒加载：首次从 data_dir/field_memory.pt 恢复）。"""
+        if self._field_memory is None:
+            from taiji.resonance.field_memory import FieldMemoryBank
+            # 记忆空间 = 真实场空间（维度随装配规格动态匹配，避免硬编码错配）
+            dim = 4096
+            if self.cortex is not None and hasattr(self.cortex, "field"):
+                dim = int(self.cortex.field.dim)
+            self._field_memory = FieldMemoryBank(dim=dim)
+            try:
+                self._field_memory.load(os.path.join(self.data_dir, "field_memory.pt"))
+            except Exception as e:
+                logger.debug(f"FieldMemoryBank 恢复失败（首用空库）: {e}")
+        return self._field_memory
+
+    def _sleep_phase_field_consolidation(self, report: SleepReport) -> None:
+        """C26: 场固化 — 把待固化场记忆沉淀为持久记忆库。
+
+        对应人脑"突触稳态下调"的工程简化：只保留显著新模式（余弦去重），
+        随后持久化到 data_dir/field_memory.pt（跨会话/跨重启保留）。
+        """
+        if not self.pending_field_memories:
+            report.field_memories_consolidated = 0
+            return
+        self._ensure_data_dir()
+        bank = self.get_field_memory()
+        vectors = [v for v, _ in self.pending_field_memories]
+        labels = [lbl for _, lbl in self.pending_field_memories]
+        added = bank.consolidate(vectors, labels)
+        self.pending_field_memories.clear()
+        path = os.path.join(self.data_dir, "field_memory.pt")
+        bank.save(path)
+        report.field_memories_consolidated = added
+        logger.info(f"  场固化: +{added} 条场记忆（bank 共 {len(bank)} 条）→ {path}")
+
     def _sleep_phase_memory_consolidation(self, report: SleepReport):
         """Phase 1: 记忆整理 — 整合上下文管理器 + WorkingMemory"""
         try:
