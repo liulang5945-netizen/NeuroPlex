@@ -102,7 +102,8 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **C26 lr 修复（补充）**：resume 后仅改 optimizer.lr 不够——LambdaLR.step() 用 scheduler.base_lrs（旧 5e-4）覆盖 → 首日志实测 lr=5e-4（大 lr 冲击已收敛权重）。已补充 `scheduler.base_lrs = [args.lr]*n`，验证通过（lr 保持 1e-4）
    - **训练结果**（compact 4 个已完成 4000→8000）：val PPL 160→101-107（降 33%），每 1000 步稳定降 ~15，无平台；EOS 学习正常（自然停止）；生成质量验证见下
    - **⚠️ 评估口径发现（重要）**：verify_zh_leader_ab.py 用**裸 prompt**（"请介绍什么是神经网络"）评估，但 dialogue neuron 训练/产品路径（test_api_dialogue.py）都用 `问：xxx\n答：` 格式 → 裸 prompt 下 50K 模型陷入 `。`→换行→空格死循环（top1 恒为 `▁`），触发跑偏截断 → 假退化（均长 9.6）。**test_api_dialogue.py（正确格式）生成完整正常**（Q5 诗/两行、Q7 幸福/完整句）。verify_zh_leader_ab 需改为训练格式 prompt 才有效
-   - **待完成**：std0 续训完成（~15:00）+ 用 test_api_dialogue.py 重新评估质量基线 + C26 记忆复述回归
+   - **✅ 口径机制化（2026-08-12，提交 04d1ee8）**：根治（历史同类：07-31 domain/general token ID 错位、07-29 评估集分布失真——均靠人工发现）。① `experiment_config.build_dialogue_prompt()` 统一构造（"问：{q}\n答："唯一入口）；② `cortex.generate/_generate_p7` 新增**硬失败守卫**——domain=zh 且激活 dialogue neuron 时裸 prompt 直接抛 ValueError（active_nids 归一化后判断，避免 str 误伤；`_allow_plain_prompt=True` 显式放行 base/域 neuron 评估）；③ 13 个验证/诊断脚本统一改口径（verify_zh_leader_ab/diag_zh_leader/diag_zh_capacity/c25_e×3/c19/c20/c21/c26_field_memory/feed_sleep×2/sleep_learning）。验证：py_compile 全过、test_api_dialogue 8 问正常（不误伤）、裸 prompt 拦截/对话格式放行/例外放行三项全过
+   - **待完成**：std0 续训完成（~15:00）+ **用修复后口径跑 verify_zh_leader_ab.py 确认假退化消失** + test_api_dialogue.py 重新评估质量基线 + C26 记忆复述回归
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
