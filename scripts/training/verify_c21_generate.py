@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 
 from taiji.loader import assemble_cortex
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 PROMPTS = [
     ("code", "Write a Python function to compute the Fibonacci sequence"),
@@ -61,11 +62,13 @@ def main():
     print("\n=== executive 生成（40 token）===")
     for tag, prompt in PROMPTS:
         try:
+            # 口径（2026-08-12）：zh/dialogue 项用训练格式 "问：...\n答："。
+            gen_prompt = build_dialogue_prompt(prompt) if tag in ("zh", "dialogue") else prompt
             out = cortex.generate(
-                prompt, max_tokens=40, temperature=0.9, top_k=50,
+                gen_prompt, max_tokens=40, temperature=0.9, top_k=50,
                 collab_mode="executive",
             )
-            print(f"\n── [{tag}] {prompt}\n  → {out}")
+            print(f"\n── [{tag}] {gen_prompt}\n  → {out}")
         except Exception as e:
             import traceback
             traceback.print_exc()

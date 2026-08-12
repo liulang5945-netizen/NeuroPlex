@@ -35,10 +35,10 @@ CANDIDATES = [
 ]
 
 PROMPTS = [
-    "请介绍什么是神经网络",
-    "什么是注意力机制",
-    "请解释梯度下降的原理",
-    "你好，请介绍一下你自己",
+    build_dialogue_prompt("请介绍什么是神经网络"),
+    build_dialogue_prompt("什么是注意力机制"),
+    build_dialogue_prompt("请解释梯度下降的原理"),
+    build_dialogue_prompt("你好，请介绍一下你自己"),
 ]
 
 

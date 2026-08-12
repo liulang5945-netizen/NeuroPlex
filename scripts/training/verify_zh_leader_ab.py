@@ -23,13 +23,16 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from taiji.loader import assemble_cortex  # noqa: E402
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
 COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"
 EXTRA_NEURONS_DIR = "data/foundation_v1_dual"
 
-PROMPTS = [
+# 2026-08-12 口径修复：dialogue neuron 必须用训练格式（问/答）评估，
+# 裸 prompt 会触发换行死循环假退化（见 plans §2.2）。
+_QUESTIONS = [
     "请介绍什么是神经网络",
     "什么是注意力机制",
     "请解释梯度下降的原理",
@@ -43,6 +46,7 @@ PROMPTS = [
     "你能帮我做什么",
     "今天天气不错，聊聊吗",
 ]
+PROMPTS = [build_dialogue_prompt(q) for q in _QUESTIONS]
 
 N_SAMPLES = 3
 MAX_TOKENS = 40

@@ -199,7 +199,8 @@ def main():
         check("训练后 code 推理不崩", False, f"{e}")
 
     try:
-        out_zh = cortex.generate("请介绍神经网络的基本原理", max_tokens=40)
+        # 口径（2026-08-12）：zh 评估必须用对话训练格式，否则 dialogue neuron 假退化。
+        out_zh = cortex.generate(build_dialogue_prompt("请介绍神经网络的基本原理"), max_tokens=40)
         print(f"  zh 输出: {out_zh[:80]!r}", flush=True)
         check("训练后 zh 推理不崩", True, f"len={len(out_zh)}")
     except Exception as e:

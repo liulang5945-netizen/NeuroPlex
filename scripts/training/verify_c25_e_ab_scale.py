@@ -22,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from taiji.loader import assemble_cortex  # noqa: E402
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0
@@ -132,8 +133,11 @@ def main():
     results = {"executive": {}, "continuous": {}}
     for mode in ("executive", "continuous"):
         for i, (tag, prompt) in enumerate(PROMPTS):
+            # 2026-08-12 口径修复：zh 域生成必须用训练格式（问/答），
+            # 裸问题会触发换行死循环假退化（守卫会硬失败）。
+            gen_prompt = build_dialogue_prompt(prompt) if tag == "zh" else prompt
             text = cortex.generate(
-                prompt=prompt, max_tokens=MAX_TOKENS,
+                prompt=gen_prompt, max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE, top_k=TOP_K,
                 repetition_penalty=REPETITION_PENALTY,
                 domain=dom_map[i],

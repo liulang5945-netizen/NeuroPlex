@@ -11,6 +11,7 @@ os.environ.setdefault("TAIJI_TEST_MODE", "1")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from taiji.loader import assemble_cortex
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 PROMPTS = [
     ("code", "Write a Python function to compute the Fibonacci sequence"),
@@ -69,15 +70,18 @@ def main():
     print("\n=== 生成对比（40 token, temp 0.9）===")
     for tag, prompt in PROMPTS:
         try:
+            # 口径（2026-08-12）：zh/dialogue 项用训练格式 "问：...\n答："，
+            # 否则 dialogue neuron 触发换行死循环（cortex 口径守卫硬失败）。
+            gen_prompt = build_dialogue_prompt(prompt) if tag in ("zh", "dialogue") else prompt
             out_exec = cortex.generate(
-                prompt, max_tokens=40, temperature=0.9, top_k=50,
+                gen_prompt, max_tokens=40, temperature=0.9, top_k=50,
                 collab_mode="executive",
             )
             out_fusion = cortex.generate(
-                prompt, max_tokens=40, temperature=0.9, top_k=50,
+                gen_prompt, max_tokens=40, temperature=0.9, top_k=50,
                 collab_mode="fusion",
             )
-            print(f"\n── [{tag}] {prompt}")
+            print(f"\n── [{tag}] {gen_prompt}")
             print(f"  executive: {out_exec}")
             print(f"  fusion   : {out_fusion}")
         except Exception as e:

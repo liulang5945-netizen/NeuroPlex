@@ -80,10 +80,25 @@ SAMPLING_TOP_K = 15
 SAMPLING_REPETITION_PENALTY = 1.4
 SAMPLING_MAX_TOKENS = 60  # 折中默认值（原 single=100, aug_joint=80, dialogue=120）
 
-# ── SFT 对话分隔符（S3: answer masking）─────────────────────────────────
-# 对话数据格式："问：{instruction}\n答：{output}"
+# ── 对话数据格式："问：{instruction}\n答：{output}"
 # 训练时只对 "答：" 之后的 token 计算 loss（answer masking）
 SFT_ANSWER_MARKER = "答："
+Q_MARKER = "问："
+
+# 统一对话 prompt 构造（2026-08-12 口径机制化）：
+# 所有评估/测试 dialogue neuron 的脚本必须用本函数构造 prompt，
+# 禁止裸 prompt（裸 prompt 下 50K 模型陷入换行/空格死循环 → 假退化，
+# 见 plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md §2.2 口径发现）。
+def build_dialogue_prompt(question: str) -> str:
+    """构造与训练数据格式严格一致的对话 prompt。
+
+    Args:
+        question: 用户问题（不含 "问：" 前缀）。
+
+    Returns:
+        "问：{question}\n答："——与 finetune 训练数据逐字符一致。
+    """
+    return f"{Q_MARKER}{question}\n{SFT_ANSWER_MARKER}"
 
 # ── 对话训练数据文件列表（S5: 数据扩充）─────────────────────────────────
 # 本地已有的对话数据文件（均为 {"text": "问：...\n答：..."} 格式）

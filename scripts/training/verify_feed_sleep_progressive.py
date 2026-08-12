@@ -190,7 +190,8 @@ def eval_generation(cortex, prompts, max_tokens=30) -> dict:
     outs = []
     for p in prompts:
         try:
-            outs.append(cortex.generate(p, max_tokens=max_tokens, domain="zh"))
+            # 口径（2026-08-12）：zh 评估用对话训练格式。
+            outs.append(cortex.generate(build_dialogue_prompt(p), max_tokens=max_tokens, domain="zh"))
         except Exception:
             outs.append("")
     non_empty = sum(1 for o in outs if o.strip())

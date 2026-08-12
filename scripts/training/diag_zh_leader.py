@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import torch  # noqa: E402
 from taiji.loader import assemble_cortex  # noqa: E402
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
@@ -29,11 +30,11 @@ COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"
 EXTRA_NEURONS_DIR = "data/foundation_v1_dual"
 
 PROMPTS = [
-    "请介绍什么是神经网络",
-    "如何缓解过拟合问题",
-    "什么是注意力机制",
-    "请解释梯度下降的原理",
-    "你好，请介绍一下你自己",
+    build_dialogue_prompt("请介绍什么是神经网络"),
+    build_dialogue_prompt("如何缓解过拟合问题"),
+    build_dialogue_prompt("什么是注意力机制"),
+    build_dialogue_prompt("请解释梯度下降的原理"),
+    build_dialogue_prompt("你好，请介绍一下你自己"),
 ]
 
 

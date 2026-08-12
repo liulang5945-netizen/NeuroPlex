@@ -114,8 +114,8 @@ def main():
     print("\n[Step 6] 对比训练前后生成文本...")
     test_prompt = "神经元架构"
     try:
-        # 用训练后的 cortex 生成
-        generated = cortex.generate(test_prompt, max_tokens=20, domain="zh")
+        # 用训练后的 cortex 生成（口径 2026-08-12：zh 评估用对话训练格式）
+        generated = cortex.generate(build_dialogue_prompt(test_prompt), max_tokens=20, domain="zh")
         print(f"  Prompt: '{test_prompt}'")
         print(f"  生成: '{generated[:80]}'")
     except Exception as e:

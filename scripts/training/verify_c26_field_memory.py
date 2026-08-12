@@ -85,7 +85,9 @@ def fresh_generate(cortex, prompt: str, max_tokens: int = 16) -> str:
     cortex.field.reset()
     if cortex._dialogue_state is not None:
         cortex._dialogue_state.reset()
-    return cortex.generate(prompt, max_tokens=max_tokens, domain="zh")
+    # 口径（2026-08-12）：query 包装为对话训练格式（"问：...\n答："），
+    # 与 dialogue neuron 的 SFT 训练分布一致，避免裸 prompt 假退化。
+    return cortex.generate(build_dialogue_prompt(prompt), max_tokens=max_tokens, domain="zh")
 
 
 def field_state_of(cortex, text: str) -> torch.Tensor:

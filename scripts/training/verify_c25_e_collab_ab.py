@@ -20,6 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from taiji.loader import assemble_cortex
+from scripts.training.experiment_config import build_dialogue_prompt
 
 passed = 0
 failed = 0
@@ -92,8 +93,10 @@ def main():
         for tag, prompt in PROMPTS:
             t1 = time.time()
             try:
+                # 2026-08-12 口径修复：dialogue/zh 域生成用训练格式（问/答）
+                gen_prompt = build_dialogue_prompt(prompt) if tag in ("zh", "dialogue") else prompt
                 text = cortex.generate(
-                    prompt=prompt, max_tokens=20,
+                    prompt=gen_prompt, max_tokens=20,
                     temperature=0.55, top_k=15,
                     repetition_penalty=1.4,
                     domain=dom_exe[tag],

@@ -934,6 +934,8 @@ class Cortex:
         active_nids: Optional[Union[str, List[str]]] = None,
         collab_mode: str = "continuous",
         fusion_mode: str = "soft",
+        # 口径守卫例外开关（2026-08-12）：base/域 neuron 评估用纯问题 prompt 时传 True。
+        _allow_plain_prompt: bool = False,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -982,6 +984,7 @@ class Cortex:
                 repetition_penalty, routing_level=routing_level,
                 active_nids=active_nids, collab_mode=collab_mode,
                 fusion_mode=fusion_mode,
+                _allow_plain_prompt=_allow_plain_prompt,
             )
         # SMCS EPE: 生成多条候选，混合后验评分选最优
         candidates = []
@@ -992,6 +995,7 @@ class Cortex:
                     repetition_penalty, routing_level=routing_level,
                     active_nids=active_nids, collab_mode=collab_mode,
                     fusion_mode=fusion_mode,
+                    _allow_plain_prompt=_allow_plain_prompt,
                 )
                 if text:
                     candidates.append(text)
@@ -1636,6 +1640,9 @@ class Cortex:
         # "keyword" = 纯关键词路由（无共振校验，最快）
         routing_mode: str = "hybrid",
         resonance_top_k: int = 3,  # R1: resonance 模式下激活的神经元数量
+        # 口径守卫例外开关（2026-08-12）：base/域 neuron 评估用纯问题 prompt
+        # （无 "问：/答：" 格式）时显式传 True，绕过 dialogue 格式守卫。
+        _allow_plain_prompt: bool = False,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1829,6 +1836,24 @@ class Cortex:
                 ]
                 if general_neurons and domain not in general_neurons:
                     active_nids.extend(general_neurons)
+
+        # 2.5 评估口径守卫（2026-08-12 机制化，硬失败）：
+        # dialogue neuron（zh_aug*_dialogue / zh_std0_dialogue）用 "问：...\n答：" 格式
+        # 训练（SFT answer masking），裸 prompt 下模型陷入换行/空格死循环 → 假退化。
+        # 历史同根问题：07-31 domain/general token ID 错位、07-29 评估集分布失真——
+        # 均靠人工发现。本守卫让格式错误在运行时直接报错，杜绝悄悄生成垃圾。
+        # 此处 active_nids 已完成归一化（必为 list，非 None），判断准确。
+        # 例外：base/域 neuron 评估（纯问题、无对话格式）显式传 _allow_plain_prompt=True。
+        if (domain == "zh" and not prompt.rstrip().endswith("答：")
+                and not _allow_plain_prompt
+                and any(nid.endswith("_dialogue") for nid in active_nids)):
+            raise ValueError(
+                f"[口径守卫] domain='zh' 且激活 dialogue neuron 时，prompt 必须用训练格式 "
+                f"'问：{{question}}\\n答：'（当前: {prompt[:50]!r}）。"
+                f"裸 prompt 会触发换行死循环导致假退化。"
+                f"请用 scripts/training/experiment_config.build_dialogue_prompt() 构造；"
+                f"base/域 neuron 评估请显式传 _allow_plain_prompt=True。"
+            )
 
         # C24（2026-08-09）：leader 是域目标空间 SFT neuron 时首次迭代补 "\n"
         # 分隔符（见下方 leader 分支）——训练 answer 起点在 prompt+"\n" 之后。
