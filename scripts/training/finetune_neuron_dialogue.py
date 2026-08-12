@@ -162,7 +162,9 @@ def main():
                         help="S8: 训练 shared_embedding（默认 True，适配对话格式 token）")
     parser.add_argument("--freeze_embedding", action="store_true",
                         help="S8: 冻结 shared_embedding（恢复旧行为，不推荐）")
-    parser.add_argument("--eval_every", type=int, default=1000)
+    parser.add_argument("--eval_every", type=int, default=500,
+                        help="eval + 保存 ckpt 间隔（500 步 ≈ 1h，中断最多丢 500 步。"
+                             "2026-08-12 软件更新中断教训：默认 1000 时中断零保存）")
     parser.add_argument("--log_every", type=int, default=200)
     parser.add_argument("--warmup_steps", type=int, default=100)
     parser.add_argument("--max_texts", type=int, default=100000)
