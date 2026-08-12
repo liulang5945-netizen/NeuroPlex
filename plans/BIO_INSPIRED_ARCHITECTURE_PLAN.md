@@ -97,10 +97,12 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 ### 2.2 下一步建议（当前活跃，按优先级）
 
-1. **dialogue 续训回归**（后台进行中，2026-08-12 重启）：4000→8000 步完成后，验证 val PPL 下降（目标 95→50-60）+ 重跑 verify_zh_leader_ab.py 对比生成质量；**同时回归 C26 记忆复述**（生成能力恢复后记忆标签应能进入输出）
+1. **dialogue 续训回归**（2026-08-12：compact 4 个已完成，std0 续训中）：验证 val PPL 下降 + test_api_dialogue.py 对话质量；**同时回归 C26 记忆复述**
    - **T12 词表迁移**（2026-08-12）：dialogue neuron lm_head 仍 20K（08-01 训练），与当前 50K tokenizer 不匹配 → resume 崩溃 `Target 38070 out of bounds`。已用 hot_swap_vocab.py 迁移 5 个 dialogue + 5 个 base 共 10 个 ckpt 到 50K（精确 13427 + 子 piece 36573），backup 在 pre_t12_backup/
    - **C26 lr 修复（补充）**：resume 后仅改 optimizer.lr 不够——LambdaLR.step() 用 scheduler.base_lrs（旧 5e-4）覆盖 → 首日志实测 lr=5e-4（大 lr 冲击已收敛权重）。已补充 `scheduler.base_lrs = [args.lr]*n`，验证通过（lr 保持 1e-4）
-   - **训练验证**：前向链路（50K tokenizer × 50K lm_head）+ save/load 往返（diff=0.0）+ 首日志 step 4200 PPL 277 lr=1e-4 全部通过
+   - **训练结果**（compact 4 个已完成 4000→8000）：val PPL 160→101-107（降 33%），每 1000 步稳定降 ~15，无平台；EOS 学习正常（自然停止）；生成质量验证见下
+   - **⚠️ 评估口径发现（重要）**：verify_zh_leader_ab.py 用**裸 prompt**（"请介绍什么是神经网络"）评估，但 dialogue neuron 训练/产品路径（test_api_dialogue.py）都用 `问：xxx\n答：` 格式 → 裸 prompt 下 50K 模型陷入 `。`→换行→空格死循环（top1 恒为 `▁`），触发跑偏截断 → 假退化（均长 9.6）。**test_api_dialogue.py（正确格式）生成完整正常**（Q5 诗/两行、Q7 幸福/完整句）。verify_zh_leader_ab 需改为训练格式 prompt 才有效
+   - **待完成**：std0 续训完成（~15:00）+ 用 test_api_dialogue.py 重新评估质量基线 + C26 记忆复述回归
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
