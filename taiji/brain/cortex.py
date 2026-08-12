@@ -40,6 +40,7 @@ from taiji.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, NeuronConfig,
 )
 from taiji.resonance.translator import tokenizer_fingerprint
+from taiji.resonance.dialogue_format import dialogue_prompt_requires_guard
 
 
 class Cortex:
@@ -1840,13 +1841,10 @@ class Cortex:
         # 2.5 评估口径守卫（2026-08-12 机制化，硬失败）：
         # dialogue neuron（zh_aug*_dialogue / zh_std0_dialogue）用 "问：...\n答：" 格式
         # 训练（SFT answer masking），裸 prompt 下模型陷入换行/空格死循环 → 假退化。
-        # 历史同根问题：07-31 domain/general token ID 错位、07-29 评估集分布失真——
-        # 均靠人工发现。本守卫让格式错误在运行时直接报错，杜绝悄悄生成垃圾。
-        # 此处 active_nids 已完成归一化（必为 list，非 None），判断准确。
-        # 例外：base/域 neuron 评估（纯问题、无对话格式）显式传 _allow_plain_prompt=True。
-        if (domain == "zh" and not prompt.rstrip().endswith("答：")
-                and not _allow_plain_prompt
-                and any(nid.endswith("_dialogue") for nid in active_nids)):
+        # 判断逻辑见 taiji/resonance/dialogue_format.dialogue_prompt_requires_guard
+        # （核心库单一真相源，配合 tests/test_dialogue_format.py 回归防口径漂移）。
+        # 此处 active_nids 已完成归一化（必为 list，非 None）。
+        if dialogue_prompt_requires_guard(prompt, domain, active_nids, _allow_plain_prompt):
             raise ValueError(
                 f"[口径守卫] domain='zh' 且激活 dialogue neuron 时，prompt 必须用训练格式 "
                 f"'问：{{question}}\\n答：'（当前: {prompt[:50]!r}）。"
