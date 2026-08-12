@@ -117,6 +117,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 5. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套 + 产品闭环，见缺口清单 K/L/M/N）
 6. ~~锚点投影/写门控进装配~~ ✅ 已完成（train_field_memory_components.py 训练产物 → sleep_engine 场固化自动装配）
 7. **对话数据扩充重训**（zh_aug*/zh_std0 主线，续训完成后）：C24 dialogue 数据扩充 → 重跑 finetune_neuron_dialogue
+8. **✅ 项目整理（2026-08-12，提交 a4064f9）**：① 数据层清理 13.71GB 废弃产物（foundation_v1_general_smoke 7.4G + foundation_v1_sft 3G + verify_v3 2.3G + neurons_backup_3000step 1.2G + verify_v3_full + 空目录×4；distill 因 experiment_config DATA_DIR 活跃引用保留）；② 脚本层归档 103 个一次性 verify/_smoke/diag 到 scripts/archive/（git mv 保留历史），scripts/training/ 收敛 149→46 主训练脚本；③ 测试层 pytest 入 requirements + tests/ 统一入口 16/16。回归：tests 16/16 通过、核心 import 正常
 
 ### 2.3 中期：跨域协作（上限优先版）
 
