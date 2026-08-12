@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch  # noqa: E402
 from taiji.loader import assemble_cortex  # noqa: E402
 from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0

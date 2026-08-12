@@ -62,7 +62,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 回合级判定 | ✅ 5/5 | judge NLL 主信号（general 空间可比）+ 启发式融合；quality z-score 回退存活 |
 | 记忆（C26） | ✅ 场固化 | FieldMemoryBank + sleep Phase 1.5：跨会话检索 4/4 命中、跨重启恢复 |
 | 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%） |
-| 训练中 | 🔄 5 dialogue 续训 | 4000→8000 步（后台并行，日志 logs/finetune_dialogue_*_20260812_*.log） |
+| 续训（完成） | ✅ 4000→8000 | 5 dialogue 全部完成（best PPL：compact 101-107 / std0 95.27@4000）；口径机制化后回归通过 |
 | 遗留瓶颈 | ⚠️ zh/en 生成 | answer PPL ~70（词表大 + 响应长 + 51M 容量），域生成片段级；对话质量受欠训练限制（续训中） |
 
 ### 1.4 闭环缺口清单
@@ -104,6 +104,8 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **⚠️ 评估口径发现（重要）**：verify_zh_leader_ab.py 用**裸 prompt**（"请介绍什么是神经网络"）评估，但 dialogue neuron 训练/产品路径（test_api_dialogue.py）都用 `问：xxx\n答：` 格式 → 裸 prompt 下 50K 模型陷入 `。`→换行→空格死循环（top1 恒为 `▁`），触发跑偏截断 → 假退化（均长 9.6）。**test_api_dialogue.py（正确格式）生成完整正常**（Q5 诗/两行、Q7 幸福/完整句）。verify_zh_leader_ab 需改为训练格式 prompt 才有效
    - **✅ 口径机制化（2026-08-12，提交 04d1ee8）**：根治（历史同类：07-31 domain/general token ID 错位、07-29 评估集分布失真——均靠人工发现）。① `experiment_config.build_dialogue_prompt()` 统一构造（"问：{q}\n答："唯一入口）；② `cortex.generate/_generate_p7` 新增**硬失败守卫**——domain=zh 且激活 dialogue neuron 时裸 prompt 直接抛 ValueError（active_nids 归一化后判断，避免 str 误伤；`_allow_plain_prompt=True` 显式放行 base/域 neuron 评估）；③ 13 个验证/诊断脚本统一改口径（verify_zh_leader_ab/diag_zh_leader/diag_zh_capacity/c25_e×3/c19/c20/c21/c26_field_memory/feed_sleep×2/sleep_learning）。验证：py_compile 全过、test_api_dialogue 8 问正常（不误伤）、裸 prompt 拦截/对话格式放行/例外放行三项全过
    - **待完成**：std0 续训完成（~15:00）+ **用修复后口径跑 verify_zh_leader_ab.py 确认假退化消失** + test_api_dialogue.py 重新评估质量基线 + C26 记忆复述回归
+   - **✅ 续训全部完成（2026-08-12 18:47）**：std0 8000/8000 完成，best_val_PPL=95.27@step4000（最终 105.98，WSD 衰减后正常）。5 个 ckpt 全部保存（std0 2.97GB / compact 各 2.13GB，50K 词表规模）
+   - **✅ 回归结果（2026-08-12）**：① verify_zh_leader_ab（修复后口径）：均长 9.6→30.9（假退化消失），非空 36/36，重复率 0.133/0.084，强制 134M leader 收益边际（不采纳）；② test_api_dialogue：8 问全部正常无死循环，质量仍受欠训练限制（遗留瓶颈不变）；③ C26 记忆复述：11/11 PASS（检索 4/4 命中、注入生效 4/4、跨重启恢复）
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
