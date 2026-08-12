@@ -63,6 +63,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 记忆（C26） | ✅ 场固化 | FieldMemoryBank + sleep Phase 1.5：跨会话检索 4/4 命中、跨重启恢复 |
 | 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%） |
 | 续训（完成） | ✅ 4000→8000 | 5 dialogue 全部完成（best PPL：compact 101-107 / std0 95.27@4000）；口径机制化后回归通过 |
+| 回归测试 | ✅ 16/16 | tests/ 下 pytest 统一入口（3 文件 16 用例）：口径契约 10 + 共振 side_channel 6；requirements.txt 补 pytest |
 | 遗留瓶颈 | ⚠️ zh/en 生成 | answer PPL ~70（词表大 + 响应长 + 51M 容量），域生成片段级；对话质量受欠训练限制（续训中） |
 
 ### 1.4 闭环缺口清单
@@ -106,6 +107,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **待完成**：std0 续训完成（~15:00）+ **用修复后口径跑 verify_zh_leader_ab.py 确认假退化消失** + test_api_dialogue.py 重新评估质量基线 + C26 记忆复述回归
    - **✅ 续训全部完成（2026-08-12 18:47）**：std0 8000/8000 完成，best_val_PPL=95.27@step4000（最终 105.98，WSD 衰减后正常）。5 个 ckpt 全部保存（std0 2.97GB / compact 各 2.13GB，50K 词表规模）
    - **✅ 回归结果（2026-08-12）**：① verify_zh_leader_ab（修复后口径）：均长 9.6→30.9（假退化消失），非空 36/36，重复率 0.133/0.084，强制 134M leader 收益边际（不采纳）；② test_api_dialogue：8 问全部正常无死循环，质量仍受欠训练限制（遗留瓶颈不变）；③ C26 记忆复述：11/11 PASS（检索 4/4 命中、注入生效 4/4、跨重启恢复）
+   - **✅ 口径契约可回归化（2026-08-12，提交 c0cec3b）**：根因是 87 个一次性 verify/_smoke 脚本各自为政、无回归保障。落地：① `taiji/resonance/dialogue_format.py` 作口径单一真相源（`build_dialogue_prompt` + `dialogue_prompt_requires_guard`），experiment_config 改 re-export（35 引用点零破坏），cortex 守卫改用纯函数消除漂移；② `tests/test_dialogue_format.py` 首个可回归契约（10 用例 + 核心不变量"构造产物必过守卫"）；③ pytest 入 requirements + tests/ 统一入口（16/16 通过）
 2. **C26 增量一：可学习写策略**（对比 Titans 最大差距）：轻量门控 MLP（输入 = 当前场状态 + 与既有记忆最近邻相似度，输出 = 是否值得写入），训练信号 = 检索回报（写入后提高未来检索命中/生成质量的样本 → 门控加权）。冒烟指标：去重阈值 0.92 由学习门控替代，冗余记忆率下降而命中率不降
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
    - **✅ 数据扩充（2026-08-12，提交 84c2e9a）**：发现 sft_shared_core/unique 与 alpaca **100% 重复**（实际唯一仅 44.4K 条，数据/参数比远低于预期 → 直接解释质量瓶颈）。新增 build_dialogue_extended.py 从 BelleGroup/train_2M_CN 下载 150K → 去重/清洗后 +123K 唯一 → 总 167K 条（3.8×）
