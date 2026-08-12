@@ -110,6 +110,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
    - **✅ 数据扩充（2026-08-12，提交 84c2e9a）**：发现 sft_shared_core/unique 与 alpaca **100% 重复**（实际唯一仅 44.4K 条，数据/参数比远低于预期 → 直接解释质量瓶颈）。新增 build_dialogue_extended.py 从 BelleGroup/train_2M_CN 下载 150K → 去重/清洗后 +123K 唯一 → 总 167K 条（3.8×）
    - **🔄 重训中**：5 dialogue 并行（无 resume 吃全量新分布，权重继承、优化器状态重置），steps=8000，max_texts=300K；预计耗时 compact ~14h / std0 ~18h（日志 logs/finetune_dialogue_*_20260812_19*.log）
+   - **⚠️ 中断事件（2026-08-12 20:15）**：软件更新终止全部训练进程（aug0 step200、其余加载中，eval_every=1000 → 零 ckpt 保存、白跑）。**改进（提交 15e4509）**：eval_every 默认 1000→500（中断最多丢 500 步 ≈1h）。20:21 已重启 5 进程
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
 5. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套 + 产品闭环，见缺口清单 K/L/M/N）
 6. ~~锚点投影/写门控进装配~~ ✅ 已完成（train_field_memory_components.py 训练产物 → sleep_engine 场固化自动装配）
