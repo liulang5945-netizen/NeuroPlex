@@ -106,7 +106,7 @@ b) 训练侧停存并归档为实验特性。
 
 **动作**: 本文件规范节 N1 即落地；后续口径变更须遵循。
 
-### R9: 生成质量断言升级 🟡
+### R9: 生成质量断言升级 ✅
 
 **动作**: 关键 verify（c25e、c26）的"非空即 PASS"升级为与基线对照：固定 seed 下对比两种模式输出差异 + 无异常串检测（`1.<0x0A>`、重复标点、纯数字退化）。
 
@@ -116,7 +116,7 @@ b) 训练侧停存并归档为实验特性。
 
 ## P2 — 生产闭环接通
 
-### R10: 海马→皮层记忆闭环 🔴
+### R10: 海马→皮层记忆闭环 ✅
 
 **现状**: `record_field_memory()` 零生产调用者（sleep_engine.py:457-466）；记忆固化是空操作；field_memory.py 增量三（access_count/consolidated/frequent_entries/mark_consolidated）未提交。
 
@@ -125,25 +125,32 @@ b) 训练侧停存并归档为实验特性。
 2. 生产接线：cortex.generate 成功后（或 chat API 层）调用 record_field_memory → sleep Phase 1.5 固化 → 高频记忆（frequent_entries）皮层沉淀候选。
 3. `memory_vectors` 经 API 透传（routes_taiji.py cortex_chat）。
 
-**验收**: 生产路径产生记忆条目并跨会话固化；verify_c26_memory_read_gen 全通过。
+**验收**: 生产路径产生记忆条目并跨会话固化；verify_c26_memory_read_gen 全通过（已跑 10 PASS）。
 
-### R11: STDP 进 continuous 路径 🔴
+### R11: STDP 进 continuous 路径 ✅
 
 **现状**: `continuous_forward`（ensemble.py:1775-2010）不记录 firing；睡眠期 apply 空转。
 
 **动作**: continuous 路径补 `record_firing`（先记录后应用，与离散路径一致）；睡眠期 `apply_all_updates` 真实生效。
 
-**验收**: 一次 feed→sleep 周期产生非空 STDP 更新。
+**验收**: 一次 feed→sleep 周期产生非空 STDP 更新。**2026-08-14 验收 7 PASS / 0 FAIL**（verify_stdp_cycle）。验收暴露并修复 3 个真实缺陷（STDP 此前从未生效，离散/连续皆空转）：
+1. **记录口径**: 原记录各 neuron 原始 round_vecs——跨 neuron 域内独立（2048/3072 空间），cosine≈0 永不触发。改为记录投影到场空间的向量（`_project_vec`，离散 round1/round2+、连续 t=0/积分步共 4 处）。
+2. **相似度门控**: `STDPRule` 默认阈值 0.3 全卡（投影后实测 cosine ±0.03）→ 改为 0.0（"同向即强化"，sim 仍作 delta 乘数）。
+3. **重复强化**: 生产路径从不 `clear_history()`（全仓库仅 archive 脚本调用）→ sleep_engine 在 `apply_all_updates` 后补 `clear_history()`，同一批发放不再被每次 sleep 重复应用。
 
-### R12: theta-gamma 嵌套激活实验 🟡
+### R12: theta-gamma 嵌套激活实验 ✅
 
 **现状**: `theta_omega` 默认 0（continuous.py:43,151-152）死功能。
 
 **动作**: 做成显式开关（默认仍关），A/B 验证 theta 嵌套对生成质量的收益。
 
-**验收**: A/B 报告记录；有收益则默认开。
+**验收**: A/B 报告记录；有收益则默认开。**2026-08-14 A/B 报告**（真实装配 × 8 问 × 2 模式，seed 固定）：
+- 机制层生效：theta 开 → `continuous_weights` 相对差 max 0.030（逐元素不等，约 10% 相对幅度），非死功能。
+- 输出层：8 问 40 token 文本**逐字符相同**（top-1 采样未跨阈值翻转）→ 当前装配下无输出级收益实证。
+- 零回归：off 模式包络恒 1、调制恒等（既有 16 PASS 断言不变）。
+- **结论：保持默认关**。机制保留——C26 增量五记忆 entrain 路径激活时 theta 相位对齐峰值，跨频耦合才有行为差异（verify_c26_cross_freq 12/12）。
 
-### R13: brain/working_memory 接线或标注 🔴
+### R13: brain/working_memory 接线或标注 ✅
 
 **动作**: 接线到 `_generate_p7`（写入读回）或明确标注"未接入"，删除假接线。
 
@@ -192,7 +199,7 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 
 | R | 项 | 状态 | 完成日期 | 备注 |
 |---|---|---|---|---|
-| R1 | W_cond 训练闭环 | ✅ | 2026-08-14 | forward_train W_cond 门控 cosine 对齐 field._condition；3 训练脚本解冻+muon+ckpt 存 field_w_cond；loader step7 加载 |
+| R1 | W_cond 训练闭环 | ✅ | 2026-08-14 | forward_train W_cond 门控 cosine 对齐 field._condition；3 训练脚本解冻+muon+ckpt 存 field_w_cond；loader step7 加载；**冒烟验收 4 PASS**（冒烟实测修复 keepdim 除法广播错形：`[N,B]/[N,B,1]→[N,B,1]` 致 einsum 维度不匹配，norm 去 keepdim 后恢复） |
 | R2 | field_read_layers 解冻 | ✅ | 2026-08-14 | neuron.get_field_read_parameters()；3 脚本 unfreeze 分支解冻入 body 低 lr |
 | R3 | sparse_router 加载 | ✅ | 2026-08-14 | loader step6.5 按 sparse_router_config 重建加载；训练侧保存 config（无状态产物零行为变化） |
 | R4 | shared_weight_mlp | ✅ | 2026-08-14 | ensemble 读任务场（_get_task_field().get_state()），训练该层仍为实验未纳入 |
@@ -202,8 +209,8 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 | R8 | 口径双跑规范 | ✅ | 2026-08-14 | 规范节 N1 |
 | R9 | 质量断言升级 | ✅ | 2026-08-14 | verify_c25_e_leader_fusion 加异常串检测（`1.<0x0A>`/重复标点/纯数字长串）+ cortex.generate 退化重试（temp+0.15 重采样一次，实测诗题 `1.<0x0A>` → 真实诗句）；回归 4 PASS |
 | R10 | 记忆闭环 | ✅ | 2026-08-14 | cortex.get_last_field_state() + cortex_chat 对话后 record_field_memory（try/except 不破坏响应）；读侧已由 set_brain_interfaces→set_field_memory+auto_memory 接通；提交 field_memory.py 增量三 |
-| R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效） |
-| R12 | theta-gamma | ✅ | 2026-08-14 | 显式开关 TAIJI_THETA_NESTING（默认关零回归）+ **C26 增量五跨频耦合闭环**（记忆 entrain theta 相位→gamma 注意窗接入 continuous_forward 主循环，verify_c26_cross_freq 12/12） |
+| R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效）；**验收 7 PASS**（暴露修复：记录口径改投影场空间 4 处、STDPRule 阈值 0.3→0.0、sleep_engine 补 clear_history 防重复强化） |
+| R12 | theta-gamma | ✅ | 2026-08-14 | 显式开关 TAIJI_THETA_NESTING（默认关零回归）+ C26 增量五跨频耦合闭环（记忆 entrain theta 相位→gamma 注意窗接入 continuous_forward 主循环，verify_c26_cross_freq 12/12）；**A/B 报告**：机制层生效（weights Δ=0.03）、输出层 8 问逐字符相同（无输出级收益实证）→ 保持默认关，待记忆路径收益实证 |
 | R13 | working_memory | ✅ | 2026-08-14 | 标注"注册未接入"（cortex.py + loader.py）；真实对话上下文由 agent 层承担 |
 | R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓 |
 | R15 | buffer 语义 | ✅ | 2026-08-14 | field.reset 设备感知零/一张量（W_cond 锚定）；推理中途 refractory 减法改 in-place（保持 buffer 对象身份，get_effective_state 无别名风险） |
