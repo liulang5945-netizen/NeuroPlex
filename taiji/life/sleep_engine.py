@@ -99,6 +99,9 @@ class SleepReport:
     # C26 增量六（Phase 1.7）：真正睡眠重放——记忆向量场条件化 forward 重放
     forward_replayed: int = 0
     forward_replay_loss: Optional[float] = None
+    # C27 增量五（Phase 1.8）：振荡器节奏训练——o 型节奏参数随睡眠经验学习
+    osc_trained: int = 0
+    osc_train_loss: Optional[float] = None
 
 
 @dataclass
@@ -340,6 +343,16 @@ class SleepEngine:
             logger.info("  Phase 1.7: Forward replay ✅")
         except Exception as e:
             logger.warning(f"  Phase 1.7 failed: {e}")
+
+        # Phase 1.8: 振荡器节奏训练 — o 型节奏控制器随睡眠经验学习（C27 增量五）
+        # 增量四打通振荡器梯度路径（ω/coupling/gaba_amp 可微 + osc_rhythm_loss），
+        # 本 Phase 让节奏参数在睡眠重放中实际更新（只动振荡器，内容层不参与）。
+        try:
+            self._sleep_phase_osc_train(report)
+            report.phases_completed.append("osc_train")
+            logger.info("  Phase 1.8: Oscillator train ✅")
+        except Exception as e:
+            logger.warning(f"  Phase 1.8 failed: {e}")
         
         # Phase 2: 深睡眠 — 模型训练
         if self.config.training_enabled:
@@ -945,6 +958,125 @@ class SleepEngine:
         logger.info(f"  真正睡眠重放完成: {replayed_nids} 个神经元"
                     f"（{len(samples)} 条样本, {steps} 步, "
                     f"avg loss={report.forward_replay_loss:.3f}）")
+
+    # ── C27 增量五：振荡器节奏训练（Phase 1.8，o 型可学习节奏控制器）──────────
+    osc_train_lr = 1e-3        # 振荡器仅 3 标量参数，学习率可稍大
+    osc_train_max_steps = 24   # 节奏训练步数预算（比 1.7 少，参数量级极小）
+    osc_train_ct_steps = 4     # 连续积分步数缩短（节奏学习不需完整 8 步）
+
+    def _sleep_phase_osc_train(self, report: SleepReport) -> None:
+        """Phase 1.8: 振荡器节奏训练 — o 型节奏参数随睡眠经验学习（C27 增量五）。
+
+        增量四打通了振荡器梯度路径（omega/coupling/gaba_amp 可微，osc_rhythm_loss
+        作 gaba_amp 梯度源——锁相强→弱抑制、发散→强抑制），但尚无训练脚本实际
+        更新参数。本 Phase 让节奏控制器在睡眠重放中真正学习：
+        - 样本源与 Phase 1.7 同口径（已沉淀记忆 + 场状态重放文本）
+        - continuous 模式 forward_train，loss = osc_rhythm_loss + phase_loss
+          （C23-C4 监督纯净：主 NLL 不触达门控，节奏梯度源独立）
+        - optimizer 只含振荡器参数（内容层由 1.6/1.7 学习，节奏独立分层）
+        - 训练后振荡器参数随 cortex.save_state 持久化（增量四已接入）
+
+        失败/无样本/无振荡器 → report.osc_trained=0 静默跳过（零破坏）。
+        """
+        if self.cortex is None or not getattr(self.cortex, "neurons", None):
+            report.osc_trained = 0
+            return
+        ensemble = getattr(self.cortex, "ensemble", None)
+        oscs = getattr(ensemble, "oscillators", []) if ensemble is not None else []
+        if not oscs:
+            report.osc_trained = 0
+            return
+        # 样本源（与 Phase 1.7 同口径：已沉淀记忆 + 场状态重放文本）
+        samples: List[tuple] = []
+        bank = self.get_field_memory()
+        try:
+            for e in bank.entries:
+                if e.get("consolidated") and e.get("vector") is not None:
+                    text = e.get("text") or e.get("label", "")
+                    if len(text.strip()) >= 8:
+                        samples.append((e["vector"], text))
+        except Exception:
+            pass
+        sc = self._sleep_consolidator
+        if sc is not None:
+            try:
+                for rec in list(sc._replay_buffer):
+                    txt = rec.get("text")
+                    if txt and len(str(txt).strip()) >= 8:
+                        samples.append((rec["state"], str(txt)))
+            except Exception:
+                pass
+        if not samples:
+            report.osc_trained = 0
+            return
+        tokenizer_hub = getattr(self.cortex, "_tokenizer_hub", None)
+        general_sp = getattr(self.cortex, "_general_sp", None)
+        shared_embedding = getattr(self.cortex, "_shared_embedding", None)
+        if tokenizer_hub is None or general_sp is None or shared_embedding is None:
+            report.osc_trained = 0
+            return
+        device = next(shared_embedding.parameters()).device
+        domain_sp = tokenizer_hub.get_tokenizer("zh")
+        if domain_sp is None:
+            report.osc_trained = 0
+            return
+
+        import random
+        random.shuffle(samples)
+        samples = samples[: self.forward_replay_max_samples]
+
+        # 只更新振荡器参数（内容层不参与，节奏学习独立分层）
+        osc_params = [p for o in oscs for p in (o.omega, o.coupling, o.gaba_amp)]
+        if not osc_params:
+            report.osc_trained = 0
+            return
+        optimizer = torch.optim.AdamW(osc_params, lr=self.osc_train_lr)
+        # 关收敛提前 break（min_steps 拉大）——保证牵引项（coupling 梯度）稳定
+        try:
+            from taiji.resonance.continuous import ContinuousResonance
+            ct = ContinuousResonance(
+                steps=self.osc_train_ct_steps, min_steps=10 ** 6)
+        except Exception:
+            ct = None
+
+        total_loss = 0.0
+        steps = 0
+        for vec, text in samples:
+            if steps >= self.osc_train_max_steps:
+                break
+            try:
+                domain_ids = tokenizer_hub.encode(text, domain="zh")
+                if not domain_ids or len(domain_ids) < 3:
+                    continue
+                domain_ids = domain_ids[:128]
+                gids = []
+                for did in domain_ids:
+                    gg = general_sp.EncodeAsIds(domain_sp.id_to_piece(did))
+                    gids.append(gg[0] if gg else 0)
+                if len(gids) < 3:
+                    continue
+                input_ids = torch.tensor([gids], dtype=torch.long, device=device)
+                embeddings = shared_embedding(input_ids)
+                optimizer.zero_grad()
+                out = ensemble.forward_train(
+                    shared_embeddings=embeddings, n_rounds=2,
+                    continuous=True, target_domain="zh", ct=ct)
+                loss = out["osc_rhythm_loss"] + out["phase_loss"]
+                if not torch.isfinite(loss.detach()):
+                    continue
+                loss.backward()
+                optimizer.step()
+                total_loss += float(loss.detach())
+                steps += 1
+            except Exception:
+                continue
+        if steps == 0:
+            report.osc_trained = 0
+            return
+        report.osc_trained = len(oscs)
+        report.osc_train_loss = total_loss / steps
+        logger.info(f"  振荡器节奏训练完成: {len(oscs)} 节点"
+                    f"（{steps} 步, avg loss={report.osc_train_loss:.4f}）")
 
     def _sleep_phase_memory_consolidation(self, report: SleepReport):
         """Phase 1: 记忆整理 — 整合上下文管理器 + WorkingMemory"""
