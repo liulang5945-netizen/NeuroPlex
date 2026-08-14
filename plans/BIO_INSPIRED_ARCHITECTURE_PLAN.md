@@ -98,7 +98,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 ### 2.2 下一步建议（当前活跃，按优先级）
 
-1. **✅ dialogue 续训回归（2026-08-14 完成）**：5 个 dialogue 全部完成新数据重训（compact best 68.74-73.60，std0=67.42，旧 best 95-102 → 降 27-30%）+ 三项回归全过（A/B 反转、API 无死循环、C26 11/11）
+1. **✅ dialogue 续训回归（2026-08-14 完成）**：5 个 dialogue 全部完成新数据重训（compact best 68.74-73.60，std0=67.42，旧 best 95-102 → 降 27-30%）+ 三项回归全过（A/B 边际、API 无死循环、C26 11/11）；std0 补验：A/B 均长 30.0/39.2、重复 0.186/0.230、命中 0.281/0.275——**强制 134M 长度优但重复差，收益边际，leader 改进维持不采纳**
    - **T12 词表迁移**（2026-08-12）：dialogue neuron lm_head 仍 20K（08-01 训练），与当前 50K tokenizer 不匹配 → resume 崩溃 `Target 38070 out of bounds`。已用 hot_swap_vocab.py 迁移 5 个 dialogue + 5 个 base 共 10 个 ckpt 到 50K（精确 13427 + 子 piece 36573），backup 在 pre_t12_backup/
    - **C26 lr 修复（补充）**：resume 后仅改 optimizer.lr 不够——LambdaLR.step() 用 scheduler.base_lrs（旧 5e-4）覆盖 → 首日志实测 lr=5e-4（大 lr 冲击已收敛权重）。已补充 `scheduler.base_lrs = [args.lr]*n`，验证通过（lr 保持 1e-4）
    - **训练结果**（compact 4 个已完成 4000→8000）：val PPL 160→101-107（降 33%），每 1000 步稳定降 ~15，无平台；EOS 学习正常（自然停止）；生成质量验证见下
@@ -113,7 +113,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **✅ 数据扩充（2026-08-12，提交 84c2e9a）**：发现 sft_shared_core/unique 与 alpaca **100% 重复**（实际唯一仅 44.4K 条，数据/参数比远低于预期 → 直接解释质量瓶颈）。新增 build_dialogue_extended.py 从 BelleGroup/train_2M_CN 下载 150K → 去重/清洗后 +123K 唯一 → 总 167K 条（3.8×）
    - **⚠️ 中断事件（2026-08-12 20:15）**：软件更新终止全部训练进程（aug0 step200、其余加载中，eval_every=1000 → 零 ckpt 保存、白跑）。**改进（提交 15e4509）**：eval_every 默认 1000→500（中断最多丢 500 步 ≈1h）。20:21 已重启 5 进程
    - **✅ 重训完成（2026-08-14 03:19）**：compact 4 个全部 8000/8000（best val PPL：aug2=68.74 / aug3=71.81 / aug0=72.03 / aug1=73.60）；std0 8000/8000 完成 best_val_PPL=**67.42**（134M 上限收益显现）。5 个 ckpt 全部落盘 data/neurons/neuron_zh_*_dialogue.pt，旧数据 best 95-102 → 降 27-30%
-   - **✅ 新数据回归（2026-08-13）**：① verify_zh_leader_ab（修复后口径）：均长 35.2/23.4（A 胜 10/12），重复率 0.169/0.101，主题命中 0.283/0.265——**当前场共振分选机制全面优于强制 134M，A/B 结论反转**（此前"强制 134M 更好"是裸 prompt 假退化误判），原计划"leader 信号改进"取消；② test_api_dialogue：8 问无死循环、假退化彻底消失，闲聊级正常（你好/天气/短诗），知识答问仍偏题（compact 51M 参数上限）；③ C26 记忆复述：11/11 PASS
+   - **✅ 新数据回归（2026-08-13/14）**：① verify_zh_leader_ab（修复后口径）：8-13 均长 35.2/23.4（A 胜 10/12）；8-14 std0 升级后复测均长 30.0/39.2（B 胜 7）、重复 0.186/0.230（A 优）、命中 0.281/0.275（A 微优）——**两轮均判定收益边际，leader 信号改进维持不采纳**；② test_api_dialogue：8 问无死循环、假退化彻底消失，闲聊级正常，知识答问仍受 51M/134M 参数规模限制；③ C26 记忆复述：11/11 PASS
 4. **C25-E 遗留**：continuous leader 融合质量信号（连续权重 × round1 共振分/NLL 质量）防弱 neuron 独占（增量四已部分解决，可再强化）
 5. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套 + 产品闭环，见缺口清单 K/L/M/N）
 6. ~~锚点投影/写门控进装配~~ ✅ 已完成（train_field_memory_components.py 训练产物 → sleep_engine 场固化自动装配）
