@@ -34,7 +34,7 @@
 
 ## P0 — 机制校准：让共振真正可学习
 
-### R1: W_cond 训练闭环 🔴
+### R1: W_cond 训练闭环 ✅
 
 **现状**: W_cond（4096×4096 随机矩阵）门控推理评分（field.py:67,362-398）；`forward_train` 绕开 self.field 用裸 cosine（ensemble.py:2172,2511-2514）；collab ckpt 不存场权重（train_cross_domain_collab.py:264-288）；loader 不加载场权重。
 
@@ -49,7 +49,7 @@
 - 口径契约测试通过（训练/推理 score 语义一致）。
 - 若 A/B 显示无收益：回退为"移除随机门控、score 用裸 cosine"，W_cond 标注为实验特性（⛔ 路径），并在 plan 记录结论。
 
-### R2: field_read_layers 解冻训练 🔴
+### R2: field_read_layers 解冻训练 ✅
 
 **现状**: round 2+ 每层条件化由随机投影完成（neuron.py:618-649）；三个训练脚本均不解冻。
 
@@ -60,7 +60,7 @@
 
 **验收**: A/B 有收益则保留；无收益则禁用并记录结论（⛔）。
 
-### R3: sparse_router 生产加载 🔴
+### R3: sparse_router 生产加载 ✅
 
 **现状**: 训练侧保存（train_cross_domain_collab.py:279-280、finetune_cross_spec.py:129-130）；生产 loader 不加载、生产 ensemble 不创建。
 
@@ -70,7 +70,7 @@ b) 训练侧停存并归档为实验特性。
 
 **验收**: loader 加载后 router 生效于推理；tests 16/16 无回归。
 
-### R4: shared_weight_mlp 读错场修复 + 训练 🔴
+### R4: shared_weight_mlp 读错场修复 + 训练 ✅
 
 **现状**: ensemble.py:1733 读默认场而非 thread-local 任务场；无训练脚本。
 
@@ -84,13 +84,13 @@ b) 训练侧停存并归档为实验特性。
 
 ## P1 — 验证体系硬化
 
-### R5: 修复恒真式断言 🔴
+### R5: 修复恒真式断言 ✅
 
 **现状**: verify_c25_e_collab_ab.py:83 `dom_con[tag] = d1` 赋值构造，恒真。
 
 **动作**: 删除 dom_con 假检查，章节改为真实断言（判定正确性 5/5 对照期望域；continuous 复用 executive 判定属设计，注释说明而非断言）。
 
-### R6: verify_c26_memory_read_gen 阈值对齐 🔴
+### R6: verify_c26_memory_read_gen 阈值对齐 ✅
 
 **现状**: 阈值 `>= 1`（1/4 即通过），plan/commit 声称 4/4。
 
@@ -98,7 +98,7 @@ b) 训练侧停存并归档为实验特性。
 
 **验收**: 重跑脚本，若真实行为不足 4/4 则修正 plan 声明（N4 规范）并记录真实数字。
 
-### R7: seed 规范 + 日志落盘 🔴
+### R7: seed 规范 + 日志落盘 ✅
 
 **动作**: 全部 verify 脚本头部固定 seed（N2）；运行日志统一 Tee 落盘（N3）；补 verify_c26_memory_read_gen 缺失的落盘日志。
 
@@ -161,29 +161,29 @@ b) 训练侧停存并归档为实验特性。
 ### R14: ResonanceEnsemble 子 Module 化 🟡
 cross_spec_projectors / field_score_proj / shared_weight_mlp / sparse_router 移入子 Module，实现 `.to/.eval/.state_dict` 传播；消除手工管理缺陷。
 
-### R15: field buffer 语义修复 🟡
+### R15: field buffer 语义修复 ✅
 field.reset() 原位清零（`state.zero_()`）而非重新赋值（field.py:77-91）；推理中途手改 state（ensemble.py:1480-1486）改 in-place。
 
-### R16: device 传播 🟡
+### R16: device 传播 ✅
 field 构造传 device（cortex.py:87）；forward_train `_phase_loss` 设备对齐（ensemble.py:341）。
 
-### R17: 死代码清理 🟡
+### R17: 死代码清理 ✅
 quick_probe、evaluate_ppl/evaluate_single_neuron、get_contribution_sign、_is_duplicate、logits_history、generate_staged、_select_best_candidate、fieldcond 孤儿分支——先标注后归档（scripts/archive 或注释标记）。
 
-### R18: 硬编码路径集中 🟡
+### R18: 硬编码路径集中 ✅
 checkpoint-481000 绝对路径（scripts/data_prep/download_sft_data.py:63、fill_missing_domains.py:36、fill_general_domain.py:40）改相对/配置化；README checkpoint-400000 更新。
 
-### R19: 仓库卫生 🟡
+### R19: 仓库卫生 ✅
 .gitignore 补 `.local/` `.npm-cache/` `.npm-global/`；requirements.txt 与 pyproject.toml 对齐（补 tiktoken/starlette/langchain-experimental/scipy/bitsandbytes/PyQt6/pytest）。
 
 ---
 
 ## P4 — 文档校准
 
-### R20: 主 plan 声明降级/对齐 🟡
+### R20: 主 plan 声明降级/对齐 ✅
 BIO_INSPIRED_ARCHITECTURE_PLAN.md 1.3 状态表："✅ 记忆可读"→标注"验证脚本级，生产待接线"；"verify 10/10"与代码阈值对齐（N4）；"降 79%"注明口径（同分布列表式，提问式仅 33%）。
 
-### R21: README/CODE_WIKI 修正 🟡
+### R21: README/CODE_WIKI 修正 ✅
 field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096（原文"统一 4096"过时）；README checkpoint 路径更新。
 
 ---
