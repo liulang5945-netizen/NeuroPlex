@@ -902,6 +902,12 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
 
     added = []
     c24_nids = []
+    # 判定头共享化（2026-08-14）：实测 4 个域 neuron 的 judge_lm_head 权重完全
+    # 相同（逐 token cosine=1.0）--它们本就是同一权重的 4 份拷贝（524M 中 393M
+    # 纯冗余）。共享同一个对象：零精度损失、省 393M 内存。后续新域 neuron 若
+    # judge 权重不同则独立创建（向后兼容）。
+    shared_judge_head = None
+    shared_judge_weight = None
     for path in sorted(glob.glob(os.path.join(extra_dir, "neuron_*.pt"))):
         name = os.path.basename(path)
         if name.startswith("_"):
@@ -921,19 +927,31 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
             # C26 增量三补：恢复 ckpt 自带的沉淀 LoRA 增量（strict=False 会静默丢弃）
             if neuron.load_lora(ckpt["state_dict"]):
                 logger.info("[assemble_cortex] %s 恢复沉淀 LoRA 增量", nid)
-            # C24（2026-08-09）：域目标空间 SFT neuron——生成时输入需补 "\n"
+            # C24（2026-08-09）：域目标空间 SFT neuron--生成时输入需补 "\n"
             # （训练 answer 起点在 prompt+"\n" 之后，见 train_domain_target_sft.py）
             if ckpt.get("c24_domain_sft"):
                 c24_nids.append(nid)
-            # C24 双头（2026-08-09）：judge_lm_head（general 判定头）——
+            # C24 双头（2026-08-09）：judge_lm_head（general 判定头）--
             # 判定信号走 general 空间投影 NLL（C20 信号链，跨 neuron 可比）。
             # 维度从 ckpt 权重 shape 推断（general 词表实例值，非硬编码 256000）。
+            # 共享化：权重相同则复用同一对象（省 393M 冗余拷贝）。
             jh = ckpt.get("judge_lm_head_state")
             if jh is not None:
-                judge_head = torch.nn.Linear(cfg.hidden_size, jh.shape[0], bias=False).to(device)
-                judge_head.weight.data.copy_(jh)
-                neuron.judge_lm_head = judge_head
-                logger.info("[assemble_cortex] %s judge_lm_head 注入（general 256K 判定头）", nid)
+                if shared_judge_head is None:
+                    judge_head = torch.nn.Linear(cfg.hidden_size, jh.shape[0], bias=False).to(device)
+                    judge_head.weight.data.copy_(jh)
+                    neuron.judge_lm_head = judge_head
+                    shared_judge_head = judge_head
+                    shared_judge_weight = jh
+                    logger.info("[assemble_cortex] %s judge_lm_head 注入（general 判定头，首个->共享基准）", nid)
+                elif torch.equal(jh, shared_judge_weight):
+                    neuron.judge_lm_head = shared_judge_head
+                    logger.info("[assemble_cortex] %s judge_lm_head 共享（权重与首个完全相同）", nid)
+                else:
+                    judge_head = torch.nn.Linear(cfg.hidden_size, jh.shape[0], bias=False).to(device)
+                    judge_head.weight.data.copy_(jh)
+                    neuron.judge_lm_head = judge_head
+                    logger.info("[assemble_cortex] %s judge_lm_head 独立（权重与首个不同）", nid)
             # 用 ensemble.add_neuron（自动补建跨规格投影层 + 几何空间注册）；
             # cortex.neurons 与 ensemble.neurons 同一引用，一次调用两边生效。
             cortex.ensemble.add_neuron(nid, neuron)
