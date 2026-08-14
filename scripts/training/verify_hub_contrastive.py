@@ -83,9 +83,9 @@ def main():
     print("跨域对比 loss 验证（阶段 3 第三部分·渐进第二步）", flush=True)
     print("=" * 60, flush=True)
 
-    # ── 装配（zh + code + hub，对比 loss 数据源 zh↔code）──
+    # ── 装配（zh + code + hub，统一空间=装配口径 3072，对比 loss 数据源 zh↔code）──
     neurons, shared_embeddings, ensemble, general_sp, _ = build_ensemble_with_hub(
-        nids=[ZH_ID, CODE_ID])
+        nids=[ZH_ID, CODE_ID], field_dim=3072)
     hub = neurons["hub"]
     pairs = tcdc.load_pairs_texts()
     sample = random.sample(pairs, min(N_PAIRS, len(pairs)))

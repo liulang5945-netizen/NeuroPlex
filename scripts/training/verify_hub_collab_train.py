@@ -59,11 +59,13 @@ def check(name: str, cond: bool, extra: str = "") -> None:
         print(f"  [FAIL] {name} {extra}", flush=True)
 
 
-def build_ensemble_with_hub(device: str = "cpu", nids=None):
+def build_ensemble_with_hub(device: str = "cpu", nids=None, field_dim=None):
     """构建含 hub 的协作阵容（域 neuron + hub），模拟 collab 训练 step 1-5。
 
     nids：参与协作的域 neuron id 列表（foundation_v1_general 基座），
     默认 ["code", "math"]；对比 loss 验证传 ["zh", "code"]。
+    field_dim：统一场维度（装配口径 3072 时 hub 也建投影 4096→3072，
+    模拟装配综合体——训练产物可复用）；None=阵容 max（含 hub 4096）。
     """
     if nids is None:
         nids = ["code", "math"]
@@ -107,7 +109,7 @@ def build_ensemble_with_hub(device: str = "cpu", nids=None):
         neuron.train()
 
     max_field_dim = max(n.config.field_dim for n in neurons.values())
-    field = ResonanceField(dim=max_field_dim)
+    field = ResonanceField(dim=field_dim or max_field_dim)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=geometry)
     ensemble.set_tokenizer_hub(hub_tk)
     for proj in ensemble._cross_spec_projectors.values():

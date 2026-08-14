@@ -58,6 +58,8 @@ def cos_alignment(ensemble, neurons, neuron_embeddings, nid: str) -> float:
     v_h = neurons["hub"].forward(neuron_embeddings["hub"], round_num=1)["field_vector"]
     if nid in ensemble._cross_spec_projectors:
         v_d = ensemble._cross_spec_projectors[nid](v_d)
+    if "hub" in ensemble._cross_spec_projectors:
+        v_h = ensemble._cross_spec_projectors["hub"](v_h)
     return float(F.cosine_similarity(v_d, v_h, dim=-1).mean().item())
 
 
@@ -79,12 +81,16 @@ def main():
     print("hub 锚定 loss 验证（阶段 3 第三部分·锚定）", flush=True)
     print("=" * 60, flush=True)
 
-    # ── 装配（复用 hub_collab_train 同款阵容）──
-    neurons, shared_embeddings, ensemble, general_sp, _ = build_ensemble_with_hub()
+    # ── 装配（复用 hub_collab_train 同款阵容，统一空间=装配口径 3072，
+    #     hub 4096 也经投影参与锚定——与真实协作层训练/装配一致）──
+    neurons, shared_embeddings, ensemble, general_sp, _ = build_ensemble_with_hub(
+        field_dim=3072)
     hub = neurons["hub"]
 
     # 收集可训练参数（域 neuron/hub body 冻结，协作层可训——collab 脚本 LoRA 模式同款）
-    trainable = [p for p in ensemble._cross_spec_projectors["code"].parameters()
+    proj_ids = [pid for pid in ["code", "hub"] if pid in ensemble._cross_spec_projectors]
+    trainable = [p for pid in proj_ids
+                 for p in ensemble._cross_spec_projectors[pid].parameters()
                  if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=1e-3)
 

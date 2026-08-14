@@ -230,6 +230,9 @@ def compute_hub_anchor_loss(
     v_hub = hub.forward(neuron_embeddings["hub"].detach(), round_num=1)["field_vector"]
     if nid in ensemble._cross_spec_projectors:
         v_d = ensemble._cross_spec_projectors[nid](v_d)
+    # 统一空间非 hub 原生维度（如装配口径 3072）时 hub 也经投影参与锚定
+    if "hub" in ensemble._cross_spec_projectors:
+        v_hub = ensemble._cross_spec_projectors["hub"](v_hub)
     return 1.0 - F.cosine_similarity(v_d, v_hub, dim=-1).mean()
 
 
@@ -500,6 +503,11 @@ def main():
                         help="对比 loss 的 code 侧域 neuron id")
     parser.add_argument("--hub-contrastive-tau", type=float, default=0.1,
                         help="对比 loss InfoNCE 温度（越小越尖锐，0.1 为 CLIP 常用量级）")
+    parser.add_argument("--unified-field-dim", type=int, default=0,
+                        help="统一场维度（协作层训练口径）。0=auto 取阵容 max(field_dim)（含 hub "
+                             "为 4096）；装配综合体口径为 3072（对话 neuron 主导，hub 经 "
+                             "add_neuron 补投影 4096→3072）——传 3072 让训练与装配维度一致，"
+                             "hub 的 cross_spec 投影（4096→3072）参与训练，产物可装配复用")
     args = parser.parse_args()
 
     global DEVICE
@@ -649,9 +657,14 @@ def main():
         neuron.train()
 
     # 5. 创建 ensemble（跨域 vocab，缺口 M 融合路径）
+    # 统一场维度：默认取阵容 max(field_dim)（含 hub = 4096）；显式传装配口径
+    # （--unified-field-dim 3072）时 hub 4096 也参与 cross_spec 投影到统一空间，
+    # 训练产物与装配综合体（unified=3072）维度一致可复用（锚定/对比传导）。
     print("\n[5] 创建 ensemble...", flush=True)
     max_field_dim = max(n.config.field_dim for n in neurons.values())
-    field = ResonanceField(dim=max_field_dim)
+    field = ResonanceField(dim=args.unified_field_dim or max_field_dim)
+    print(f"  统一场维度: {field.dim} "
+          f"({'装配口径' if args.unified_field_dim else '阵容 max'}={max_field_dim})", flush=True)
     ensemble = ResonanceEnsemble(
         neurons, field, max_rounds=2, geometry=geometry,
         use_sparse_router=args.use_sparse_router,
