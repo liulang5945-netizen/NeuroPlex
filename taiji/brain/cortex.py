@@ -63,6 +63,9 @@ class Cortex:
         self.neurons_dir = neurons_dir
         self.max_rounds = max_rounds
         self.is_loaded = False
+        # C26 增量四（2026-08-14）：场记忆库引用（懒注入）——generate 未显式
+        # 传 memory_vectors 时自动检索 top-k 记忆注入生成（记忆自动调取）。
+        self._memory_bank = None
 
         # ── Load neurons ──
         # neuron_ids 指定装配集合（如对话综合体 ENSEMBLE_DIALOGUE_IDS）；
@@ -84,7 +87,16 @@ class Cortex:
             field_dim = max(effective_dims)
         else:
             field_dim = 4096
-        self.field = ResonanceField(dim=field_dim)
+        # R16（REMEDIATION_PLAN 2026-08-14）：场创建时带上真实设备（神经元
+        # 所在设备，退化到 cortex.device）。此前恒 CPU —— 全链路 CPU 假设，
+        # 神经元参数移 GPU 后场/W_cond 仍留 CPU（device 不匹配隐患）。
+        first_neuron = next(iter(self.neurons.values()), None)
+        field_device = None
+        try:
+            field_device = getattr(first_neuron.lm_head, "device", None)
+        except Exception:
+            pass
+        self.field = ResonanceField(dim=field_dim, device=field_device or self.device)
         # P1-1: CoactivationTracker（共激活追踪，供孤立检测+部落分组）
         from taiji.resonance.tribal import CoactivationTracker
         self.coaction = CoactivationTracker()
@@ -175,6 +187,10 @@ class Cortex:
         import glob
         # 扫描所有 neuron_*.pt（排除 _fieldcond.pt 等非 neuron 文件）
         ckpt_paths = sorted(glob.glob(os.path.join(self.neurons_dir, "neuron_*.pt")))
+        # DEAD CODE 标注 (R17, REMEDIATION_PLAN 2026-08-14)：以下 _fieldcond
+        # 特判（跳过/优先加载）为孤儿逻辑——仓库内已无任何 *_fieldcond.pt 文件，
+        # field_conditioning 已并入 base neuron config（checkpoint 迁移后不再生成
+        # 独立变体）。保留以存审计证据；后续清理可整体删除本段。
         for ckpt_path in ckpt_paths:
             name = os.path.basename(ckpt_path)
             # 跳过 fieldcond 版（下面会优先加载）、W_base 等非 neuron 文件
@@ -948,6 +964,15 @@ class Cortex:
         return result
 
     @torch.no_grad()
+    def set_field_memory(self, bank) -> None:
+        """C26 增量四：注入场记忆库——generate 自动记忆检索的数据源。
+
+        由 sleep_engine.set_brain_interfaces 装配时调用（产品默认接入）；
+        也可手动注入（未注入时 generate 自动检索静默跳过，向后兼容）。
+        """
+        self._memory_bank = bank
+
+    @torch.no_grad()
     def generate(
         self,
         prompt: str,
@@ -967,6 +992,10 @@ class Cortex:
         # [{"vector": [D], "weight": sim} 或 (vec, weight)]，写入共振场做
         # 生成条件化（round2+ field_state 注入，区别于仅文本标签通道）。
         memory_vectors: Optional[List] = None,
+        # C26 增量四（2026-08-14）：自动记忆检索——未显式传 memory_vectors
+        # 且注入过记忆库时，用 prompt 场状态自动检索 top-1 记忆注入生成
+        # （记忆从"显式 API"走向"模型内在自动调取"）。
+        auto_memory: bool = True,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -1017,6 +1046,7 @@ class Cortex:
                 fusion_mode=fusion_mode,
                 _allow_plain_prompt=_allow_plain_prompt,
                 memory_vectors=memory_vectors,
+                auto_memory=auto_memory,
             )
         # SMCS EPE: 生成多条候选，混合后验评分选最优
         candidates = []
@@ -1029,6 +1059,7 @@ class Cortex:
                     fusion_mode=fusion_mode,
                     _allow_plain_prompt=_allow_plain_prompt,
                     memory_vectors=memory_vectors,
+                    auto_memory=auto_memory,
                 )
                 if text:
                     candidates.append(text)
@@ -1041,6 +1072,8 @@ class Cortex:
         return self._select_best_candidate(candidates)
 
     # ── C25-F 多阶段任务模式链（2026-08-11）：task-set 序列 ──
+    # DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 scripts/archive/
+    # verify_c25_f_*.py 调用；生产 generate 路径不消费，保留审计证据。──
 
     def generate_staged(
         self,
@@ -1102,6 +1135,8 @@ class Cortex:
             prev = text
         return outputs
 
+    # DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 generate_staged 调用
+    # （其本身亦为死代码），保留审计证据。──
     def _select_best_candidate(self, candidates: List[str]) -> str:
         """SMCS EPE 混合后验评分选最优候选。
 
@@ -1767,6 +1802,8 @@ class Cortex:
         # [{"vector": [D], "weight": sim} 或 (vec, weight)]，经 think 写入
         # 共振场，round2+ 场条件化 forward 让记忆直接参与 token 生成。
         memory_vectors: Optional[List] = None,
+        # C26 增量四（2026-08-14）：自动记忆检索（同 generate，见其签名说明）。
+        auto_memory: bool = True,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1821,6 +1858,30 @@ class Cortex:
         if not prompt_general_ids:
             prompt_general_ids = [0]
         general_ids = list(prompt_general_ids)
+
+        # 2.1 C26 增量四（2026-08-14）：记忆自动检索注入
+        # 未显式传 memory_vectors 且注入过记忆库时，用 prompt 的场状态自动
+        # 检索 top-1 记忆注入生成——记忆从"显式 API"走向"模型内在自动调取"
+        # （Titans 式内部记忆的产品化落点）。检索本身一次额外共振前向
+        # （场状态作 query），命中后走增量二同款向量条件化路径。
+        if memory_vectors is None and auto_memory and self._memory_bank is not None:
+            try:
+                if len(self._memory_bank) > 0:
+                    _qids = torch.tensor([general_ids], dtype=torch.long,
+                                         device=self.device)
+                    _qemb = self._shared_embedding(_qids)
+                    _qres = self.think(
+                        _qemb, active_nids=None, fusion_mode=fusion_mode,
+                        collab_mode=collab_mode,
+                    )
+                    _qfs = _qres.get("field_state")
+                    if _qfs is not None and _qfs.dim() == 2:
+                        _qfs = _qfs.mean(dim=0)
+                    _top = self._memory_bank.retrieve_vectors(_qfs, top_k=1)
+                    if _top:
+                        memory_vectors = [(_top[0][2], _top[0][1])]
+            except Exception:
+                pass  # 自动检索失败静默跳过（显式向量通道不受影响）
 
         # S12: 多轮对话状态管理
         # - start_round: 加载上一轮的 field_state（隐式记忆上下文）
@@ -2456,6 +2517,22 @@ class Cortex:
     def get_field_state(self) -> torch.Tensor:
         """Get current resonance field state (consciousness snapshot)."""
         return self.field.get_state()
+
+    def get_last_field_state(self) -> Optional[torch.Tensor]:
+        """最近一次共振后的任务场状态（推理实际写入的场）。
+
+        get_field_state() 返回默认场（多线程推理下恒为陈旧/零状态）；
+        本方法取当前线程任务场（_get_task_field），即最近一次 forward/
+        continuous_forward 真实写入的状态。R10（REMEDIATION_PLAN 2026-08-14）
+        生产记忆接线使用：对话后记录场快照 → 睡眠固化。
+        """
+        f = self.ensemble._get_task_field()
+        st = f.get_state()
+        if st is None:
+            return None
+        if st.numel() == 0 or float(st.norm()) < 1e-8:
+            return None
+        return st
 
     # ── 缺口 L：跨域语义锚点投影（2026-08-11，可选挂载，不影响生成路径）──
 

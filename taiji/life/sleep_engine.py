@@ -259,6 +259,15 @@ class SleepEngine:
             except Exception as e:
                 logger.debug(f"cortex.set_sleep_consolidator 失败（非关键）: {e}")
 
+        # C26 增量四（2026-08-14）：场记忆库注入 cortex——generate 未显式传
+        # memory_vectors 时自动检索 top-1 记忆注入生成（记忆自动调取）。
+        # 空库/无文件也注入（懒加载创建空库，len==0 时自动检索静默跳过）。
+        if self.cortex is not None:
+            try:
+                self.cortex.set_field_memory(self.get_field_memory())
+            except Exception as e:
+                logger.debug(f"cortex 记忆库注入失败（非关键，自动检索停用）: {e}")
+
         logger.info(
             f"Brain interfaces set: cortex={'✓' if self.cortex else '✗'}, "
             f"lifecycle={'✓' if self._lifecycle else '✗'}, "
