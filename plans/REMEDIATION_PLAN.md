@@ -168,7 +168,8 @@ field.reset() 原位清零（`state.zero_()`）而非重新赋值（field.py:77-
 field 构造传 device（cortex.py:87）；forward_train `_phase_loss` 设备对齐（ensemble.py:341）。
 
 ### R17: 死代码清理 ✅
-quick_probe、evaluate_ppl/evaluate_single_neuron、get_contribution_sign、_is_duplicate、logits_history、generate_staged、_select_best_candidate、fieldcond 孤儿分支——先标注后归档（scripts/archive 或注释标记）。
+quick_probe、evaluate_ppl/evaluate_single_neuron、get_contribution_sign、_is_duplicate、logits_history、fieldcond 孤儿分支——先标注后归档（scripts/archive 或注释标记）。
+**更正（2026-08-14 C26 增量八）**：generate_staged 经核实由 verify_c25_f 等调用点使用 → 转为 C25-F 兼容层（dict → TaskSet → generate_task_chain 转发，非死代码）；_select_best_candidate 经核实由 generate(n_candidates>1) 的 SMCS EPE 路径调用 → 活跃生产代码。两处 DEAD CODE 标注摘除。
 
 ### R18: 硬编码路径集中 ✅
 checkpoint-481000 绝对路径（scripts/data_prep/download_sft_data.py:63、fill_missing_domains.py:36、fill_general_domain.py:40）改相对/配置化；README checkpoint-400000 更新。
@@ -215,7 +216,7 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 | R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓 |
 | R15 | buffer 语义 | ✅ | 2026-08-14 | field.reset 设备感知零/一张量（W_cond 锚定）；推理中途 refractory 减法改 in-place（保持 buffer 对象身份，get_effective_state 无别名风险） |
 | R16 | device | ✅ | 2026-08-14 | cortex 场构造带神经元设备（退化 cortex.device）；_phase_loss 初始值改普通 float |
-| R17 | 死代码 | ✅ | 2026-08-14 | 9 处 DEAD CODE 标注（quick_probe/evaluate_ppl/evaluate_single_neuron/get_contribution_sign/_is_duplicate/logits_history/generate_staged/_select_best_candidate/fieldcond 孤儿），保留审计证据 |
+| R17 | 死代码 | ✅ | 2026-08-14 | 7 处 DEAD CODE 标注（quick_probe/evaluate_ppl/evaluate_single_neuron/get_contribution_sign/_is_duplicate/logits_history/fieldcond 孤儿）+ 2 处更正（generate_staged→C25-F 兼容层、_select_best_candidate→SMCS EPE 活跃路径，增量八） |
 | R18 | 路径 | ✅ | 2026-08-14 | 3 个 data_prep 脚本绝对路径改相对+TAICHI_TEACHER_PATH env；README checkpoint-400000→481000 相对化 |
 | R19 | 仓库卫生 | ✅ | 2026-08-14 | .gitignore 补 .local/.npm-cache/.npm-global；pyproject 补 tiktoken/starlette/langchain-experimental |
 | R20 | plan 声明 | ✅ | 2026-08-14 | BIO plan 1.3 状态表：记忆行补 R10 生产接线+阈值对齐注记；降 79% 注明口径；缺口 J 训练中→已完成 |

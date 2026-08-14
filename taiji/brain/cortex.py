@@ -29,6 +29,7 @@ import os
 import logging
 import re
 import threading
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
 
 import torch
@@ -41,6 +42,39 @@ from taiji.resonance import (
 )
 from taiji.resonance.translator import tokenizer_fingerprint
 from taiji.resonance.dialogue_format import dialogue_prompt_requires_guard
+
+
+@dataclass
+class TaskSet:
+    """C26 增量八：多阶段任务模式链 v2——一个阶段 = 一个任务集（人脑任务集切换）。
+
+    对比 C25-F 首步（generate_staged 的 dict 阶段）：TaskSet 是类型化对象，
+    表达"激活哪个 neuron 群体 + 用哪种共振模式 + 质量门约束"——任务集切换
+    的真正含义（显式激活子集 + 判定约束），且可组合/可序列化。
+
+    Attributes:
+        prompt: 阶段指令。含 "{prev}" 用上一阶段输出填充模板；无 "{prev}"
+            且已有 prev 时自动追加（"prompt\n上一阶段输出"）。
+        mode: 共振模式 "continuous"（默认，C25-E）/ "executive"（回合级判定）。
+        domain: task-set 域约束（None = 模式判定）。
+        active_nids: 显式激活的 neuron 子集（任务集切换核心；None = 路由自动）。
+            支持 'auto_topK'/'auto_all'/'auto_top1' 字符串模式（稀疏激活）。
+        max_tokens: 阶段生成长度覆盖（None = 默认）。
+        temperature: 阶段温度覆盖（None = 默认）。
+        quality_gate: 阶段质量门（退化检测 → 重试 → 隔离）。默认 True。
+        record_memory: 阶段结束后是否把场状态写入记忆库（睡眠固化候选）。
+            三重传递的第三重（文本 prev + 场状态 seed_memories + 记忆写入）。
+        memory_label: 记忆写入的标签（None = 用 prompt 截断）。
+    """
+    prompt: str
+    mode: str = "continuous"
+    domain: Optional[str] = None
+    active_nids: Optional[Union[str, List[str]]] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    quality_gate: bool = True
+    record_memory: bool = False
+    memory_label: Optional[str] = None
 
 
 class Cortex:
@@ -1141,10 +1175,134 @@ class Cortex:
             return candidates[0]
         return self._select_best_candidate(candidates)
 
-    # ── C25-F 多阶段任务模式链（2026-08-11）：task-set 序列 ──
-    # DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 scripts/archive/
-    # verify_c25_f_*.py 调用；生产 generate 路径不消费，保留审计证据。──
+    # ── C26 增量八：多阶段任务模式链 v2（2026-08-14）：TaskSet 序列调度器 ──
+    # 对比 C25-F 首步（generate_staged dict 阶段，R17 曾标死代码）：v2 用
+    # TaskSet 类型化对象（显式激活子集 = 任务集切换）+ 三重阶段间传递
+    # （文本 prev + 场状态 seed_memories + 记忆写入）+ 阶段质量门，接入生产。
 
+    def generate_task_chain(
+        self,
+        stages: List[TaskSet],
+        max_tokens_per_stage: int = 32,
+        temperature: float = 0.55,
+        top_k: int = 15,
+        repetition_penalty: float = 1.4,
+        fusion_mode: str = "soft",
+    ) -> Dict[str, object]:
+        """多阶段任务模式链 v2（task-set 序列，人脑任务集切换）。
+
+        一个任务 = TaskSet 序列，每阶段是一个任务集（激活模式 + 判定约束 +
+        质量门）。阶段间三重传递：
+        1. 文本：{prev} 模板填充上一阶段输出（C25-F 机制保留）
+        2. 场状态：上一阶段 final field_state 作为下阶段 seed_memories
+           （记忆注意窗条件化，C26 增量二/五机制）
+        3. 记忆写入：阶段结束把场状态沉淀为记忆候选（record_memory=True，
+           睡眠固化路径，C26 增量一/三机制）
+
+        阶段质量门（quality_gate=True）：退化检测（_is_degenerate_text）→
+        高温重试一次 → 仍退化则空串（异常隔离，阶段间互不污染）。
+
+        Args:
+            stages: TaskSet 序列
+            max_tokens_per_stage: 默认阶段生成长度
+            temperature/top_k/repetition_penalty/fusion_mode: 默认透传参数
+
+        Returns:
+            {"outputs": [阶段文本...], "field_states": [场状态...],
+             "gates": [{stage_i: "ok"|"retried"|"degenerate"}...]}
+        """
+        outputs: List[str] = []
+        field_states: List[Optional[torch.Tensor]] = []
+        gates: List[Dict[str, str]] = []
+        prev = ""
+        prev_fs: Optional[torch.Tensor] = None
+        for i, st in enumerate(stages):
+            tpl = st.prompt.strip()
+            gate_i: Dict[str, str] = {}
+            if not tpl:
+                outputs.append("")
+                field_states.append(None)
+                gates.append({"error": "empty_prompt"})
+                continue
+            if "{prev}" in tpl:
+                stage_prompt = tpl.format(prev=prev)
+            elif prev:
+                stage_prompt = f"{tpl}\n{prev}"
+            else:
+                stage_prompt = tpl
+            # 三重传递之二：上一阶段场状态 → 记忆注意窗（seed_memories）
+            memory_vectors = None
+            if prev_fs is not None:
+                memory_vectors = [(prev_fs, 0.8)]
+            try:
+                text = self.generate(
+                    prompt=stage_prompt,
+                    max_tokens=st.max_tokens or max_tokens_per_stage,
+                    temperature=st.temperature or temperature,
+                    top_k=top_k,
+                    domain=st.domain,
+                    repetition_penalty=repetition_penalty,
+                    active_nids=st.active_nids,
+                    collab_mode=st.mode,
+                    fusion_mode=fusion_mode,
+                    memory_vectors=memory_vectors,
+                )
+            except Exception as e:
+                text = ""
+                gate_i["error"] = str(e)[:80]
+                logger.error(f"[Cortex] generate_task_chain 阶段 {i} 失败: {e}")
+            # 阶段质量门：退化检测 → 高温重试 → 仍退化隔离
+            if st.quality_gate and text and self._is_degenerate_text(text):
+                retry_temp = min((st.temperature or temperature) + 0.15, 1.2)
+                logger.warning(
+                    "[Cortex] task_chain 阶段 %d 退化 %r，重试（temp %.2f）",
+                    i, text[:30], retry_temp,
+                )
+                try:
+                    text = self.generate(
+                        prompt=stage_prompt,
+                        max_tokens=st.max_tokens or max_tokens_per_stage,
+                        temperature=retry_temp,
+                        top_k=top_k,
+                        domain=st.domain,
+                        repetition_penalty=repetition_penalty,
+                        active_nids=st.active_nids,
+                        collab_mode=st.mode,
+                        fusion_mode=fusion_mode,
+                        memory_vectors=memory_vectors,
+                    )
+                except Exception:
+                    text = ""
+                if text and self._is_degenerate_text(text):
+                    gate_i["quality"] = "degenerate"
+                    logger.warning("[Cortex] task_chain 阶段 %d 重试仍退化，隔离", i)
+                else:
+                    gate_i["quality"] = "retried"
+            else:
+                gate_i["quality"] = "ok"
+            outputs.append(text)
+            # 三重传递之一/二：截获本阶段 final 场状态 → 下阶段 seed_memories
+            try:
+                fs = self.get_last_field_state()
+            except Exception:
+                fs = None
+            field_states.append(fs)
+            # 三重传递之三：阶段场状态沉淀为记忆候选（睡眠固化路径）
+            if st.record_memory and fs is not None and text.strip():
+                try:
+                    from taiji.life.sleep_engine import get_sleep_engine
+                    engine = get_sleep_engine()
+                    label = st.memory_label or tpl.strip()[:40]
+                    engine.record_field_memory(fs, label, text=text)
+                    gate_i["memory"] = "recorded"
+                except Exception as e:
+                    gate_i["memory"] = f"skip:{str(e)[:40]}"
+            gates.append(gate_i)
+            prev = text
+            prev_fs = fs
+        return {"outputs": outputs, "field_states": field_states, "gates": gates}
+
+    # ── C25-F 兼容层（2026-08-11）：dict 阶段 → TaskSet 转发（生产不再推荐）──
     def generate_staged(
         self,
         stages: List[Dict],
@@ -1154,59 +1312,31 @@ class Cortex:
         repetition_penalty: float = 1.4,
         fusion_mode: str = "soft",
     ) -> List[str]:
-        """多阶段任务模式链（task-set 序列，人脑任务集切换）。
+        """C25-F 首步兼容入口：dict 阶段自动升级为 TaskSet 走 v2 调度器。
 
-        对比文档 2.11"回合级路由替代连续任务切换（多阶段任务留 v2）"修复：
-        一个任务 = 阶段序列，每阶段是一个 task-set（激活模式 + 判定约束），
-        阶段间显式传递中间输出——如"zh 理解 → code 生成 → zh 表达"。
-
-        Args:
-            stages: List[dict]，每阶段 = task-set：
-                - "prompt": 阶段指令。含 "{prev}" 时用上一阶段输出填充模板；
-                  无 "{prev}" 且已有 prev 时自动追加（"prompt\n上一阶段输出"）
-                - "mode": 任务模式 "executive"（默认，judge NLL 判定）/
-                  "continuous"（C25-E 连续时间共振）
-                - "domain": 可选 task-set 域约束（None = 模式判定）
-                - "max_tokens": 阶段级覆盖
-            max_tokens_per_stage: 默认阶段生成长度
-            temperature/top_k/repetition_penalty/fusion_mode: 透传给 generate
-
-        Returns:
-            List[str] 各阶段生成文本（与 stages 一一对应）
+        生产路径推荐 generate_task_chain（TaskSet 序列，三重传递 + 质量门）。
+        本方法仅保持 C25-F 时代调用点兼容（verify_c25_f 等），返回各阶段文本。
         """
-        outputs: List[str] = []
-        prev = ""
-        for i, st in enumerate(stages):
-            tpl = st.get("prompt", "").strip()
-            if not tpl:
-                outputs.append("")
-                continue
-            if "{prev}" in tpl:
-                stage_prompt = tpl.format(prev=prev)
-            elif prev:
-                stage_prompt = f"{tpl}\n{prev}"
-            else:
-                stage_prompt = tpl
-            try:
-                text = self.generate(
-                    prompt=stage_prompt,
-                    max_tokens=st.get("max_tokens", max_tokens_per_stage),
-                    temperature=temperature,
-                    top_k=top_k,
-                    domain=st.get("domain"),
-                    repetition_penalty=repetition_penalty,
-                    collab_mode=st.get("mode", "executive"),
-                    fusion_mode=fusion_mode,
-                )
-            except Exception as e:
-                text = ""
-                logger.error(f"[Cortex] generate_staged 阶段 {i} 失败: {e}")
-            outputs.append(text)
-            prev = text
-        return outputs
+        task_sets = [TaskSet(
+            prompt=st.get("prompt", ""),
+            mode=st.get("mode", "continuous"),
+            domain=st.get("domain"),
+            active_nids=st.get("active_nids"),
+            max_tokens=st.get("max_tokens"),
+            temperature=st.get("temperature"),
+            quality_gate=st.get("quality_gate", True),
+        ) for st in stages]
+        return self.generate_task_chain(
+            task_sets,
+            max_tokens_per_stage=max_tokens_per_stage,
+            temperature=temperature,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            fusion_mode=fusion_mode,
+        )["outputs"]
 
-    # DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 generate_staged 调用
-    # （其本身亦为死代码），保留审计证据。──
+    # 注：R17 曾标 DEAD CODE（"仅 generate_staged 调用"），核实有误——本方法
+    # 由 generate(n_candidates>1) 的 SMCS EPE 路径调用，是活跃生产代码。
     def _select_best_candidate(self, candidates: List[str]) -> str:
         """SMCS EPE 混合后验评分选最优候选。
 

@@ -9,7 +9,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional, Union
 
 from taiji.core.app_state import app_state
 from taiji.core.utils import get_external_path
@@ -534,6 +534,67 @@ def cortex_chat(req: CortexChatRequest):
     except Exception as e:
         logger.error(f"Cortex 文本对话失败: {e}")
         raise HTTPException(status_code=500, detail="Cortex 文本对话失败")
+
+
+class TaskChainStageRequest(BaseModel):
+    """C26 增量八：任务链阶段（task-set）请求体。"""
+    prompt: str
+    mode: str = "continuous"
+    domain: Optional[str] = None
+    active_nids: Optional[Union[str, List[str]]] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    quality_gate: bool = True
+    record_memory: bool = False
+    memory_label: Optional[str] = None
+
+
+class CortexTaskChainRequest(BaseModel):
+    """C26 增量八：多阶段任务模式链 v2 请求体。"""
+    stages: List[TaskChainStageRequest]
+    max_tokens_per_stage: Optional[int] = 32
+
+
+@router.post("/api/taiji/cortex/task_chain")
+def cortex_task_chain(req: CortexTaskChainRequest):
+    """多阶段任务模式链 v2（TaskSet 序列，人脑任务集切换，C26 增量八）。
+
+    每阶段 = task-set（prompt/mode/domain/active_nids + 质量门），阶段间
+    三重传递（文本 prev + 场状态 seed_memories + 记忆写入）。生产入口。
+    """
+    try:
+        model = app_state.model
+        if model is None or not _is_cortex(model):
+            raise HTTPException(status_code=503, detail="Cortex 未加载")
+        if not req.stages:
+            raise HTTPException(status_code=400, detail="stages 不能为空")
+        from taiji.brain.cortex import TaskSet
+        stages = [TaskSet(
+            prompt=s.prompt,
+            mode=s.mode,
+            domain=s.domain,
+            active_nids=s.active_nids,
+            max_tokens=s.max_tokens,
+            temperature=s.temperature,
+            quality_gate=s.quality_gate,
+            record_memory=s.record_memory,
+            memory_label=s.memory_label,
+        ) for s in req.stages]
+        result = model.generate_task_chain(
+            stages,
+            max_tokens_per_stage=req.max_tokens_per_stage or 32,
+        )
+        return {
+            "status": "ok",
+            "outputs": result["outputs"],
+            "gates": result["gates"],
+            "neurons": list(model.neurons.keys()),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cortex 任务链失败: {e}")
+        raise HTTPException(status_code=500, detail="Cortex 任务链失败")
 
 
 @router.post("/api/taiji/feed/directory")
