@@ -891,7 +891,7 @@ class ResonanceEnsemble:
         """运行时添加新神经元到 ensemble（neurogenesis 入口）。
 
         混合规格热插拔：field_dim 允许不同（跨规格投影层在下方自动补建），
-        hidden_size 必须一致（共享 embedding 契约，防御性校验）。
+        hidden_size 允许混合（embed_adapter 适配，见下方校验注释）。
 
         Args:
             nid: 神经元 ID（如 "zh_1"）
@@ -902,13 +902,19 @@ class ResonanceEnsemble:
         if nid in self.neurons:
             raise ValueError(f"神经元 {nid} 已存在于 ensemble")
 
-        # 校验 hidden_size 一致性（field_dim 混合规格由跨规格投影层处理）
+        # hidden_size 一致性校验（共享 embedding 契约）。
+        # C27 阶段 3（hub neuron 缺口 L，2026-08-14）：从 raise 放宽为 warning——
+        # 现有装配已是混合规格（compact 512 / standard 768），混合 hidden 由
+        # per-neuron embed_adapter（base_embed_dim→hidden）适配；跨规格投影层
+        # 处理 field_dim 差异。hidden 不一致不影响 forward/融合（人脑不同皮层
+        # 容量本就不同，hub expert 1024 与 compact 512 共存的联合皮层语义）。
         if self.neurons:
             existing_hidden = next(iter(self.neurons.values())).config.hidden_size
             if neuron.config.hidden_size != existing_hidden:
-                raise ValueError(
-                    f"新神经元 hidden_size={neuron.config.hidden_size} 与 ensemble "
-                    f"hidden_size={existing_hidden} 不一致"
+                print(
+                    f"  [ensemble] 混合 hidden_size：{nid}={neuron.config.hidden_size} "
+                    f"vs 现有 {existing_hidden}（embed_adapter 适配，允许共存）",
+                    flush=True,
                 )
 
         self.neurons[nid] = neuron

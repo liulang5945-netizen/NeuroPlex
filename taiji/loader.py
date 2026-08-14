@@ -502,8 +502,20 @@ def assemble_cortex(
                 ps_reordered = dict(ps)
                 for key in ("phasors", "omega"):
                     if key in ps_reordered:
-                        t = ps_reordered[key]  # [N,2] / [N]
-                        rows = [t[idx_map[n]] for n in cortex.neurons]
+                        t = ps_reordered[key]  # [N_train,2] / [N_train]
+                        # C27 阶段 3（hub neuron 缺口 L）：不在训练集合的 neuron
+                        # （如 hub）用默认相位行——phasors=相位 0、omega=初始频率，
+                        # 训练 neuron 保留训练相位（先验语义：新成员同域 0 相位）。
+                        rows = []
+                        for n in cortex.neurons:
+                            if n in idx_map:
+                                rows.append(t[idx_map[n]])
+                            else:
+                                if key == "phasors":
+                                    rows.append(torch.tensor([1.0, 0.0], dtype=t.dtype))
+                                else:
+                                    rows.append(torch.full(
+                                        (), float(gamma.omega_init), dtype=t.dtype))
                         ps_reordered[key] = torch.stack(rows)
                 gamma.load_state_dict(
                     {k: v for k, v in ps_reordered.items() if k != "id_order"},
