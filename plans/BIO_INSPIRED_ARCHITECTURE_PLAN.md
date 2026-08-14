@@ -60,7 +60,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 装配 | ✅ 9 阵容 | 5 dialogue（zh_aug0-3 + zh_std0，51M/134M）+ 4 域（code/math/zh/en）+ collab_v3_c24v2 + PhasorDynamics 默认 |
 | 生成默认路径 | ✅ continuous | C25-E 增量五：连续时间共振为默认 collab_mode（generate 默认，相位绑定驱动激活，leader 用 round1_scores × NLL 质量融合）|
 | 回合级判定 | ✅ 5/5 | judge NLL 主信号（general 空间可比）+ 启发式融合；quality z-score 回退存活 |
-| 记忆（C26） | ✅ 场固化 | FieldMemoryBank + sleep Phase 1.5：跨会话检索 4/4 命中、跨重启恢复 |
+| 记忆（C26） | ✅ 固化+可读 | FieldMemoryBank + sleep Phase 1.5（跨会话检索 4/4、跨重启恢复）+ **增量二"记忆向量直接条件化生成"**（向量通道独立于文本标签，verify 10/10） |
 | 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%） |
 | 续训（完成） | ✅ 4000→8000 | 5 dialogue 全部完成（best PPL：compact 101-107 / std0 95.27@4000）；口径机制化后回归通过 |
 | 回归测试 | ✅ 16/16 | tests/ 下 pytest 统一入口（3 文件 16 用例）：口径契约 10 + 共振 side_channel 6；requirements.txt 补 pytest |
@@ -109,18 +109,19 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **✅ 回归结果（2026-08-12）**：① verify_zh_leader_ab（修复后口径）：均长 9.6→30.9（假退化消失），非空 36/36，重复率 0.133/0.084，强制 134M leader 收益边际（不采纳）；② test_api_dialogue：8 问全部正常无死循环，质量仍受欠训练限制（遗留瓶颈不变）；③ C26 记忆复述：11/11 PASS（检索 4/4 命中、注入生效 4/4、跨重启恢复）
    - **✅ 口径契约可回归化（2026-08-12，提交 c0cec3b）**：根因是 87 个一次性 verify/_smoke 脚本各自为政、无回归保障。落地：① `taiji/resonance/dialogue_format.py` 作口径单一真相源（`build_dialogue_prompt` + `dialogue_prompt_requires_guard`），experiment_config 改 re-export（35 引用点零破坏），cortex 守卫改用纯函数消除漂移；② `tests/test_dialogue_format.py` 首个可回归契约（10 用例 + 核心不变量"构造产物必过守卫"）；③ pytest 入 requirements + tests/ 统一入口（16/16 通过）
 2. **✅ C26 增量一：可学习写策略（2026-08-14 完成）**：轻量门控 MLP WriteGate（输入 = 场向量 + 最近邻相似度 → P(值得写入)），替代硬阈值 0.92 去重。**训练产物落盘**（train_field_memory_components.py → taiji_data/sleep_data/{write_gate,anchor_projector}.pt，回读校验通过）；**修复装配 bug**：WriteGate/AnchorProjector.load() 原不重建网络——构造维度与产物不一致（sleep_engine 无 cortex 默认 4096 vs 产物 3072）时 load_state_dict 静默失败 → 已改为按产物维度重建后加载；**验证全绿**：verify_c26_write_gate 8/8（门控判别 12/12、拒绝 0.9 模糊重复而硬阈值漏判、固化 4 新增/0 重复、检索 4/4、持久化恢复）、产品装配确认 gate+projector 均加载、C26 记忆复述 11/11、tests 16/16
-3. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
+3. **✅ C26 增量二：记忆可读进生成（2026-08-14 完成）**：检索到的记忆向量（统一场空间快照）**直接写入共振场**做生成条件化——写入点在 round1 判定信号之后（判定保持"无记忆的天然反应"，C23 安全边界），round2+ 的场条件化 forward 让记忆通过**已训练的 field_state 注入路径**直接参与 token 生成（"读"免训练——神经元 forward_train 即用 field_conditioning 训练过该路径）。写入权重 = 检索相似度（近记忆强条件化）。实现：`FieldMemoryBank.retrieve_vectors()`（返回 (label, sim, vector)）+ ensemble `forward/continuous_forward(seed_memories)` + cortex `generate/_generate_p7/think(memory_vectors)` 透传。**验证 verify_c26_memory_read_gen.py 10/10**：检索升级 4/4（label+sim+vec 同 dim）、安全边界（round1_scores 容差内不被记忆污染）、场拉拽 4/4（cos 0.39-0.57→0.65-0.81）、leader 场条件化 logits 因记忆改变 4/4（硬）、向量通道单独注入改变生成输出 4/4（区别于文本通道）、文本通道回归 4/4、跨重启恢复；tests 16/16 全过
+4. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
    - **✅ 数据扩充（2026-08-12，提交 84c2e9a）**：发现 sft_shared_core/unique 与 alpaca **100% 重复**（实际唯一仅 44.4K 条，数据/参数比远低于预期 → 直接解释质量瓶颈）。新增 build_dialogue_extended.py 从 BelleGroup/train_2M_CN 下载 150K → 去重/清洗后 +123K 唯一 → 总 167K 条（3.8×）
    - **⚠️ 中断事件（2026-08-12 20:15）**：软件更新终止全部训练进程（aug0 step200、其余加载中，eval_every=1000 → 零 ckpt 保存、白跑）。**改进（提交 15e4509）**：eval_every 默认 1000→500（中断最多丢 500 步 ≈1h）。20:21 已重启 5 进程
    - **✅ 重训完成（2026-08-14 03:19）**：compact 4 个全部 8000/8000（best val PPL：aug2=68.74 / aug3=71.81 / aug0=72.03 / aug1=73.60）；std0 8000/8000 完成 best_val_PPL=**67.42**（134M 上限收益显现）。5 个 ckpt 全部落盘 data/neurons/neuron_zh_*_dialogue.pt，旧数据 best 95-102 → 降 27-30%
    - **✅ 新数据回归（2026-08-13/14）**：① verify_zh_leader_ab（修复后口径）：8-13 均长 35.2/23.4（A 胜 10/12）；8-14 std0 升级后复测均长 30.0/39.2（B 胜 7）、重复 0.186/0.230（A 优）、命中 0.281/0.275（A 微优）——**两轮均判定收益边际，leader 信号改进维持不采纳**；② test_api_dialogue：8 问无死循环、假退化彻底消失，闲聊级正常，知识答问仍受 51M/134M 参数规模限制；③ C26 记忆复述：11/11 PASS
    - **✅ 连续默认化回归（2026-08-14）**：generate 默认 continuous（line 936）跑产品路径 test_api_dialogue 8 问全非空无死循环（Q1/Q3/Q7 正常）；A/B（verify_c25_e_collab_ab 修复口径后）**20/20 PASS**——executive/continuous 判定一致、5 域生成全非空、leader 域合理。**连续默认路径稳定，无需回退**
    - **✅ 融合后质量基线（2026-08-14）**：verify_zh_leader_ab（融合状态）：A 均长 31.6/重复 0.163/命中 0.270，非空 36/36；A vs B 从 7:2 收敛到 3:4:5——**leader 融合无回归且轻微改善**（重复率 0.186→0.163，当前机制不再系统性落后 134M）。test_api_dialogue 8 问全非空无死循环
-4. **✅ C25-E 遗留：continuous leader 融合质量信号（2026-08-14 完成）**：诊断（diag_c25e_leader_quality_gap.py）证实**弱 neuron 独占真实存在**——aug2 场共振分系统性碾压（0.7-0.93 vs 0.01-0.17）当选 leader 5/7 次，但其生成质量（zh lm_head NLL）常是 5 个 dialogue 中最差（leader 恰为 NLL 最优仅 1/7，Spearman=-0.171）。**修复**：continuous leader 融合 = 域内归一化共振分 × 质量信号（-NLL，round1_logits 零额外前向）等权求和（`_fuse_leader_quality` + `_nll_quality_from_round1_logits`，质量信号首算缓存避免每 token 重复 softmax）。**回归 verify_c25_e_leader_fusion 3/3**：leader NLL 质量位次均值 2.12→1.12（「推荐一本好书」4→0、「怎么学好英语」4→1，aug2 不再独霸），连续生成非空率 8/8 不降，tests 16/16 全过
-5. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套 + 产品闭环，见缺口清单 K/L/M/N）
-6. ~~锚点投影/写门控进装配~~ ✅ 已完成（train_field_memory_components.py 训练产物 → sleep_engine 场固化自动装配）
-7. **对话数据扩充重训**（zh_aug*/zh_std0 主线，续训完成后）：C24 dialogue 数据扩充 → 重跑 finetune_neuron_dialogue
-8. **✅ 项目整理（2026-08-12，提交 a4064f9）**：① 数据层清理 13.71GB 废弃产物（foundation_v1_general_smoke 7.4G + foundation_v1_sft 3G + verify_v3 2.3G + neurons_backup_3000step 1.2G + verify_v3_full + 空目录×4；distill 因 experiment_config DATA_DIR 活跃引用保留）；② 脚本层归档 103 个一次性 verify/_smoke/diag 到 scripts/archive/（git mv 保留历史），scripts/training/ 收敛 149→46 主训练脚本；③ 测试层 pytest 入 requirements + tests/ 统一入口 16/16。回归：tests 16/16 通过、核心 import 正常
+5. **✅ C25-E 遗留：continuous leader 融合质量信号（2026-08-14 完成）**：诊断（diag_c25e_leader_quality_gap.py）证实**弱 neuron 独占真实存在**——aug2 场共振分系统性碾压（0.7-0.93 vs 0.01-0.17）当选 leader 5/7 次，但其生成质量（zh lm_head NLL）常是 5 个 dialogue 中最差（leader 恰为 NLL 最优仅 1/7，Spearman=-0.171）。**修复**：continuous leader 融合 = 域内归一化共振分 × 质量信号（-NLL，round1_logits 零额外前向）等权求和（`_fuse_leader_quality` + `_nll_quality_from_round1_logits`，质量信号首算缓存避免每 token 重复 softmax）。**回归 verify_c25_e_leader_fusion 3/3**：leader NLL 质量位次均值 2.12→1.12（「推荐一本好书」4→0、「怎么学好英语」4→1，aug2 不再独霸），连续生成非空率 8/8 不降，tests 16/16 全过
+6. ~~缺口 L 落地：场级锚点投影正式化~~ ✅ 已完成（AnchorProjector + WriteGate + theta-gamma 三件套 + 产品闭环，见缺口清单 K/L/M/N）
+7. ~~锚点投影/写门控进装配~~ ✅ 已完成（train_field_memory_components.py 训练产物 → sleep_engine 场固化自动装配）
+8. **对话数据扩充重训**（zh_aug*/zh_std0 主线，续训完成后）：C24 dialogue 数据扩充 → 重跑 finetune_neuron_dialogue
+9. **✅ 项目整理（2026-08-12，提交 a4064f9）**：① 数据层清理 13.71GB 废弃产物（foundation_v1_general_smoke 7.4G + foundation_v1_sft 3G + verify_v3 2.3G + neurons_backup_3000step 1.2G + verify_v3_full + 空目录×4；distill 因 experiment_config DATA_DIR 活跃引用保留）；② 脚本层归档 103 个一次性 verify/_smoke/diag 到 scripts/archive/（git mv 保留历史），scripts/training/ 收敛 149→46 主训练脚本；③ 测试层 pytest 入 requirements + tests/ 统一入口 16/16。回归：tests 16/16 通过、核心 import 正常
 
 ### 2.3 中期：跨域协作（上限优先版）
 
@@ -130,7 +131,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 ### 2.4 远期：生物学机制深化（缺口 R 剩余）
 
-- 记忆向量直接条件化 leader 生成（打通"场影响生成"这条遗留路径——协作目前只在判定层）
+- ~~记忆向量直接条件化 leader 生成（打通"场影响生成"这条遗留路径）~~ ✅ 已落地（C26 增量二 2026-08-14：检索向量经共振场写入，round2+ 场条件化 forward 直接参与 token 生成，verify 10/10）
 - 记忆 → 突触沉淀：高频场模式写入神经元权重（LoRA 增量），海马→皮层两层记忆
 - ~~多频段振荡（theta-gamma 嵌套）+ 跨频耦合~~ ✅ 嵌套机制已验证（缺口 M），跨频耦合待续
 - 真正睡眠重放（forward 重放 + 经验回放训练，C25-D 已落地首步）

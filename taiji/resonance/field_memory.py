@@ -175,7 +175,7 @@ class FieldMemoryBank:
 
     def retrieve(self, query_vector: torch.Tensor,
                  top_k: int = 1) -> List[Tuple[str, float]]:
-        """用查询向量对记忆库做余弦 top-k 检索。
+        """用查询向量对记忆库做余弦 top-k 检索（仅标签与相似度）。
 
         检索空间（二选一）：
         - 挂了锚点投影（projector）：记忆锚点副本 + query 投影后在**跨域语义
@@ -188,6 +188,25 @@ class FieldMemoryBank:
 
         Returns:
             [(label, sim), ...] 按相似度降序
+        """
+        return [(label, sim) for label, sim, _ in
+                self.retrieve_vectors(query_vector, top_k)]
+
+    def retrieve_vectors(self, query_vector: torch.Tensor,
+                         top_k: int = 1) -> List[Tuple[str, float, torch.Tensor]]:
+        """带记忆向量的检索——C26 增量二"记忆可读进生成"的向量来源。
+
+        与 retrieve 同检索逻辑，额外返回记忆向量本身（统一场空间快照，
+        L2 归一化存储）。调用方拿到向量后可直接写入共振场做条件化
+        （如 cortex.generate(memory_vectors=...)），让记忆通过已训练的
+        场条件化路径参与生成，而非仅文本标签通道。
+
+        Args:
+            query_vector: 查询向量（如新会话的场状态快照）
+            top_k: 返回最相似的 k 条记忆
+
+        Returns:
+            [(label, sim, vector), ...] 按相似度降序（vector 为 [D] 张量）
         """
         if not self.entries:
             return []
@@ -211,7 +230,8 @@ class FieldMemoryBank:
         sims = stack @ q
         k = min(top_k, len(self.entries))
         idx = torch.topk(sims, k).indices.tolist()
-        return [(self.entries[i]["label"], float(sims[i].item())) for i in idx]
+        return [(self.entries[i]["label"], float(sims[i].item()),
+                 self.entries[i]["vector"]) for i in idx]
 
     # ─── 持久化 ─────────────────────────────────────────
 

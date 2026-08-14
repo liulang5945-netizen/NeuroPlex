@@ -874,6 +874,7 @@ class Cortex:
         neuron_embeddings: Optional[Dict[str, torch.Tensor]] = None,
         return_judge_logits: bool = False,
         collab_mode: str = "fusion",
+        memory_vectors: Optional[List] = None,
     ) -> Dict:
         """Run one round of resonance thinking.
 
@@ -905,6 +906,22 @@ class Cortex:
         Returns:
             dict with field_state, neuron_logits, final_scores, n_rounds.
         """
+        # C26 增量二：记忆可读进生成——归一化 memory_vectors 为
+        # [(vec, weight), ...]（vec [D] 或 [1,D]），透传给 ensemble 写入场
+        # （round1 判定信号之后），round2+ 场条件化 forward 读到记忆。
+        seed_memories = None
+        if memory_vectors:
+            seed_memories = []
+            for item in memory_vectors:
+                if isinstance(item, dict):
+                    vec, w = item.get("vector"), float(item.get("weight", 1.0))
+                elif len(item) == 2:
+                    vec, w = item[0], float(item[1])
+                else:
+                    vec, w = item, 1.0
+                if vec is None:
+                    continue
+                seed_memories.append((vec, w))
         kwargs = dict(return_logits=True, active_nids=active_nids, fusion_mode=fusion_mode)
         if return_judge_logits:
             kwargs["return_judge_logits"] = True
@@ -914,6 +931,8 @@ class Cortex:
             }
         elif shared_embeddings is not None:
             kwargs["shared_embeddings"] = shared_embeddings.to(self.device)
+        if seed_memories:
+            kwargs["seed_memories"] = seed_memories
         if collab_mode == "continuous":
             # C25-E：连续时间共振（相位绑定驱动，融合权重 = 时间平均激活）
             result = self.ensemble.continuous_forward(**kwargs)
@@ -937,6 +956,10 @@ class Cortex:
         fusion_mode: str = "soft",
         # 口径守卫例外开关（2026-08-12）：base/域 neuron 评估用纯问题 prompt 时传 True。
         _allow_plain_prompt: bool = False,
+        # C26 增量二（2026-08-14）：记忆可读进生成——检索到的记忆向量
+        # [{"vector": [D], "weight": sim} 或 (vec, weight)]，写入共振场做
+        # 生成条件化（round2+ field_state 注入，区别于仅文本标签通道）。
+        memory_vectors: Optional[List] = None,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -986,6 +1009,7 @@ class Cortex:
                 active_nids=active_nids, collab_mode=collab_mode,
                 fusion_mode=fusion_mode,
                 _allow_plain_prompt=_allow_plain_prompt,
+                memory_vectors=memory_vectors,
             )
         # SMCS EPE: 生成多条候选，混合后验评分选最优
         candidates = []
@@ -997,6 +1021,7 @@ class Cortex:
                     active_nids=active_nids, collab_mode=collab_mode,
                     fusion_mode=fusion_mode,
                     _allow_plain_prompt=_allow_plain_prompt,
+                    memory_vectors=memory_vectors,
                 )
                 if text:
                     candidates.append(text)
@@ -1731,6 +1756,10 @@ class Cortex:
         # 口径守卫例外开关（2026-08-12）：base/域 neuron 评估用纯问题 prompt
         # （无 "问：/答：" 格式）时显式传 True，绕过 dialogue 格式守卫。
         _allow_plain_prompt: bool = False,
+        # C26 增量二（2026-08-14）：记忆可读进生成——检索到的记忆向量
+        # [{"vector": [D], "weight": sim} 或 (vec, weight)]，经 think 写入
+        # 共振场，round2+ 场条件化 forward 让记忆直接参与 token 生成。
+        memory_vectors: Optional[List] = None,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -1966,11 +1995,13 @@ class Cortex:
                     active_nids=active_nids, fusion_mode=fusion_mode,
                     neuron_embeddings=neuron_embeddings,
                     collab_mode=collab_mode,
+                    memory_vectors=memory_vectors,
                 )
             else:
                 shared_emb = self._shared_embedding(ids_tensor)
                 result = self.think(shared_emb, active_nids=active_nids, fusion_mode=fusion_mode,
-                                    collab_mode=collab_mode)
+                                    collab_mode=collab_mode,
+                                    memory_vectors=memory_vectors)
 
             # Get logits: 协作模式选择
             neuron_logits = result.get("neuron_logits", {})

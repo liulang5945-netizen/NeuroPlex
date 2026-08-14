@@ -1059,6 +1059,7 @@ class ResonanceEnsemble:
         fusion_mode: str = "soft",
         field_conditioning: bool = True,
         return_judge_logits: bool = False,
+        seed_memories: Optional[List[Tuple[torch.Tensor, float]]] = None,
     ) -> Dict:
         """Run the full resonance loop.
 
@@ -1374,6 +1375,22 @@ class ResonanceEnsemble:
             self._step_count += 1
             if self._step_count % self._balancing_update_interval == 0:
                 self._update_channel_biases()
+
+        # ── C26 增量二（2026-08-14）：记忆读进生成（离散路径同款）──
+        # 与 continuous_forward 同语义：round1 判定信号后写记忆入场，
+        # round2+ 的场条件化 forward 读到记忆（leader 连续路径用场条件化
+        # logits 生成；离散 leader 用 round1 独立 logits，记忆只影响
+        # fusion 路径 weighted_logits——默认生成路径为 continuous）。
+        if seed_memories:
+            for i, (mv, mw) in enumerate(seed_memories):
+                try:
+                    mv = mv.detach().float().flatten()
+                    if mv.numel() != self.field.dim:
+                        continue
+                    self.field.write(f"__memory_{i}__", mv.to(ref.device),
+                                     scale=float(mw))
+                except Exception:
+                    continue
 
         # ── Rounds 2+: conditioned resonance ──
         prev_round_scores: Optional[Dict[str, float]] = self.round_scores[-1] if self.round_scores else None
@@ -1762,6 +1779,7 @@ class ResonanceEnsemble:
         return_judge_logits: bool = False,
         fusion_mode: str = "soft",  # 接口兼容（连续路径固定时间平均激活融合）
         ct: Optional[ContinuousResonance] = None,
+        seed_memories: Optional[List[Tuple[torch.Tensor, float]]] = None,
     ) -> Dict:
         """C25-E 连续时间共振（可选路径，不改变 forward/executive 判定）。
 
@@ -1842,6 +1860,23 @@ class ResonanceEnsemble:
                 )
         except Exception:
             pass
+        # ── C26 增量二（2026-08-14）：记忆读进生成 ──
+        # 检索到的记忆向量（统一场空间快照）写入共振场，round2+ 的场条件化
+        # forward 自然读到——记忆通过已训练的 field_state 注入路径直接参与
+        # token 生成（"读"免训练，神经元 forward_train 即用 field_conditioning
+        # 训练过该路径）。写入点选在 round1 判定信号（round1_scores/judge）之后：
+        # 判定保持"无记忆的天然反应"（C23 安全边界），记忆只叠加在生成条件化层。
+        # 权重 = 调用方给的检索相似度（近记忆强条件化）；向量维度不匹配则跳过。
+        if seed_memories:
+            for i, (mv, mw) in enumerate(seed_memories):
+                try:
+                    mv = mv.detach().float().flatten()
+                    if mv.numel() != field.dim:
+                        continue
+                    field.write(f"__memory_{i}__", mv.to(ref.device),
+                                scale=float(mw))
+                except Exception:
+                    continue
         # 连续路径的判定信号（t=0 快照，与离散 round1 等价）
         round1_judge = judge0 if (return_judge_logits and judge0) else None
         ql_agg = None
