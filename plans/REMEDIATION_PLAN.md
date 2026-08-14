@@ -133,7 +133,7 @@ b) 训练侧停存并归档为实验特性。
 
 **动作**: continuous 路径补 `record_firing`（先记录后应用，与离散路径一致）；睡眠期 `apply_all_updates` 真实生效。
 
-**验收**: 一次 feed→sleep 周期产生非空 STDP 更新。**2026-08-14 验收 7 PASS / 0 FAIL**（verify_stdp_cycle）。验收暴露并修复 3 个真实缺陷（STDP 此前从未生效，离散/连续皆空转）：
+**验收**: 一次 feed→sleep 周期产生非空 STDP 更新。验收过程暴露并修复 3 个真实缺陷（STDP 此前从未生效，离散/连续皆空转）——代码动作可源码级复验：
 1. **记录口径**: 原记录各 neuron 原始 round_vecs——跨 neuron 域内独立（2048/3072 空间），cosine≈0 永不触发。改为记录投影到场空间的向量（`_project_vec`，离散 round1/round2+、连续 t=0/积分步共 4 处）。
 2. **相似度门控**: `STDPRule` 默认阈值 0.3 全卡（投影后实测 cosine ±0.03）→ 改为 0.0（"同向即强化"，sim 仍作 delta 乘数）。
 3. **重复强化**: 生产路径从不 `clear_history()`（全仓库仅 archive 脚本调用）→ sleep_engine 在 `apply_all_updates` 后补 `clear_history()`，同一批发放不再被每次 sleep 重复应用。
@@ -208,9 +208,9 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 | R6 | 阈值对齐 | ✅ | 2026-08-14 | verify_c26_memory_read_gen `>=1` → `== len(MEMORY_ITEMS)`（D/E/F 各 4/4） |
 | R7 | seed+日志 | ✅ | 2026-08-14 | 4 个活跃 verify 脚本固定 seed 0（random/np/torch/cuda） |
 | R8 | 口径双跑规范 | ✅ | 2026-08-14 | 规范节 N1 |
-| R9 | 质量断言升级 | ✅ | 2026-08-14 | verify_c25_e_leader_fusion 加异常串检测（`1.<0x0A>`/重复标点/纯数字长串）+ cortex.generate 退化重试（temp+0.15 重采样一次，实测诗题 `1.<0x0A>` → 真实诗句）；回归 4 PASS |
+| R9 | 质量断言升级 | ✅ | 2026-08-14 | verify_c25_e_leader_fusion 加异常串检测（`1.<0x0A>`/重复标点/纯数字长串）+ cortex.generate 退化重试（temp+0.15 重采样一次，实测诗题 `1.<0x0A>` → 真实诗句）；回归 3 PASS（日志 regress_c25e_leader_fusion_20260814.log 实为 3 PASS，原记录"4 PASS"计数有误，按 N4 修正 2026-08） |
 | R10 | 记忆闭环 | ✅ | 2026-08-14 | cortex.get_last_field_state() + cortex_chat 对话后 record_field_memory（try/except 不破坏响应）；读侧已由 set_brain_interfaces→set_field_memory+auto_memory 接通；提交 field_memory.py 增量三 |
-| R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效）；**验收 7 PASS**（暴露修复：记录口径改投影场空间 4 处、STDPRule 阈值 0.3→0.0、sleep_engine 补 clear_history 防重复强化） |
+| R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效）；三处代码修复可源码级复验（记录口径改投影场空间 4 处、STDPRule 阈值 0.3→0.0、sleep_engine 补 clear_history 防重复强化）。**验收证据降级声明（2026-08）**：原记录"verify_stdp_cycle 7 PASS/0 FAIL"——该脚本在仓库中不存在、logs/ 无对应日志，行为级验收不可复核；按 N4 降级为"代码动作属实，STDP 行为级验收待补跑" |
 | R12 | theta-gamma | ✅ | 2026-08-14 | 显式开关 TAIJI_THETA_NESTING（默认关零回归）+ C26 增量五跨频耦合闭环（记忆 entrain theta 相位→gamma 注意窗接入 continuous_forward 主循环，verify_c26_cross_freq 12/12）；**A/B 报告**：机制层生效（weights Δ=0.03）、输出层 8 问逐字符相同（无输出级收益实证）→ 保持默认关，待记忆路径收益实证 |
 | R13 | working_memory | ✅ | 2026-08-14 | 标注"注册未接入"（cortex.py + loader.py）；真实对话上下文由 agent 层承担 |
 | R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓 |

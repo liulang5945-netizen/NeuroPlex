@@ -136,30 +136,37 @@ Level 2: 共振场 (4096-dim)      ← 共享意识，独立于分词器（实�
 
 ## 快速开始
 
-### 1. 验证共振场核心
+### 1. 验证核心（回归测试）
 
 ```bash
-# 验证门控机制 + 神经元创建 + 质量过滤
-python scripts/training/test_distill_bridge.py
-# 预期: 6/6 PASS
-
-# 验证分工路径逻辑
-python scripts/training/test_division_path.py
-# 预期: 4/4 PASS
+# 口径契约 + 共振 side_channels 回归（16 用例）
+python -m pytest tests/ -q
+# 预期: 16 passed
 ```
 
-### 2. 蒸馏训练（需一代 1.5B checkpoint）
+> 注：原 `test_distill_bridge.py` / `test_division_path.py` 已随 2026-08 训练管线重构退役（见 HISTORY 系列文档）；当前训练链路的验证脚本位于 `scripts/training/verify_*.py`（运行日志落盘 `logs/`）。
+
+### 2. 训练管线（当前链路）
 
 ```bash
-# 准备数据 + 提取教师方向
-python scripts/training/prepare_distill_data.py
+# ① 领域 SFT 微调（对话神经元）
+python scripts/training/finetune_neuron_dialogue.py
 
-# 蒸馏 5 个神经元
-python scripts/training/distill_neurons.py --steps 5000
+# ② 协作层训练（side_channels + 跨规格投影）
+python scripts/training/finetune_cross_spec.py
+python scripts/training/finetune_side_channels.py
 
-# 验证蒸馏质量
-python scripts/training/verify_distilled_neurons.py
+# ③ 跨域协作层联合训练（含 hub，可选 --hub-path）
+python scripts/training/train_cross_domain_collab.py
+
+# ④ hub 神经元训练（EXPERT 规格 + general 256K，从零）
+python scripts/training/train_hub_neuron.py
+
+# ⑤ 回合级质量判定头训练
+python scripts/training/train_round_level_quality.py
 ```
+
+> 原蒸馏管线（`prepare_distill_data.py` / `distill_neurons.py` / `verify_distilled_neurons.py`）为一代→二代迁移期的临时产物，已归档退役；当前 neurons 均为独立 SFT 训练（详见 `plans/HISTORY_DIALOGUE_TRAINING.md`）。
 
 ### 3. 使用 Cortex
 
@@ -201,12 +208,14 @@ result = cortex.generate("今天天气怎么样？")
 
 ## 技术债务和后续工作
 
+> 更新于 2026-08（修复审计 R 系列后）；完整状态见 `plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 与 `plans/REMEDIATION_PLAN.md`。
+
 | 优先级 | 项目 | 说明 |
 |--------|------|------|
-| 🔴 P0 | 统一 field_dim | ~~所有神经元使用一致的 field_dim=4096~~（已过时：实际 COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096，跨规格由 ensemble 投影层统一，见 R21） |
-| 🔴 P0 | 共享嵌入初始化 | 从 teacher embedding 用 SVD 初始化 512-dim 共享嵌入 |
-| 🟡 P1 | API 正式接入 | 将 Cortex 接入 api/chat_strategies.py |
-| 🟡 P1 | 更长蒸馏训练 | 5000-10000 步，使用实际领域数据 |
+| 🔴 P0 | hub 正式训练 | hub neuron（495M）smoke 链路已通，正式 GPU 训练待执行；随后正式协作层训练（`--hub-anchor-weight --hub-contrastive-weight`）+ 阶段 4 跨域评估 |
+| 🔴 P0 | 共振机制 A/B 证据 | W_cond / field_read_layers 已训练闭环（R1/R2），但收益 A/B 报告尚未落盘（N2 规范） |
+| 🟡 P1 | 验证硬化 | 关键 verify 脚本转真实 ckpt 加载的 pytest（slow 标记）+ 最小 CI |
+| 🟡 P1 | 共享嵌入初始化 | 从 teacher embedding 用 SVD 初始化 512-dim 共享嵌入（低优先，现用正交随机） |
 | 🟢 P2 | Agent 适配 | planner/reflector 改用 cortex.think() |
-| 🟢 P2 | Life 适配 | 生命系统适配神经元培养周期 |
-| 🟢 P3 | GPU 加速 | 支持 CUDA 推理 |
+| 🟢 P2 | 工程加固 | ensemble.py 拆分 / 裸 except 加日志 / state_dict 聚合接口（R14 相关） |
+| 🟢 P3 | GPU 加速 | 支持 CUDA 推理（loader 已有 device 传播，待实测） |

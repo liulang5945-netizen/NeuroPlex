@@ -3,6 +3,13 @@
 共振场架构验证 — 不追 PPL，验证机制本身。
 
 6 个测试覆盖完整共振数据流，每个有明确 pass/fail 条件。
+
+⚠️ 已归档（2026-08）：一代迁移期脚本，三处引用已失效——
+ ① `from taiji.resonance import TribalMetrics, compute_initial_D` ImportError（不再导出）；
+ ② 数据路径 `resonance_neurons_joint/`、`taiji_data/training_data/pretrain_mix_v1`、
+    `taiji/tokenizer/sentencepiece.model` 均不存在；
+ ③ 设备硬编码 cuda。非 pytest 用例（无 test_ 前缀，从未被收集）。
+当前回归入口：`python -m pytest tests/ -q`（16 用例）。
 """
 
 from __future__ import annotations

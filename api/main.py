@@ -77,12 +77,14 @@ def main():
     if args.train:
         print("🚀 训练模式...")
         print("   Cortex 神经元架构训练方式：")
-        print("   1. 初始神经元蒸馏: scripts/training/distill_neurons.py")
-        print("   2. 运行时学习: feed_engine + sleep_engine")
-        print("   3. 神经新生: neurogenesis_creator（自动在睡眠时触发）")
+        print("   1. 对话神经元 SFT: scripts/training/finetune_neuron_dialogue.py")
+        print("   2. 协作层微调: scripts/training/finetune_cross_spec.py / finetune_side_channels.py")
+        print("   3. 跨域协作联合训练（含 hub）: scripts/training/train_cross_domain_collab.py")
+        print("   4. hub 神经元从零训练: scripts/training/train_hub_neuron.py")
+        print("   5. 运行时学习: feed_engine + sleep_engine（在线闭环）")
         print()
-        print("   如需创建初始神经元，请运行:")
-        print("   python scripts/training/distill_neurons.py --help")
+        print("   查看脚本帮助：")
+        print("   python scripts/training/finetune_neuron_dialogue.py --help")
         return
 
     print("🚀 正在通过命令行启动后台 API 服务...")

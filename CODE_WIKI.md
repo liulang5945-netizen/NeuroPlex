@@ -754,27 +754,34 @@ LLaMA 3风格的Transformer组件：
 ### 7.1 快速验证
 
 ```bash
-# 验证门控机制 + 神经元创建 + 质量过滤
-python scripts/training/test_distill_bridge.py
-# 预期: 6/6 PASS
-
-# 验证分工路径逻辑
-python scripts/training/test_division_path.py
-# 预期: 4/4 PASS
+# 口径契约 + 共振 side_channels 回归（16 用例）
+python -m pytest tests/ -q
+# 预期: 16 passed
 ```
 
-### 7.2 蒸馏训练
+> 注：原 `test_distill_bridge.py` / `test_division_path.py` 已随 2026-08 训练管线重构退役；当前机制级验证脚本位于 `scripts/training/verify_*.py`（运行日志落盘 `logs/`，N3 规范）。
+
+### 7.2 训练管线（当前链路）
 
 ```bash
-# 准备数据 + 提取教师方向
-python scripts/training/prepare_distill_data.py
+# ① 领域 SFT 微调（对话神经元）
+python scripts/training/finetune_neuron_dialogue.py
 
-# 蒸馏 5 个神经元
-python scripts/training/distill_neurons.py --steps 5000
+# ② 协作层训练（side_channels + 跨规格投影）
+python scripts/training/finetune_cross_spec.py
+python scripts/training/finetune_side_channels.py
 
-# 验证蒸馏质量
-python scripts/training/verify_distilled_neurons.py
+# ③ 跨域协作层联合训练（含 hub，可选 --hub-path）
+python scripts/training/train_cross_domain_collab.py
+
+# ④ hub 神经元训练（EXPERT 规格 + general 256K，从零）
+python scripts/training/train_hub_neuron.py
+
+# ⑤ 回合级质量判定头训练
+python scripts/training/train_round_level_quality.py
 ```
+
+> 原蒸馏管线（`prepare_distill_data.py` / `distill_neurons.py` / `verify_distilled_neurons.py`）为一代→二代迁移期的临时产物，已归档退役；当前 neurons 均为独立 SFT 训练（详见 `plans/HISTORY_DIALOGUE_TRAINING.md`）。
 
 ### 7.3 启动API服务
 
@@ -798,7 +805,7 @@ cortex = Cortex(neurons_dir="data/neurons")
 
 import sentencepiece as spm
 sp = spm.SentencePieceProcessor()
-sp.Load("checkpoint/sentencepiece.model")
+sp.Load(os.path.join(os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000"), "sentencepiece.model"))
 cortex.set_tokenizer(sp)
 
 result = cortex.generate("今天天气怎么样？", max_tokens=256)
@@ -858,15 +865,17 @@ npm run build  # 生产构建
 
 ## 10. 技术债务与后续工作
 
+> 更新于 2026-08（修复审计 R 系列后）；完整状态见 `plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 与 `plans/REMEDIATION_PLAN.md`。
+
 | 优先级 | 项目 | 说明 |
 |--------|------|------|
-| 🔴 P0 | 统一field_dim | ~~所有神经元使用一致的field_dim=4096~~（已过时：实际 COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096，跨规格由 ensemble 投影层统一，见 R21） |
-| 🔴 P0 | 共享嵌入初始化 | 从teacher embedding用SVD初始化512-dim共享嵌入 |
-| 🟡 P1 | API正式接入 | 将Cortex接入api/chat_strategies.py |
-| 🟡 P1 | 更长蒸馏训练 | 5000-10000步，使用实际领域数据 |
+| 🔴 P0 | hub正式训练 | hub neuron（495M）smoke链路已通，正式GPU训练待执行；随后正式协作层训练（`--hub-anchor-weight --hub-contrastive-weight`）+ 阶段4跨域评估 |
+| 🔴 P0 | 共振机制A/B证据 | W_cond / field_read_layers 已训练闭环（R1/R2），但收益A/B报告尚未落盘（N2规范） |
+| 🟡 P1 | 验证硬化 | 关键verify脚本转真实ckpt加载的pytest（slow标记）+ 最小CI |
+| 🟡 P1 | 共享嵌入初始化 | 从teacher embedding用SVD初始化512-dim共享嵌入（低优先，现用正交随机） |
 | 🟢 P2 | Agent适配 | planner/reflector改用cortex.think() |
-| 🟢 P2 | Life适配 | 生命系统适配神经元培养周期 |
-| 🟢 P3 | GPU加速 | 支持CUDA推理 |
+| 🟢 P2 | 工程加固 | ensemble.py拆分 / 裸except加日志 / state_dict聚合接口（R14相关） |
+| 🟢 P3 | GPU加速 | 支持CUDA推理（loader已有device传播，待实测） |
 
 ---
 
@@ -878,28 +887,33 @@ npm run build  # 生产构建
 |---|---|
 | [taiji/resonance/field.py](file:///e:/taiji-neuron/taiji/resonance/field.py) | 共振场核心 |
 | [taiji/resonance/neuron.py](file:///e:/taiji-neuron/taiji/resonance/neuron.py) | 共振神经元 |
-| [taiji/resonance/ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) | 共振循环编排 |
-| [taiji/resonance/gating.py](file:///e:/taiji-neuron/taiji/resonance/gating.py) | 门控机制 |
-| [taiji/resonance/quality.py](file:///e:/taiji-neuron/taiji/resonance/quality.py) | 质量过滤 |
-| [taiji/resonance/division.py](file:///e:/taiji-neuron/taiji/resonance/division.py) | 分工路径 |
+| [taiji/resonance/ensemble.py](file:///e:/taiji-neuron/taiji/resonance/ensemble.py) | 共振循环编排（forward/forward_train/continuous_forward） |
+| [taiji/resonance/continuous.py](file:///e:/taiji-neuron/taiji/resonance/continuous.py) | 连续时间共振动力学（theta-gamma） |
 | [taiji/resonance/config.py](file:///e:/taiji-neuron/taiji/resonance/config.py) | 神经元配置 |
-| [taiji/resonance/shared_embed.py](file:///e:/taiji-neuron/taiji/resonance/shared_embed.py) | 共享嵌入投影 |
 | [taiji/resonance/translator.py](file:///e:/taiji-neuron/taiji/resonance/translator.py) | 分词翻译器 |
-| [taiji/resonance/tribal.py](file:///e:/taiji-neuron/taiji/resonance/tribal.py) | 部落压缩 |
+| [taiji/resonance/tribal.py](file:///e:/taiji-neuron/taiji/resonance/tribal.py) | 部落压缩 + 共激活追踪 |
+| [taiji/resonance/lifecycle.py](file:///e:/taiji-neuron/taiji/resonance/lifecycle.py) | 生命周期（凋亡/成熟/新生） |
+| [taiji/resonance/stdp.py](file:///e:/taiji-neuron/taiji/resonance/stdp.py) | STDP 突触可塑性 |
+| [taiji/resonance/neuro_modulation.py](file:///e:/taiji-neuron/taiji/resonance/neuro_modulation.py) | 神经调质 + 睡眠固化 |
+| [taiji/resonance/phasor.py](file:///e:/taiji-neuron/taiji/resonance/phasor.py) | 相位动力学（Kuramoto） |
+| [taiji/resonance/oscillator.py](file:///e:/taiji-neuron/taiji/resonance/oscillator.py) | o 型振荡神经元（可学习节奏） |
+| [taiji/resonance/topology.py](file:///e:/taiji-neuron/taiji/resonance/topology.py) | 拓扑构建（生产接线见 loader） |
+| [taiji/resonance/field_memory.py](file:///e:/taiji-neuron/taiji/resonance/field_memory.py) | 场记忆库（写门控+锚点检索） |
 | [taiji/brain/cortex.py](file:///e:/taiji-neuron/taiji/brain/cortex.py) | 意识中心 |
 | [taiji/layers.py](file:///e:/taiji-neuron/taiji/layers.py) | Transformer基础组件 |
-| [taiji/loader.py](file:///e:/taiji-neuron/taiji/loader.py) | 模型加载器 |
+| [taiji/loader.py](file:///e:/taiji-neuron/taiji/loader.py) | 模型加载器（assemble_cortex） |
 | [taiji/config.py](file:///e:/taiji-neuron/taiji/config.py) | 配置和Token合约 |
 
 ### 训练脚本
 
 | 文件 | 说明 |
 |---|---|
-| [scripts/training/prepare_distill_data.py](file:///e:/taiji-neuron/scripts/training/prepare_distill_data.py) | 准备蒸馏数据 |
-| [scripts/training/distill_neurons.py](file:///e:/taiji-neuron/scripts/training/distill_neurons.py) | 蒸馏神经元 |
-| [scripts/training/verify_distilled_neurons.py](file:///e:/taiji-neuron/scripts/training/verify_distilled_neurons.py) | 验证蒸馏质量 |
-| [scripts/training/test_distill_bridge.py](file:///e:/taiji-neuron/scripts/training/test_distill_bridge.py) | 蒸馏桥接测试 |
-| [scripts/training/test_division_path.py](file:///e:/taiji-neuron/scripts/training/test_division_path.py) | 分工路径测试 |
+| [scripts/training/finetune_neuron_dialogue.py](file:///e:/taiji-neuron/scripts/training/finetune_neuron_dialogue.py) | 对话神经元 SFT 微调 |
+| [scripts/training/finetune_cross_spec.py](file:///e:/taiji-neuron/scripts/training/finetune_cross_spec.py) | 跨规格协作层微调 |
+| [scripts/training/finetune_side_channels.py](file:///e:/taiji-neuron/scripts/training/finetune_side_channels.py) | side_channels 微调 |
+| [scripts/training/train_cross_domain_collab.py](file:///e:/taiji-neuron/scripts/training/train_cross_domain_collab.py) | 跨域协作层联合训练（含 hub） |
+| [scripts/training/train_hub_neuron.py](file:///e:/taiji-neuron/scripts/training/train_hub_neuron.py) | hub 神经元从零训练 |
+| [scripts/training/train_round_level_quality.py](file:///e:/taiji-neuron/scripts/training/train_round_level_quality.py) | 回合级质量判定头训练 |
 
 ### API入口
 
