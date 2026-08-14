@@ -117,8 +117,10 @@ def main():
         # continuous 模式下 leader = dominant 域内时间平均激活最高的 neuron
         dom = dom_exe[tag]
         try:
+            # 口径守卫（2026-08-12）：zh/dialogue 域用训练格式 prompt
+            gen_prompt = build_dialogue_prompt(prompt) if tag in ("zh", "dialogue") else prompt
             text = cortex.generate(
-                prompt=prompt, max_tokens=10, temperature=0.55, top_k=15,
+                prompt=gen_prompt, max_tokens=10, temperature=0.55, top_k=15,
                 repetition_penalty=1.4, domain=dom, collab_mode="continuous",
                 fusion_mode="soft",
             )
