@@ -56,7 +56,12 @@ class STDPRule:
         eta_minus: float = 0.005,  # LTD 学习率（通常小于 LTP）
         tau_plus: float = 2.0,     # LTP 时间常数（轮次）
         tau_minus: float = 2.0,    # LTD 时间常数
-        similarity_threshold: float = 0.3,  # 相似度阈值
+        # 相似度门控。2026-08-14 验收实测（R11）：原默认 0.3 使 STDP 从未生效——
+        # 各 neuron 的场写入方向（含跨规格投影后的统一空间）cosine 实测 ±0.03，
+        # 0.3 阈值下所有 pair 被门控，睡眠期 apply 恒空转（离散/连续路径皆然）。
+        # 改为 0.0：方向"同向即强化、反向即门控"——sim 仍作为 delta 的乘数，
+        # 方向一致的 pair 天然获得更大更新（语义不变，仅去掉过度约束）。
+        similarity_threshold: float = 0.0,
     ):
         self.eta_plus = eta_plus
         self.eta_minus = eta_minus

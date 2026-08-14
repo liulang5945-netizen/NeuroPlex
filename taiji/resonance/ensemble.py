@@ -1283,8 +1283,14 @@ class ResonanceEnsemble:
                     scale = scale * (1.0 + binding_bs * binding_map.get(nid, 0.0))
                 self.field.write(nid, vec, scale=scale)
             # P1-STDP: 记录 round 1 发放（用于 sleep 期 STDP 强化）
+            # R11 修复（2026-08-14 验收实测）：记录"投影到场空间"的向量而非原始
+            # round_vecs——原始向量跨 neuron 域内独立（2048/3072 空间），cosine
+            # ≈ 0，STDP 相似度阈值 0.3 永不满足 → 睡眠期强化从未生效（空转）。
+            # 投影后各 neuron 在同一场空间中比较"写入主张"方向，STDP 才可触发。
             if self.stdp_tracker is not None:
-                self.stdp_tracker.record_firing(nid, 1, round_vecs[nid])
+                self.stdp_tracker.record_firing(
+                    nid, 1, self._project_vec(nid, round_vecs[nid])
+                )
             # P1-Coactivation: 记录共激活（同轮 forward 的 neuron 互为共激活）
             if self.coaction is not None:
                 self.coaction.update(active_ids, round_num=1)
@@ -1505,9 +1511,11 @@ class ResonanceEnsemble:
                 nmap[nid].enter_refractory(
                     multiplier=neuromod_mult * nmap[nid].refractory_multiplier
                 )
-                # P1-STDP: 记录 round 2+ 发放
+                # P1-STDP: 记录 round 2+ 发放（口径同 round1：投影到场空间）
                 if self.stdp_tracker is not None:
-                    self.stdp_tracker.record_firing(nid, round_num, round_vecs[nid])
+                    self.stdp_tracker.record_firing(
+                        nid, round_num, self._project_vec(nid, round_vecs[nid])
+                    )
             # P1-Coactivation: 更新共激活
             if self.coaction is not None and writable_ids:
                 self.coaction.update(writable_ids, round_num=round_num)
@@ -1907,10 +1915,14 @@ class ResonanceEnsemble:
                 field.write_inhibit(nid, vec, weight=maturity_w)
             else:
                 field.write(nid, vec, scale=write_scale * maturity_w * conf0[nid])
-            # R11: STDP 记录 t=0 发放（与离散 forward round1 同语义）
+            # R11: STDP 记录 t=0 发放（与离散 forward round1 同语义；
+            # 口径：投影到场空间的向量——原始 vecs0 跨 neuron 域内独立，cosine≈0
+            # 永不触发 STDP，2026-08-14 验收实测后统一）
             if self.stdp_tracker is not None:
                 try:
-                    self.stdp_tracker.record_firing(nid, 1, vecs0[nid])
+                    self.stdp_tracker.record_firing(
+                        nid, 1, self._project_vec(nid, vecs0[nid])
+                    )
                 except Exception:
                     pass
         try:
@@ -2019,10 +2031,13 @@ class ResonanceEnsemble:
                     field.write_inhibit(nid, vec, weight=maturity_w * a_i)
                 else:
                     field.write(nid, vec, scale=ct.dt * write_scale * maturity_w * a_i * float(round_confs[nid].mean().item()))
-                # R11: STDP 记录积分步发放（round_num=t+1，与离散 round2+ 同语义）
+                # R11: STDP 记录积分步发放（round_num=t+1，与离散 round2+ 同语义；
+                # 口径同前：投影到场空间的向量，2026-08-14 验收实测后统一）
                 if self.stdp_tracker is not None:
                     try:
-                        self.stdp_tracker.record_firing(nid, t + 1, round_vecs[nid])
+                        self.stdp_tracker.record_firing(
+                            nid, t + 1, self._project_vec(nid, round_vecs[nid])
+                        )
                     except Exception:
                         pass
             try:
@@ -2611,8 +2626,11 @@ class ResonanceEnsemble:
             w_cond = self._field.W_cond.to(loo_norm.device)
             cond_gate = torch.sigmoid(loo_norm @ w_cond)      # [N, B, D]
             cond_state = loo_norm * cond_gate                 # 同 field._condition
+            # R1 修复（2026-08-14 冒烟实测）：norm 必须不带 keepdim（→ [N, B]）；
+            # keepdim=True 时除法广播出 [N, B, 1]，下游 mean(dim=1) 只消 B →
+            # [N, 1]，softmax/einsum 全部错形（einsum 'n,nblv' 维度不匹配）。
             scores = (all_vecs_norm * cond_state).sum(dim=-1) / (
-                cond_state.norm(dim=-1, keepdim=True) + 1e-8
+                cond_state.norm(dim=-1) + 1e-8
             )  # [N, B]
         scores = scores.mean(dim=1)                      # [N] batch 平均
 
