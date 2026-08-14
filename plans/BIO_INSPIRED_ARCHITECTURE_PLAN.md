@@ -95,7 +95,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | C24 | 域目标空间 SFT + judge/域双头 + 9 阵容挂载 | ✅ |
 | C25 | 对比问题解决 A-G（词库编辑/STDP 生长修剪/调质深度耦合/睡眠重放+稳态下调/连续时间共振默认）+ 培养期闭环 + zh 诊断 | ✅ |
 | C26 | **场固化**（可写记忆第 0 格：睡眠沉淀 + 跨会话检索 + 注入 + 真正睡眠重放） | ✅ |
-| C27 | **实例级路由**（SMCS 借鉴）+ **场向量相位编码**（KoPE：相位归属记忆） | ✅ |
+| C27 | **实例级路由**（SMCS）+ **场向量相位编码**（KoPE）+ **BioOSS p/o 双神经元**（o 型节奏源） | ✅ |
 
 ### 2.2 下一步建议（当前活跃，按优先级）
 
@@ -150,6 +150,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 - ~~多阶段任务模式链 v2（task-set 序列完整版，C25-F 已落地首步）~~ ✅ 已闭环（C26 增量八 2026-08-14：TaskSet 类 + 调度器 generate_task_chain，三重传递 + 阶段质量门 + 生产接入，verify_c27_task_chain 13/13）
 - ~~实例级路由（SMCS contextual selection：激活子集随实例内容演化）~~ ✅ 已落地（C27 增量一 2026-08-14：chunk 级混合后验双向域内演化+迟滞，continuous 默认路径，verify_c27_instance_routing 14/14）
 - ~~场向量相位编码（KoPE：相位编码进表征，相位归属记忆）~~ ✅ 已落地（C27 增量二 2026-08-14：phase_code/phase_mean/phase_lock + 记忆条目相位 + 按记忆相位对齐 theta，verify_c27_kope 13/13）
+- ~~BioOSS p/o 双神经元模型（投射型内容 + 振荡型节奏源分工）~~ ✅ 已落地（C27 增量三 2026-08-14：OscillatorNode theta/gamma 双层 + Kuramoto 牵引 + GABA 节奏门控 + KoPE 节奏中心，verify_c27_biooss 14/14）
 
 ### 2.5 架构方向记录（2026-08-11 讨论，未实施）
 

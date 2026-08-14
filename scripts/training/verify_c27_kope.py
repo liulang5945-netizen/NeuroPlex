@@ -103,7 +103,9 @@ def main():
         pc = res_c.get("phase_code")
         pm = res_c.get("phase_mean")
         pl = res_c.get("phase_lock")
-        ok = (pc is not None and pc.numel() == 2 * len(zh_domain_all)
+        # C27 增量三（BioOSS）：phase_code 含振荡段 → 维度 = 2N + 2M
+        _M = len(getattr(cortex.ensemble, "oscillators", []))
+        ok = (pc is not None and pc.numel() == 2 * len(zh_domain_all) + 2 * _M
               and isinstance(pm, float) and -math.pi <= pm <= math.pi
               and isinstance(pl, float) and 0.0 <= pl <= 1.0 + 1e-6)
         check("A1. continuous 路径相位编码合法",

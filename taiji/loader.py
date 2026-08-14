@@ -527,6 +527,22 @@ def assemble_cortex(
                 gamma.assign_phase_by_domain(domain_to_nids)
         cortex.set_gamma_oscillator(gamma)
         modules["gamma_oscillator"] = gamma
+        # C27 增量三（BioOSS）：装配注入 o 型振荡节点（theta 慢 + gamma 快
+        # 双层节奏源 + GABA 式节奏门控）——轻量合成节点，无需训练 ckpt。
+        try:
+            from taiji.resonance.oscillator import make_default_oscillators
+            _fd = getattr(getattr(cortex, "field", None), "dim", None)
+            if _fd is None:
+                _fd = getattr(getattr(cortex.ensemble, "field", None), "dim", None) or 4096
+            oscillators = make_default_oscillators(int(_fd))
+            cortex.ensemble.set_oscillators(oscillators)
+            modules["oscillators"] = oscillators
+            logger.info(
+                "[assemble_cortex] BioOSS oscillators wired "
+                "(theta+gamma, %d nodes, dim=%d)", len(oscillators), _fd,
+            )
+        except Exception as e:
+            logger.warning("[assemble_cortex] BioOSS oscillators 装配失败（非致命）: %s", e)
         # 推理态：冻结可学相位参数（推理 forward 只走 dict binding/gate 标量路径，
         # 无需梯度；Kuramoto 状态推进仍生效）
         gamma.eval()

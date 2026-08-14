@@ -228,6 +228,8 @@ class PhasorDynamics(nn.Module):
         coactivation: Optional[Any] = None,
         dt: Optional[float] = None,
         coupling_strength: Optional[float] = None,
+        external_phases: Optional[Any] = None,
+        external_weights: Optional[List[float]] = None,
     ) -> torch.Tensor:
         """可微 Kuramoto 演化：返回归一化后的新相位 [N,2]（梯度到 ω/K/phasors）。
 
@@ -237,12 +239,16 @@ class PhasorDynamics(nn.Module):
         用本方法的输出直接算绑定，梯度流完整）。
 
         Δθ_i = ω_i·dt + (K/N)·Σ_j det([p_i,p_j])·c_ij
+             + Σ_m K_ext,m · sin(θ_m − θ_i)     （C27 增量三 BioOSS：o 型牵引）
 
         Args:
             active_ids: 本轮激活 neuron ID（None = 全部）
             coactivation: CoactivationTracker（pair 强度调制）
             dt: 时间步长（None = self.dt）
             coupling_strength: 覆盖耦合强度（None = self.coupling_k 参数）
+            external_phases: BioOSS 振荡节点（o 型）相位列表 [[cos,sin],...]
+                ——作为外部牵引力驱动 p 型锁相（人脑抑制性中间神经环节律调控）
+            external_weights: 与 external_phases 对应的牵引强度列表
 
         Returns:
             [N,2] 归一化新相位（顺序 = active_ids），可微
@@ -268,6 +274,20 @@ class PhasorDynamics(nn.Module):
         )
         step = dt if dt is not None else self.dt
         dtheta = self.omega[idxs] * step + (K / N) * dets.sum(dim=1)  # [N] 可微
+        # C27 增量三（BioOSS）：外部振荡器（o 型）牵引——dtheta_i += K_ext·sin(θ_m−θ_i)
+        if external_phases:
+            for _m, _ep in enumerate(external_phases):
+                _ept = torch.as_tensor(
+                    _ep, dtype=p.dtype, device=p.device).reshape(-1)
+                if _ept.numel() != 2:
+                    continue
+                _ew = float(external_weights[_m]) if (
+                    external_weights and _m < len(external_weights)) else 0.0
+                if _ew == 0.0:
+                    continue
+                # sin(θ_m−θ_i) = cosθ_i·sinθ_m − sinθ_i·cosθ_m
+                dtheta = dtheta + _ew * (
+                    p[:, 0] * _ept[1] - p[:, 1] * _ept[0])
         cos_d, sin_d = torch.cos(dtheta), torch.sin(dtheta)
         new_x = p[:, 0] * cos_d - p[:, 1] * sin_d
         new_y = p[:, 0] * sin_d + p[:, 1] * cos_d
@@ -280,6 +300,8 @@ class PhasorDynamics(nn.Module):
         active_ids: Optional[List[str]] = None,
         coactivation: Optional[Any] = None,
         dt: Optional[float] = None,
+        external_phases: Optional[Any] = None,
+        external_weights: Optional[List[float]] = None,
     ) -> None:
         """可微 Kuramoto 相位耦合（状态推进，no_grad）。
 
@@ -288,6 +310,8 @@ class PhasorDynamics(nn.Module):
         evolve 输出（最后一轮）流向 ω/K。
 
         注：完全对齐/反相是绑定驻点（det=0 时耦合无牵引），物理正确。
+        C27 增量三（BioOSS）：external_phases/external_weights 透传 evolve——
+        o 型振荡节点驱动 p 型锁相。
         """
         ids = active_ids if active_ids is not None else list(self._id_to_idx.keys())
         idxs = [self._id_to_idx[nid] for nid in ids if nid in self._id_to_idx]
@@ -297,6 +321,8 @@ class PhasorDynamics(nn.Module):
         new_p = self.evolve(
             active_ids=ids, coactivation=coactivation,
             dt=dt, coupling_strength=coupling_strength,
+            external_phases=external_phases,
+            external_weights=external_weights,
         )
         with torch.no_grad():
             self.phasors[idxs] = new_p

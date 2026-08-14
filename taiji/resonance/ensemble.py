@@ -335,6 +335,9 @@ class ResonanceEnsemble:
         self.maturity = maturity
         # KoPE/Kuramoto: 相位耦合（共激活强的 neuron 相位同步）
         self.gamma_oscillator = gamma_oscillator
+        # C27 增量三（BioOSS）：o 型振荡节点（节奏源 + GABA 门控），
+        # 装配时经 set_oscillators 注入；None/空 = 无振荡节点（零回归）。
+        self.oscillators: List[Any] = []
         # C23-C（2026-08-08）：最后一轮可微演化相位（forward_train 用，梯度到 ω/K）
         self._last_evolved_phasors = None
         # C23-C2：phase-binding loss（绑定 vs 共振贡献对齐，forward_train 计算）
@@ -1878,9 +1881,33 @@ class ResonanceEnsemble:
             lock = float(z.norm().item())
             mean = (math.atan2(float(z[1].item()), float(z[0].item()))
                     if lock > 1e-8 else 0.0)
+            # C27 增量三（BioOSS）：o 型振荡节点作为节奏中心加入编码——
+            # 全量 phase_code 追加振荡段 [2M]，相位均值/锁相度按 1:1 融合
+            # 振荡器节奏中心（o 型主导"何时激活"，p 型主导"激活什么"）。
+            if self.oscillators:
+                osc_ph = torch.stack([
+                    torch.as_tensor(
+                        [math.cos(o.phase), math.sin(o.phase)],
+                        dtype=ph.dtype, device=ph.device)
+                    for o in self.oscillators
+                ])  # [M,2]
+                code = torch.cat([code, osc_ph.flatten()])  # [2N+2M]
+                z_osc = osc_ph.mean(dim=0)  # 节奏中心（M 个振荡器均值）
+                z = 0.5 * z + 0.5 * z_osc
+                lock = float(z.norm().item())
+                mean = (math.atan2(float(z[1].item()), float(z[0].item()))
+                        if lock > 1e-8 else 0.0)
             return code, mean, lock
         except Exception:
             return None, 0.0, 0.0
+
+    def set_oscillators(self, oscillators: Optional[List[Any]]) -> None:
+        """C27 增量三（BioOSS）：注入 o 型振荡节点（装配时调用）。
+
+        振荡节点 = 轻量合成节奏源（相位推进 + p 型牵引 + GABA 门控），
+        不承担内容生成；None/空列表 = 无振荡节点（零回归）。
+        """
+        self.oscillators = list(oscillators or [])
 
     # ── C25-E 连续时间共振（2026-08-11）：相位同步驱动的连续动力学 ──
 
@@ -2049,12 +2076,20 @@ class ResonanceEnsemble:
         keep_ids: Optional[set] = set(ids) if return_logits else None
         for t in range(1, ct.steps + 1):
             n_steps = t
-            # 1) 相位连续演化（状态推进）
+            # 1) 相位连续演化（状态推进）+ C27 增量三（BioOSS）o 型牵引
             if self.gamma_oscillator is not None and hasattr(self.gamma_oscillator, "kuramoto_step"):
                 try:
+                    # 推进振荡节点（theta/gamma 双层节奏源）→ p 型牵引输入
+                    osc_phs, osc_ws = [], []
+                    for osc in self.oscillators:
+                        osc.step(ct.dt)
+                        osc_phs.append(osc.unit(device=ref.device, dtype=ref.dtype))
+                        osc_ws.append(osc.coupling)
                     self.gamma_oscillator.kuramoto_step(
                         coupling_strength=0.05, active_ids=ids,
                         coactivation=self.coaction, dt=ct.dt,
+                        external_phases=osc_phs or None,
+                        external_weights=osc_ws or None,
                     )
                 except Exception:
                     pass
@@ -2106,6 +2141,18 @@ class ResonanceEnsemble:
                 field.lateral_inhibition_norm()
             except Exception:
                 pass
+            # C27 增量三（BioOSS）：GABA 式节奏门控——振荡相位窗口周期性
+            # 抑制共振场（时间门控而非内容污染；幅度小默认 ≤0.08 轻微调制）。
+            # 人脑对应：抑制性中间神经元在特定 θ 相位抑制投射神经元。
+            for osc in self.oscillators:
+                try:
+                    _gw = osc.gaba_amp * osc.gaba_gate()
+                    if _gw > 1e-6:
+                        field.write_inhibit(
+                            f"__osc_{osc.nid}__", osc.gaba_vec.to(ref.device),
+                            weight=min(_gw, 1.0))
+                except Exception:
+                    continue
             # 6) 权重累积（时间平均激活，纯参与度；conf 不进入融合权重）
             weights = ct.weights_accum(weights, activ, torch.ones(len(ids)), ct.dt)
             # 7) 收敛：绑定分布稳定（相位锁定）；最少步数后才检查（防单步假收敛）
