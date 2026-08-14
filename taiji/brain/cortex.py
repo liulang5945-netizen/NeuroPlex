@@ -1623,6 +1623,93 @@ class Cortex:
         else:
             self._domain_to_general_cache.pop(domain, None)
 
+    # ─── C25-E 遗留：continuous leader 融合质量信号（2026-08-14）─────────────
+    # 诊断证实（diag_c25e_leader_quality_gap.py）：aug2 场共振分系统性碾压
+    # （0.7-0.93 vs 0.01-0.17）当选 leader 5/7 次，但其生成质量（zh lm_head
+    # NLL）常是 5 个 dialogue 中最差——"共振分高但生成差"弱 neuron 独占。
+    # 融合：域内归一化共振分 × 质量信号（prompt NLL 的负数）等权求和。
+    @staticmethod
+    def _fuse_leader_quality(resonance_scores: dict, nll_quality: dict,
+                             alpha: float = 0.5) -> dict:
+        """连续 leader 融合分数（共振分与 -NLL 域内 min-max 归一化后加权）。
+
+        Args:
+            resonance_scores: {nid: round1_scores}（t=0 场共振分，越大越强）
+            nll_quality: {nid: -NLL}（生成质量，越大越好）
+            alpha: 共振分权重（0.5 = 等权；质量权重 = 1-alpha）
+
+        Returns:
+            {nid: fused_score}（仅含两信号都有的 neuron；空 → 调用方回退）
+        """
+        common = [k for k in nll_quality if k in resonance_scores]
+        if not common:
+            return {}
+
+        def _minmax(values: dict) -> dict:
+            lo, hi = min(values.values()), max(values.values())
+            if hi - lo < 1e-9:
+                return {k: 0.5 for k in values}
+            return {k: (v - lo) / (hi - lo) for k, v in values.items()}
+
+        r_norm = _minmax({k: resonance_scores[k] for k in common})
+        q_norm = _minmax({k: nll_quality[k] for k in common})
+        return {k: alpha * r_norm[k] + (1 - alpha) * q_norm[k] for k in common}
+
+    def _nll_quality_from_round1_logits(
+        self, result: dict, prompt: str, domain: str,
+    ) -> dict:
+        """从 round1 logits 计算各 neuron 对 prompt 的 next-token NLL 质量。
+
+        continuous leader 融合信号（C25-E 遗留）：质量 = 该 neuron 对 prompt
+        的拟合度（lm_head 在域 tokenizer 对齐空间的 next-token NLL，越低越
+        贴合该域训练分布）。用 round1 独立 logits（leader 生成同源），零额外
+        前向。返回 {nid: -NLL}（越大质量越好）；失败返回 {}（调用方回退）。
+
+        Args:
+            result: think() 返回（含 round1_logits: {nid: [1, L, V]}）
+            prompt: 生成输入（质量信号针对初始 prompt，不随生成增长）
+            domain: 域（用于取对应 tokenizer；zh 50K 与 dialogue lm_head 对齐）
+        """
+        r1_logits = result.get("round1_logits") or {}
+        if not r1_logits:
+            return {}
+        hub = getattr(self, "_tokenizer_hub", None)
+        if hub is None or not hasattr(hub, "get_tokenizer"):
+            return {}
+        try:
+            tok = hub.get_tokenizer(domain) or hub.get_tokenizer("general")
+            if tok is None:
+                return {}
+            zids = torch.tensor([tok.encode(prompt)], dtype=torch.long,
+                                device=self.device)
+        except Exception:
+            return {}
+        if zids.numel() < 2:
+            return {}
+        vocab = int(tok.GetPieceSize()) if hasattr(tok, "GetPieceSize") else None
+        if not vocab:
+            return {}
+        out: dict = {}
+        for nid, lg in r1_logits.items():
+            if lg.shape[-1] != vocab:
+                continue
+            try:
+                lg = lg.detach()  # 推理质量信号：仅前向，不携带梯度
+                n = min(lg.shape[1] - 1, zids.numel() - 1)
+                if n < 1:
+                    continue
+                logp = torch.log_softmax(lg[:, :n, :], dim=-1)  # [1, n, V]
+                tgt = zids[0][1:n + 1].unsqueeze(0).unsqueeze(-1)
+                nll_tok = -logp.gather(-1, tgt).squeeze(-1)     # [1, n]
+                mask = (zids[0][1:n + 1] != 1) & (zids[0][1:n + 1] != 0)
+                if mask.sum() == 0:
+                    continue
+                out[nid] = -float((nll_tok * mask).sum() / mask.sum().float())
+            except Exception:
+                continue
+        return out
+
+
     def _generate_p7(
         self,
         prompt: str,
@@ -1857,6 +1944,9 @@ class Cortex:
         # 分隔符（见下方 leader 分支）——训练 answer 起点在 prompt+"\n" 之后。
         _c24_prefixed = False
         _c24_domain_nids = getattr(self, "_c24_domain_nids", None) or set()
+        # C25-E 遗留（2026-08-14）：质量信号针对固定 prompt 不随生成增长，
+        # 首次计算后缓存（避免每 token 重复 log_softmax 50000 词表）。
+        _leader_nll_quality_cache: Optional[dict] = None
 
         for _ in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
@@ -1907,10 +1997,25 @@ class Cortex:
                             k: v for k, v in qual_scores.items()
                             if k == domain or k.startswith(domain + "_")
                         }
-                        if domain_scores:
-                            leader_nid = max(domain_scores, key=domain_scores.get)
+                        base_scores = domain_scores if domain_scores else qual_scores
+                        # C25-E 遗留（2026-08-14）：融合 NLL 质量信号防弱 neuron
+                        # 独占——共振分高但生成质量差的 neuron（如 aug2）不再独占
+                        # leader。质量信号 = 各 neuron 对 prompt 的 next-token NLL
+                        # （zh lm_head 对齐，越低质量越好），域内归一化后与共振分
+                        # 等权融合。质量信号获取失败时回退纯共振分（向后兼容）。
+                        fused = None
+                        if len(base_scores) >= 2:
+                            if _leader_nll_quality_cache is None:
+                                _leader_nll_quality_cache = (
+                                    self._nll_quality_from_round1_logits(
+                                        result, prompt, domain))
+                            if _leader_nll_quality_cache:
+                                fused = self._fuse_leader_quality(
+                                    base_scores, _leader_nll_quality_cache)
+                        if fused:
+                            leader_nid = max(fused, key=fused.get)
                         else:
-                            leader_nid = max(qual_scores, key=qual_scores.get)
+                            leader_nid = max(base_scores, key=base_scores.get)
                     else:
                         domain_scores = {
                             k: v for k, v in final_scores.items()
