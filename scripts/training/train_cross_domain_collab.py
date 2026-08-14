@@ -233,6 +233,68 @@ def compute_hub_anchor_loss(
     return 1.0 - F.cosine_similarity(v_d, v_hub, dim=-1).mean()
 
 
+PAIRS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "cross_domain_pairs.jsonl",
+)
+
+
+def load_pairs_texts(max_pairs: int = 0) -> List[Tuple[str, str]]:
+    """加载跨域平行语料（zh↔code 同义对，阶段 1 产物 1629 对）。"""
+    if not os.path.exists(PAIRS_PATH):
+        return []
+    out = []
+    with open(PAIRS_PATH, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            p = json.loads(line)
+            out.append((p["zh"], p["code"]))
+    if max_pairs > 0:
+        out = out[:max_pairs]
+    print(f"  [pairs] {len(out)} 对跨域平行语料（{PAIRS_PATH}）", flush=True)
+    return out
+
+
+def compute_hub_contrastive_loss(
+    ensemble, neurons: Dict[str, ResonanceNeuron],
+    shared_embeddings: Dict[str, torch.nn.Embedding],
+    general_sp,
+    zh_id: str, code_id: str,
+    zh_texts: List[str], code_texts: List[str],
+    tau: float = 0.1, max_seq_len: int = 64,
+) -> torch.Tensor:
+    """跨域对比 loss（缺口 L 阶段 3 第三部分·渐进第二步，决策 4C 最终形态）。
+
+    用跨域平行语料（zh 指令 ↔ code 实现）约束**投影到统一空间（hub 空间，
+    即 hub field 4096 维度）后的域 field**做双向 InfoNCE：同义跨域对（zh"函数"
+    ↔ code"function"）在 hub 空间靠近，不同义对远离——hub 空间成为真正的
+    跨域共享语义空间，对比学习显式对齐（SimCLR/CLIP 范式，非 CE 副产物）。
+
+    与锚定 loss 互补：锚定把域 field 拉向 hub 方向（同一文本），对比让同义
+    跨域文本的域 field 彼此靠近（跨文本对）。域 neuron body 冻结（LoRA 双阶段
+    职责分离），梯度只流两个域的 cross_spec_projectors。输入 detach（同锚定
+    loss 的 backward 二次图教训）。
+    """
+    zh_emb = batch_align_and_embed(
+        zh_texts, general_sp, general_sp, shared_embeddings[zh_id],
+        max_seq_len=max_seq_len)[0]
+    code_emb = batch_align_and_embed(
+        code_texts, general_sp, general_sp, shared_embeddings[code_id],
+        max_seq_len=max_seq_len)[0]
+    v_zh = neurons[zh_id].forward(zh_emb.detach(), round_num=1)["field_vector"]
+    v_code = neurons[code_id].forward(code_emb.detach(), round_num=1)["field_vector"]
+    if zh_id in ensemble._cross_spec_projectors:
+        v_zh = ensemble._cross_spec_projectors[zh_id](v_zh)
+    if code_id in ensemble._cross_spec_projectors:
+        v_code = ensemble._cross_spec_projectors[code_id](v_code)
+    sim = F.cosine_similarity(v_zh.unsqueeze(1), v_code.unsqueeze(0), dim=-1) / tau
+    labels = torch.arange(sim.size(0), device=sim.device)
+    # 双向 InfoNCE（zh→code + code→zh）
+    return 0.5 * F.cross_entropy(sim, labels) + 0.5 * F.cross_entropy(sim.t(), labels)
+
+
 def load_tokenizer_for_vocab(domain: str, vocab_size: int):
     """加载与 neuron vocab 匹配的域 tokenizer（防御 vocab 不匹配）。
 
@@ -426,6 +488,18 @@ def main():
                              "对齐 hub field_vector（cosine 最大化，hub 为跨域语义锚点）。"
                              "梯度只流 cross_spec_projectors（域 neuron 与 hub body 冻结，"
                              "零破坏），需 --hub-path 开启。先锚定后叠加对比 loss（渐进）")
+    parser.add_argument("--hub-contrastive-weight", type=float, default=0.0,
+                        help="缺口 L 阶段 3 第三部分·渐进第二步：跨域对比 loss 权重。>0 时"
+                             "每 batch 用跨域平行语料（data/cross_domain_pairs.jsonl，zh↔code "
+                             "同义对 1629 对）做双向 InfoNCE——同义对在统一空间（hub 空间）"
+                             "靠近、不同义对远离，hub 空间成为跨域共享语义空间。梯度只流"
+                             "zh/code 两侧 cross_spec_projectors，需 --hub-path 且阵容含两侧")
+    parser.add_argument("--hub-contrastive-zh", default="zh",
+                        help="对比 loss 的 zh 侧域 neuron id")
+    parser.add_argument("--hub-contrastive-code", default="code",
+                        help="对比 loss 的 code 侧域 neuron id")
+    parser.add_argument("--hub-contrastive-tau", type=float, default=0.1,
+                        help="对比 loss InfoNCE 温度（越小越尖锐，0.1 为 CLIP 常用量级）")
     args = parser.parse_args()
 
     global DEVICE
@@ -684,6 +758,14 @@ def main():
             args.dialogue_data_dir, max_texts=args.dialogue_max_texts, max_answer_chars=150)
         data_sources.append("dialogue")
         print(f"  dialogue: {len(domain_texts['dialogue'])} 条对话（短答案 ≤150 字）", flush=True)
+    # 阶段 3 第三部分·渐进第二步：跨域平行语料桶（zh↔code 同义对，对比 loss 数据源）
+    pairs_texts: List[Tuple[str, str]] = []
+    if args.hub_path and args.hub_contrastive_weight > 0:
+        assert args.hub_contrastive_zh in neurons, \
+            f"对比 loss zh 侧 {args.hub_contrastive_zh} 不在阵容: {list(neurons)}"
+        assert args.hub_contrastive_code in neurons, \
+            f"对比 loss code 侧 {args.hub_contrastive_code} 不在阵容: {list(neurons)}"
+        pairs_texts = load_pairs_texts()
     total_steps_per_epoch = sum(
         max(1, (len(t) - args.batch_size) // args.batch_size) for t in domain_texts.values()
     )
@@ -791,6 +873,20 @@ def main():
                     anchor_loss = compute_hub_anchor_loss(
                         ensemble, neurons, neuron_embeddings, domain)
                     total_loss = total_loss + args.hub_anchor_weight * anchor_loss
+
+                # 阶段 3 第三部分·渐进第二步：跨域对比 loss——每 batch 采样平行语料对，
+                # 同义对（zh↔code）在统一空间（hub 空间）双向 InfoNCE 靠近、不同义远离。
+                # 梯度只流 zh/code 两侧 cross_spec_projectors（域 neuron body 冻结）。
+                if (args.hub_path and args.hub_contrastive_weight > 0 and pairs_texts):
+                    sample = random.sample(pairs_texts, min(8, len(pairs_texts)))
+                    zh_texts = [p[0] for p in sample]
+                    code_texts = [p[1] for p in sample]
+                    contrastive_loss = compute_hub_contrastive_loss(
+                        ensemble, neurons, shared_embeddings, general_sp,
+                        args.hub_contrastive_zh, args.hub_contrastive_code,
+                        zh_texts, code_texts, tau=args.hub_contrastive_tau,
+                        max_seq_len=args.seq_len)
+                    total_loss = total_loss + args.hub_contrastive_weight * contrastive_loss
 
                 total_loss.backward()
                 if muon_optimizer is not None:

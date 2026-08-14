@@ -59,12 +59,18 @@ def check(name: str, cond: bool, extra: str = "") -> None:
         print(f"  [FAIL] {name} {extra}", flush=True)
 
 
-def build_ensemble_with_hub(device: str = "cpu"):
-    """构建含 hub 的协作阵容（code/math + hub），模拟 collab 训练 step 1-5。"""
+def build_ensemble_with_hub(device: str = "cpu", nids=None):
+    """构建含 hub 的协作阵容（域 neuron + hub），模拟 collab 训练 step 1-5。
+
+    nids：参与协作的域 neuron id 列表（foundation_v1_general 基座），
+    默认 ["code", "math"]；对比 loss 验证传 ["zh", "code"]。
+    """
+    if nids is None:
+        nids = ["code", "math"]
     shared_lm_head = tcdc.load_shared_lm_head(GENERAL_DIR, 512, device)
     neurons = {}
     shared_embeddings = {}
-    for nid in ["code", "math"]:
+    for nid in nids:
         n = tcdc.load_neuron(nid, GENERAL_DIR, device, shared_lm_head=shared_lm_head)
         neurons[nid] = n
         shared_embeddings[nid] = tcdc.load_shared_embedding(GENERAL_DIR, device)
