@@ -74,7 +74,17 @@ class WriteGate(nn.Module):
         except Exception:
             return False
         self.in_dim = int(payload.get("in_dim", self.in_dim))
-        self.load_state_dict(payload["state_dict"])
+        # 按产物维度重建网络（构造时传入的 dim 可能与产物不一致，
+        # 如 sleep_engine 无 cortex 时用默认 4096——load 自修复维度）
+        self.net = nn.Sequential(
+            nn.Linear(self.in_dim + 1, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        try:
+            self.load_state_dict(payload["state_dict"])
+        except Exception:
+            return False
         return True
 
 

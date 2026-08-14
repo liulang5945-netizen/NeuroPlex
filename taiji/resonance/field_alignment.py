@@ -74,7 +74,16 @@ class AnchorProjector(nn.Module):
             return False
         self.in_dim = int(payload.get("in_dim", self.in_dim))
         self.proj_dim = int(payload.get("proj_dim", self.proj_dim))
-        self.load_state_dict(payload["state_dict"])
+        # 按产物维度重建网络（load 自修复：构造维度与产物不一致时也能加载）
+        self.net = nn.Sequential(
+            nn.Linear(self.in_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, self.proj_dim),
+        )
+        try:
+            self.load_state_dict(payload["state_dict"])
+        except Exception:
+            return False
         return True
 
 
