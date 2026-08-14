@@ -211,6 +211,10 @@ class Cortex:
             neuron.load_state_dict(sd, strict=False)
             neuron.v1_compat = not has_v2
             neuron.eval()
+            # C26 增量三补：恢复 ckpt 自带的沉淀 LoRA 增量（strict=False 会静默
+            # 丢弃 lora keys → 皮层记忆重启即失；此处显式恢复）
+            if neuron.load_lora(sd):
+                logger.info("[Cortex] %s 恢复沉淀 LoRA 增量", domain)
             # domain_prototype 由 sleep_engine contrastive phase EMA 更新，
             # 加载时保持初始化值（zeros），训练后自动填充
             self.neurons[domain] = neuron
@@ -849,6 +853,9 @@ class Cortex:
             neuron.load_state_dict(sd, strict=False)
             neuron.v1_compat = not has_v2
             neuron.eval()
+            # C26 增量三补：恢复沉淀 LoRA 增量（与主装配路径同款）
+            if neuron.load_lora(sd):
+                logger.info("[Cortex] revive %s 恢复沉淀 LoRA 增量", nid)
             with self._neurons_lock:
                 if nid in self.neurons:
                     logger.warning(f"[Cortex] revive_neuron: {nid} 已在运行中，跳过")

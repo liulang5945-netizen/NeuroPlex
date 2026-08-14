@@ -935,3 +935,35 @@ class ResonanceNeuron(nn.Module):
             self.lora_adapters[str(i)] = layer_adapters
         return self.lora_adapters
 
+    def load_lora(self, sd: dict, layers: Optional[List[int]] = None) -> bool:
+        """C26 增量三补：从 ckpt state_dict 恢复沉淀的 LoRA 增量。
+
+        enable_lora 是运行时方法（不写 config），装配重建的 neuron 无
+        lora_adapters，strict=False 加载会静默丢弃 lora keys → 沉淀的皮层
+        记忆重启即失。检测 sd 含 lora_adapters.* 时：enable_lora（rank 从
+        a.weight 推断，层用训练同款尾层默认）+ 加载。
+
+        Args:
+            sd: ckpt["state_dict"]（含 lora_adapters.* keys 才有意义）
+            layers: 与训练一致（None = 尾层 2 层）
+
+        Returns:
+            True=已恢复 LoRA；False=sd 无 lora 或加载失败
+        """
+        lora_keys = [k for k in sd if k.startswith("lora_adapters.")]
+        if not lora_keys:
+            return False
+        rank = 0
+        for k, v in sd.items():
+            if k.startswith("lora_adapters.") and k.endswith(".a.weight"):
+                rank = max(rank, v.shape[0])
+        if len(self.lora_adapters) == 0:
+            self.enable_lora(rank if rank > 0 else 16, layers=layers)
+        lora_sd = {k[len("lora_adapters."):]: v for k, v in sd.items()
+                   if k.startswith("lora_adapters.")}
+        try:
+            self.lora_adapters.load_state_dict(lora_sd, strict=False)
+            return True
+        except Exception:
+            return False
+

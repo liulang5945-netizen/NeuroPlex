@@ -887,6 +887,9 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
             neuron = ResonanceNeuron(cfg, shared_lm_head=shared_lm_head).to(device)
             neuron.load_state_dict(ckpt["state_dict"], strict=False)
             neuron.eval()
+            # C26 增量三补：恢复 ckpt 自带的沉淀 LoRA 增量（strict=False 会静默丢弃）
+            if neuron.load_lora(ckpt["state_dict"]):
+                logger.info("[assemble_cortex] %s 恢复沉淀 LoRA 增量", nid)
             # C24（2026-08-09）：域目标空间 SFT neuron——生成时输入需补 "\n"
             # （训练 answer 起点在 prompt+"\n" 之后，见 train_domain_target_sft.py）
             if ckpt.get("c24_domain_sft"):
