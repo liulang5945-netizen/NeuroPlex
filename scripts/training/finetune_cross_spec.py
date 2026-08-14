@@ -128,6 +128,15 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, ensemble,
     # §4.0c: 保存 Sparse Router 状态
     if ensemble.sparse_router is not None:
         ckpt["sparse_router_state"] = ensemble.sparse_router.state_dict()
+        # R3（REMEDIATION_PLAN 2026-08-14）：router 拓扑参数随产物保存，
+        # 否则生产 loader 无法按训练同款 top_k 重建（此前状态保存但生产不加载）
+        ckpt["sparse_router_config"] = {
+            "top_k": ensemble.sparse_router.top_k,
+            "warmup_steps": ensemble.sparse_router.warmup_steps,
+        }
+    # R1: 场门控权重随产物保存（W_cond 训练闭环）
+    if hasattr(ensemble._field, "W_cond"):
+        ckpt["field_w_cond"] = ensemble._field.W_cond.data.clone()
     if body_state:
         ckpt["body_state"] = body_state
     if adamw_optimizer is not None:
@@ -448,6 +457,11 @@ def main():
             # field_write（让场写入适配协作动态，C6 多头兼容）
             for p in neuron.get_field_write_parameters():
                 p.requires_grad = True
+            # R2（REMEDIATION_PLAN 2026-08-14）：field_read 解冻训练——
+            # round2+ 场条件化读取路径此前恒为随机初始化（审计发现），
+            # 解冻使其成为可学习路径（落入 body 低 lr，温柔更新）。
+            for p in neuron.get_field_read_parameters():
+                p.requires_grad = True
         neuron.train()
 
     # S8: shared_embedding 可选训练
@@ -474,6 +488,9 @@ def main():
     print(f"\n  field.dim={max_field_dim}, 跨规格投影层: "
           f"{len(ensemble._cross_spec_projectors)} 正向 + "
           f"{len(ensemble._cross_spec_back_projectors)} 反向", flush=True)
+    # R1（REMEDIATION_PLAN 2026-08-14）：场门控 W_cond 参与训练
+    # （训练-推理评分口径统一后，W_cond 需要梯度才能成为可学习门控）
+    ensemble._field.W_cond.requires_grad = True
 
     # 跨规格投影层设为可训练
     for proj in ensemble._cross_spec_projectors.values():
@@ -598,6 +615,10 @@ def main():
                 adamw_params.append(p)
         router_param_count = sum(p.numel() for p in ensemble.sparse_router.parameters())
         print(f"  §4.0c Sparse Router 参数: {router_param_count:,} (top_k={args.sparse_router_top_k})", flush=True)
+
+    # R1: 场门控 W_cond（2D → Muon）
+    if hasattr(ensemble._field, "W_cond") and ensemble._field.W_cond.requires_grad:
+        muon_params.append(ensemble._field.W_cond)
 
     # S8: shared_embedding 参数（如果训练）
     emb_params = []

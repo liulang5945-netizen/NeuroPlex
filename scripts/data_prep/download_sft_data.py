@@ -60,7 +60,11 @@ DEFAULT_SAMPLES = 3000
 API_BASE = "https://datasets-server.huggingface.co/rows"
 PAGE_SIZE = 100
 
-SPM_PATH = "checkpoint-481000/sentencepiece.model"
+# R18（REMEDIATION_PLAN 2026-08-14）：路径已相对，加环境变量覆盖入口
+SPM_PATH = os.path.join(
+    os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000"),
+    "sentencepiece.model",
+)
 
 
 # ── 数据源配置 ──

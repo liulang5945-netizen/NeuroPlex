@@ -553,6 +553,9 @@ def assemble_cortex(
             logger.warning("[assemble_cortex] GammaOscillator 创建失败（非致命）: %s", e2)
 
     # Step 7: WorkingMemory（P1-4，上下文维持）
+    # R13（REMEDIATION_PLAN 2026-08-14）：注册仅向后兼容——cortex.generate 不读取
+    # 该实例（假接线，详见 cortex.py 标注）；真实对话上下文走 agent 层
+    # taiji/agent/working_memory（ContextManager.set_working_memory）。
     try:
         from taiji.brain.working_memory import WorkingMemory
         wm = WorkingMemory(max_tokens=512)
@@ -1112,9 +1115,55 @@ def _load_collab_weights_into_cortex(
                 logger.warning("[assemble_cortex] %s lora_state 加载失败: %s", nid, e)
         logger.info("[assemble_cortex] lora_state 已应用: %d 个 neuron（跳过域词表 %d）", n_lora, n_lora_skip)
 
+    # 6.5 sparse_router（R3: 训练产物加载闭环——审计发现训练侧保存
+    # sparse_router_state，但生产 loader 从不创建/加载 → 训练好的 router
+    # 权重在推理时永远丢失，且推理端 ensemble 默认不创建 router。
+    # 仅当 ckpt 含 router 状态时才启用（向后兼容：无状态产物零行为变化）。
+    n_router = 0
+    router_state = _pick("sparse_router_state")
+    if router_state is not None and not getattr(
+            cortex.ensemble, "use_sparse_router", False):
+        router_cfg = ckpt.get("sparse_router_config") or {}
+        try:
+            from taiji.resonance.ensemble import SparseRouter
+            router = SparseRouter(
+                field_dim=cortex.field.dim,
+                score_dim=getattr(cortex.ensemble, "score_dim", None),
+                hidden_dim=128,
+                top_k=router_cfg.get("top_k", 3),
+                warmup_steps=router_cfg.get("warmup_steps", 0),
+                shared_expert_id=None,
+            )
+            router.load_state_dict(router_state)
+            cortex.ensemble.sparse_router = router
+            cortex.ensemble.use_sparse_router = True
+            n_router = 1
+            logger.info(
+                "[assemble_cortex] sparse_router 已恢复（top_k=%d, warmup=%d）",
+                router_cfg.get("top_k", 3), router_cfg.get("warmup_steps", 0),
+            )
+        except Exception as e:
+            logger.warning("[assemble_cortex] sparse_router 恢复失败: %s", e)
+
+    # 7. field_w_cond（R1: W_cond 训练闭环——训练侧评分口径统一后，
+    # 协作层产物携带训练好的场门控权重，注入推理场。任务场（thread-local）
+    # 在懒创建时从默认场复制 W_cond（ensemble._get_task_field），故只需注入默认场）
+    n_wcond = 0
+    w_cond = _pick("field_w_cond")
+    if w_cond is not None and hasattr(cortex.field, "W_cond"):
+        w = cortex.field.W_cond
+        if tuple(w.shape) == tuple(w_cond.shape):
+            w.data.copy_(w_cond.to(w.device))
+            n_wcond = 1
+        else:
+            logger.warning(
+                "[assemble_cortex] field_w_cond 形状不匹配: ckpt=%s vs field=%s，跳过",
+                tuple(w_cond.shape), tuple(w.shape),
+            )
+
     logger.info(
         "[assemble_cortex] 协作层权重已加载: %s (side_channels=%d, 跨规格投影=%d, "
-        "body=%d, scale_bias=%d, head=%d, lora=%d)",
-        collab_path, n_side, n_proj, n_body, n_sb, n_head, n_lora,
+        "body=%d, scale_bias=%d, head=%d, lora=%d, sparse_router=%d, field_w_cond=%d)",
+        collab_path, n_side, n_proj, n_body, n_sb, n_head, n_lora, n_router, n_wcond,
     )
     return True

@@ -87,7 +87,7 @@ Level 0: 通用分词器 (256K)      ← I/O 协议层，可替换
     ↓
 Level 1: 领域神经元 (5+个)       ← 独立 Transformer，领域专用
     ↓  field_write / field_read
-Level 2: 共振场 (4096-dim)      ← 共享意识，独立于分词器
+Level 2: 共振场 (4096-dim)      ← 共享意识，独立于分词器（实际场维度 = 装配神经元规格最大值：2048/3072/4096，跨规格由投影层统一，见 CODE_WIKI）
 ```
 
 ### 推理流程
@@ -169,10 +169,10 @@ from taiji.brain.cortex import Cortex
 # 加载神经元
 cortex = Cortex(neurons_dir="data/neurons")
 
-# 设置分词器
+# 设置分词器（R18：改为相对路径 + 环境变量覆盖，旧绝对路径已过时）
 import sentencepiece as spm
 sp = spm.SentencePieceProcessor()
-sp.Load("e:/taiji/checkpoint-400000/sentencepiece.model")
+sp.Load(os.path.join(os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000"), "sentencepiece.model"))
 cortex.set_tokenizer(sp)
 
 # 生成文本
@@ -203,7 +203,7 @@ result = cortex.generate("今天天气怎么样？")
 
 | 优先级 | 项目 | 说明 |
 |--------|------|------|
-| 🔴 P0 | 统一 field_dim | 所有神经元使用一致的 field_dim=4096 |
+| 🔴 P0 | 统一 field_dim | ~~所有神经元使用一致的 field_dim=4096~~（已过时：实际 COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096，跨规格由 ensemble 投影层统一，见 R21） |
 | 🔴 P0 | 共享嵌入初始化 | 从 teacher embedding 用 SVD 初始化 512-dim 共享嵌入 |
 | 🟡 P1 | API 正式接入 | 将 Cortex 接入 api/chat_strategies.py |
 | 🟡 P1 | 更长蒸馏训练 | 5000-10000 步，使用实际领域数据 |

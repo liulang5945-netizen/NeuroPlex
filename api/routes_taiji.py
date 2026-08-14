@@ -505,6 +505,21 @@ def cortex_chat(req: CortexChatRequest):
             domain=req.domain,
         )
 
+        # R10（REMEDIATION_PLAN 2026-08-14）：生产接线——对话成功后把共振场
+        # 快照沉淀为记忆候选（睡眠 Phase 1.5 统一固化 + WriteGate 可学习过滤）。
+        # 此前 record_field_memory 仅 verify 脚本调用 → 生产记忆固化是空操作
+        # （审计发现）。读侧（auto_memory 检索注入生成）已由 sleep_engine
+        # set_brain_interfaces → cortex.set_field_memory 接通。
+        try:
+            from taiji.life.sleep_engine import get_sleep_engine
+            engine = get_sleep_engine()
+            fstate = model.get_last_field_state()
+            if engine is not None and fstate is not None:
+                label = (req.prompt.strip() or "chat")[:40]
+                engine.record_field_memory(fstate, label, text=text)
+        except Exception as e:
+            logger.debug(f"场记忆记录失败（不影响对话响应）: {e}")
+
         # 返回推断的域（用于前端展示路由信息）
         inferred_domain = req.domain or model._infer_domain(req.prompt)
 

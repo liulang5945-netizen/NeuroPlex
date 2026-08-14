@@ -33,7 +33,9 @@ PAGE_SIZE = 100
 REQUEST_INTERVAL = 0.3  # 每次请求间隔 0.3 秒，避免 429
 
 DOMAIN_DATA_PATH = "data/distill/domain_datasets.pt"
-TEACHER_PATH = "E:/taiji-neuron/checkpoint-481000"
+# R18（REMEDIATION_PLAN 2026-08-14）：绝对路径改相对（仓库根目录为 cwd 约定），
+# 可用环境变量 TAICHI_TEACHER_PATH 覆盖。
+TEACHER_PATH = os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000")
 
 # 需要补全的域
 MISSING_DOMAINS = {

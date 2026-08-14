@@ -179,6 +179,8 @@ class FieldMemoryBank:
         stack = torch.stack([e["vector"] for e in self.entries])
         return float((stack @ v).max().item())
 
+    # ── DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：生产零调用者（consolidate
+    # 不调去重，增量二设计意图未落地），保留审计证据。──
     def _is_duplicate(self, v: torch.Tensor) -> bool:
         return self._max_sim(v) > self.cosine_threshold
 

@@ -74,14 +74,14 @@ def main():
             cortex._executive_route(wp)
     print("  judge EMA 预热完成", flush=True)
 
-    print("\n[1] 判定一致性（continuous 复用 executive 判定）", flush=True)
-    dom_exe, dom_con = {}, {}
+    # R5 fix（2026-08-14 审计）：原 dom_con[tag] = d1 为赋值构造的恒真式断言，
+    # 已删除。continuous 复用 executive 判定是设计（连续只换共振，不换判定），
+    # 不作断言；此处只断言真实可测的判定正确性（5 个已知 prompt 的期望域）。
+    print("\n[1] 判定正确性（executive 判定 5/5 对照期望域）", flush=True)
+    dom_exe = {}
     for tag, prompt in PROMPTS:
         d1, _, _ = cortex._executive_route(prompt)
         dom_exe[tag] = d1
-        # continuous 模式下 generate 内部同走 _executive_route
-        dom_con[tag] = d1  # 同一判定（连续只换共振，不换判定）
-    # 判定引用一致性：executive 判定本身保持 5/5
     expect = {"code": "code", "math": "math", "zh": "zh", "dialogue": "zh", "en": "en"}
     for tag, d in dom_exe.items():
         check(f"判定 {tag}→{d}", d == expect[tag], f"（期望 {expect[tag]}）")

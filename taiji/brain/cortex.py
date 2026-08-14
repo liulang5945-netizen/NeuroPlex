@@ -158,6 +158,10 @@ class Cortex:
         self.gamma_oscillator = None
 
         # ── P6-4: WorkingMemory ──
+        # R13（REMEDIATION_PLAN 2026-08-14）：仅"注册未接入"——set_working_memory
+        # 后 generate/_generate_p7/think 均不读取本字段（假接线）；生产对话上下文
+        # 由 taiji/agent/working_memory（ContextManager 链）承担。保留接口向后
+        # 兼容；若未来接 token 级滑动窗口，接入点在 _generate_p7。
         self.working_memory = None
 
         # ── S12: DialogueState（多轮对话状态管理）──
@@ -972,6 +976,27 @@ class Cortex:
         """
         self._memory_bank = bank
 
+    @staticmethod
+    def _is_degenerate_text(text: str) -> bool:
+        """R9（REMEDIATION_PLAN 2026-08-14）：退化输出检测（与 verify 脚本同规则）。
+
+        三类已知退化（欠训练 dialogue neuron 实测）：
+        - 编号列表塌缩：`1.\n` 或字面量 `1.<0x0A>`（裸 prompt 死循环残留）
+        - 重复标点/字符：同字符连续 >=4
+        - 纯数字长串：剔除数字/空白/运算符/标点后仍 >=2 个非汉字非字母字符
+          （>=2 排除 "1 + " 这类短算术 stub——那是截断不是退化循环）
+        """
+        if not text:
+            return False
+        if re.search(r"\d+\.\s*\n", text) or "1.<0x0A>" in text:
+            return True
+        if re.search(r"([。！？，,.！、]{2})\1{1,}", text) or re.search(
+                r"(.)\1{3,}", text.replace("……", "。。")):
+            return True
+        stripped = re.sub(r"[0-9\s,，。.!！?？;；:：、+\-*/=×÷\"\'“”（）()<>]", "", text)
+        return bool(stripped) and len(stripped) >= 2 and not re.search(
+            r"[\u4e00-\u9fff\w]", stripped)
+
     @torch.no_grad()
     def generate(
         self,
@@ -1039,7 +1064,7 @@ class Cortex:
         # 训练侧（sleep_engine）在影子权重（deepcopy）上进行，live 权重训练期间稳定，
         # 推理快照（nmap = dict(self.neurons)）读到稳定权重 → 无需与训练互斥。
         if n_candidates <= 1:
-            return self._generate_p7(
+            text = self._generate_p7(
                 prompt, max_tokens, temperature, top_k, domain,
                 repetition_penalty, routing_level=routing_level,
                 active_nids=active_nids, collab_mode=collab_mode,
@@ -1048,6 +1073,31 @@ class Cortex:
                 memory_vectors=memory_vectors,
                 auto_memory=auto_memory,
             )
+            # R9（REMEDIATION_PLAN 2026-08-14）：退化重试——已知退化模式
+            # （编号塌缩 `1.\n` / 字面量 `1.<0x0A>`、重复标点、纯数字长串）
+            # 命中时以更高温度重采样一次（人脑类比：感知异常输出即重置注意力）。
+            # 二次仍退化则原样返回并打日志（保留证据，不静默吞掉）。
+            if text and self._is_degenerate_text(text):
+                retry_temp = min(temperature + 0.15, 1.2)
+                logger.warning(
+                    "[Cortex] 检测到退化输出 %r，重试（temp %.2f→%.2f）",
+                    text[:30], temperature, retry_temp,
+                )
+                text = self._generate_p7(
+                    prompt, max_tokens, retry_temp, top_k, domain,
+                    repetition_penalty, routing_level=routing_level,
+                    active_nids=active_nids, collab_mode=collab_mode,
+                    fusion_mode=fusion_mode,
+                    _allow_plain_prompt=_allow_plain_prompt,
+                    memory_vectors=memory_vectors,
+                    auto_memory=auto_memory,
+                )
+                if text and self._is_degenerate_text(text):
+                    logger.warning(
+                        "[Cortex] 二次重试仍退化 %r，返回原文本（保留证据）",
+                        text[:30],
+                    )
+            return text
         # SMCS EPE: 生成多条候选，混合后验评分选最优
         candidates = []
         for _ in range(n_candidates):

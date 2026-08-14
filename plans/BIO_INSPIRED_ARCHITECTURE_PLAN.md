@@ -60,8 +60,8 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 装配 | ✅ 9 阵容 | 5 dialogue（zh_aug0-3 + zh_std0，51M/134M）+ 4 域（code/math/zh/en）+ collab_v3_c24v2 + PhasorDynamics 默认 |
 | 生成默认路径 | ✅ continuous | C25-E 增量五：连续时间共振为默认 collab_mode（generate 默认，相位绑定驱动激活，leader 用 round1_scores × NLL 质量融合）|
 | 回合级判定 | ✅ 5/5 | judge NLL 主信号（general 空间可比）+ 启发式融合；quality z-score 回退存活 |
-| 记忆（C26） | ✅ 全生命周期闭环 | 写（WriteGate）→ 读（向量条件化生成）→ 沉淀（LoRA）→ 跨重启保留 → sleep() 编排 → **自动检索注入对话**（增量四，产品默认）|
-| 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%） |
+| 记忆（C26） | ✅ 全生命周期闭环 | 写（WriteGate）→ 读（向量条件化生成，阈值已对齐精确 4/4，见 N4）→ 沉淀（LoRA）→ 跨重启保留 → sleep() 编排 → **自动检索注入对话**（增量四，产品默认）→ **生产沉淀接线**（R10，2026-08-14：cortex_chat 对话后记录场快照 → 睡眠固化；此前 record_field_memory 零生产调用者）|
+| 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%，口径 = 同分布列表式评估集；提问式口径仅 33%，见 N1） |
 | 续训（完成） | ✅ 4000→8000 | 5 dialogue 全部完成（best PPL：compact 101-107 / std0 95.27@4000）；口径机制化后回归通过 |
 | 回归测试 | ✅ 16/16 | tests/ 下 pytest 统一入口（3 文件 16 用例）：口径契约 10 + 共振 side_channel 6；requirements.txt 补 pytest |
 | 遗留瓶颈 | ⚠️ zh/en 生成 | answer PPL ~70（词表大 + 响应长 + 51M 容量），域生成片段级；对话质量受欠训练限制（续训中） |
@@ -72,7 +72,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 |---|------|------|
 | A-H | ✅ 已修复 | 混合规格装配 / 协作权重加载 / shared_embedding / 域路由 / fusion_mode bug / SpecSelector / diagnose_domain / Play→Coactivation 链路（详见 HISTORY C17-C24） |
 | I | ✅ 已挂载 | 综合体接入聊天接口：API 装配 9 阵容（collab_v3_c24v2 + foundation_v1_dual），test_api_dialogue 对话流畅；环境变量 TAIJI_COLLAB_NAME / TAIJI_EXTRA_NEURONS_DIR 可覆盖 |
-| J | ⏳ 训练中 | dialogue neuron 欠训练（4000 步预算截断非收敛平台）→ 续训 4000→8000 步 |
+| J | ✅ 已完成 | dialogue neuron 欠训练（4000 步预算截断非收敛平台）→ 续训 4000→8000 步全部完成（compact 68.74-73.60 / std0 67.42，2026-08-14） |
 | K | ✅ 已接入产品路径 | **可学习写策略（WriteGate）**：verify_c26_write_gate.py **8/8 PASS**——门控（场向量+最近邻 sim → P(值得写入)）可学习；**门控优于硬阈值**（拒绝 sim=0.9 模糊重复，硬阈值 0.92 漏判）；**已接入 sleep 场固化**（sleep_engine 自动装配 data_dir/write_gate.pt，存在即用无则回退） |
 | L | ✅ 已接入产品路径 | **跨域语义对齐（锚点投影）**：verify_c26_field_alignment.py **8/8 PASS**——AnchorProjector 产品化 + cortex.set_anchor_projector 挂载；30 对双语术语训练后同义 0.932 vs 错配 0.681（+0.251）；**已接入记忆检索**（FieldMemoryBank.projector：检索在跨域语义锚点空间进行，睡眠固化自动装配 data_dir/anchor_projector.pt） |
 | M | ✅ 已验证 | **多频段振荡 theta-gamma 嵌套（缺口 R 项）**：verify_c26_theta_gamma.py **9/9 PASS**——ContinuousResonance 增 theta_omega/theta_amp（默认 0 不启用，零回归）；theta 相位单调推进、包络周期复原、嵌套调制在 [base×(1-A), base×(1+A)] 内、真实装配 think 无回归 |

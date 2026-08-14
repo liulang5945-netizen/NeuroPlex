@@ -38,6 +38,9 @@ venv.bak/
 
 # Node
 node_modules/
+.local/
+.npm-cache/
+.npm-global/
 
 # Model files and data
 model_cache/

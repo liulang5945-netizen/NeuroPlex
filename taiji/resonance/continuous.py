@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import math
+import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -65,9 +66,19 @@ class ContinuousResonance(nn.Module):
         self.min_activ = min_activ
         self.conv_tol = conv_tol
         self.min_steps = min_steps
+        # R12（REMEDIATION_PLAN 2026-08-14）：显式实验开关——theta_omega>0 启用
+        # 嵌套，生产默认关闭；环境变量 TAIJI_THETA_NESTING=1 免改码 A/B
+        # （theta 频率 0.5 rad/单位时间，幅度 0.2，verify_c26_theta_gamma 标定值）。
+        # 无 env 时行为与旧版完全一致（theta_omega=0 → 包络恒 1、调制恒等）。
+        if theta_omega == 0.0 and os.environ.get("TAIJI_THETA_NESTING", "0") not in ("", "0", "false", "False"):
+            theta_omega = 0.5
+            theta_amp = theta_amp if theta_amp != 0.0 else 0.2
         self.theta_omega = theta_omega
         self.theta_amp = theta_amp
         self.theta_init = theta_init
+        # C26 增量五（2026-08-14）：记忆驱动的跨频耦合——记忆检索对齐 theta
+        # 峰值相位（记忆注意窗），无记忆时按嵌套开关行为（theta_omega=0 → 恒等）。
+        self._memory_entrained = False
 
     # ── 激活（连续替代不应期硬门）──
 
@@ -140,21 +151,42 @@ class ContinuousResonance(nn.Module):
     # 默认 theta_omega=0（不启用），与 C25-E 旧行为逐元素一致（零回归）。
 
     def theta_phase_at(self, t: float) -> float:
-        """t 时刻的 theta 慢振荡相位（rad）。"""
+        """t 时刻的 theta 慢振荡相位（rad）。
+
+        记忆 entrain 后相位对齐峰值（0 → 包络最大）：记忆注意窗期间 gamma
+        绑定持续增强（跨频耦合：记忆这一慢变量驱动 theta 相位）。
+        """
+        if self._memory_entrained:
+            return 0.0
         return self.theta_init + self.theta_omega * t
 
     def theta_envelope(self, t: float) -> float:
         """theta 包络：1 + theta_amp·cos(theta_phase(t)) ∈ [1-A, 1+A]。
 
-        theta_omega=0 时恒 1.0（无嵌套，与旧行为一致）。
+        - 无嵌套（theta_omega=0 且无记忆）：恒 1.0（零回归）
+        - 记忆 entrain：峰值 1+amp（记忆注意窗）
+        - 显式嵌套：按相位振荡
         """
-        if self.theta_omega == 0:
+        if self.theta_omega == 0 and not self._memory_entrained:
             return 1.0
         return 1.0 + self.theta_amp * math.cos(self.theta_phase_at(t))
 
     def theta_modulate(self, activ: torch.Tensor, t: float) -> torch.Tensor:
         """theta-gamma 嵌套：gamma 激活振幅 × theta 慢振荡包络（调幅）。"""
         return activ * self.theta_envelope(t)
+
+    def entrain_memory(self) -> None:
+        """C26 增量五：记忆检索 → theta 相位对齐峰值（跨频耦合）。
+
+        记忆注入生成时调用：theta 相位对齐包络峰值，gamma 绑定在记忆
+        条件化期间增强——"记忆注意窗"（相关回路同步激活）。无记忆的
+        forward 不受影响（_memory_entrained=False，envelope 恒等）。
+        """
+        self._memory_entrained = True
+
+    def reset_entrain(self) -> None:
+        """单次 forward 结束后清除记忆 entrain 状态（下一次 forward 干净）。"""
+        self._memory_entrained = False
 
     # ── 一步相位演化 + 激活（主循环原语）──
 

@@ -278,6 +278,15 @@ def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
     }
     if ensemble.sparse_router is not None:
         ckpt["sparse_router_state"] = ensemble.sparse_router.state_dict()
+        # R3（REMEDIATION_PLAN 2026-08-14）：router 拓扑参数随产物保存，
+        # 否则生产 loader 无法按训练同款 top_k 重建（此前状态保存但生产不加载）
+        ckpt["sparse_router_config"] = {
+            "top_k": ensemble.sparse_router.top_k,
+            "warmup_steps": ensemble.sparse_router.warmup_steps,
+        }
+    # R1: 场门控权重随协作层产物保存（W_cond 训练闭环）
+    if ensemble._field is not None and hasattr(ensemble._field, "W_cond"):
+        ckpt["field_w_cond"] = ensemble._field.W_cond.data.clone()
     if muon_optimizer is not None:
         ckpt["muon_optimizer_state"] = muon_optimizer.state_dict()
     if adamw_optimizer is not None:
@@ -459,6 +468,11 @@ def main():
             if hasattr(neuron, 'quality_head') and neuron.quality_head is not None:
                 for p in neuron.quality_head.parameters():
                     p.requires_grad = True
+            # R2（REMEDIATION_PLAN 2026-08-14）：field_read 解冻训练——
+            # round2+ 场条件化读取路径此前恒为随机初始化（审计发现）。
+            # 此处解冻落入 body 低 lr（温柔更新，不破坏 round1 独立能力）。
+            for p in neuron.get_field_read_parameters():
+                p.requires_grad = True
         elif args.unfreeze_layers > 0:
             n_layers = len(neuron.layers)
             unfreeze_from = max(0, n_layers - args.unfreeze_layers)
@@ -471,6 +485,10 @@ def main():
                 for p in neuron.lm_head.parameters():
                     p.requires_grad = True
             for p in neuron.get_field_write_parameters():
+                p.requires_grad = True
+            # R2（REMEDIATION_PLAN 2026-08-14）：field_read 解冻训练——
+            # round2+ 场条件化读取路径此前恒为随机初始化（审计发现）。
+            for p in neuron.get_field_read_parameters():
                 p.requires_grad = True
             # C15: 预测质量 head 解冻（contrastive_loss 监督它对齐 per-neuron NLL 排序）
             if hasattr(neuron, 'quality_head') and neuron.quality_head is not None:
@@ -497,6 +515,10 @@ def main():
     for proj in ensemble._cross_spec_back_projectors.values():
         for p in proj.parameters():
             p.requires_grad = True
+    # R1（REMEDIATION_PLAN 2026-08-14）：场门控 W_cond 参与训练
+    # （训练-推理评分口径统一后，W_cond 需要梯度才能成为可学习门控）
+    if ensemble._field is not None and hasattr(ensemble._field, "W_cond"):
+        ensemble._field.W_cond.requires_grad = True
 
     # 6. 优化器：Muon(2D 协作层) + AdamW(1D) + body 低 lr
     print("\n[6] 构建优化器...", flush=True)
@@ -543,6 +565,10 @@ def main():
                 muon_params.append(p)
             elif p.requires_grad:
                 adamw_params.append(p)
+    # R1: 场门控 W_cond（2D → Muon，与 cross_spec 投影同级）
+    if (ensemble._field is not None and hasattr(ensemble._field, "W_cond")
+            and ensemble._field.W_cond.requires_grad):
+        muon_params.append(ensemble._field.W_cond)
 
     # 2026-08-07 fix：去重——共享 general lm_head 被多个 general neuron 共享，
     # named_parameters 会重复收集（body 学习率 ×N 效果，同参数每步更新 N 次）

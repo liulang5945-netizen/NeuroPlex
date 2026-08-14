@@ -338,7 +338,10 @@ class ResonanceEnsemble:
         # C23-C（2026-08-08）：最后一轮可微演化相位（forward_train 用，梯度到 ω/K）
         self._last_evolved_phasors = None
         # C23-C2：phase-binding loss（绑定 vs 共振贡献对齐，forward_train 计算）
-        self._phase_loss = torch.tensor(0.0)
+        # R16（REMEDIATION_PLAN 2026-08-14）：初始值用普通 float（device 无关）；
+        # 原 torch.tensor(0.0) 恒在 CPU，若被训练侧误用于 GPU loss 会 device 不匹配。
+        # forward_train 每步会覆盖为真实设备张量（F.mse_loss 结果）。
+        self._phase_loss = 0.0
 
         # ── RSGN 融合: 几何坐标空间（神经元距离衰减先验）──
         # S7: 优先使用外部传入的 geometry（与拓扑构建共享同一实例）
@@ -487,6 +490,49 @@ class ResonanceEnsemble:
 
     # =========================================================================
     # 任务级并行（人脑：多线程处理不同任务）——
+
+    # R14（REMEDIATION_PLAN 2026-08-14）：协作层内部子模块的手动传播。
+    # ResonanceEnsemble 不是 nn.Module（历史设计），.to()/.eval()/.train()
+    # 不会自动传播到内嵌模块（cross_spec_projectors/field_score_proj/
+    # shared_weight_mlp/sparse_router）。此处显式传播，消除"漏 .to()"类缺陷
+    # （审计发现 field 未传 device → 全链路 CPU 假设）。完整 nn.Module 化
+    # 风险高（3500 行核心类，__setattr__ 语义变化），暂以手动传播替代。
+    def _collab_modules(self) -> List[Any]:
+        """协作层内嵌 nn.Module 列表（设备/模式传播目标）。"""
+        mods: List[Any] = []
+        for proj in getattr(self, "_cross_spec_projectors", {}).values():
+            mods.append(proj)
+        for proj in getattr(self, "_cross_spec_back_projectors", {}).values():
+            mods.append(proj)
+        for attr in ("field_score_proj", "shared_weight_mlp", "sparse_router"):
+            m = getattr(self, attr, None)
+            if m is not None:
+                mods.append(m)
+        if getattr(self, "spatial_diffuser", None) is not None:
+            mods.append(self.spatial_diffuser)
+        if getattr(self, "gamma_oscillator", None) is not None:
+            mods.append(self.gamma_oscillator)
+        return mods
+
+    def to(self, *args, **kwargs) -> "ResonanceEnsemble":
+        """把协作层子模块 + 默认场移动到目标设备（R14）。"""
+        for m in self._collab_modules():
+            m.to(*args, **kwargs)
+        if self._field is not None:
+            self._field.to(*args, **kwargs)
+        return self
+
+    def eval(self) -> "ResonanceEnsemble":
+        """协作层子模块进入 eval 模式（R14）。"""
+        for m in self._collab_modules():
+            m.eval()
+        return self
+
+    def train(self, mode: bool = True) -> "ResonanceEnsemble":
+        """协作层子模块切换训练模式（R14）。"""
+        for m in self._collab_modules():
+            m.train(mode)
+        return self
     # 1) field 属性：推理 forward 期间返回本线程独立共振场（thread-local），
     #    其余路径（训练/诊断）返回默认场 _field。跨任务共振场互不污染。
     # 2) forward scratch（round_scores/_router_* 等）全部 thread-local，
@@ -1161,6 +1207,8 @@ class ResonanceEnsemble:
 
         vectors: Dict[str, torch.Tensor] = {}
         all_logits: Dict[str, torch.Tensor] = {}
+        # DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 append 从未消费
+        # （multi-sample 融合走 _logits_keep_ids + _average_logits），保留审计证据。
         logits_history: List[torch.Tensor] = []
 
         # S9: 从神经调质计算 Transformer 内部 gain（所有 neuron 共享全局调质水平）
@@ -1476,12 +1524,17 @@ class ResonanceEnsemble:
             for nid in refractory_ids:
                 old_contrib = self.field._contributions.get(nid)
                 if old_contrib is not None:
-                    if self.field.state.dim() == 1 and old_contrib.dim() == 1:
-                        self.field.state = self.field.state - old_contrib
-                    elif self.field.state.dim() == old_contrib.dim():
-                        self.field.state = self.field.state - old_contrib
+                    st = self.field.state
+                    oc = (old_contrib.squeeze(0)
+                          if st.dim() == 1 and old_contrib.dim() == 2
+                          else old_contrib)
+                    if st.shape == oc.shape:
+                        # R15（REMEDIATION_PLAN 2026-08-14）：原地减法——
+                        # 保持 buffer 对象身份（state_dict/设备迁移一致性）；
+                        # get_effective_state 每次返回新张量，无别名风险。
+                        st.sub_(oc.to(st.device))
                     else:
-                        self.field.state = self.field.state - old_contrib.squeeze(0)
+                        self.field.state = st - oc
                     # P0-2 fix: 清除 contribution 记录，避免 leave-one-out 双重减法
                     del self.field._contributions[nid]
 
@@ -1729,8 +1782,11 @@ class ResonanceEnsemble:
 
                 # C14: 计算 shared_weight
                 if self.shared_weight_mlp is not None:
-                    # field_state: [B,D] 或 [D]（训练单线程：显式用默认场）
-                    field_state = self._field.get_state()
+                    # R4 fix（REMEDIATION_PLAN 2026-08-14）：原代码读默认场
+                    # self._field.get_state()——多线程推理时任务场在 thread-local
+                    # （_get_task_field），默认场是陈旧/空状态，per-sample sw 与
+                    # 真实任务无关。改为读当前任务场（单线程时即默认场，向后兼容）。
+                    field_state = self._get_task_field().get_state()
                     if field_state.dim() == 1:
                         field_state = field_state.unsqueeze(0)  # [1,D]
                     B = field_state.shape[0]
@@ -1817,6 +1873,13 @@ class ResonanceEnsemble:
 
         self._get_task_field().reset(batch_size=ref.shape[0])
         field = self.field
+        # R11（REMEDIATION_PLAN 2026-08-14）：STDP 进连续路径——
+        # 与离散 forward 同款：开始前清空 firing history（一次推理内的发放时序）。
+        if self.stdp_tracker is not None:
+            try:
+                self.stdp_tracker._firing_history.clear()
+            except Exception:
+                pass
         weights = torch.zeros(len(ids), device=ref.device)  # 时间平均激活
         binding_history: List[torch.Tensor] = []
         n_steps = 0
@@ -1844,6 +1907,12 @@ class ResonanceEnsemble:
                 field.write_inhibit(nid, vec, weight=maturity_w)
             else:
                 field.write(nid, vec, scale=write_scale * maturity_w * conf0[nid])
+            # R11: STDP 记录 t=0 发放（与离散 forward round1 同语义）
+            if self.stdp_tracker is not None:
+                try:
+                    self.stdp_tracker.record_firing(nid, 1, vecs0[nid])
+                except Exception:
+                    pass
         try:
             field.lateral_inhibition_norm()
         except Exception:
@@ -1877,16 +1946,24 @@ class ResonanceEnsemble:
                                 scale=float(mw))
                 except Exception:
                     continue
+            # C26 增量五（2026-08-14）：记忆驱动的跨频耦合——记忆注入开启
+            # theta 注意窗（theta 相位对齐峰值，gamma 绑定增强）。
+            try:
+                ct.entrain_memory()
+            except Exception:
+                pass
         # 连续路径的判定信号（t=0 快照，与离散 round1 等价）
         round1_judge = judge0 if (return_judge_logits and judge0) else None
         ql_agg = None
         if ql0:
             ql_agg = torch.stack([ql0[nid] for nid in ids if nid in ql0]).mean(dim=1).squeeze(-1)
-        # t=0 激活（初始绑定，无演化）
+        # t=0 激活（初始绑定，无演化）——C26 增量五：theta-gamma 嵌套接入主循环
+        # （记忆注入时 theta 已 entrain 到峰值 → gamma 绑定增强；无记忆时
+        # theta_omega=0 → 包络恒 1，零回归）。
         if self.gamma_oscillator is not None:
             b0 = self.gamma_oscillator.binding_tensor(
                 ids, coactivation=self.coaction)
-            activ0 = ct.activation(b0)
+            activ0 = ct.theta_modulate(ct.activation(b0), 0)
         else:
             activ0 = torch.ones(len(ids), device=ref.device)
         # 融合权重 = 时间平均激活（纯激活=参与度；confidence 只调制场写入）
@@ -1907,10 +1984,11 @@ class ResonanceEnsemble:
                     )
                 except Exception:
                     pass
-            # 2) 激活强度（相位绑定驱动，连续替代不应期）
+            # 2) 激活强度（相位绑定驱动，连续替代不应期）——C26 增量五：
+            # theta 调制接入（记忆窗口内 gamma 绑定增强；无记忆恒等）
             if self.gamma_oscillator is not None:
                 b_t = self.gamma_oscillator.binding_tensor(ids, coactivation=self.coaction)
-                activ = ct.activation(b_t)
+                activ = ct.theta_modulate(ct.activation(b_t), t)
             else:
                 b_t = torch.zeros(len(ids), device=ref.device)
                 activ = torch.ones(len(ids), device=ref.device)
@@ -1941,6 +2019,12 @@ class ResonanceEnsemble:
                     field.write_inhibit(nid, vec, weight=maturity_w * a_i)
                 else:
                     field.write(nid, vec, scale=ct.dt * write_scale * maturity_w * a_i * float(round_confs[nid].mean().item()))
+                # R11: STDP 记录积分步发放（round_num=t+1，与离散 round2+ 同语义）
+                if self.stdp_tracker is not None:
+                    try:
+                        self.stdp_tracker.record_firing(nid, t + 1, round_vecs[nid])
+                    except Exception:
+                        pass
             try:
                 field.lateral_inhibition_norm()
             except Exception:
@@ -2008,6 +2092,11 @@ class ResonanceEnsemble:
                         result["weighted_logits"] = all_logits[nids[0]]
                 except Exception:
                     result["weighted_logits"] = all_logits[nids[0]]
+        # C26 增量五：清除记忆 entrain 状态（下一次 forward 干净，防跨 token 泄漏）
+        try:
+            ct.reset_entrain()
+        except Exception:
+            pass
         return result
 
     def forward_train(
@@ -2509,9 +2598,22 @@ class ResonanceEnsemble:
             # 评分 = cosine(score_vec, field_score_proj(loo_state))
             scores = (all_score_vecs * loo_score_norm).sum(dim=-1)  # [N, B]
         else:
-            # 向后兼容：直接用 field_vector cosine
+            # R1（REMEDIATION_PLAN 2026-08-14）：训练-推理评分口径统一。
+            # 推理 field.score() 对 leave-one-out 状态施加 W_cond 乘法门控
+            # （_condition: state_n * sigmoid(state_n @ W_cond)）后算 cosine；
+            # 训练若继续裸 cosine，W_cond 永远收不到梯度（审计发现：全仓库
+            # 无 W_cond 训练路径，推理评分恒被随机矩阵调制）。此处施加同一
+            # 门控（语义对齐 field._condition）：
+            # - 随机初始（std=0.02）时 sigmoid≈0.5，评分≈等比例缩放，
+            #   训练行为近似不变（无回归风险起点）；
+            # - W_cond 随训练获得梯度 → 成为可学习的场门控（对齐推理）。
             loo_norm = F.normalize(loo_state, dim=-1)
-            scores = (all_vecs_norm * loo_norm).sum(dim=-1)  # [N, B]
+            w_cond = self._field.W_cond.to(loo_norm.device)
+            cond_gate = torch.sigmoid(loo_norm @ w_cond)      # [N, B, D]
+            cond_state = loo_norm * cond_gate                 # 同 field._condition
+            scores = (all_vecs_norm * cond_state).sum(dim=-1) / (
+                cond_state.norm(dim=-1, keepdim=True) + 1e-8
+            )  # [N, B]
         scores = scores.mean(dim=1)                      # [N] batch 平均
 
         # 调质影响：norepinephrine 高 → scores 增强 → 融合权重增大（警觉 → 强贡献）
@@ -3356,6 +3458,7 @@ class ResonanceEnsemble:
         result["consensus_votes"] = consensus_votes  # [B, L, V]，供调试/可视化
         result["fusion_mode"] = "consensus"
 
+    # ── DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：生产零调用者，保留审计证据。──
     def evaluate_ppl(
         self,
         dataloader,
@@ -3441,6 +3544,7 @@ class ResonanceEnsemble:
 
         return {"ppl": ppl, "loss": avg_loss, "n_tokens": total_tokens}
 
+    # ── DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：生产零调用者，保留审计证据。──
     @staticmethod
     def evaluate_single_neuron(
         neuron: ResonanceNeuron,

@@ -37,7 +37,9 @@ REQUEST_INTERVAL = 0.5  # 慢一点避免 429
 TARGET_SAMPLES = 8000  # general 域目标 8K
 
 DOMAIN_DATA_PATH = "data/distill/domain_datasets.pt"
-TEACHER_PATH = "E:/taiji-neuron/checkpoint-481000"
+# R18（REMEDIATION_PLAN 2026-08-14）：绝对路径改相对（仓库根目录为 cwd 约定），
+# 可用环境变量 TAICHI_TEACHER_PATH 覆盖。
+TEACHER_PATH = os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000")
 
 # 多数据源（通用问答/指令）
 SOURCES = [

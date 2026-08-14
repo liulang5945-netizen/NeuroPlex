@@ -878,6 +878,8 @@ class ResonanceNeuron(nn.Module):
                 # 归一化保持单位球面
                 self.domain_prototype.div_(self.domain_prototype.norm() + 1e-8)
 
+    # ── DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：仅 scripts/archive/
+    # _smoke_c6_multihead_field_write.py 调用；生产路径无调用者，保留以存审计证据。──
     @torch.no_grad()
     def quick_probe(self, shared_embeddings: torch.Tensor) -> torch.Tensor:
         """Lightweight forward pass for prescreening (skip full Transformer).
@@ -908,6 +910,17 @@ class ResonanceNeuron(nn.Module):
             params.append(self.field_pool_queries)
             return params
         return list(self.field_write.parameters()) + [self.field_pool_query]
+
+    def get_field_read_parameters(self):
+        """返回 round2+ 场条件化读取路径的参数（R2, REMEDIATION_PLAN 2026-08-14）。
+
+        审计发现 field_read_layers / field_read_gate 参与推理 round2+ 每层
+        条件化（neuron.forward round_num>1 路径），但全仓库训练脚本均未解冻
+        → 恒为随机初始化投影。此方法供训练脚本解冻，使场读取成为可学习路径。
+        """
+        params = list(self.field_read_layers.parameters())
+        params += list(self.field_read_gate.parameters())
+        return params
 
     def enable_lora(self, rank: int, layers: Optional[List[int]] = None):
         """C16: 启用尾层 LoRA 适配器（冻结 body，只训低秩增量）。

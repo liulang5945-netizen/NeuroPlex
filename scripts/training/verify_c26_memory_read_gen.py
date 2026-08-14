@@ -34,6 +34,14 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
+# N2（REMEDIATION_PLAN R7）：固定 seed 保证可复现
+import random  # noqa: E402
+import numpy as np  # noqa: E402
+
+random.seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
+torch.cuda.manual_seed_all(0)
 from taiji.loader import assemble_cortex  # noqa: E402
 from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
@@ -228,7 +236,7 @@ def main():
               "判定信号保持干净（C23）")
         check("C. 场拉拽：带记忆的场更靠近记忆向量", pull_ok == len(MEMORY_ITEMS),
               f"{pull_ok}/{len(MEMORY_ITEMS)}")
-        check("D. leader 场条件化 logits 因记忆改变（硬）", logit_ok >= 1,
+        check("D. leader 场条件化 logits 因记忆改变（硬）", logit_ok == len(MEMORY_ITEMS),
               f"{logit_ok}/{len(MEMORY_ITEMS)} 条 leader logits 改变")
 
         # ── E/F. 生成级：向量通道 vs 文本通道 vs 对照 ──
@@ -249,9 +257,9 @@ def main():
                   flush=True)
             print(f"      文本通道={txt_out[:28]!r} (changed={txt_out != base})",
                   flush=True)
-        check("E. 向量通道单独注入改变生成输出（软）", vec_changed >= 1,
+        check("E. 向量通道单独注入改变生成输出（软）", vec_changed == len(MEMORY_ITEMS),
               f"{vec_changed}/{len(MEMORY_ITEMS)} 与对照不同")
-        check("F. 文本通道回归：标签前置注入仍生效", txt_changed >= 1,
+        check("F. 文本通道回归：标签前置注入仍生效", txt_changed == len(MEMORY_ITEMS),
               f"{txt_changed}/{len(MEMORY_ITEMS)} 与对照不同")
 
         # ── G. 重启恢复 ──

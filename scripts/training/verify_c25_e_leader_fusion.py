@@ -21,6 +21,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
+# N2（REMEDIATION_PLAN R7）：固定 seed 保证可复现
+import random  # noqa: E402
+import re  # noqa: E402
+import numpy as np  # noqa: E402
+
+random.seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
+torch.cuda.manual_seed_all(0)
 from taiji.loader import assemble_cortex  # noqa: E402
 from taiji.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
@@ -56,6 +65,27 @@ def leader_rank_of(scores: dict, nll_quality: dict) -> int:
     leader = max(scores, key=scores.get)
     order = sorted(common, key=lambda k: nll_quality[k], reverse=True)
     return order.index(leader) if leader in order else len(common)
+
+
+def anomaly_flags(text: str) -> list:
+    """R9（REMEDIATION_PLAN 2026-08-14）：异常串检测——防止"非空即 PASS"。
+
+    覆盖三类已知退化（实测命中：诗题输出字面量 '1.<0x0A>'、算术题截断 '1 + '）：
+    - 编号列表塌缩：`1.\n` 或字面量 `1.<0x0A>`（zh 分词器解码出的死循环残留）
+    - 重复标点/字符：同字符连续 >=4（。。/！！/数字长串）
+    - 纯数字退化：剔除数字/空白/运算符/标点后仍有 >=2 个非汉字非字母字符
+      （>=2 排除 "1 + " 这类短算术 stub 的误报——"+ " 剔除后仅剩 "+"）
+    """
+    flags = []
+    if re.search(r"\d+\.\s*\n", text) or "1.<0x0A>" in text:
+        flags.append("numbered-list-collapse")
+    if re.search(r"([。！？，,.！、]{2})\1{1,}", text) or re.search(
+            r"(.)\1{3,}", text.replace("……", "。。")):
+        flags.append("repeated-punct")
+    stripped = re.sub(r"[0-9\s,，。.!！?？;；:：、+\-*/=×÷\"\'“”（）()<>]", "", text)
+    if stripped and len(stripped) >= 2 and not re.search(r"[\u4e00-\u9fff\w]", stripped):
+        flags.append("pure-numeric")
+    return flags
 
 
 def main():
@@ -109,8 +139,9 @@ def main():
     check("融合后 leader 质量位次显著提升（均值 < 1.5）",
           avg_fused < 1.5, f"avg={avg_fused:.2f}")
 
-    # ── 2. 端到端生成不破坏（8 问 continuous 非空率）──
+    # ── 2. 端到端生成不破坏（8 问 continuous 非空率 + 无异常串）──
     non_empty = 0
+    anomalies: dict = {}
     print("\n[2] 融合后 continuous 生成实测（8 问）", flush=True)
     for q in QUESTIONS:
         text = cortex.generate(
@@ -120,8 +151,15 @@ def main():
         )
         if text.strip():
             non_empty += 1
-        print(f"  [{q}] {text[:50]!r} len={len(text)}", flush=True)
+        for flag in anomaly_flags(text):
+            anomalies.setdefault(flag, []).append(q)
+        print(f"  [{q}] {text[:50]!r} len={len(text)}"
+              f"{' <ANOMALY>' if anomaly_flags(text) else ''}", flush=True)
     check("continuous 生成非空率 ≥ 7/8", non_empty >= 7, f"{non_empty}/8")
+    # R9（REMEDIATION_PLAN 2026-08-14）：无异常串才判 PASS——"无意义输出判 PASS"
+    # 不再被接受（历史：`1.\n` 死循环曾以非空身份混过回归）。
+    check("生成无异常串（编号塌缩/重复标点/纯数字）",
+          not anomalies, f"anomalies={anomalies}")
 
     print("\n" + "=" * 64, flush=True)
     print(f"结果: {passed} PASS / {failed} FAIL", flush=True)

@@ -90,7 +90,7 @@ class TeeLogger:
 def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history,
                     adamw_optimizer=None, scheduler=None,
                     body_optimizer=None, body_scheduler=None,
-                    shared_embeddings=None):
+                    shared_embeddings=None, ensemble=None):
     """保存训练 checkpoint，支持断点续训。"""
     side_state = {}
     scale_bias_state = {}
@@ -132,6 +132,9 @@ def save_checkpoint(path, epoch, total_steps, optimizer, neurons, loss_history,
     }
     if body_state:
         ckpt["body_state"] = body_state
+    # R1: 场门控权重随产物保存（W_cond 训练闭环）
+    if ensemble is not None and hasattr(ensemble._field, "W_cond"):
+        ckpt["field_w_cond"] = ensemble._field.W_cond.data.clone()
     if adamw_optimizer is not None:
         ckpt["adamw_optimizer_state"] = adamw_optimizer.state_dict()
     if scheduler is not None:
@@ -362,6 +365,11 @@ def main():
             # field_write（让场写入适配协作动态，C6 多头兼容）
             for p in neuron.get_field_write_parameters():
                 p.requires_grad = True
+            # R2（REMEDIATION_PLAN 2026-08-14）：field_read 解冻训练——
+            # round2+ 场条件化读取路径此前恒为随机初始化（审计发现），
+            # 解冻使其成为可学习路径（落入 body 低 lr，温柔更新）。
+            for p in neuron.get_field_read_parameters():
+                p.requires_grad = True
         neuron.train()
 
     # S8: shared_embedding 可选训练
@@ -394,6 +402,9 @@ def main():
     # 5. 创建 ensemble
     field = ResonanceField(dim=cfg.field_dim)
     ensemble = ResonanceEnsemble(neurons, field, max_rounds=2, geometry=geometry)
+    # R1（REMEDIATION_PLAN 2026-08-14）：场门控 W_cond 参与训练
+    # （训练-推理评分口径统一后，W_cond 需要梯度才能成为可学习门控）
+    ensemble._field.W_cond.requires_grad = True
 
     # 6. 加载训练数据（S5: 支持对话数据扩充）
     print("\n[4] 加载训练数据...", flush=True)
@@ -463,6 +474,10 @@ def main():
             if "scale_" in name or "bias_" in name:
                 continue
             body_params.append(p)
+
+    # R1: 场门控 W_cond（2D → Muon）
+    if hasattr(ensemble._field, "W_cond") and ensemble._field.W_cond.requires_grad:
+        muon_params.append(ensemble._field.W_cond)
 
     # S8: shared_embedding 参数（如果训练）
     emb_params = []
@@ -736,7 +751,8 @@ def main():
                 if total_steps % 500 == 0:
                     save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons, loss_history,
                                     adamw_optimizer, scheduler,
-                                    body_optimizer, body_scheduler, shared_embeddings)
+                                    body_optimizer, body_scheduler, shared_embeddings,
+                                    ensemble=ensemble)
                     print(f"  [中途 checkpoint] step {total_steps} 已保存", flush=True)
 
         avg_epoch_loss = epoch_loss / max(epoch_tokens, 1)
@@ -748,7 +764,8 @@ def main():
         # 每 epoch 保存 checkpoint（断点续训用，含 optimizer state）
         save_checkpoint(CKPT_PATH, epoch, total_steps, optimizer, neurons, loss_history,
                         adamw_optimizer, scheduler,
-                        body_optimizer, body_scheduler, shared_embeddings)
+                        body_optimizer, body_scheduler, shared_embeddings,
+                        ensemble=ensemble)
         print(f"  [checkpoint 已保存] {CKPT_PATH}", flush=True)
 
         # 同步保存最终产物（含 S8 body + emb，下游 eval 直接加载）

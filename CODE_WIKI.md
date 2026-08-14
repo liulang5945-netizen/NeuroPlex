@@ -288,10 +288,12 @@ field_write → [B, D] L2-normalised
 
 | 规格 | hidden_size | num_layers | num_heads | field_dim | 参数量 |
 |---|---|---|---|---|---|
-| COMPACT | 512 | 6 | 8 | 3072 | ~24M |
+| COMPACT | 512 | 6 | 8 | 2048 | ~24M |
 | STANDARD | 768 | 10 | 12 | 3072 | ~59M |
-| FOUNDATION | 384 | 6 | 6 | 3072 | ~18M |
+| FOUNDATION | 384 | 6 | 6 | 4096 | ~18M |
 | EXPERT | 1024 | 14 | 16 | 4096 | ~118M |
+
+> R21（2026-08-14）：field_dim 按 config.py 实际值修正（原表 COMPACT=3072 / FOUNDATION=3072 为过时声明；FOUNDATION/EXPERT 同为 4096，但 COMPACT=2048 / STANDARD=3072 并非"统一 4096"）。
 
 **参数计算属性**:
 - `approx_params_m`: 估算参数量（百万）
@@ -858,7 +860,7 @@ npm run build  # 生产构建
 
 | 优先级 | 项目 | 说明 |
 |--------|------|------|
-| 🔴 P0 | 统一field_dim | 所有神经元使用一致的field_dim=4096 |
+| 🔴 P0 | 统一field_dim | ~~所有神经元使用一致的field_dim=4096~~（已过时：实际 COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096，跨规格由 ensemble 投影层统一，见 R21） |
 | 🔴 P0 | 共享嵌入初始化 | 从teacher embedding用SVD初始化512-dim共享嵌入 |
 | 🟡 P1 | API正式接入 | 将Cortex接入api/chat_strategies.py |
 | 🟡 P1 | 更长蒸馏训练 | 5000-10000步，使用实际领域数据 |

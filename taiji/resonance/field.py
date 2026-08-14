@@ -77,12 +77,15 @@ class ResonanceField(nn.Module):
     def reset(self, batch_size: int = 1) -> None:
         # Promote state to [B, D] up front for batch_size > 1 (H2): each sample
         # gets an independent field, so there is never cross-sample bleed.
+        # R15（REMEDIATION_PLAN 2026-08-14）：零/一张量创建在字段所在设备
+        # （W_cond 锚定设备），避免 reset 后 state/mask 悄悄回到 CPU。
+        dev = self.W_cond.device
         if batch_size > 1:
-            self.state = torch.zeros(batch_size, self.dim)
-            self.inhibitory_mask = torch.ones(batch_size, self.dim)
+            self.state = torch.zeros(batch_size, self.dim, device=dev)
+            self.inhibitory_mask = torch.ones(batch_size, self.dim, device=dev)
         else:
-            self.state = torch.zeros(self.dim)
-            self.inhibitory_mask = torch.ones(self.dim)
+            self.state = torch.zeros(self.dim, device=dev)
+            self.inhibitory_mask = torch.ones(self.dim, device=dev)
         self._batch_size = batch_size
         self._contributions.clear()
         self._inhibit_contributions.clear()
@@ -480,6 +483,8 @@ class ResonanceField(nn.Module):
         # deque 支持 list() 转换和迭代，对外保持 list 语义
         return list(self._write_history.get(neuron_id, []))
 
+    # ── DEAD CODE (R17, REMEDIATION_PLAN 2026-08-14)：生产零调用者
+    # （inhibitory 语义由 write_inhibit/BioOSS 处理），保留审计证据。──
     def get_contribution_sign(self, neuron_id: str) -> int:
         """返回神经元对场的贡献符号（人脑启发：抑制性神经元返回 -1）。
 
