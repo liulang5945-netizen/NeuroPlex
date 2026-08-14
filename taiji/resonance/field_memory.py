@@ -108,7 +108,8 @@ class FieldMemoryBank:
 
     def consolidate(self, vectors: List[torch.Tensor],
                     labels: List[str],
-                    gate: Optional[WriteGate] = None) -> int:
+                    gate: Optional[WriteGate] = None,
+                    texts: Optional[List[Optional[str]]] = None) -> int:
         """固化一批场记忆：L2 归一化 + 去重决策后追加。
 
         去重决策（二选一）：
@@ -119,6 +120,8 @@ class FieldMemoryBank:
             vectors: 场状态快照列表（每个 [D] 或 [1, D]）
             labels: 与向量一一对应的文本标签
             gate: 本次调用显式指定的写门控（None → 用 self.gate）
+            texts: 记忆内容文本（C26 增量三突触沉淀的重放样本来源；
+                   None/空 → 回退用 label）
 
         Returns:
             added: 实际新增的条目数（被门控/阈值拒绝的条目跳过）
@@ -127,10 +130,12 @@ class FieldMemoryBank:
             raise ValueError(f"vectors({len(vectors)}) 与 labels({len(labels)}) 数量不一致")
         gate = gate if gate is not None else self.gate
         added = 0
-        for vec, label in zip(vectors, labels):
+        for i, (vec, label) in enumerate(zip(vectors, labels)):
             v = self._normalize(vec)
             if v is None:
                 continue
+            text = (texts[i] if texts is not None and i < len(texts) and texts[i]
+                    else label)
             sim = self._max_sim(v)
             if gate is not None:
                 keep = float(gate(v, torch.tensor(sim, dtype=v.dtype)).item()) > 0.5
@@ -147,7 +152,13 @@ class FieldMemoryBank:
                 "vector": v,
                 "anchor": anchor,
                 "label": label,
+                "text": text,
                 "ts": datetime.now().isoformat(timespec="seconds"),
+                # C26 增量三（2026-08-14）：海马→皮层两层记忆
+                # access_count: 检索命中次数（高频 = 皮层沉淀候选）
+                # consolidated: 是否已沉淀进神经元权重（沉淀后防重复重放）
+                "access_count": 0,
+                "consolidated": False,
             })
             added += 1
         return added
@@ -230,8 +241,47 @@ class FieldMemoryBank:
         sims = stack @ q
         k = min(top_k, len(self.entries))
         idx = torch.topk(sims, k).indices.tolist()
+        # C26 增量三：命中即计数（高频记忆 = 皮层突触沉淀候选）
+        for i in idx:
+            self.entries[i]["access_count"] += 1
         return [(self.entries[i]["label"], float(sims[i].item()),
                  self.entries[i]["vector"]) for i in idx]
+
+    def frequent_entries(self, min_access: int = 2,
+                         limit: Optional[int] = None) -> List[Dict]:
+        """高频未沉淀条目——海马→皮层沉淀候选（C26 增量三）。
+
+        人脑对应：反复重放（高频检索）的记忆才值得从海马迁移到皮层；
+        已沉淀（consolidated）的条目不再重复迁移。
+
+        Args:
+            min_access: 访问计数下限（命中次数 ≥ 该值才算高频）
+            limit: 最多返回条数（None = 全部）
+
+        Returns:
+            [{idx, label, text?}...]——text 需由调用方从 label 恢复；
+            返回条目本身（含 vector/label/access_count），idx 供 mark_consolidated。
+        """
+        cands = [(i, e) for i, e in enumerate(self.entries)
+                 if not e.get("consolidated") and e.get("access_count", 0) >= min_access]
+        cands.sort(key=lambda ie: ie[1].get("access_count", 0), reverse=True)
+        if limit is not None:
+            cands = cands[:limit]
+        return [dict(e, idx=i) for i, e in cands]
+
+    def mark_consolidated(self, idxs: List[int]) -> int:
+        """标记条目已沉淀进皮层（重置访问计数，防重复重放）。
+
+        Returns:
+            实际标记条数
+        """
+        n = 0
+        for i in idxs:
+            if 0 <= i < len(self.entries):
+                self.entries[i]["consolidated"] = True
+                self.entries[i]["access_count"] = 0
+                n += 1
+        return n
 
     # ─── 持久化 ─────────────────────────────────────────
 
@@ -244,7 +294,10 @@ class FieldMemoryBank:
                     "vector": e["vector"].cpu(),
                     "anchor": e.get("anchor").cpu() if e.get("anchor") is not None else None,
                     "label": e["label"],
+                    "text": e.get("text", e["label"]),
                     "ts": e["ts"],
+                    "access_count": e.get("access_count", 0),
+                    "consolidated": e.get("consolidated", False),
                 }
                 for e in self.entries
             ],
@@ -273,7 +326,11 @@ class FieldMemoryBank:
                 "vector": v / norm,
                 "anchor": a.float().flatten() if a is not None else None,
                 "label": e.get("label", ""),
+                "text": e.get("text") or e.get("label", ""),
                 "ts": e.get("ts", ""),
+                # C26 增量三：旧库无字段 → 默认 0/False（向后兼容）
+                "access_count": int(e.get("access_count", 0)),
+                "consolidated": bool(e.get("consolidated", False)),
             })
         return True
 

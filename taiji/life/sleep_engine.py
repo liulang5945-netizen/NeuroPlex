@@ -93,6 +93,9 @@ class SleepReport:
     recommendations: List[str] = field(default_factory=list)
     # C26: 场固化（Phase 1.5）——本次睡眠沉淀的场记忆条数
     field_memories_consolidated: int = 0
+    # C26 增量三（Phase 1.6）：突触沉淀——高频场记忆重放进神经元权重的条数
+    synaptic_consolidated: int = 0
+    synaptic_lora_loss: Optional[float] = None
 
 
 @dataclass
@@ -306,6 +309,14 @@ class SleepEngine:
             logger.info("  Phase 1.5: Field consolidation ✅")
         except Exception as e:
             logger.warning(f"  Phase 1.5 failed: {e}")
+
+        # Phase 1.6: 突触沉淀 — 高频场记忆重放进神经元权重（C26 增量三，海马→皮层）
+        try:
+            self._sleep_phase_synaptic_consolidation(report)
+            report.phases_completed.append("synaptic_consolidation")
+            logger.info("  Phase 1.6: Synaptic consolidation ✅")
+        except Exception as e:
+            logger.warning(f"  Phase 1.6 failed: {e}")
         
         # Phase 2: 深睡眠 — 模型训练
         if self.config.training_enabled:
@@ -454,16 +465,17 @@ class SleepEngine:
     
     # ─── C26: 场记忆（可写记忆第 0 格）─────────────────────────
 
-    def record_field_memory(self, vector, label: str) -> None:
-        """C26: 记录一条待固化的场记忆（场状态快照 + 文本标签）。
+    def record_field_memory(self, vector, label: str, text: Optional[str] = None) -> None:
+        """C26: 记录一条待固化的场记忆（场状态快照 + 文本标签 + 内容）。
 
         会话中产生的高频场状态（如知识样本前向后的 field state）先入队，
         睡眠 Phase 1.5 统一固化进持久场记忆库。标签供注入消费（记忆条件化
-        生成的文本通道）。
+        生成的文本通道）；text 为记忆内容（C26 增量三突触沉淀的重放样本来源，
+        None → 固化时回退用 label）。
         """
         if vector is None:
             return
-        self.pending_field_memories.append((vector.detach().clone(), label))
+        self.pending_field_memories.append((vector.detach().clone(), label, text))
 
     def get_field_memory(self) -> Any:
         """C26: 获取持久场记忆库（懒加载：首次从 data_dir/field_memory.pt 恢复）。
@@ -517,14 +529,186 @@ class SleepEngine:
             return
         self._ensure_data_dir()
         bank = self.get_field_memory()
-        vectors = [v for v, _ in self.pending_field_memories]
-        labels = [lbl for _, lbl in self.pending_field_memories]
-        added = bank.consolidate(vectors, labels)
+        vectors = [v for v, _, _ in self.pending_field_memories]
+        labels = [lbl for _, lbl, _ in self.pending_field_memories]
+        texts = [txt for _, _, txt in self.pending_field_memories]
+        added = bank.consolidate(vectors, labels, texts=texts)
         self.pending_field_memories.clear()
         path = os.path.join(self.data_dir, "field_memory.pt")
         bank.save(path)
         report.field_memories_consolidated = added
         logger.info(f"  场固化: +{added} 条场记忆（bank 共 {len(bank)} 条）→ {path}")
+
+    # ── C26 增量三：突触沉淀（Phase 1.6，海马→皮层两层记忆）──────────────────
+    synaptic_min_access = 2        # 检索命中 ≥ 该次数才算高频（沉淀候选）
+    synaptic_lora_rank = 16        # LoRA 低秩维度（C16 同款）
+    synaptic_lora_lr = 3e-4        # LoRA 温和学习率（只动低秩增量，防破坏）
+    synaptic_epochs = 2            # 样本极少（记忆条目），2 epoch 够记住
+
+    def _sleep_phase_synaptic_consolidation(self, report: SleepReport) -> None:
+        """Phase 1.6: 突触沉淀 — 高频场记忆重放进神经元权重（C26 增量三）。
+
+        人脑对应：海马短期存储，反复重放（高频检索）的记忆经睡眠迁移到皮层
+        （长期权重）——海马→皮层两层记忆。工程实现：
+        - 候选：高频未沉淀记忆条目（access_count ≥ synaptic_min_access）
+        - 样本：问答对（"问：{label}是什么？\\n答：{text}"）+ 原文 各一份（混合）
+        - 目标：域内全部 dialogue neuron（协作沉淀，与 C24 域训练一致）
+        - 训练：冻结 body，只训尾层 LoRA 增量（enable_lora B 初始 0 → 零破坏
+          起点，与培养期"灾难性遗忘"教训同源——不直接微调 lm_head/embedding）
+        - 影子权重 COW：clone → 训 shadow → 只写回 lora 参数 → 标记条目已沉淀
+        """
+        if self.cortex is None or not getattr(self.cortex, "neurons", None):
+            return
+        try:
+            bank = self.get_field_memory()
+        except Exception:
+            return
+        cands = bank.frequent_entries(min_access=self.synaptic_min_access)
+        if not cands:
+            report.synaptic_consolidated = 0
+            return
+
+        # 目标神经元：zh 域 dialogue neuron（记忆文本为中文）；无则回退 zh 域全部
+        neurons = self.cortex.neurons
+        target_ids = [nid for nid in neurons
+                      if nid.startswith("zh_") and "dialogue" in nid]
+        if not target_ids:
+            target_ids = [nid for nid in neurons if nid.startswith("zh_")]
+        if not target_ids:
+            report.synaptic_consolidated = 0
+            return
+
+        # 组 SFT 重放样本（问答对 + 原文各一份 = 用户决策"两者混合"）
+        import random
+        import torch.nn.functional as F
+        samples = []
+        for e in cands:
+            label = e.get("label", "")
+            text = e.get("text") or label
+            if len(text.strip()) < 8:
+                continue
+            samples.append(f"问：{label}是什么？\n答：{text}")
+            samples.append(text)
+        if not samples:
+            report.synaptic_consolidated = 0
+            return
+        random.shuffle(samples)
+
+        tokenizer_hub = getattr(self.cortex, "_tokenizer_hub", None)
+        general_sp = getattr(self.cortex, "_general_sp", None)
+        shared_embedding = getattr(self.cortex, "_shared_embedding", None)
+        if tokenizer_hub is None or general_sp is None or shared_embedding is None:
+            report.synaptic_consolidated = 0
+            return
+        device = next(shared_embedding.parameters()).device
+        domain_sp = tokenizer_hub.get_tokenizer("zh")
+        if domain_sp is None:
+            report.synaptic_consolidated = 0
+            return
+
+        # domain_ids → general_ids（每 domain token 取首个 general token，长度对齐）
+        def _to_general(domain_ids):
+            gids = []
+            for did in domain_ids:
+                gg = general_sp.EncodeAsIds(domain_sp.id_to_piece(did))
+                gids.append(gg[0] if gg else 0)
+            return gids
+
+        def _copy_lora(dst, src) -> None:
+            """只复制 LoRA 适配器参数（body 未训，勿碰其它权重）。"""
+            sd_src = src.lora_adapters.state_dict()
+            sd_dst = dst.lora_adapters.state_dict()
+            for k, v in sd_src.items():
+                if k in sd_dst and sd_dst[k].shape == v.shape:
+                    with torch.no_grad():
+                        sd_dst[k].copy_(v)
+
+        total_loss = 0.0
+        steps = 0
+        trained_nids = 0
+        max_steps = self.config.max_training_steps
+        for nid in target_ids:
+            live = neurons[nid]
+            # live 先 enable_lora（B 初始 0 → 零破坏起点）
+            if len(live.lora_adapters) == 0:
+                live.enable_lora(self.synaptic_lora_rank, layers=None)
+            try:
+                shadow = _clone_module(live)
+            except Exception as e:
+                logger.debug(f"  [突触沉淀] {nid} 影子克隆失败: {e}")
+                continue
+            # enable_lora 是运行时方法（不写 config），clone 重建后不含
+            # lora_adapters → 需在 shadow 上重建并复制 live 初始状态
+            shadow.enable_lora(self.synaptic_lora_rank, layers=None)
+            try:
+                shadow.lora_adapters.load_state_dict(
+                    live.lora_adapters.state_dict())
+            except Exception as e:
+                logger.debug(f"  [突触沉淀] {nid} lora 初始复制失败: {e}")
+                continue
+            lora_params = list(shadow.lora_adapters.parameters())
+            if not lora_params:
+                continue
+            optimizer = torch.optim.AdamW(lora_params, lr=self.synaptic_lora_lr)
+            shadow.train()
+            for _epoch in range(self.synaptic_epochs):
+                for text in samples:
+                    if steps >= max_steps:
+                        break
+                    try:
+                        domain_ids = tokenizer_hub.encode(text, domain="zh")
+                        if not domain_ids or len(domain_ids) < 3:
+                            continue
+                        domain_ids = domain_ids[:256]
+                        target_ids_t = torch.tensor(
+                            [domain_ids], dtype=torch.long, device=device)
+                        gids = _to_general(domain_ids)
+                        if len(gids) < 3:
+                            continue
+                        input_ids = torch.tensor(
+                            [gids], dtype=torch.long, device=device)
+                        embeddings = shared_embedding(input_ids)
+                        optimizer.zero_grad()
+                        result = shadow.forward(
+                            embeddings, field_state=None, round_num=1,
+                            return_logits=True)
+                        logits = result["logits"]  # [1, L, domain_vocab]
+                        min_len = logits.size(1) - 1
+                        if min_len < 1:
+                            continue
+                        shift_logits = logits[:, :min_len, :].contiguous()
+                        shift_targets = target_ids_t[:, 1:1 + min_len].contiguous()
+                        vocab_size = logits.size(-1)
+                        shift_targets = shift_targets.clamp(0, vocab_size - 1)
+                        loss = F.cross_entropy(
+                            shift_logits.view(-1, shift_logits.size(-1)),
+                            shift_targets.view(-1), ignore_index=-100)
+                        loss.backward()
+                        optimizer.step()
+                        total_loss += loss.item()
+                        steps += 1
+                    except Exception:
+                        continue
+            shadow.eval()
+            _copy_lora(live, shadow)
+            trained_nids += 1
+            logger.info(f"  [突触沉淀] {nid}: LoRA 增量写回（rank={self.synaptic_lora_rank}）")
+            if steps >= max_steps:
+                break
+
+        if trained_nids == 0:
+            report.synaptic_consolidated = 0
+            return
+        # 标记条目已沉淀（重置访问计数，防重复重放）+ 持久化标记
+        marked = bank.mark_consolidated([e["idx"] for e in cands])
+        try:
+            bank.save(os.path.join(self.data_dir, "field_memory.pt"))
+        except Exception:
+            pass
+        report.synaptic_consolidated = marked
+        report.synaptic_lora_loss = (total_loss / steps) if steps else None
+        logger.info(f"  突触沉淀完成: {marked} 条记忆沉淀进 {trained_nids} 个神经元"
+                    f"（{steps} 步, avg loss={report.synaptic_lora_loss:.3f}）")
 
     def _sleep_phase_memory_consolidation(self, report: SleepReport):
         """Phase 1: 记忆整理 — 整合上下文管理器 + WorkingMemory"""
