@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""判定头共享化验证（参数总账优化，2026-08-14）。
+"""判定头共享化 + 判定空间统一化验证（参数总账优化，2026-08-14）。
 
 实测发现 4 个域 neuron 的 judge_lm_head 权重完全相同（逐 token cosine=1.0），
-是同一权重的 4 份拷贝（524M 中 393M 纯冗余）。验证 loader 共享化改造：
+是同一权重的 4 份拷贝（524M 中 393M 纯冗余）。loader 共享化：
 - A1. 4 个域 neuron 的 judge_lm_head 是同一对象（id 相同）
 - A2. 总参数省 393M（4×131M -> 1×131M，共享后去重）
-- A3. 判定 logits 一致（共享前后输出不变，零精度损失）
-- A4. 权重不同的 neuron 独立创建（向后兼容）
+- A3. 判定空间统一化：std0(768)/hub(1024) 经 judge_proj 补判定能力（共享头）
+- A4. std0/hub 判定 logits 与 compact 同 256K 空间（可比）
 - B1. 回归：装配正常 + 生成非空不退化
 
 运行：python -u scripts/training/verify_judge_shared.py
@@ -110,31 +110,39 @@ def main():
               abs(saved - judge_shared_saving) < 1000,  # 省量 = 3×131M
               f"total={total_params/1e6:.0f}M (共享前≈{(total_params+judge_shared_saving)/1e6:.0f}M, 省={judge_shared_saving/1e6:.0f}M)")
 
-        # ── A3. 判定 logits 一致（零精度损失）──
-        print("\n[A3] 判定 logits 一致性...", flush=True)
+        # ── A3. 判定空间统一化（std0/hub 补判定能力）──
+        print("\n[A3] 判定空间统一化（std0 768 / hub 1024 补判定）...", flush=True)
+        std0 = cortex.neurons["zh_std0_dialogue"]
+        hub = cortex.neurons["hub"]
+        check("A3. std0/hub 获得判定头（共享 + 投影适配）",
+              std0.judge_lm_head is not None and hub.judge_lm_head is not None
+              and std0.judge_proj is not None and hub.judge_proj is not None
+              and std0.judge_proj.in_features == 768
+              and hub.judge_proj.in_features == 1024,
+              f"std0_proj={std0.judge_proj.in_features if std0.judge_proj else 'None'}→512, "
+              f"hub_proj={hub.judge_proj.in_features if hub.judge_proj else 'None'}→512")
+
+        # ── A4. 判定空间统一可比（std0/hub 与 compact 同 256K 空间）──
+        print("\n[A4] 判定空间统一可比...", flush=True)
         general_sp = cortex._general_sp
         emb_table = cortex._shared_embedding
         test_text = "写一个函数来计算给定数字的阶乘。"
         g_ids = general_sp.encode(test_text)[:32] or [0]
         emb = emb_table(torch.tensor([g_ids], dtype=torch.long))
         with torch.no_grad():
-            logits_map = {}
-            for nid in domain_nids:
+            judge_out = {}
+            for nid in ["code", "zh_std0_dialogue", "hub"]:
                 n = cortex.neurons[nid]
                 r = n.forward(emb, round_num=1, return_judge_logits=True)
-                logits_map[nid] = r.get("judge_logits")
-            # 共享对象 -> 输出应完全一致（同一 hidden 输入同一权重）
-            # 但各 neuron hidden 不同（body 不同），所以 logits 会不同
-            # 验证的是：同一 neuron 的 judge_logits 与直接用共享头算的一致
-            n = cortex.neurons["code"]
-            h = n.forward(emb, round_num=1, return_intermediate=False)
-            # 手动取 hidden 再过 judge_head
-            # forward 内部已算，直接对比 judge_logits 是否非空有限
-            jl = logits_map["code"]
-            check("A3. judge_logits 非空有限（共享后判定路径正常）",
-                  jl is not None and torch.isfinite(jl).all().item(),
-                  f"shape={jl.shape if jl is not None else 'None'} "
-                  f"range=[{jl.min().item():.2f},{jl.max().item():.2f}]")
+                judge_out[nid] = r.get("judge_logits")
+        all_256k = all(v is not None and v.shape[-1] == 256000
+                       for v in judge_out.values())
+        finite = all(torch.isfinite(v).all().item() for v in judge_out.values())
+        check("A4. std0/hub 判定 logits 与 compact 同 256K 空间（可比）",
+              all_256k and finite,
+              f"code={judge_out['code'].shape if judge_out['code'] is not None else 'None'} "
+              f"std0={judge_out['zh_std0_dialogue'].shape if judge_out['zh_std0_dialogue'] is not None else 'None'} "
+              f"hub={judge_out['hub'].shape if judge_out['hub'] is not None else 'None'}")
 
         # ── B1. 回归：生成非空 ──
         print("\n[B1] 回归：生成非空不退化...", flush=True)
@@ -149,7 +157,8 @@ def main():
     except Exception as e:
         check("A1. 共享检测", False, f"err={e}")
         check("A2. 参数省", False, f"err={e}")
-        check("A3. logits 一致", False, f"err={e}")
+        check("A3. 判定统一化", False, f"err={e}")
+        check("A4. 判定可比", False, f"err={e}")
         check("B1. 生成", False, f"err={e}")
 
     shutil.rmtree(extra, ignore_errors=True)

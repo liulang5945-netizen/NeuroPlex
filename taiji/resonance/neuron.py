@@ -74,6 +74,13 @@ class ResonanceNeuron(nn.Module):
         # judge_lm_head 保留 general 空间判定信号（C20 信号链，天然可比）。
         # 由 loader/train 脚本注入（不在 config 中声明，避免破坏既有 ckpt 加载）。
         self.judge_lm_head: Optional[nn.Linear] = None
+        # 判定空间统一化（2026-08-14）：判定头全局唯一（general 256K 空间，可比），
+        # hidden≠判定空间维度（512）的 neuron（std0 768 / hub 1024）经 judge_proj
+        # （hidden→512 小投影）适配后挂同一共享判定头——新 neuron 无论规格都获得
+        # 可比判定能力，无需 per-neuron 131M 大判定头。None = 恒等（compact 512）。
+        # 分工：judge_lm_head（标尺）全局唯一·冻结；judge_proj（翻译）每 neuron
+        # 独立·可训练（协作/睡眠巩固阶段被共同塑造）。
+        self.judge_proj: Optional[nn.Linear] = None
 
         # ── 神经元类型（人脑启发：兴奋性/抑制性分化）──
         # excitatory: 对场做正向贡献（默认）
@@ -809,8 +816,10 @@ class ResonanceNeuron(nn.Module):
         # ── C24: 判定头 logits（general 256K 空间，判定信号可比）──
         # judge_lm_head 存在时输出 general 空间 logits——C20 判定 5/5 的信号链
         # （所有 neuron 共享 general 256K 头 → 投影 NLL 跨 neuron 可比）。
+        # judge_proj 存在时先投影到判定空间维度（hidden≠512 的 neuron 适配）。
         if return_judge_logits and self.judge_lm_head is not None:
-            result["judge_logits"] = self.judge_lm_head(h)  # [B, L, 256000]
+            h_judge = self.judge_proj(h) if self.judge_proj is not None else h
+            result["judge_logits"] = self.judge_lm_head(h_judge)  # [B, L, 256000]
 
         # ── C15: 预测质量 logit（2026-08-08，D 方案）──
         # 只在 round 1 计算：round 1 独立前向（无 field_state 注入、无 side_signals），

@@ -869,10 +869,85 @@ def assemble_cortex(
         "[assemble_cortex] Done. Wired modules: %s",
         ", ".join(modules.keys()) if modules else "(none)",
     )
+    # Step 9.2: 判定空间统一化——所有 neuron 获得可比判定能力（C20 信号链）。
+    # 判定头全局唯一（compact 已共享，见 _load_extra_neurons）；hidden≠512 的
+    # neuron（std0 768 / hub 1024）经 judge_proj（hidden→512 小投影）适配后挂
+    # 同一共享判定头。新 neuron 无论规格自动获得判定，无需 per-neuron 131M 头。
+    try:
+        ensure_judge_capability(cortex, device)
+    except Exception as e:
+        logger.warning("[assemble_cortex] 判定能力注入失败（非致命）: %s", e)
     return cortex, tokenizer, modules
 
 
 # ======================== 协作层权重加载（训练产物 → 运行时） ========================
+
+
+def ensure_judge_capability(cortex, device: str) -> int:
+    """判定空间统一化（2026-08-14）：为无判定头的 neuron 补可比判定能力。
+
+    C24 判定信号链（C20）要求所有 neuron 共享 general 256K 判定空间（judge NLL
+    跨 neuron 可比）。但判定头是 Linear(hidden, 256K)，hidden≠512 的 neuron
+    （std0 768 / hub 1024）无法直接挂 512 判定头——此前走 C24v2 混合路径
+    （无判定头用 all_logits 转译投影，可比性弱）。本函数统一解决：
+
+    - 基准判定头：取首个已有判定头的 neuron 的 judge_lm_head（已共享，
+      权重 = shared_lm_head 拷贝）。无判定头时从 shared_embedding 维度推断
+      （256K）新建并拷贝 shared_lm_head（若存在）。
+    - 无判定头的 neuron：judge_proj = Linear(hidden, 512)（Xavier 初始化，
+      可训练——每 neuron 独立学习翻译进固定判定空间）+ 挂共享判定头。
+    - compact（hidden=512）无判定头：直接挂共享判定头（judge_proj=None 恒等）。
+
+    Returns: 补注入判定能力的 neuron 数。
+    """
+    # 找共享判定头基准
+    shared_head = None
+    for n in cortex.neurons.values():
+        if n.judge_lm_head is not None:
+            shared_head = n.judge_lm_head
+            break
+    if shared_head is None:
+        # 无任何判定头：从 shared_lm_head.pt 新建（若存在）
+        emb = getattr(cortex, "_shared_embedding", None)
+        judge_vocab = emb.weight.shape[0] if emb is not None else general_vocab_size()
+        sh_path = None
+        for d in ["data/foundation_v1_dual", "data/foundation_v1_general", "data"]:
+            cand = os.path.join(d, "shared_lm_head.pt")
+            if os.path.exists(cand):
+                sh_path = cand
+                break
+        if sh_path is None:
+            logger.warning("[ensure_judge_capability] 无 shared_lm_head.pt，跳过判定注入")
+            return 0
+        w = torch.load(sh_path, map_location=device, weights_only=False)
+        w = w["weight"] if isinstance(w, dict) and "weight" in w else w
+        shared_head = torch.nn.Linear(w.shape[1], w.shape[0], bias=False).to(device)
+        shared_head.weight.data.copy_(w)
+        for p in shared_head.parameters():
+            p.requires_grad = False
+
+    JUDGE_DIM = shared_head.in_features
+    n_injected = 0
+    for nid, n in cortex.neurons.items():
+        if n.judge_lm_head is not None:
+            continue  # 已有判定头（compact 共享 / 独立）
+        hidden = n.config.hidden_size
+        if hidden == JUDGE_DIM:
+            n.judge_lm_head = shared_head  # 恒等（compact）
+        else:
+            proj = torch.nn.Linear(hidden, JUDGE_DIM, bias=False).to(device)
+            torch.nn.init.xavier_normal_(proj.weight)
+            for p in proj.parameters():
+                p.requires_grad = True  # 可训练：每 neuron 独立学习翻译进固定判定空间（标尺 judge_lm_head 冻结）
+            n.judge_proj = proj
+            n.judge_lm_head = shared_head
+            logger.info("[ensure_judge_capability] %s (hidden=%d) 挂判定投影 %d→%d + 共享判定头",
+                        nid, hidden, hidden, JUDGE_DIM)
+        n_injected += 1
+    if n_injected:
+        logger.info("[ensure_judge_capability] %d 个 neuron 补注入判定能力（共享判定头 in=%d）",
+                    n_injected, JUDGE_DIM)
+    return n_injected
 
 
 def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
