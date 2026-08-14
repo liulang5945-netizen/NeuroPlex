@@ -2146,7 +2146,7 @@ class ResonanceEnsemble:
             # 人脑对应：抑制性中间神经元在特定 θ 相位抑制投射神经元。
             for osc in self.oscillators:
                 try:
-                    _gw = osc.gaba_amp * osc.gaba_gate()
+                    _gw = float(osc.gaba_amp.item()) * osc.gaba_gate()
                     if _gw > 1e-6:
                         field.write_inhibit(
                             f"__osc_{osc.nid}__", osc.gaba_vec.to(ref.device),
@@ -2428,16 +2428,29 @@ class ResonanceEnsemble:
                     # 1) 相位连续演化（可微 Kuramoto；状态推进 detach 由内部完成）
                     if gamma_oscillator is not None:
                         try:
+                            # C27 增量四（2026-08-14）：o 型振荡器进训练——可微相位
+                            # 牵引。external_phases = 张量相位 [cosθ,sinθ]（θ 经 ω
+                            # 可微），external_weights = osc.coupling Parameter——
+                            # ω/coupling 梯度经 牵引→new_p→bvec→phase_loss 打通。
+                            osc_phs, osc_ws = [], []
+                            for _osc in self.oscillators:
+                                osc_phs.append(
+                                    _osc.phase_unit_tensor(t * ct.dt, device=ref_dev))
+                                osc_ws.append(_osc.coupling)
                             if getattr(gamma_oscillator, "differentiable", False):
                                 self._last_evolved_phasors = gamma_oscillator.evolve(
-                                    list(active_ids), coactivation=self.coaction)
+                                    list(active_ids), coactivation=self.coaction,
+                                    external_phases=osc_phs or None,
+                                    external_weights=osc_ws or None)
                                 gamma_oscillator.kuramoto_step(
                                     active_ids=list(active_ids),
                                     coactivation=self.coaction, dt=ct.dt)
                             elif hasattr(gamma_oscillator, "kuramoto_step"):
                                 gamma_oscillator.kuramoto_step(
                                     coupling_strength=0.05, active_ids=list(active_ids),
-                                    coactivation=self.coaction, dt=ct.dt)
+                                    coactivation=self.coaction, dt=ct.dt,
+                                    external_phases=osc_phs or None,
+                                    external_weights=osc_ws or None)
                         except Exception:
                             pass
                     # 2) 激活强度（相位绑定驱动，连续替代不应期硬门）
@@ -2504,6 +2517,19 @@ class ResonanceEnsemble:
                                    * act_sel.unsqueeze(-1).unsqueeze(-1)).sum(dim=0)
                         fs_cur = field_state if field_state is not None else torch.zeros_like(contrib)
                         field_state = fs_cur + ct.dt * contrib
+                        # C27 增量四（2026-08-14）：GABA 节奏门控进训练——与推理
+                        # continuous_forward 的 write_inhibit 同公式（mask *= 1-w·|v_abs|）
+                        # 施加到 field_state（可微：w=gaba_amp·gate，θ 经 ω 可微）。
+                        for _osc in self.oscillators:
+                            try:
+                                _gate = _osc.gaba_gate_tensor(t * ct.dt, device=ref_dev)
+                                _w = _osc.gaba_amp * _gate
+                                _gv = _osc.gaba_vec.detach().to(ref_dev)
+                                _gv_abs = _gv.abs()
+                                _decay = (1.0 - _w * _gv_abs / (_gv_abs.norm() + 1e-8)).clamp(0.0, 1.0)
+                                field_state = field_state * _decay
+                            except Exception:
+                                continue
                     # 6) 权重累积 w += dt·a（时间平均激活=参与度）
                     w = ct.weights_accum(
                         w, activ, torch.ones(len(active_ids), device=ref_dev), ct.dt)
@@ -2755,6 +2781,7 @@ class ResonanceEnsemble:
             scores = scores * write_scale
 
         # Gamma 门控：相位对齐的神经元获得更高权重（feature binding）
+        bvec: Optional[torch.Tensor] = None  # C27 增量四：供 osc_rhythm_loss 消费
         if gamma_oscillator is not None:
             try:
                 gate_factors = gamma_oscillator.batch_gate_factors(active_ids)  # [N]
@@ -3117,6 +3144,27 @@ class ResonanceEnsemble:
                 actual_router * (actual_router.clamp(min=1e-8).log() - router_ideal.clamp(min=1e-8).log())
             ).sum()
 
+        # ── C27 增量四（2026-08-14）：节奏对齐自监督（osc rhythm loss）──
+        # GABA 门控深度 gaba_amp 的梯度源（C23-C4 监督纯净下主 NLL 不触达门控）：
+        # 门控强度 w = gaba_amp·gate 与 p 型群体锁相度对齐——锁相强（绑定高）→
+        # 弱抑制（w 小，内容充分表达）；相位发散（绑定低）→ 强抑制（w 大，节流）。
+        # 梯度：gaba_amp（经 w_mean）、ω（经 gate→θ）；coupling 经 phase_loss 的
+        # bvec 侧（牵引路径）。仅 continuous 训练生效（推理/离散训练恒 0 零回归）。
+        osc_rhythm_loss = torch.tensor(0.0, device=weights.device)
+        if continuous and self.oscillators and bvec is not None:
+            try:
+                _b_mean = bvec.detach().mean()
+                _target = 1.0 - torch.sigmoid(_b_mean * 4.0)
+                _w_gates = [
+                    _osc.gaba_amp.to(weights.device) * _osc.gaba_gate_tensor(
+                        ct.steps * ct.dt, device=weights.device)
+                    for _osc in self.oscillators
+                ]
+                _w_mean = torch.stack(_w_gates).mean()
+                osc_rhythm_loss = F.mse_loss(_w_mean, _target)
+            except Exception:
+                osc_rhythm_loss = torch.tensor(0.0, device=weights.device)
+
         result: Dict[str, torch.Tensor] = {
             "fused_logits": fused_logits,
             "weights": weights,
@@ -3126,6 +3174,7 @@ class ResonanceEnsemble:
             "contrastive_loss": contrastive_loss,  # C12
             "router_contrastive_loss": router_contrastive_loss,  # §4.0d
             "phase_loss": self._phase_loss,  # C23-C2: 绑定 vs 共振贡献对齐（可微相位驱动）
+            "osc_rhythm_loss": osc_rhythm_loss,  # C27 增量四: 门控强度 vs 锁相度对齐
             "per_neuron_nll": per_neuron_nll,  # C16b: 原始 NLL（诊断）
             "per_neuron_nll_z": nll_z,  # C16b: 标准化 z-score（诊断）
             "field_state": field_state_full,

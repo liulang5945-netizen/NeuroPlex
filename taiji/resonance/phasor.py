@@ -275,18 +275,28 @@ class PhasorDynamics(nn.Module):
         step = dt if dt is not None else self.dt
         dtheta = self.omega[idxs] * step + (K / N) * dets.sum(dim=1)  # [N] 可微
         # C27 增量三（BioOSS）：外部振荡器（o 型）牵引——dtheta_i += K_ext·sin(θ_m−θ_i)
+        # C27 增量四：external_weights 支持张量（osc.coupling Parameter）——
+        # 不再 float() 截断梯度，牵引强度可微（经牵引→new_p→bvec→loss 反传）。
         if external_phases:
             for _m, _ep in enumerate(external_phases):
                 _ept = torch.as_tensor(
                     _ep, dtype=p.dtype, device=p.device).reshape(-1)
                 if _ept.numel() != 2:
                     continue
-                _ew = float(external_weights[_m]) if (
-                    external_weights and _m < len(external_weights)) else 0.0
-                if _ew == 0.0:
+                if not (external_weights and _m < len(external_weights)):
                     continue
-                # sin(θ_m−θ_i) = cosθ_i·sinθ_m − sinθ_i·cosθ_m
-                dtheta = dtheta + _ew * (
+                _ew = external_weights[_m]
+                if torch.is_tensor(_ew):
+                    if float(_ew.detach().abs().item()) == 0.0:
+                        continue
+                    _ew_t = _ew.to(p.dtype).to(p.device)
+                else:
+                    _ew_f = float(_ew)
+                    if _ew_f == 0.0:
+                        continue
+                    _ew_t = torch.tensor(_ew_f, dtype=p.dtype, device=p.device)
+                # sin(θ_m−θ_i) = cosθ_i·sinθ_m − sinθ_i·cosθ_m（_ew_t/θ_m 均可微）
+                dtheta = dtheta + _ew_t * (
                     p[:, 0] * _ept[1] - p[:, 1] * _ept[0])
         cos_d, sin_d = torch.cos(dtheta), torch.sin(dtheta)
         new_x = p[:, 0] * cos_d - p[:, 1] * sin_d

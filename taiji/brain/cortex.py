@@ -427,6 +427,16 @@ class Cortex:
             state["sleep_consolidator"] = self._sleep_consolidator.get_state_dict()
             logger.debug("[Cortex]   sleep_consolidator 已保存")
 
+        # C27 增量四（2026-08-14）：可学习振荡器参数（BioOSS 节奏控制器）
+        # ——ω/coupling/gaba_amp 训练后随状态持久化，跨会话节奏连续。
+        osc_states = []
+        for _osc in getattr(self.ensemble, "oscillators", []) or []:
+            if hasattr(_osc, "state_dict"):
+                osc_states.append({"nid": _osc.nid, "state_dict": _osc.state_dict()})
+        if osc_states:
+            state["oscillators"] = osc_states
+            logger.debug("[Cortex]   %d oscillators 已保存（节奏控制器）", len(osc_states))
+
         torch.save(state, path)
         logger.info(f"[Cortex] 状态已保存: {path} "
                     f"(shared_emb={'yes' if 'shared_embedding' in state else 'no'}, "
@@ -478,6 +488,23 @@ class Cortex:
                 neuron.embed_adapter.load_state_dict(nsd["embed_adapter"], strict=False)
             loaded += 1
         logger.info(f"[Cortex]   {loaded}/{len(neuron_states)} neurons 恢复")
+
+        # C27 增量四（2026-08-14）：恢复可学习振荡器参数（BioOSS 节奏控制器）
+        osc_states = state.get("oscillators", [])
+        osc_loaded = 0
+        for _osd in osc_states:
+            for _osc in getattr(self.ensemble, "oscillators", []) or []:
+                if getattr(_osc, "nid", None) == _osd.get("nid"):
+                    try:
+                        _osc.load_state_dict(_osd["state_dict"], strict=False)
+                        osc_loaded += 1
+                    except Exception as _e:
+                        logger.warning("[Cortex]   oscillator %s 恢复失败: %s",
+                                       _osd.get("nid"), _e)
+                    break
+        if osc_states:
+            logger.info("[Cortex]   %d/%d oscillators 恢复（节奏控制器）",
+                        osc_loaded, len(osc_states))
 
         # neuromodulator state 恢复（跨会话调质连续性）
         if "neuromodulator" in state and self._neuromodulator is not None:
