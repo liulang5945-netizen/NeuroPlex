@@ -22,7 +22,10 @@ shared_embedding 冻结（保留全局 token 语义），lr 5e-4（domain SFT �
 
 Usage:
     python -u scripts/training/train_hub_neuron.py --smoke
-    python -u scripts/training/train_hub_neuron.py --epochs 1 --max-steps 5000
+    python -u scripts/training/train_hub_neuron.py --epochs 1 --max-steps 5000 --device cuda --out-name neuron_hub_formal
+    python -u scripts/training/train_hub_neuron.py --resume --epochs 1 --max-steps 5000 --out-name neuron_hub_formal
+    # 日志落盘（N3 规范）:
+    #   python -u scripts/training/train_hub_neuron.py --epochs 1 2>&1 | Tee-Object -FilePath logs\train_hub_$(Get-Date -Format yyyyMMdd_HHmmss).log
 """
 from __future__ import annotations
 
@@ -211,7 +214,8 @@ def verify_checkpoint(eval_samples: List[dict], general_sp, emb, n_check: int = 
     return avg
 
 
-def save_checkpoint(neuron, shared_emb, step: int, ppl: Optional[float], loss_history: list):
+def save_checkpoint(neuron, shared_emb, step: int, ppl: Optional[float], loss_history: list,
+                    out_name: str = "neuron_hub"):
     os.makedirs(OUT_DIR, exist_ok=True)
     ckpt = {
         "neuron_config": neuron.config,
@@ -224,8 +228,16 @@ def save_checkpoint(neuron, shared_emb, step: int, ppl: Optional[float], loss_hi
         "hub_neuron": True,  # 标记：hub 联合皮层 neuron
         "saved_at": datetime.now().isoformat(),
     }
-    torch.save(ckpt, os.path.join(OUT_DIR, "neuron_hub.pt"))
+    torch.save(ckpt, os.path.join(OUT_DIR, f"{out_name}.pt"))
     torch.save(shared_emb.weight.data.clone(), os.path.join(OUT_DIR, "shared_embedding.pt"))
+    # N3：训练历史 JSON 落盘 logs/（与 verify 日志规范一致）
+    try:
+        os.makedirs(os.path.join(PROJECT_ROOT, "logs"), exist_ok=True)
+        hist_path = os.path.join(PROJECT_ROOT, "logs", f"{out_name}_history.json")
+        with open(hist_path, "w", encoding="utf-8") as f:
+            json.dump({"steps": loss_history, "last_step": step, "best_ppl": ppl}, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ======================== 训练 ========================
@@ -237,7 +249,15 @@ def main():
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--max-steps", type=int, default=100000)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--save-every", type=int, default=500,
+                        help="ckpt 保存间隔（步）；正式训练默认 500，smoke 强制 5")
+    parser.add_argument("--out-name", default=None,
+                        help="产物文件名（不含 .pt）；默认：正式=neuron_hub / smoke=neuron_hub_smoke（防覆盖正式产物）")
+    parser.add_argument("--resume", action="store_true",
+                        help="从现有 ckpt 恢复 state_dict+loss_history 续训（步数预算重新计算）")
     args = parser.parse_args()
+    if args.out_name is None:
+        args.out_name = "neuron_hub_smoke" if args.smoke else "neuron_hub"
 
     t0 = time.time()
     print("=" * 60, flush=True)
@@ -266,9 +286,21 @@ def main():
         lr=LR, weight_decay=WEIGHT_DECAY)
     steps_per_epoch = max(1, len(train_samples) // BATCH_SIZE)
 
+    loss_history = []
+    if args.resume:
+        resume_path = os.path.join(OUT_DIR, f"{args.out_name}.pt")
+        if not os.path.exists(resume_path):
+            print(f"--resume 但产物不存在: {resume_path}，改为从零训练", flush=True)
+        else:
+            old = torch.load(resume_path, map_location="cpu", weights_only=False)
+            neuron.load_state_dict(old.get("state_dict", {}), strict=False)
+            loss_history = list(old.get("loss_history", []))
+            print(f"[resume] 恢复 {len(loss_history)} 步历史（权重已加载，预算重计）", flush=True)
+
     max_steps = args.max_steps if not args.smoke else 2
     total_steps = min(max_steps, steps_per_epoch * args.epochs)
-    print(f"  预算: {total_steps} 步（--smoke={args.smoke}）", flush=True)
+    save_every = 5 if args.smoke else args.save_every
+    print(f"  预算: {total_steps} 步（--smoke={args.smoke}），每 {save_every} 步保存到 {args.out_name}.pt", flush=True)
 
     neuron.train()
     loss_history = []
@@ -296,11 +328,11 @@ def main():
             optimizer.step()
             loss_history.append(float(loss.item()))
             step += 1
-            if step % 5 == 0 or step == total_steps:
+            if step % save_every == 0 or step == total_steps:
                 print(f"  step {step}/{total_steps} loss={float(loss.item()):.3f}"
                       f" ({time.time() - t0:.0f}s)", flush=True)
                 # 用户规则：周期保存 + 回读验证（先保存再回读，防坏 checkpoint）
-                save_checkpoint(neuron, shared_emb, step, None, loss_history)
+                save_checkpoint(neuron, shared_emb, step, None, loss_history, out_name=args.out_name)
                 ppl = verify_checkpoint(val_samples, general_sp, shared_emb)
                 best_ppl = ppl if best_ppl is None else min(best_ppl, ppl)
                 if args.smoke:
@@ -309,10 +341,10 @@ def main():
             break
 
     # 最终保存 + 回读（先保存再回读）
-    save_checkpoint(neuron, shared_emb, step, best_ppl, loss_history)
+    save_checkpoint(neuron, shared_emb, step, best_ppl, loss_history, out_name=args.out_name)
     ppl = verify_checkpoint(val_samples, general_sp, shared_emb)
     print(f"\n  完成: {step} 步, best val PPL={best_ppl:.1f}", flush=True)
-    print(f"  产物: {os.path.join(OUT_DIR, 'neuron_hub.pt')}", flush=True)
+    print(f"  产物: {os.path.join(OUT_DIR, args.out_name + '.pt')}", flush=True)
     print(f"  总耗时: {time.time() - t0:.0f}s", flush=True)
     print("=" * 60, flush=True)
     sys.exit(0)

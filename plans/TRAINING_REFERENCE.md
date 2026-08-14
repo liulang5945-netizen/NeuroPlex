@@ -497,6 +497,36 @@ Token Embedding (+ Positional Embedding)
 
 ---
 
+### 8.1 Hub 神经元正式训练操作指南（2026-08）
+
+hub = EXPERT 规格（hidden 1024 / 14 层 / field 4096）+ general 256K lm_head，495M 参数，
+数据 = 域 SFT 混合 31000 + 跨域平行语料 1629 对（zh 指令→code 响应）。smoke 链路已通
+（2 步 loss 11.46，10s/步 CPU）；正式训练待 GPU 执行。
+
+```powershell
+# GPU（推荐）——495M × 32629 条，CPU 预估 40+ 小时，GPU 约 1-3 小时
+python -u scripts/training/train_hub_neuron.py --epochs 2 --max-steps 16000 `
+    --device cuda --out-name neuron_hub_formal --save-every 500
+
+# 日志落盘（N3 规范）
+python -u scripts/training/train_hub_neuron.py --epochs 2 --max-steps 16000 `
+    --device cuda --out-name neuron_hub_formal 2>&1 | Tee-Object -FilePath ("logs\train_hub_" + (Get-Date -Format yyyyMMdd_HHmmss) + ".log")
+
+# 中断续训（8-12 中断事件教训：--resume 恢复权重+loss_history，预算重计）
+python -u scripts/training/train_hub_neuron.py --resume --epochs 1 `
+    --max-steps 8000 --device cuda --out-name neuron_hub_formal
+```
+
+**完成后依次执行**（协作层正式训练 + 评估）：
+1. `train_cross_domain_collab.py --hub-path <hub 产物> --hub-anchor-weight 0.5 --hub-contrastive-weight 1.0 --unified-field-dim 3072`（正式协作层，替换 hub_collab_v2 smoke 产物）
+2. 重跑 `verify_wcond_ab.py --collab-ckpt <正式协作层产物>`——R1 收益判定（当前 smoke 产物 Δ=5.6e-5，无收益证据）
+3. 阶段 4 跨域评估（锚点 cos > 0.5 目标）
+
+**检查清单对照**：数据/参数比 32629×~500 token / 495M ≈ 33:1（达标）；batch=4 偏小（CPU 限制，GPU 可调大）；
+lr 5e-4 无 warmup（域 SFT 成功配方沿用）；每 500 步保存 best+回读验证（防坏产物，8-12 教训已内建）。
+
+---
+
 ## 九、参考资源
 
 ### 9.1 2025-2026 最新（必读）

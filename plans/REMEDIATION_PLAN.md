@@ -200,7 +200,7 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 
 | R | 项 | 状态 | 完成日期 | 备注 |
 |---|---|---|---|---|
-| R1 | W_cond 训练闭环 | ✅ | 2026-08-14 | forward_train W_cond 门控 cosine 对齐 field._condition；3 训练脚本解冻+muon+ckpt 存 field_w_cond；loader step7 加载；**冒烟验收 4 PASS**（冒烟实测修复 keepdim 除法广播错形：`[N,B]/[N,B,1]→[N,B,1]` 致 einsum 维度不匹配，norm 去 keepdim 后恢复） |
+| R1 | W_cond 训练闭环 | ✅ | 2026-08-14 | forward_train W_cond 门控 cosine 对齐 field._condition；3 训练脚本解冻+muon+ckpt 存 field_w_cond；loader step7 加载；**冒烟验收 4 PASS**（冒烟实测修复 keepdim 除法广播错形：`[N,B]/[N,B,1]→[N,B,1]` 致 einsum 维度不匹配，norm 去 keepdim 后恢复）。**A/B 证据落盘（2026-08，verify_wcond_ab.py 5 PASS）**：A0 ckpt 含 field_w_cond(3072²)；A1 门控参与评分（Δ=1.2e-4）；A2 口径契约 field.score==公式参考实现（1e-6 精确一致）；A3 训练 vs 随机 Δ=5.6e-5——**当前产物仅 14 步 smoke 训练，Δ≈0 属预期，收益判定须正式训练产物后复测**（N1：证据如实记录，不声称收益） |
 | R2 | field_read_layers 解冻 | ✅ | 2026-08-14 | neuron.get_field_read_parameters()；3 脚本 unfreeze 分支解冻入 body 低 lr |
 | R3 | sparse_router 加载 | ✅ | 2026-08-14 | loader step6.5 按 sparse_router_config 重建加载；训练侧保存 config（无状态产物零行为变化） |
 | R4 | shared_weight_mlp | ✅ | 2026-08-14 | ensemble 读任务场（_get_task_field().get_state()），训练该层仍为实验未纳入 |
