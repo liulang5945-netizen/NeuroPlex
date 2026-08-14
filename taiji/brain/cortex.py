@@ -1075,6 +1075,10 @@ class Cortex:
         # 且注入过记忆库时，用 prompt 场状态自动检索 top-1 记忆注入生成
         # （记忆从"显式 API"走向"模型内在自动调取"）。
         auto_memory: bool = True,
+        # C27 增量一（2026-08-14）：实例级路由（SMCS 借鉴）——continuous 生成
+        # 中激活子集按 chunk 级混合后验（共振分 + 滚动 NLL）双向域内演化，
+        # 让"任务模式激活"在实例内自校正。默认开；显式关回退 C25-E 行为。
+        instance_routing: bool = True,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -1126,6 +1130,7 @@ class Cortex:
                 _allow_plain_prompt=_allow_plain_prompt,
                 memory_vectors=memory_vectors,
                 auto_memory=auto_memory,
+                instance_routing=instance_routing,
             )
             # R9（REMEDIATION_PLAN 2026-08-14）：退化重试——已知退化模式
             # （编号塌缩 `1.\n` / 字面量 `1.<0x0A>`、重复标点、纯数字长串）
@@ -1145,6 +1150,7 @@ class Cortex:
                     _allow_plain_prompt=_allow_plain_prompt,
                     memory_vectors=memory_vectors,
                     auto_memory=auto_memory,
+                    instance_routing=instance_routing,
                 )
                 if text and self._is_degenerate_text(text):
                     logger.warning(
@@ -1164,6 +1170,7 @@ class Cortex:
                     _allow_plain_prompt=_allow_plain_prompt,
                     memory_vectors=memory_vectors,
                     auto_memory=auto_memory,
+                    instance_routing=instance_routing,
                 )
                 if text:
                     candidates.append(text)
@@ -1976,6 +1983,204 @@ class Cortex:
                 continue
         return out
 
+    # ─── C27 增量一（2026-08-14）：实例级路由 + 混合后验（SMCS 借鉴）──────
+    # SMCS 的 contextual selection 在实例内重新选 expert 子集；此处受 C22
+    # "回合级任务判定"外层约束，在 continuous 生成中每 instance_chunk token
+    # 用滚动后验（共振分 + 已生成文本滚动 NLL）双向域内演化激活子集——
+    # 剔除持续劣化（迟滞防抖）、加入后验显著更高的未激活同域 neuron。
+
+    def _rolling_nll_quality(
+        self, result: dict, gen_text: str, domain: str, window: int,
+    ) -> dict:
+        """滚动后验（C27 增量一）：对已生成文本窗口的 next-token NLL 质量。
+
+        与 _nll_quality_from_round1_logits（prompt 一次性，C25-E）不同：本函数
+        取 round1_logits 尾部窗口（已生成文本区段），衡量各 neuron 对"最近
+        生成内容"的续写拟合度——随生成演化，捕获实例内漂移。零额外前向
+        （round1_logits 由生成主循环 think 产出）。返回 {nid: -NLL}；失败 {}。
+        """
+        r1 = result.get("round1_logits") or {}
+        if not r1:
+            return {}
+        hub = getattr(self, "_tokenizer_hub", None)
+        if hub is None or not hasattr(hub, "get_tokenizer"):
+            return {}
+        try:
+            tok = hub.get_tokenizer(domain) or hub.get_tokenizer("general")
+            if tok is None:
+                return {}
+            zids = torch.tensor([tok.encode(gen_text)], dtype=torch.long,
+                                device=self.device)
+        except Exception:
+            return {}
+        if zids.numel() < 1:
+            return {}
+        vocab = int(tok.GetPieceSize()) if hasattr(tok, "GetPieceSize") else None
+        if not vocab:
+            return {}
+        lens = [int(lg.shape[1]) for lg in r1.values() if lg.shape[-1] == vocab]
+        if not lens:
+            return {}
+        # 对齐（与 C25-E 同口径）：round1_logits 位置 t 预测上下文 t+1。
+        # 取 logits 倒数 n+1 个位置中的前 n 个，target = 已生成文本最后 n 个
+        # token（续写 NLL；软信号，尽力对齐即可，不追求逐 token 严格映射）。
+        n = min(int(window), int(zids.numel()), min(lens) - 1)
+        if n < 1:
+            return {}
+        tgt = zids[0][-n:].unsqueeze(0).unsqueeze(-1)  # [1, n, 1]
+        out: dict = {}
+        for nid, lg in r1.items():
+            if lg.shape[-1] != vocab:
+                continue
+            try:
+                lg_win = lg.detach()[:, -(n + 1):-1, :]  # [1, n, V]
+                logp = torch.log_softmax(lg_win, dim=-1)
+                nll_tok = -logp.gather(-1, tgt).squeeze(-1)  # [1, n]
+                mask = (tgt.squeeze(-1) != 1) & (tgt.squeeze(-1) != 0)
+                if mask.sum() == 0:
+                    continue
+                out[nid] = -float((nll_tok * mask).sum() / mask.sum().float())
+            except Exception:
+                continue
+        return out
+
+    def _probe_inactive_fused(
+        self, inactive_nids: List[str], general_ids: List[int],
+        gen_text: str, domain: str, window: int, fusion_mode: str,
+    ) -> dict:
+        """chunk 边界轻量 probe：未激活同域 neuron 的后验分（加入评估依据）。
+
+        用 ensemble.forward（thread-local 独立共振场，不写 cortex 场、不污染
+        生成主循环；与 R1 resonance probe 同路径）对未激活同域 neuron 前向
+        当前上下文，返回 {nid: fused_score}；失败回退 {}。
+        """
+        if not inactive_nids:
+            return {}
+        try:
+            probe_ids = torch.tensor([general_ids], dtype=torch.long,
+                                     device=self.device)
+            probe_emb = self._shared_embedding(probe_ids)
+            with torch.no_grad():
+                probe = self.ensemble.forward(
+                    shared_embeddings=probe_emb, return_logits=True,
+                    active_nids=inactive_nids, fusion_mode=fusion_mode,
+                )
+            base = probe.get("round1_scores") or probe.get("final_scores") or {}
+            q = self._rolling_nll_quality(probe, gen_text, domain, window)
+            if not base or not q:
+                return {}
+            common = [k for k in q if k in base]
+            if not common:
+                return {}
+            return self._fuse_leader_quality(
+                {k: base[k] for k in common}, {k: q[k] for k in common})
+        except Exception:
+            return {}
+
+    def _instance_route_evolve(
+        self,
+        active_nids: List[str],
+        result: dict,
+        gen_text: str,
+        domain: str,
+        streaks: Dict[str, int],
+        window: int,
+        evict_ratio: float,
+        evict_streak: int,
+        add_ratio: float,
+        min_active: int,
+        general_ids: List[int],
+        fusion_mode: str,
+    ) -> tuple:
+        """C27 增量一：实例级路由——chunk 级混合后验双向域内演化。
+
+        1. 滚动后验 = 共振分（round1_scores）+ 滚动 NLL（_rolling_nll_quality）
+           → _fuse_leader_quality 等权融合（C25-E 机制复用）
+        2. 剔除：激活集内同域 neuron 后验 < evict_ratio × leader，且连续
+           evict_streak 个 chunk 如此 → 移除（迟滞防抖）
+        3. 加入：未激活同域 neuron（_probe_inactive_fused 轻量前向）后验 >
+           激活集最小 × add_ratio → 加入
+        4. 保护：同域激活数 >= min_active；general 恒激活；顺序稳定。
+
+        Returns:
+            (new_active_nids, new_streaks)；任何失败回退 (active_nids, streaks)。
+        """
+        # 1. 滚动后验（对已生成文本；失败回退原激活集）
+        nll_q = self._rolling_nll_quality(result, gen_text, domain, window)
+        if not nll_q:
+            return active_nids, streaks
+        base_scores = result.get("round1_scores") or result.get("final_scores") or {}
+        base_scores = {k: v for k, v in base_scores.items()}
+        common = [k for k in nll_q if k in base_scores]
+        if not common:
+            return active_nids, streaks
+        fused = self._fuse_leader_quality(
+            {k: base_scores[k] for k in common},
+            {k: nll_q[k] for k in common},
+        )
+        if not fused:
+            return active_nids, streaks
+        # 2. 域约束全集（演化边界——C22 回合判定保持外层约束）
+        domain_all = [
+            k for k in self.neurons
+            if k == domain or k.startswith(domain + "_")
+        ]
+        if not domain_all:
+            return active_nids, streaks
+        # 3. 未激活同域 neuron 后验（chunk 边界轻量 probe）
+        inactive = [k for k in domain_all if k not in active_nids]
+        if inactive:
+            fused_inactive = self._probe_inactive_fused(
+                inactive, general_ids, gen_text, domain, window, fusion_mode)
+            if fused_inactive:
+                fused = {**fused, **fused_inactive}
+        if not fused:
+            return active_nids, streaks
+        # 4. 双向演化（迟滞）
+        leader_id = max(fused, key=fused.get)
+        leader_score = fused[leader_id]
+        keep = set(active_nids)
+        new_streaks = dict(streaks)
+        for nid in list(active_nids):
+            if nid not in domain_all:
+                continue  # general 等恒激活，域外不动
+            if nid == leader_id:
+                new_streaks[nid] = 0
+                continue
+            ratio = fused.get(nid, 0.0) / (leader_score + 1e-9)
+            if ratio < evict_ratio:
+                new_streaks[nid] = new_streaks.get(nid, 0) + 1
+                if new_streaks[nid] >= evict_streak:
+                    keep.discard(nid)
+                    new_streaks[nid] = 0
+            else:
+                new_streaks[nid] = 0
+        # 5. 加入：未激活同域 neuron 后验显著高于激活集最小
+        domain_keep = [k for k in keep if k in domain_all]
+        if domain_keep:
+            active_min = min(fused[k] for k in domain_keep if k in fused)
+        else:
+            active_min = None
+        for nid, sc in fused.items():
+            if nid in keep or nid not in domain_all:
+                continue
+            if active_min is None or sc > active_min * add_ratio:
+                keep.add(nid)
+        # 6. 保护：同域激活数下限（min_active）
+        domain_keep = [k for k in keep if k in domain_all]
+        if len(domain_keep) < min_active:
+            for nid in sorted(fused, key=fused.get, reverse=True):
+                if nid in domain_all and nid not in keep:
+                    keep.add(nid)
+                    domain_keep.append(nid)
+                    if len(domain_keep) >= min_active:
+                        break
+        # 7. 保持原顺序 + 新加入 append + general 保留
+        new_nids = [k for k in active_nids if k in keep]
+        new_nids += [k for k in domain_all if k in keep and k not in active_nids]
+        new_nids += [k for k in active_nids
+                     if k in keep and k not in domain_all and k not in new_nids]
+        return new_nids, new_streaks
 
     def _generate_p7(
         self,
@@ -2004,6 +2209,15 @@ class Cortex:
         memory_vectors: Optional[List] = None,
         # C26 增量四（2026-08-14）：自动记忆检索（同 generate，见其签名说明）。
         auto_memory: bool = True,
+        # C27 增量一（2026-08-14）：实例级路由（SMCS 借鉴）——continuous 生成
+        # 中每 instance_chunk token 用混合后验（共振分 + 滚动 NLL）双向域内
+        # 演化激活子集。chunk/迟滞/阈值均为生产默认参数，演化失败静默回退。
+        instance_routing: bool = True,
+        instance_chunk: int = 12,
+        instance_evict_ratio: float = 0.35,
+        instance_evict_streak: int = 2,
+        instance_add_ratio: float = 1.3,
+        instance_min_active: int = 2,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -2244,8 +2458,11 @@ class Cortex:
         # C25-E 遗留（2026-08-14）：质量信号针对固定 prompt 不随生成增长，
         # 首次计算后缓存（避免每 token 重复 log_softmax 50000 词表）。
         _leader_nll_quality_cache: Optional[dict] = None
+        # C27 增量一（2026-08-14）：实例级路由演化状态——neuron 连续劣化
+        # chunk 计数（迟滞防抖），chunk 边界在 _instance_route_evolve 更新。
+        _ir_streaks: Dict[str, int] = {}
 
-        for _ in range(max_tokens):
+        for ir_step in range(max_tokens):
             # Trim context to prevent memory issues and maintain coherence
             if len(general_ids) > 512:
                 general_ids = general_ids[-512:]
@@ -2490,6 +2707,38 @@ class Cortex:
                 _new_general = self._general_sp.encode(_text)
                 if _new_general:
                     general_ids.extend(_new_general)
+
+            # C27 增量一（2026-08-14）：实例级路由（SMCS 借鉴）——chunk 级
+            # 混合后验双向域内演化。每 instance_chunk token，用滚动 NLL（对
+            # 已生成文本，round1_logits 零额外前向）+ 共振分重估同域 neuron
+            # 后验：剔除持续劣化（迟滞防抖）、加入后验显著更高的未激活同域
+            # neuron。仅在 continuous 模式（C22 收敛路径）；异常静默回退。
+            if (collab_mode == "continuous" and instance_routing
+                    and domain and ir_step > 0
+                    and (ir_step + 1) % instance_chunk == 0):
+                try:
+                    _ctx = decode_sp.DecodeIds(generated_ids_ordered) if generated_ids_ordered else ""
+                    if _ctx.strip():
+                        _evolved, _ir_streaks = self._instance_route_evolve(
+                            active_nids, result, _ctx, domain, _ir_streaks,
+                            window=instance_chunk,
+                            evict_ratio=instance_evict_ratio,
+                            evict_streak=instance_evict_streak,
+                            add_ratio=instance_add_ratio,
+                            min_active=instance_min_active,
+                            general_ids=general_ids,
+                            fusion_mode=fusion_mode,
+                        )
+                        if _evolved and _evolved != active_nids:
+                            logger.info(
+                                "[Cortex] 实例级路由 chunk %d：激活 %d→%d",
+                                (ir_step + 1) // instance_chunk,
+                                len(active_nids), len(_evolved),
+                            )
+                            active_nids = _evolved
+                except Exception as _e:
+                    logger.debug("[Cortex] 实例级路由 chunk %d 失败回退: %s",
+                                 (ir_step + 1) // instance_chunk, _e)
 
         # Decode with 当前词表空间 tokenizer（多词表架构）
         # P7-修复（2026-08-04）：用 DecodeIds 替代 "".join(pieces)
