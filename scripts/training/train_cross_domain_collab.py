@@ -205,6 +205,34 @@ def load_hub_neuron(hub_path: str, device: str) -> Tuple[ResonanceNeuron, nn.Emb
     return neuron, emb
 
 
+def compute_hub_anchor_loss(
+    ensemble, neurons: Dict[str, ResonanceNeuron],
+    neuron_embeddings: Dict[str, torch.Tensor],
+    nid: str,
+) -> torch.Tensor:
+    """hub 锚定 loss（缺口 L 阶段 3 第三部分，决策 4B→4C 渐进第一步）。
+
+    hub 是跨域语义锚点（field=4096 即统一维度源头），约束各域 neuron 的
+    field_vector（经 cross_spec_projector 投影到统一空间）向 hub field_vector
+    靠拢（cosine 最大化）——hub 的 field 成为跨域共享语义锚点，而非 CE 副产物。
+
+    域 neuron 与 hub body 均冻结（LoRA 模式，双阶段职责分离），本 loss 梯度
+    只流 cross_spec_projectors[nid]（协作层参数）——个体生成能力零破坏。
+
+    注意：输入必须 detach()——neuron_embeddings 来自共享 embedding 表输出
+    （带 EmbeddingBackward grad_fn），若与主 loss 的 forward_train 共享同一
+    输入张量，主 loss backward 会释放该 grad_fn 的 saved tensors，锚定 loss
+    再 backward 将报 "backward a second time"。detach 后锚定 loss 图独立
+    （embedding 表冻结，本 loss 只需投影层梯度，detach 语义正确）。
+    """
+    hub = neurons["hub"]
+    v_d = neurons[nid].forward(neuron_embeddings[nid].detach(), round_num=1)["field_vector"]
+    v_hub = hub.forward(neuron_embeddings["hub"].detach(), round_num=1)["field_vector"]
+    if nid in ensemble._cross_spec_projectors:
+        v_d = ensemble._cross_spec_projectors[nid](v_d)
+    return 1.0 - F.cosine_similarity(v_d, v_hub, dim=-1).mean()
+
+
 def load_tokenizer_for_vocab(domain: str, vocab_size: int):
     """加载与 neuron vocab 匹配的域 tokenizer（防御 vocab 不匹配）。
 
@@ -392,6 +420,12 @@ def main():
                              "（1024×14=14336 最大），hub 保留自带 general 256K lm_head "
                              "（同 general 目标空间，无需词库转译）；body 冻结走 LoRA 模式，"
                              "个体能力由 train_hub_neuron.py 独立训练")
+    parser.add_argument("--hub-anchor-weight", type=float, default=0.0,
+                        help="缺口 L 阶段 3 第三部分：hub 锚定 loss 权重。>0 时每个 batch "
+                             "约束当前域 neuron field_vector（经 cross_spec 投影到统一空间）"
+                             "对齐 hub field_vector（cosine 最大化，hub 为跨域语义锚点）。"
+                             "梯度只流 cross_spec_projectors（域 neuron 与 hub body 冻结，"
+                             "零破坏），需 --hub-path 开启。先锚定后叠加对比 loss（渐进）")
     args = parser.parse_args()
 
     global DEVICE
@@ -747,6 +781,16 @@ def main():
                 # contrastive_loss 由 ensemble.forward_train 计算（NLL 需 targets，训练时
                 # 可得；推理时 quality_logit 直接可用）。所有域 batch 生效（含 dialogue）。
                 total_loss = total_loss + args.contrastive_weight * result["contrastive_loss"]
+
+                # 缺口 L 阶段 3 第三部分：hub 锚定 loss——当前域 neuron field_vector
+                # 经 cross_spec 投影对齐 hub field_vector（hub=跨域语义锚点）。
+                # 梯度只流 cross_spec_projectors（域 neuron/hub body 冻结，零破坏）。
+                anchor_loss = None
+                if (args.hub_path and args.hub_anchor_weight > 0
+                        and domain in neurons and domain != "hub"):
+                    anchor_loss = compute_hub_anchor_loss(
+                        ensemble, neurons, neuron_embeddings, domain)
+                    total_loss = total_loss + args.hub_anchor_weight * anchor_loss
 
                 total_loss.backward()
                 if muon_optimizer is not None:
