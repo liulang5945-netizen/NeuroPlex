@@ -213,7 +213,7 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 | R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效）；三处代码修复可源码级复验（记录口径改投影场空间 4 处、STDPRule 阈值 0.3→0.0、sleep_engine 补 clear_history 防重复强化）。**验收证据降级声明（2026-08）**：原记录"verify_stdp_cycle 7 PASS/0 FAIL"——该脚本在仓库中不存在、logs/ 无对应日志，行为级验收不可复核；按 N4 降级为"代码动作属实，STDP 行为级验收待补跑" |
 | R12 | theta-gamma | ✅ | 2026-08-14 | 显式开关 TAIJI_THETA_NESTING（默认关零回归）+ C26 增量五跨频耦合闭环（记忆 entrain theta 相位→gamma 注意窗接入 continuous_forward 主循环，verify_c26_cross_freq 12/12）；**A/B 报告**：机制层生效（weights Δ=0.03）、输出层 8 问逐字符相同（无输出级收益实证）→ 保持默认关，待记忆路径收益实证 |
 | R13 | working_memory | ✅ | 2026-08-14 | 标注"注册未接入"（cortex.py + loader.py）；真实对话上下文由 agent 层承担 |
-| R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓 |
+| R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓。**低风险替代已补（2026-08，P2 工程加固）**：`state_dict()/load_state_dict()` 聚合接口（协作层+场 round-trip，4 契约测试）+ side_signals 构建去重（forward/forward_train 共用 `_build_side_signals`）+ 质量监督流水线提取 `_compute_quality_supervision`（forward_train 954→771 行）+ 20 处裸 except 全部加日志 |
 | R15 | buffer 语义 | ✅ | 2026-08-14 | field.reset 设备感知零/一张量（W_cond 锚定）；推理中途 refractory 减法改 in-place（保持 buffer 对象身份，get_effective_state 无别名风险） |
 | R16 | device | ✅ | 2026-08-14 | cortex 场构造带神经元设备（退化 cortex.device）；_phase_loss 初始值改普通 float |
 | R17 | 死代码 | ✅ | 2026-08-14 | 7 处 DEAD CODE 标注（quick_probe/evaluate_ppl/evaluate_single_neuron/get_contribution_sign/_is_duplicate/logits_history/fieldcond 孤儿）+ 2 处更正（generate_staged→C25-F 兼容层、_select_best_candidate→SMCS EPE 活跃路径，增量八） |
