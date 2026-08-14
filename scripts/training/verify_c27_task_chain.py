@@ -137,8 +137,8 @@ def main():
         pending = list(engine.pending_field_memories)
         check("B4. 记忆库收到任务链写入候选",
               len(pending) >= 1 and any(
-                  lbl == "任务链阶段3" for _, lbl, _ in pending),
-              f"pending={[(None, lbl) for _, lbl, _ in pending]}")
+                  lbl == "任务链阶段3" for _, lbl, *_ in pending),
+              f"pending={[(None, lbl) for _, lbl, *_ in pending]}")
         # 清理（不污染后续/真实记忆）
         engine.pending_field_memories = []
     except Exception as e:

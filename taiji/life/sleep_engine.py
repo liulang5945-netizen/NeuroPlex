@@ -488,17 +488,20 @@ class SleepEngine:
     
     # ─── C26: 场记忆（可写记忆第 0 格）─────────────────────────
 
-    def record_field_memory(self, vector, label: str, text: Optional[str] = None) -> None:
+    def record_field_memory(self, vector, label: str, text: Optional[str] = None,
+                            phase: Optional[float] = None) -> None:
         """C26: 记录一条待固化的场记忆（场状态快照 + 文本标签 + 内容）。
 
         会话中产生的高频场状态（如知识样本前向后的 field state）先入队，
         睡眠 Phase 1.5 统一固化进持久场记忆库。标签供注入消费（记忆条件化
         生成的文本通道）；text 为记忆内容（C26 增量三突触沉淀的重放样本来源，
-        None → 固化时回退用 label）。
+        None → 固化时回退用 label）。phase 为记忆沉淀时的加权均值相角
+        （C27 增量二 KoPE 相位归属记忆，注入时按该相位对齐 theta；None 无相位）。
         """
         if vector is None:
             return
-        self.pending_field_memories.append((vector.detach().clone(), label, text))
+        self.pending_field_memories.append(
+            (vector.detach().clone(), label, text, phase))
 
     def get_field_memory(self) -> Any:
         """C26: 获取持久场记忆库（懒加载：首次从 data_dir/field_memory.pt 恢复）。
@@ -552,10 +555,14 @@ class SleepEngine:
             return
         self._ensure_data_dir()
         bank = self.get_field_memory()
-        vectors = [v for v, _, _ in self.pending_field_memories]
-        labels = [lbl for _, lbl, _ in self.pending_field_memories]
-        texts = [txt for _, _, txt in self.pending_field_memories]
-        added = bank.consolidate(vectors, labels, texts=texts)
+        # C27 增量二（KoPE）：pending 为 4 元组 (vector, label, text, phase)；
+        # 兼容旧 3 元组条目（无相位）。
+        vectors = [v for v, *_ in self.pending_field_memories]
+        labels = [lbl for _, lbl, *_ in self.pending_field_memories]
+        texts = [txt for _, _, txt, *_ in self.pending_field_memories]
+        phases = [it[3] if len(it) >= 4 else None
+                  for it in self.pending_field_memories]
+        added = bank.consolidate(vectors, labels, texts=texts, phases=phases)
         self.pending_field_memories.clear()
         path = os.path.join(self.data_dir, "field_memory.pt")
         bank.save(path)

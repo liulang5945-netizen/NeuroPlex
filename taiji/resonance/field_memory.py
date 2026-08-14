@@ -109,7 +109,8 @@ class FieldMemoryBank:
     def consolidate(self, vectors: List[torch.Tensor],
                     labels: List[str],
                     gate: Optional[WriteGate] = None,
-                    texts: Optional[List[Optional[str]]] = None) -> int:
+                    texts: Optional[List[Optional[str]]] = None,
+                    phases: Optional[List[Optional[float]]] = None) -> int:
         """固化一批场记忆：L2 归一化 + 去重决策后追加。
 
         去重决策（二选一）：
@@ -122,6 +123,8 @@ class FieldMemoryBank:
             gate: 本次调用显式指定的写门控（None → 用 self.gate）
             texts: 记忆内容文本（C26 增量三突触沉淀的重放样本来源；
                    None/空 → 回退用 label）
+            phases: 记忆沉淀时的加权均值相角（C27 增量二 KoPE 相位归属记忆；
+                    注入时按该相位对齐 theta；None/旧调用 → 无相位）
 
         Returns:
             added: 实际新增的条目数（被门控/阈值拒绝的条目跳过）
@@ -159,6 +162,11 @@ class FieldMemoryBank:
                 # consolidated: 是否已沉淀进神经元权重（沉淀后防重复重放）
                 "access_count": 0,
                 "consolidated": False,
+                # C27 增量二（2026-08-14）：相位归属记忆（KoPE）——记忆沉淀
+                # 时的加权均值相角，注入时按该相位对齐 theta（None = 无相位）。
+                "phase": (float(phases[i])
+                          if phases and i < len(phases) and phases[i] is not None
+                          else None),
             })
             added += 1
         return added
@@ -221,6 +229,26 @@ class FieldMemoryBank:
         Returns:
             [(label, sim, vector), ...] 按相似度降序（vector 为 [D] 张量）
         """
+        # C27 增量二（KoPE）：薄封装——带相位版本的前 3 项（旧调用方零破坏）。
+        return [(label, sim, vec) for label, sim, vec, _ in
+                self.retrieve_with_phase(query_vector, top_k)]
+
+    def retrieve_with_phase(
+        self, query_vector: torch.Tensor, top_k: int = 1,
+    ) -> List[Tuple[str, float, torch.Tensor, Optional[float]]]:
+        """带记忆相位的检索——C27 增量二（KoPE）相位归属记忆。
+
+        与 retrieve_vectors 同检索逻辑，额外返回记忆沉淀时的加权均值相角
+        （phase）。调用方注入生成时可按该相位对齐 theta（不同记忆不同相位
+        唤醒，θ 相位序列编码记忆）；phase None = 旧库无相位（回退峰值对齐）。
+
+        Args:
+            query_vector: 查询向量（如新会话的场状态快照）
+            top_k: 返回最相似的 k 条记忆
+
+        Returns:
+            [(label, sim, vector, phase), ...] 按相似度降序
+        """
         if not self.entries:
             return []
         q_raw = self._normalize(query_vector)
@@ -247,7 +275,8 @@ class FieldMemoryBank:
         for i in idx:
             self.entries[i]["access_count"] += 1
         return [(self.entries[i]["label"], float(sims[i].item()),
-                 self.entries[i]["vector"]) for i in idx]
+                 self.entries[i]["vector"], self.entries[i].get("phase"))
+                for i in idx]
 
     def frequent_entries(self, min_access: int = 2,
                          limit: Optional[int] = None) -> List[Dict]:

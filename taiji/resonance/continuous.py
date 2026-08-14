@@ -79,6 +79,9 @@ class ContinuousResonance(nn.Module):
         # C26 增量五（2026-08-14）：记忆驱动的跨频耦合——记忆检索对齐 theta
         # 峰值相位（记忆注意窗），无记忆时按嵌套开关行为（theta_omega=0 → 恒等）。
         self._memory_entrained = False
+        # C27 增量二（2026-08-14）：相位归属记忆（KoPE）——记忆注入时对齐
+        # 其沉淀相位（不同记忆不同相位唤醒），默认 0 = 峰值对齐（增量五零回归）。
+        self._entrain_phase = 0.0
 
     # ── 激活（连续替代不应期硬门）──
 
@@ -153,11 +156,13 @@ class ContinuousResonance(nn.Module):
     def theta_phase_at(self, t: float) -> float:
         """t 时刻的 theta 慢振荡相位（rad）。
 
-        记忆 entrain 后相位对齐峰值（0 → 包络最大）：记忆注意窗期间 gamma
-        绑定持续增强（跨频耦合：记忆这一慢变量驱动 theta 相位）。
+        记忆 entrain 后相位对齐目标相位（默认 0 → 包络峰值）：记忆注意窗
+        期间 gamma 绑定持续增强（跨频耦合：记忆这一慢变量驱动 theta 相位）。
+        C27 增量二（KoPE）：对齐目标 = 记忆沉淀时的加权均值相角——相位归属
+        记忆（不同记忆不同相位唤醒，θ 相位序列编码）。
         """
         if self._memory_entrained:
-            return 0.0
+            return self._entrain_phase
         return self.theta_init + self.theta_omega * t
 
     def theta_envelope(self, t: float) -> float:
@@ -175,18 +180,22 @@ class ContinuousResonance(nn.Module):
         """theta-gamma 嵌套：gamma 激活振幅 × theta 慢振荡包络（调幅）。"""
         return activ * self.theta_envelope(t)
 
-    def entrain_memory(self) -> None:
-        """C26 增量五：记忆检索 → theta 相位对齐峰值（跨频耦合）。
+    def entrain_memory(self, target_phase: float = 0.0) -> None:
+        """记忆检索 → theta 相位对齐目标相位（跨频耦合 + 相位归属）。
 
-        记忆注入生成时调用：theta 相位对齐包络峰值，gamma 绑定在记忆
-        条件化期间增强——"记忆注意窗"（相关回路同步激活）。无记忆的
-        forward 不受影响（_memory_entrained=False，envelope 恒等）。
+        C26 增量五：记忆注入生成时调用，theta 相位对齐包络峰值，gamma 绑定
+        在记忆条件化期间增强——"记忆注意窗"（相关回路同步激活）。
+        C27 增量二（KoPE）：target_phase 为记忆沉淀时的相位——相位归属记忆，
+        不同记忆在不同相位被唤醒（人脑 θ 相位序列编码记忆）。默认 0.0 =
+        峰值对齐（增量五行为，零回归）。无记忆的 forward 不受影响。
         """
         self._memory_entrained = True
+        self._entrain_phase = float(target_phase)
 
     def reset_entrain(self) -> None:
         """单次 forward 结束后清除记忆 entrain 状态（下一次 forward 干净）。"""
         self._memory_entrained = False
+        self._entrain_phase = 0.0
 
     # ── 一步相位演化 + 激活（主循环原语）──
 

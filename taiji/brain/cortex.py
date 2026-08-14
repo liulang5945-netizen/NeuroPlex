@@ -990,19 +990,27 @@ class Cortex:
         # C26 增量二：记忆可读进生成——归一化 memory_vectors 为
         # [(vec, weight), ...]（vec [D] 或 [1,D]），透传给 ensemble 写入场
         # （round1 判定信号之后），round2+ 场条件化 forward 读到记忆。
+        # C27 增量二（KoPE）：支持 (vec, weight, phase) 3 元组/dict["phase"]
+        # ——phase 为该记忆沉淀时的加权均值相角，注入按记忆相位对齐 theta
+        # （相位归属记忆；无 phase 回退峰值对齐，增量五零回归）。
         seed_memories = None
         if memory_vectors:
             seed_memories = []
             for item in memory_vectors:
+                phase = None
                 if isinstance(item, dict):
                     vec, w = item.get("vector"), float(item.get("weight", 1.0))
-                elif len(item) == 2:
+                    phase = item.get("phase")
+                elif isinstance(item, (tuple, list)) and len(item) >= 3:
+                    vec, w, phase = item[0], float(item[1]), item[2]
+                elif isinstance(item, (tuple, list)) and len(item) == 2:
                     vec, w = item[0], float(item[1])
                 else:
                     vec, w = item, 1.0
                 if vec is None:
                     continue
-                seed_memories.append((vec, w))
+                seed_memories.append(
+                    (vec, w, phase) if phase is not None else (vec, w))
         kwargs = dict(return_logits=True, active_nids=active_nids, fusion_mode=fusion_mode)
         if return_judge_logits:
             kwargs["return_judge_logits"] = True
@@ -1300,7 +1308,8 @@ class Cortex:
                     from taiji.life.sleep_engine import get_sleep_engine
                     engine = get_sleep_engine()
                     label = st.memory_label or tpl.strip()[:40]
-                    engine.record_field_memory(fs, label, text=text)
+                    engine.record_field_memory(
+                        fs, label, text=text, phase=self.get_last_phase())
                     gate_i["memory"] = "recorded"
                 except Exception as e:
                     gate_i["memory"] = f"skip:{str(e)[:40]}"
@@ -2291,9 +2300,13 @@ class Cortex:
                     _qfs = _qres.get("field_state")
                     if _qfs is not None and _qfs.dim() == 2:
                         _qfs = _qfs.mean(dim=0)
-                    _top = self._memory_bank.retrieve_vectors(_qfs, top_k=1)
+                    _top = self._memory_bank.retrieve_with_phase(_qfs, top_k=1)
                     if _top:
-                        memory_vectors = [(_top[0][2], _top[0][1])]
+                        _lab, _sim, _vec, _ph = _top[0]
+                        # C27 增量二（KoPE）：记忆带相位 → 注入按记忆相位对齐
+                        # theta（相位归属记忆）；无相位回退 2 元组（峰值对齐）。
+                        memory_vectors = [(_vec, _sim, _ph)] if _ph is not None \
+                            else [(_vec, _sim)]
             except Exception:
                 pass  # 自动检索失败静默跳过（显式向量通道不受影响）
 
@@ -2755,6 +2768,14 @@ class Cortex:
             self._dialogue_state.add_dialogue_entry("assistant", result_text)
             self._dialogue_state.end_round(self.field)
 
+        # C27 增量二（KoPE）：截获最近一次共振的相位均值（记忆沉淀/任务链
+        # 记录带相位——相位归属记忆；无 phase → None 回退）。
+        try:
+            self._last_phase_mean = (
+                result.get("phase_mean") if isinstance(result, dict) else None)
+        except Exception:
+            self._last_phase_mean = None
+
         return result_text
 
     @torch.no_grad()
@@ -2966,6 +2987,14 @@ class Cortex:
     def get_field_state(self) -> torch.Tensor:
         """Get current resonance field state (consciousness snapshot)."""
         return self.field.get_state()
+
+    def get_last_phase(self) -> Optional[float]:
+        """C27 增量二（KoPE）：最近一次共振的加权均值相角（相位归属记忆）。
+
+        记忆沉淀时随场快照记录该相位——注入时按记忆相位对齐 theta
+        （不同记忆不同相位唤醒）。无相位（编码失败/旧路径）→ None。
+        """
+        return getattr(self, "_last_phase_mean", None)
 
     def get_last_field_state(self) -> Optional[torch.Tensor]:
         """最近一次共振后的任务场状态（推理实际写入的场）。

@@ -1656,6 +1656,10 @@ class ResonanceEnsemble:
         # ── Final output ──
         # 写穿 thread-local round_scores → 共享镜像（供外部诊断如 sleep_engine 分裂选择）
         self._last_forward_round_scores = self.round_scores
+        # C27 增量二（KoPE）：场向量相位编码——phase_code [2N] 全量相位分布、
+        # phase_mean 加权均值相角（记忆注入对齐目标）、phase_lock 锁相度。
+        _f_scores = self.round_scores[-1] if self.round_scores else {}
+        pc, pm, pl = self._encode_phase_code(active_ids, _f_scores)
         result = {
             "field_state": self.field.get_state(),
             "final_scores": self.round_scores[-1] if self.round_scores else {},
@@ -1669,6 +1673,10 @@ class ResonanceEnsemble:
             # leader 生成用（协作/共振分只用于任务模式判定，不污染 leader 的域
             # 词表能力输出；round2 场条件化会注入混合域信号，稀释 dialogue 的 zh 能力）
             "round1_logits": round_logits,  # {nid: [B, L, V]}（非 large_scale 时全量）
+            # C27 增量二（KoPE）：相位编码（None 表示无 gamma 振荡器/编码失败）
+            "phase_code": pc,
+            "phase_mean": pm,
+            "phase_lock": pl,
         }
 
         # C19（2026-08-08）：推理路径也暴露 round1 quality_logits（回合级聚合）
@@ -1832,6 +1840,48 @@ class ResonanceEnsemble:
 
         return result
 
+    # ─── C27 增量二（2026-08-14）：场向量相位编码（KoPE）─────────────────
+    # 相位从"纯动力学驱动"走向"显式表征"：把 gamma 振荡器的相位分布编码为
+    # 相位向量，供记忆沉淀（相位归属记忆）、记忆注入（按记忆相位对齐 theta）、
+    # 下游路由（C27 增量一后验）消费——记忆/路由读到的状态携带相位语义。
+
+    def _encode_phase_code(
+        self, ids: List[str], weights: Dict[str, float],
+    ) -> tuple:
+        """场向量相位编码：每 neuron 相位向量 × 激活权重 → 显式相位表征。
+
+        From gamma_oscillator.phasors（[N,2] cos/sin，按激活 ids 对齐）：
+        - phase_code: [2N] 展平（每 neuron (cosθ·w, sinθ·w)，全相位分布）
+        - phase_mean: 加权均值相角 φ = atan2(Σw·sinθ, Σw·cosθ)（注入对齐目标）
+        - phase_lock: 锁相度 |Σw·e^{iθ}| ∈ [0,1]（1=完全锁相，0=相位分散）
+
+        Returns:
+            (phase_code [2N] | None, phase_mean float, phase_lock float)；
+            无 gamma 振荡器 / 未注册相位 / 失败 → (None, 0.0, 0.0)。
+        """
+        if self.gamma_oscillator is None or not ids:
+            return None, 0.0, 0.0
+        try:
+            go = self.gamma_oscillator
+            idxs = [go._id_to_idx[nid] for nid in ids if nid in go._id_to_idx]
+            if not idxs:
+                return None, 0.0, 0.0
+            ph = go.phasors[idxs].detach()  # [N,2] cos/sin
+            w = torch.tensor(
+                [weights.get(nid, 0.0) for nid in ids if nid in go._id_to_idx],
+                dtype=ph.dtype, device=ph.device,
+            )
+            ws = w / w.sum().clamp_min(1e-8)   # 归一化激活权重
+            weighted = ph * ws.unsqueeze(-1)    # [N,2]
+            code = weighted.flatten()           # [2N]
+            z = weighted.sum(dim=0)             # (Σw·cosθ, Σw·sinθ)
+            lock = float(z.norm().item())
+            mean = (math.atan2(float(z[1].item()), float(z[0].item()))
+                    if lock > 1e-8 else 0.0)
+            return code, mean, lock
+        except Exception:
+            return None, 0.0, 0.0
+
     # ── C25-E 连续时间共振（2026-08-11）：相位同步驱动的连续动力学 ──
 
     def continuous_forward(
@@ -1948,8 +1998,18 @@ class ResonanceEnsemble:
         # 训练过该路径）。写入点选在 round1 判定信号（round1_scores/judge）之后：
         # 判定保持"无记忆的天然反应"（C23 安全边界），记忆只叠加在生成条件化层。
         # 权重 = 调用方给的检索相似度（近记忆强条件化）；向量维度不匹配则跳过。
+        # C27 增量二（KoPE）：seed_memories 元素支持 3 元组 (vec, weight, phase)
+        # ——phase 为该记忆沉淀时的加权均值相角，注入时按记忆相位对齐 theta
+        # （相位归属记忆，不同记忆不同相位唤醒；2 元组/无 phase 回退峰值对齐）。
         if seed_memories:
-            for i, (mv, mw) in enumerate(seed_memories):
+            _entrain_target: Optional[float] = None
+            for i, item in enumerate(seed_memories):
+                if isinstance(item, (tuple, list)) and len(item) >= 3:
+                    mv, mw, mp = item[0], item[1], item[2]
+                    if _entrain_target is None and mp is not None:
+                        _entrain_target = float(mp)
+                else:
+                    mv, mw = item[0], item[1]
                 try:
                     mv = mv.detach().float().flatten()
                     if mv.numel() != field.dim:
@@ -1960,8 +2020,10 @@ class ResonanceEnsemble:
                     continue
             # C26 增量五（2026-08-14）：记忆驱动的跨频耦合——记忆注入开启
             # theta 注意窗（theta 相位对齐峰值，gamma 绑定增强）。
+            # C27 增量二（KoPE）：按记忆相位对齐（默认 0 = 峰值，零回归）。
             try:
-                ct.entrain_memory()
+                ct.entrain_memory(target_phase=(
+                    _entrain_target if _entrain_target is not None else 0.0))
             except Exception:
                 pass
         # 连续路径的判定信号（t=0 快照，与离散 round1 等价）
@@ -2055,6 +2117,8 @@ class ResonanceEnsemble:
         # ── 最终输出（forward 兼容）──
         # 推理路径：权重/分数 detach（连续积分本身可微，推理无需梯度）
         final_scores = {nid: float(w.detach().item()) for nid, w in zip(ids, weights)}
+        # C27 增量二（KoPE）：相位编码（phase_code [2N] / phase_mean / phase_lock）
+        pc, pm, pl = self._encode_phase_code(ids, final_scores)
         result: Dict = {
             "field_state": field.get_state(),
             "final_scores": final_scores,          # 连续路径：时间平均激活即"共振分"
@@ -2067,6 +2131,10 @@ class ResonanceEnsemble:
             "skipped_resonance": False,
             "skip_reason": None,
             "round1_logits": all_logits,
+            # C27 增量二（KoPE）：相位编码（None = 无 gamma 振荡器/编码失败）
+            "phase_code": pc,
+            "phase_mean": pm,
+            "phase_lock": pl,
         }
         if round1_judge is not None:
             result["round1_judge_logits"] = round1_judge
