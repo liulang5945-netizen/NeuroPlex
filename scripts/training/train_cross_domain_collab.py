@@ -70,7 +70,7 @@ import random
 import sys
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -175,6 +175,34 @@ def load_shared_embedding(neuron_dir: str, device: str) -> nn.Embedding:
             emb.load_state_dict(w)
             print(f"  [shared_embedding] 从 {emb_path} 加载 state_dict", flush=True)
     return emb
+
+
+def load_hub_neuron(hub_path: str, device: str) -> Tuple[ResonanceNeuron, nn.Embedding]:
+    """加载 hub neuron（缺口 L：联合皮层）进协作阵容。
+
+    hub 与 general 基座同 256K 空间协作：保留自带 general lm_head（1024→256000，
+    与 domains 路径注入 shared head 不同——注入会 shape 冲突丢 head），因此不走
+    词库转译；输入 embedding 用全局 general 表（train_hub_neuron.py 已随 ckpt
+    保存同表副本 shared_embedding.pt）。body 由 train_hub_neuron.py 独立训练，
+    协作层训练仅训 side_channels 等（LoRA 模式冻结 body）。
+    """
+    ck = torch.load(hub_path, map_location=device, weights_only=False)
+    cfg = ck["neuron_config"]
+    cfg.unified_field_dim = None
+    neuron = ResonanceNeuron(cfg).to(device)  # 自带 general 256K lm_head
+    neuron.load_state_dict(ck["state_dict"], strict=False)
+    emb = create_shared_embedding(device)
+    hub_emb_path = os.path.join(os.path.dirname(hub_path), "shared_embedding.pt")
+    if os.path.exists(hub_emb_path):
+        w = torch.load(hub_emb_path, map_location=device, weights_only=False)
+        if isinstance(w, torch.Tensor):
+            assert w.shape == emb.weight.shape, f"hub embedding 形状不匹配: {w.shape}"
+            emb.weight.data.copy_(w)
+        elif isinstance(w, dict) and "weight" in w:
+            emb.weight.data.copy_(w["weight"])
+    print(f"  [hub] vocab={cfg.vocab_size}, spec={cfg.spec}, "
+          f"field_dim={cfg.field_dim}, 同 general 空间协作（保留自身 256K head）", flush=True)
+    return neuron, emb
 
 
 def load_tokenizer_for_vocab(domain: str, vocab_size: int):
@@ -357,6 +385,13 @@ def main():
                              "冻结并改用低秩增量 BA（B 初始 0 → 个体生成能力零破坏起点），"
                              "解决 C14b 分解验证发现的 'collab 训练 body 微调破坏生成' 根因；"
                              "=0 关闭（退回直接微调 body 尾层旧行为）")
+    parser.add_argument("--hub-path", default=None,
+                        help="缺口 L：hub neuron（联合皮层）ckpt 路径，如 "
+                             "data/hub_neuron/neuron_hub.pt。加入协作阵容训练 hub-and-spoke "
+                             "side_channels：hybrid 拓扑按容量自动选 hub 为 global-hub "
+                             "（1024×14=14336 最大），hub 保留自带 general 256K lm_head "
+                             "（同 general 目标空间，无需词库转译）；body 冻结走 LoRA 模式，"
+                             "个体能力由 train_hub_neuron.py 独立训练")
     args = parser.parse_args()
 
     global DEVICE
@@ -415,8 +450,17 @@ def main():
         shared_embeddings[nid] = emb
         print(f"  [{nid}] vocab={cfg.vocab_size}, spec={cfg.spec}, "
               f"home embedding 从 ckpt 加载（保留域输出头 → 词库转译协作）", flush=True)
+
+    # hub neuron（缺口 L：联合皮层）：同 general 256K 空间协作，自带 lm_head，
+    # 不走词库转译（与 domains 同空间）；body 由 train_hub_neuron.py 独立训练。
+    if args.hub_path:
+        assert os.path.exists(args.hub_path), f"hub ckpt 不存在: {args.hub_path}"
+        n, emb = load_hub_neuron(args.hub_path, DEVICE)
+        neurons["hub"] = n
+        shared_embeddings["hub"] = emb
+
     print(f"  阵容: {len(neurons)} neuron "
-          f"(域 {domains} + 对话 {dialogue_ids})", flush=True)
+          f"(域 {domains} + 对话 {dialogue_ids} + hub {'✓' if args.hub_path else '—'})", flush=True)
 
     # 2. TokenizerHub + 词库规则层
     print("\n[2] TokenizerHub + 词库可编辑层...", flush=True)
