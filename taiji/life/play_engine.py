@@ -247,6 +247,7 @@ class PlayEngine:
                 try:
                     # 使用第一个激活神经元的 field_state 作为重放状态
                     # C25-D：一并记录 active_ids（重放时据此再激活共激活统计）
+                    # C26 增量六：一并记录触发文本（重放训练的语言目标）
                     for nid, neuron in self._cortex.neurons.items():
                         if hasattr(neuron, '_last_field_state'):
                             self._sleep_consolidator.record_high_resonance_state(
@@ -255,6 +256,7 @@ class PlayEngine:
                                 step=self._play_step,
                                 active_nids=active_ids if len(activated_neurons) >= 2 else None,
                                 threshold=0.5,
+                                text=topic,
                             )
                             break
                 except Exception as e:

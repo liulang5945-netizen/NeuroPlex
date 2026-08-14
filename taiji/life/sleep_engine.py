@@ -96,6 +96,9 @@ class SleepReport:
     # C26 增量三（Phase 1.6）：突触沉淀——高频场记忆重放进神经元权重的条数
     synaptic_consolidated: int = 0
     synaptic_lora_loss: Optional[float] = None
+    # C26 增量六（Phase 1.7）：真正睡眠重放——记忆向量场条件化 forward 重放
+    forward_replayed: int = 0
+    forward_replay_loss: Optional[float] = None
 
 
 @dataclass
@@ -326,6 +329,17 @@ class SleepEngine:
             logger.info("  Phase 1.6: Synaptic consolidation ✅")
         except Exception as e:
             logger.warning(f"  Phase 1.6 failed: {e}")
+
+        # Phase 1.7: 真正睡眠重放 — 记忆向量场条件化 forward 重放（C26 增量六）
+        # 增量三只把记忆文本 SFT 进 LoRA（round1 无场条件化）；增量六让神经元
+        # 在记忆注意窗（field_state=记忆向量，round2+ 读路径）下重放高频记忆与
+        # 白天场状态，把"条件化读取"固化为可学习权重。
+        try:
+            self._sleep_phase_forward_replay(report)
+            report.phases_completed.append("forward_replay")
+            logger.info("  Phase 1.7: Forward replay ✅")
+        except Exception as e:
+            logger.warning(f"  Phase 1.7 failed: {e}")
         
         # Phase 2: 深睡眠 — 模型训练
         if self.config.training_enabled:
@@ -718,6 +732,212 @@ class SleepEngine:
         report.synaptic_lora_loss = (total_loss / steps) if steps else None
         logger.info(f"  突触沉淀完成: {marked} 条记忆沉淀进 {trained_nids} 个神经元"
                     f"（{steps} 步, avg loss={report.synaptic_lora_loss:.3f}）")
+
+    # ── C26 增量六：真正睡眠重放（Phase 1.7，记忆注意窗固化）──────────────────
+    forward_replay_lr = 3e-4        # 读路径 + LoRA 温和学习率（防破坏）
+    forward_replay_epochs = 2       # 样本极少，2 epoch 够
+    forward_replay_max_samples = 8  # 每 neuron 最多重放样本数（CPU 预算）
+
+    def _sleep_phase_forward_replay(self, report: SleepReport) -> None:
+        """Phase 1.7: 真正睡眠重放 — 记忆向量场条件化 forward 重放（C26 增量六）。
+
+        与增量三（Phase 1.6）的本质区别：增量三把记忆文本做**无场条件化**的
+        纯文本 SFT（round1, field_state=None）——神经元"记住内容"，但记忆向量
+        从未参与条件化；推理路径的记忆注意窗（round2+ 场条件化 + 增量五
+        theta entrain）靠的是**随机初始化的 field_read_layers**（R2 审计发现）。
+        增量六让睡眠重放真正驱动 forward：以记忆向量/白天场状态作 field_state
+        （round2+ 读路径），重放记忆文本与触发文本——把"记忆注意窗下如何生成"
+        固化为可学习权重（读路径 + LoRA 双训，用户决策）。
+
+        样本源（用户决策：高频记忆 + 场状态混合）：
+        1. 已沉淀高频记忆条目（consolidated=True，含 vector + text）——内容已在
+           皮层（增量三 LoRA），增量六补上"条件化读取"（读路径）
+        2. SleepConsolidator 重放缓冲区的场状态（带 text 的高共振经验）——
+           白天最活跃的场状态快照，睡眠时以该场状态条件化重放触发文本
+        """
+        if self.cortex is None or not getattr(self.cortex, "neurons", None):
+            report.forward_replayed = 0
+            return
+        bank = self.get_field_memory()
+        sc = self._sleep_consolidator
+
+        # 样本集：[(field_state 向量, 文本目标)]——混合记忆条目与场状态
+        samples: List[tuple] = []
+        # 1. 已沉淀记忆（consolidated=True，vector + text 齐全）
+        try:
+            for e in bank.entries:
+                if e.get("consolidated") and e.get("vector") is not None:
+                    text = e.get("text") or e.get("label", "")
+                    if len(text.strip()) >= 8:
+                        samples.append((e["vector"], text))
+        except Exception:
+            pass
+        # 2. 场状态重放（带 text 的记录；无 text 的旧记录仅共激活重放）
+        if sc is not None:
+            try:
+                for rec in list(sc._replay_buffer):
+                    txt = rec.get("text")
+                    if txt and len(str(txt).strip()) >= 8:
+                        samples.append((rec["state"], str(txt)))
+            except Exception:
+                pass
+        if not samples:
+            report.forward_replayed = 0
+            return
+
+        # 目标神经元：zh 域 dialogue（与增量三一致）；无则回退 zh 域全部
+        neurons = self.cortex.neurons
+        target_ids = [nid for nid in neurons
+                      if nid.startswith("zh_") and "dialogue" in nid]
+        if not target_ids:
+            target_ids = [nid for nid in neurons if nid.startswith("zh_")]
+        if not target_ids:
+            report.forward_replayed = 0
+            return
+
+        tokenizer_hub = getattr(self.cortex, "_tokenizer_hub", None)
+        general_sp = getattr(self.cortex, "_general_sp", None)
+        shared_embedding = getattr(self.cortex, "_shared_embedding", None)
+        if tokenizer_hub is None or general_sp is None or shared_embedding is None:
+            report.forward_replayed = 0
+            return
+        device = next(shared_embedding.parameters()).device
+        domain_sp = tokenizer_hub.get_tokenizer("zh")
+        if domain_sp is None:
+            report.forward_replayed = 0
+            return
+        ensemble = getattr(self.cortex, "ensemble", None)
+        back_projectors = (getattr(ensemble, "_cross_spec_back_projectors", {})
+                           if ensemble is not None else {})
+
+        def _to_general(domain_ids):
+            gids = []
+            for did in domain_ids:
+                gg = general_sp.EncodeAsIds(domain_sp.id_to_piece(did))
+                gids.append(gg[0] if gg else 0)
+            return gids
+
+        def _fs_for(nid, vec):
+            """把样本向量投影到 neuron.field_dim（与推理路径同一 back-projector）。"""
+            vec = vec.detach().to(device)
+            if vec.dim() > 1:
+                vec = vec.squeeze(0)
+            proj = back_projectors.get(nid)
+            if proj is not None:
+                try:
+                    return proj(vec.unsqueeze(0)).squeeze(0)
+                except Exception:
+                    pass
+            return vec
+
+        def _copy_learned(dst, src) -> int:
+            """只写回可学习增量：读路径（field_read_layers/gate）+ LoRA。body 不动。"""
+            n = 0
+            with torch.no_grad():
+                for name in ("field_read_layers", "field_read_gate", "lora_adapters"):
+                    sd_dst = getattr(dst, name).state_dict()
+                    sd_src = getattr(src, name).state_dict()
+                    for k, v in sd_dst.items():
+                        s = sd_src.get(k)
+                        if s is not None and v.shape == s.shape:
+                            v.data.copy_(s.data)
+                            n += 1
+            return n
+
+        import random
+        random.shuffle(samples)
+        samples = samples[: self.forward_replay_max_samples]
+
+        total_loss = 0.0
+        steps = 0
+        replayed_nids = 0
+        max_steps = self.config.max_training_steps
+        for nid in target_ids:
+            live = neurons[nid]
+            if len(live.lora_adapters) == 0:
+                try:
+                    live.enable_lora(16, layers=None)
+                except Exception:
+                    pass
+            try:
+                shadow = _clone_module(live)
+            except Exception as e:
+                logger.debug(f"  [重放] {nid} 影子克隆失败: {e}")
+                continue
+            # clone 重建后无 lora → 重建 + 复制 live 初始
+            try:
+                shadow.enable_lora(16, layers=None)
+                shadow.lora_adapters.load_state_dict(live.lora_adapters.state_dict())
+            except Exception as e:
+                logger.debug(f"  [重放] {nid} lora 重建失败: {e}")
+                continue
+            # 可训练参数 = 读路径 + LoRA（body 不放进 optimizer → 零破坏）
+            read_params = list(shadow.field_read_layers.parameters())
+            read_params += list(shadow.field_read_gate.parameters())
+            lora_params = list(shadow.lora_adapters.parameters())
+            train_params = read_params + lora_params
+            if not train_params:
+                continue
+            optimizer = torch.optim.AdamW(
+                [{"params": read_params}, {"params": lora_params}],
+                lr=self.forward_replay_lr,
+            )
+            shadow.train()
+            for _epoch in range(self.forward_replay_epochs):
+                for vec, text in samples:
+                    if steps >= max_steps:
+                        break
+                    try:
+                        domain_ids = tokenizer_hub.encode(text, domain="zh")
+                        if not domain_ids or len(domain_ids) < 3:
+                            continue
+                        domain_ids = domain_ids[:256]
+                        target_ids_t = torch.tensor(
+                            [domain_ids], dtype=torch.long, device=device)
+                        gids = _to_general(domain_ids)
+                        if len(gids) < 3:
+                            continue
+                        input_ids = torch.tensor(
+                            [gids], dtype=torch.long, device=device)
+                        embeddings = shared_embedding(input_ids)
+                        fs = _fs_for(nid, vec)
+                        optimizer.zero_grad()
+                        # round2+ 场条件化 forward（记忆注意窗：field_state=记忆向量）
+                        result = shadow.forward(
+                            embeddings, field_state=fs, round_num=2,
+                            return_logits=True)
+                        logits = result["logits"]
+                        min_len = logits.size(1) - 1
+                        if min_len < 1:
+                            continue
+                        shift_logits = logits[:, :min_len, :].contiguous()
+                        shift_targets = target_ids_t[:, 1:1 + min_len].contiguous()
+                        vocab_size = logits.size(-1)
+                        shift_targets = shift_targets.clamp(0, vocab_size - 1)
+                        loss = torch.nn.functional.cross_entropy(
+                            shift_logits.view(-1, shift_logits.size(-1)),
+                            shift_targets.view(-1), ignore_index=-100)
+                        loss.backward()
+                        optimizer.step()
+                        total_loss += loss.item()
+                        steps += 1
+                    except Exception:
+                        continue
+            shadow.eval()
+            n_copied = _copy_learned(live, shadow)
+            replayed_nids += 1
+            logger.info(f"  [重放] {nid}: 读路径+LoRA 写回（{n_copied} 张量）")
+            if steps >= max_steps:
+                break
+
+        if replayed_nids == 0:
+            report.forward_replayed = 0
+            return
+        report.forward_replayed = replayed_nids
+        report.forward_replay_loss = (total_loss / steps) if steps else None
+        logger.info(f"  真正睡眠重放完成: {replayed_nids} 个神经元"
+                    f"（{len(samples)} 条样本, {steps} 步, "
+                    f"avg loss={report.forward_replay_loss:.3f}）")
 
     def _sleep_phase_memory_consolidation(self, report: SleepReport):
         """Phase 1: 记忆整理 — 整合上下文管理器 + WorkingMemory"""

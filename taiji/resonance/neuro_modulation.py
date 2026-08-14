@@ -212,6 +212,7 @@ class SleepConsolidator:
         step: int,
         active_nids: Optional[list] = None,
         threshold: float = 0.5,
+        text: Optional[str] = None,
     ) -> None:
         """记录一次高共振场状态（用于后续重放）。
 
@@ -219,12 +220,18 @@ class SleepConsolidator:
         "再激活"共激活统计，驱动突触巩固（人脑海马回放 → 皮层再激活），
         而非纯统计占位。
 
+        C26 增量六（Phase 1.7 真正睡眠重放）：新增 text（触发本次共振的
+        输入文本）——重放时作为"场状态条件化 forward"的语言目标，让神经元
+        在记忆注意窗（该场状态作 field_state）下重放生成该文本，把"条件化
+        读取"固化为可学习权重（读路径 field_read_layers + LoRA 双训）。
+
         Args:
             field_state: 场状态向量
             resonance_score: 本次共振的最高分数
             step: 当前步数
             active_nids: 参与本次共振的 neuron ID 列表（供重放再激活）
             threshold: 共振分数阈值，高于此值才记录
+            text: 触发文本（可选；None = 旧记录无语言目标，仅共激活重放）
         """
         if resonance_score > threshold:
             self._replay_buffer.append({
@@ -232,6 +239,7 @@ class SleepConsolidator:
                 "score": resonance_score,
                 "step": step,
                 "active_nids": list(active_nids) if active_nids else None,
+                "text": text,
             })
 
     def should_consolidate(self, current_step: int) -> bool:
