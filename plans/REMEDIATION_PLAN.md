@@ -203,7 +203,7 @@ field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT
 | R9 | 质量断言升级 | ✅ | 2026-08-14 | verify_c25_e_leader_fusion 加异常串检测（`1.<0x0A>`/重复标点/纯数字长串）+ cortex.generate 退化重试（temp+0.15 重采样一次，实测诗题 `1.<0x0A>` → 真实诗句）；回归 4 PASS |
 | R10 | 记忆闭环 | ✅ | 2026-08-14 | cortex.get_last_field_state() + cortex_chat 对话后 record_field_memory（try/except 不破坏响应）；读侧已由 set_brain_interfaces→set_field_memory+auto_memory 接通；提交 field_memory.py 增量三 |
 | R11 | STDP continuous | ✅ | 2026-08-14 | continuous_forward 清空 firing history + t=0/积分步 record_firing（与离散路径同语义，睡眠期 apply 生效） |
-| R12 | theta-gamma | 🟡 | 2026-08-14 | 显式开关完成（TAIJI_THETA_NESTING=1 env 免改码，默认关）；A/B 收益报告待补（有收益则默认开） |
+| R12 | theta-gamma | ✅ | 2026-08-14 | 显式开关 TAIJI_THETA_NESTING（默认关零回归）+ **C26 增量五跨频耦合闭环**（记忆 entrain theta 相位→gamma 注意窗接入 continuous_forward 主循环，verify_c26_cross_freq 12/12） |
 | R13 | working_memory | ✅ | 2026-08-14 | 标注"注册未接入"（cortex.py + loader.py）；真实对话上下文由 agent 层承担 |
 | R14 | Module 化 | 🟡 | 2026-08-14 | 手动传播替代（_collab_modules + .to/.eval/.train 覆盖 4 协作子模块+场）；完整 nn.Module 基类化风险高（3500 行核心类 __setattr__ 语义变化），暂缓 |
 | R15 | buffer 语义 | ✅ | 2026-08-14 | field.reset 设备感知零/一张量（W_cond 锚定）；推理中途 refractory 减法改 in-place（保持 buffer 对象身份，get_effective_state 无别名风险） |

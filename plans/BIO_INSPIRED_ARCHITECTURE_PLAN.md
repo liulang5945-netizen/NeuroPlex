@@ -60,7 +60,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | 装配 | ✅ 9 阵容 | 5 dialogue（zh_aug0-3 + zh_std0，51M/134M）+ 4 域（code/math/zh/en）+ collab_v3_c24v2 + PhasorDynamics 默认 |
 | 生成默认路径 | ✅ continuous | C25-E 增量五：连续时间共振为默认 collab_mode（generate 默认，相位绑定驱动激活，leader 用 round1_scores × NLL 质量融合）|
 | 回合级判定 | ✅ 5/5 | judge NLL 主信号（general 空间可比）+ 启发式融合；quality z-score 回退存活 |
-| 记忆（C26） | ✅ 全生命周期闭环 | 写（WriteGate）→ 读（向量条件化生成，阈值已对齐精确 4/4，见 N4）→ 沉淀（LoRA）→ 跨重启保留 → sleep() 编排 → **自动检索注入对话**（增量四，产品默认）→ **生产沉淀接线**（R10，2026-08-14：cortex_chat 对话后记录场快照 → 睡眠固化；此前 record_field_memory 零生产调用者）|
+| 记忆（C26） | ✅ 全生命周期闭环 | 写（WriteGate）→ 读（向量条件化生成，阈值已对齐精确 4/4，见 N4）→ 沉淀（LoRA）→ 跨重启保留 → sleep() 编排 → **自动检索注入对话**（增量四，产品默认）→ 生产沉淀接线（R10，2026-08-14：cortex_chat 对话后记录场快照 → 睡眠固化；此前 record_field_memory 零生产调用者）→ **跨频耦合**（增量五：记忆 entrain theta 相位对齐峰值→gamma 绑定增强"记忆注意窗"，verify_c26_cross_freq 12/12）|
 | 培养期闭环 | ✅ 可用 | feed → sleep 训练（分层 lr 防破坏性更新）→ 影子写回 → ckpt；渐进改善已验证（held-out PPL 降 79%，口径 = 同分布列表式评估集；提问式口径仅 33%，见 N1） |
 | 续训（完成） | ✅ 4000→8000 | 5 dialogue 全部完成（best PPL：compact 101-107 / std0 95.27@4000）；口径机制化后回归通过 |
 | 回归测试 | ✅ 16/16 | tests/ 下 pytest 统一入口（3 文件 16 用例）：口径契约 10 + 共振 side_channel 6；requirements.txt 补 pytest |
@@ -75,7 +75,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 | J | ✅ 已完成 | dialogue neuron 欠训练（4000 步预算截断非收敛平台）→ 续训 4000→8000 步全部完成（compact 68.74-73.60 / std0 67.42，2026-08-14） |
 | K | ✅ 已接入产品路径 | **可学习写策略（WriteGate）**：verify_c26_write_gate.py **8/8 PASS**——门控（场向量+最近邻 sim → P(值得写入)）可学习；**门控优于硬阈值**（拒绝 sim=0.9 模糊重复，硬阈值 0.92 漏判）；**已接入 sleep 场固化**（sleep_engine 自动装配 data_dir/write_gate.pt，存在即用无则回退） |
 | L | ✅ 已接入产品路径 | **跨域语义对齐（锚点投影）**：verify_c26_field_alignment.py **8/8 PASS**——AnchorProjector 产品化 + cortex.set_anchor_projector 挂载；30 对双语术语训练后同义 0.932 vs 错配 0.681（+0.251）；**已接入记忆检索**（FieldMemoryBank.projector：检索在跨域语义锚点空间进行，睡眠固化自动装配 data_dir/anchor_projector.pt） |
-| M | ✅ 已验证 | **多频段振荡 theta-gamma 嵌套（缺口 R 项）**：verify_c26_theta_gamma.py **9/9 PASS**——ContinuousResonance 增 theta_omega/theta_amp（默认 0 不启用，零回归）；theta 相位单调推进、包络周期复原、嵌套调制在 [base×(1-A), base×(1+A)] 内、真实装配 think 无回归 |
+| M | ✅ 闭环 | **多频段振荡 theta-gamma 嵌套 + 跨频耦合**：verify_c26_theta_gamma.py **9/9 PASS**（嵌套：theta_omega/theta_amp 默认 0 零回归、相位单调推进、包络周期复原、调制在 [base×(1-A), base×(1+A)]）；**verify_c26_cross_freq.py 12/12 PASS**（跨频耦合：记忆 entrain theta 相位对齐峰值→gamma 绑定增强"记忆注意窗"，接入 continuous_forward 主循环，无记忆零回归，集成 final_scores 1.686→2.023 与 theta_amp=0.2 数值吻合）|
 | N | ✅ 产品闭环 | **场记忆组件接入验证**：verify_c26_field_memory_product.py **11/11 PASS**——训练产物保存 → SleepEngine 自动装配 gate/projector → 门控固化（4 写入+重复拒）→ 锚点检索 4/4 → 重启恢复（组件+记忆+检索）→ 无产物回退兼容 |
 
 ---
@@ -114,6 +114,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
    - **✅ 跨重启保留补（2026-08-14）**：增量三原验证只覆盖 session 内写回 live——enable_lora 是运行时方法（不写 config），装配重建的 neuron 无 lora_adapters，strict=False 加载静默丢弃 lora keys → 皮层记忆重启即失。**修复**：`neuron.load_lora(sd)`（rank 从 a.weight 推断 + 恢复），三处装配路径接入（Cortex 主加载 / extra neurons / revive）。**验证 verify_c26_lora_persist.py 8/8**：沉淀→保存 ckpt（含 8 lora keys）→ 重启装配恢复（adapters 非空 + B 非零）→ **重启后记忆文本 NLL 完全保留（rebound=0.0）**；无 lora 普通 ckpt 不误触发
    - **✅ sleep() 端到端收尾（2026-08-14）**：三格此前均单 phase 验证，本验证走**完整 sleep() 主流程**（record → sleep → 场固化 → 会话检索 → sleep → 突触沉淀 → LoRA 写回 → 记忆条件化生成回归；SleepConfig(training_enabled=False) 跳过无关 Phase 2）。**verify_c26_sleep_e2e.py 14/14**：编排完整（memory/field/synaptic/knowledge_integration/knowledge_distillation/evaluation/recursive_improvement 7 phase 全挂载）、#1 固化 4 条+沉淀 0（无高频候选）、#2 沉淀 3 条（低频 1 条不沉淀）、LoRA B 非零 5/5、consolidated 标记持久化、向量通道生成非空 3/3；tests 16/16
    - **✅ 增量四：记忆自动检索注入对话（2026-08-14 完成）**：此前记忆是显式 API（调用方手动传 memory_vectors）。增量四让 generate **自动检索**——未显式传向量且注入过记忆库时，用 prompt 场状态自动检索 top-1 记忆注入生成（Titans 式内部记忆的产品化落点）。实现：`cortex.set_field_memory(bank)` + `generate/_generate_p7(auto_memory=True 默认)`（检索一次额外共振前向，失败静默跳过）；`sleep_engine.set_brain_interfaces` 装配时自动注入记忆库（**产品默认接入**，assemble_cortex Step 9 即生效）。**验证 verify_c26_auto_memory.py 7/7**：装配即注入、自动检索触发（access_count 证据，total 0→4）、auto 开/关生成不同 4/4、显式传向量时自动检索跳过、无记忆库静默跳过；tests 16/16 + 增量二回归 10/10
+   - **✅ 增量五：跨频耦合（记忆驱动的 theta-gamma，2026-08-14 完成）**：嵌套机制（缺口 M）此前仅单元验证——theta_modulate 是死代码未接入 continuous_forward 主循环，theta 相位无驱动源。增量五把 theta-gamma 从"可验证机制"变成"记忆生命周期的一环"：记忆注入（seed_memories）时 `entrain_memory()` 将 theta 相位对齐峰值 → gamma 激活经 `theta_modulate` 增强（**"记忆注意窗"**：检索到的记忆带动相关回路同步激活，跨频耦合 = 慢 theta 相位 entrain 慢变量驱动快 gamma 绑定）；返回前 `reset_entrain()` 防跨 token 泄漏。**实现**：continuous.py `entrain_memory/reset_entrain` + theta_phase_at/envelope 记忆语义 + 无嵌套默认恒等零回归；ensemble.py continuous_forward 三处接入（entrain / t=0 与每步 theta_modulate / reset）。**验证 verify_c26_cross_freq.py 12/12**：单元 8（默认恒等零回归、entrain 峰值 1+amp 相位恒 0、reset 恢复、显式嵌套振荡/半周期谷值/entrain 锁定）+ 集成 3（记忆窗口放大 final_scores 3/3：**1.686→2.023 ≈ ×1.2 与 theta_amp=0.2 数值精准吻合**、无记忆激活正常）+ 行为 1（记忆条件化生成非空 3/3）；tests 16/16 + 增量二回归 10/10（R6 阈值 4/4 对齐后仍全过）
 5. **zh 对话数据主线**：C24 dialogue 数据扩充重训（zh_aug*/zh_std0 共用瓶颈，对话级数据直接提升生成）
    - **✅ 数据扩充（2026-08-12，提交 84c2e9a）**：发现 sft_shared_core/unique 与 alpaca **100% 重复**（实际唯一仅 44.4K 条，数据/参数比远低于预期 → 直接解释质量瓶颈）。新增 build_dialogue_extended.py 从 BelleGroup/train_2M_CN 下载 150K → 去重/清洗后 +123K 唯一 → 总 167K 条（3.8×）
    - **⚠️ 中断事件（2026-08-12 20:15）**：软件更新终止全部训练进程（aug0 step200、其余加载中，eval_every=1000 → 零 ckpt 保存、白跑）。**改进（提交 15e4509）**：eval_every 默认 1000→500（中断最多丢 500 步 ≈1h）。20:21 已重启 5 进程
@@ -137,7 +138,7 @@ base → dialogue fine-tune → cross_spec 协作层 ──► Cortex.generate�
 
 - ~~记忆向量直接条件化 leader 生成（打通"场影响生成"这条遗留路径）~~ ✅ 已落地（C26 增量二 2026-08-14：检索向量经共振场写入，round2+ 场条件化 forward 直接参与 token 生成，verify 10/10）
 - ~~记忆 → 突触沉淀：高频场模式写入神经元权重（LoRA 增量），海马→皮层两层记忆~~ ✅ 已落地（C26 增量三 2026-08-14：高频记忆睡眠重放沉淀为 LoRA，verify 10/10）
-- ~~多频段振荡（theta-gamma 嵌套）+ 跨频耦合~~ ✅ 嵌套机制已验证（缺口 M），跨频耦合待续
+- ~~多频段振荡（theta-gamma 嵌套）+ 跨频耦合~~ ✅ 已闭环（2026-08-14 增量五：记忆 entrain theta 相位→gamma 注意窗，verify_c26_cross_freq 12/12，接入 continuous_forward 主循环）
 - 真正睡眠重放（forward 重放 + 经验回放训练，C25-D 已落地首步）
 - 自组织新生（从经验生长，非 teacher 蒸馏）
 - 多阶段任务模式链 v2（task-set 序列完整版，C25-F 已落地首步）
