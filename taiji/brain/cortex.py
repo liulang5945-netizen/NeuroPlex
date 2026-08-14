@@ -293,6 +293,14 @@ class Cortex:
                 f"got {type(tokenizer_hub).__name__}"
             )
         self._tokenizer_hub = tokenizer_hub
+        # C26 增量七（2026-08-14）：转发到 ensemble——forward_train 跨 vocab 联合
+        # 训练路径需要 hub（此前仅训练脚本手动 set，产品 integrate 路径缺 hub 报错
+        # "跨 vocab 联合训练需要 tokenizer hub"）。
+        try:
+            if getattr(self, "ensemble", None) is not None:
+                self.ensemble.set_tokenizer_hub(tokenizer_hub)
+        except Exception:
+            pass
         domains = tokenizer_hub.list_domains()
         print(f"[Cortex] TokenizerHub registered (P7 模式)")
         print(f"  domains: {domains}")
@@ -721,6 +729,18 @@ class Cortex:
 
         # 6. 注入 ensemble（cortex.neurons 和 ensemble.neurons 是同一引用）
         self.ensemble.add_neuron(nid, neuron)
+
+        # 6.5 C26 增量七：新 neuron 注册到相位动力学（PhasorDynamics.add_neuron）。
+        # 装配时相位表按初始 9 集合固定形状，缺此步 → continuous_forward 的
+        # binding_tensor 维度错配（9 vs 10）崩溃。相位用同域先验（0 = 与 zh 同相，
+        # 与装配 assign_phase_by_domain 的 zh 域 base 一致）。
+        try:
+            gamma = getattr(self, "gamma_oscillator", None)
+            if gamma is not None and hasattr(gamma, "add_neuron"):
+                gamma.add_neuron(nid, phase=0.0)
+                logger.info(f"[Cortex] 相位动力学注册: {nid}（相位先验 0）")
+        except Exception as e:
+            logger.warning(f"[Cortex] 相位注册失败（非致命）: {e}")
 
         # 7. 注册幼稚态追踪
         if lifecycle is not None:

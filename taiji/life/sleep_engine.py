@@ -995,6 +995,7 @@ class SleepEngine:
                 self._integrate_engine = IntegrateEngine(
                     cortex=self.cortex, lifecycle=self._lifecycle,
                     feed_engine=self._feed_engine,
+                    memory_bank=self.get_field_memory(),
                 )
             except Exception as e:
                 logger.warning(f"  IntegrateEngine 初始化失败: {e}")
@@ -1183,6 +1184,10 @@ class SleepEngine:
                         updates = self._stdp_tracker.apply_all_updates(self.cortex.neurons)
                         if updates:
                             logger.info(f"  STDP 更新: {len(updates)} 个神经元")
+                        # R11 修复（2026-08-14 验收实测）：应用后必须清空发放历史。
+                        # 原生产路径从不 clear_history（全仓库仅 archive 脚本调用），
+                        # 同一批发放会在每次 sleep 被重复应用（指数式重复强化）。
+                        self._stdp_tracker.clear_history()
                     except Exception as e:
                         logger.warning(f"  STDP 更新失败: {e}")
 

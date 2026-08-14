@@ -144,6 +144,39 @@ class PhasorDynamics(nn.Module):
                 phases.append(pending.get(nid, base))
         self.register_neurons(ids, phases)
 
+    def add_neuron(self, neuron_id: str, phase: float = 0.0) -> None:
+        """C26 增量七：运行时追加一个 neuron 的相位（neurogenesis 后调用）。
+
+        装配时按固定集合 register_neurons 构建 phasors/omega 参数（形状固定
+        [N,2]/[N]）；cortex.add_neuron 运行时空缺相位 → binding_tensor 的
+        ids 与 phasors 维度错配（9 vs 10）崩溃。此方法把新 neuron 追加到
+        相位表尾部（保持已注册相位不变），并给出同域先验相位。
+
+        Args:
+            neuron_id: 新 neuron ID
+            phase: 初始相位（弧度，默认 0；可由调用方按域先验指定）
+        """
+        if neuron_id in self._id_to_idx:
+            return  # 已注册（重复 add 幂等）
+        if self.phasors is None or self.phasors.numel() == 0:
+            # 未注册过：与初始集合同语义（同域同相先验 0）
+            self.register_neurons([neuron_id], [phase])
+            return
+        n = len(self._id_to_idx)
+        # 追加一行相位向量 + 一个自然频率（保持既有相位行序不变）
+        with torch.no_grad():
+            pv_new = torch.tensor(
+                [[math.cos(phase), math.sin(phase)]], dtype=torch.float32
+            )
+            phasors_new = torch.cat([self.phasors.data.clone(), pv_new], dim=0)
+            omega_new = torch.cat(
+                [self.omega.data.clone(),
+                 torch.full((1,), float(self.omega_init))], dim=0
+            )
+            self._id_to_idx[neuron_id] = n
+            self.phasors = nn.Parameter(phasors_new)
+            self.omega = nn.Parameter(omega_new)
+
     # ── 可微绑定（forward_train 用）──
 
     def binding_tensor(

@@ -40,16 +40,21 @@ class IntegrateEngine:
     # ── 训练超参（v1，保守值）──
     MAX_STEPS_PER_SESSION = 32   # 单次 sleep 会话最大训练步数
     MAX_TEXT_LEN = 256           # 单条样本最大 token 长度
-    DISTILL_WEIGHT = 0.5         # 邻居蒸馏权重
+    DISTILL_WEIGHT = 0.3         # 邻居蒸馏权重（C26 增量七降权：记忆生长为主，蒸馏辅助）
     DISTILL_TEMP = 2.0           # 蒸馏温度
     LORA_RANK = 16               # 新 neuron body 保护（C16）
     ABLATION_SAMPLES = 16        # ablation 评估样本数
+    # C26 增量七：自组织新生——记忆条件化预训练超参
+    MEMORY_PRETRAIN_LR = 3e-4     # 读路径+LoRA 温和学习率（防破坏）
+    MEMORY_PRETRAIN_STEPS = 24    # 记忆条件化预训练步数（每 neuron 预算）
+    MEMORY_MIN_ACCESS = 1         # 记忆条目最小访问次数（≥1 有实际被检索过）
 
     def __init__(self, cortex, lifecycle=None, feed_engine=None,
-                 device: Optional[str] = None):
+                 memory_bank=None, device: Optional[str] = None):
         self.cortex = cortex
         self.lifecycle = lifecycle
         self.feed_engine = feed_engine
+        self.memory_bank = memory_bank
         self.device = device or (cortex.device if hasattr(cortex, "device") else "cpu")
 
         # 记录每个新 neuron 的整合进度（跨 sleep 会话）
@@ -88,6 +93,11 @@ class IntegrateEngine:
         try:
             # 成熟 neuron 全部冻结；新 neuron 只训协作层（side_channels/quality_head/LoRA）
             self._prepare_trainable(shadow_modules, new_nid)
+            # C26 增量七：自组织新生——先做记忆条件化预训练（从经验生长，非 teacher
+            # 蒸馏）。用记忆库中积累的高频经验（向量+文本）在记忆注意窗（round2+
+            # 场条件化）下预热新 neuron 的读路径 + LoRA，让其"从经验出生"而非
+            # 完全依赖 feed 样本或邻居蒸馏。无记忆样本时静默跳过（向后兼容）。
+            self._memory_pretrain(shadow_modules, shadow_emb, new_nid, domain)
             status = self._integrate_session(shadow_modules, shadow_emb, new_nid, domain, samples)
         finally:
             # 写回 live（只写回整合后的新 neuron 协作层，成熟 neuron 冻结未动）
@@ -222,6 +232,166 @@ class IntegrateEngine:
                 "maturity": maturity, "avg_loss": total_loss / steps}
 
     # ──────────────────────────────────────────────
+    # C26 增量七：自组织新生——记忆条件化预训练
+    # ──────────────────────────────────────────────
+    def _memory_pretrain(self, shadow_modules: Dict[str, object], shadow_emb,
+                         new_nid: str, domain: str) -> int:
+        """记忆注意窗预训练（从经验生长，非 teacher 蒸馏）。
+
+        用记忆库中积累的高频经验（记忆向量 + 文本）在 round2+ 场条件化
+        （记忆注意窗，同增量六 _sleep_phase_forward_replay 机制）下预热
+        新 neuron 的读路径（field_read_layers/gate）+ LoRA——新 neuron
+        从自身经验出生，而非只依赖 feed 样本或邻居蒸馏。
+
+        样本格式（用户决策：三者全加入）：
+        1. 问答对："问：{label}是什么？\n答：{text}"
+        2. 原文：text
+        3. （feed 样本由 _integrate_session 继续处理，此处不重复）
+
+        Returns:
+            记忆预训练步数（0 = 无记忆样本或跳过）
+        """
+        if self.memory_bank is None:
+            return 0
+        try:
+            entries = getattr(self.memory_bank, "entries", None)
+            if not entries:
+                return 0
+            # 候选：访问计数 ≥1（实际被检索过）且含向量+文本的记忆
+            cands = [e for e in entries
+                     if e.get("vector") is not None
+                     and (e.get("text") or e.get("label"))
+                     and e.get("access_count", 0) >= self.MEMORY_MIN_ACCESS]
+            if not cands:
+                return 0
+        except Exception as e:
+            logger.warning(f"[IntegrateEngine] 记忆候选获取失败: {e}")
+            return 0
+
+        # 组装样本（问答对 + 原文混合，用户决策）
+        samples = []  # [(vector, text)]
+        for e in cands:
+            label = e.get("label", "")
+            text = e.get("text") or label
+            if len(text.strip()) < 8:
+                continue
+            samples.append((e["vector"], f"问：{label}是什么？\n答：{text}"))
+            samples.append((e["vector"], text))
+        if not samples:
+            return 0
+        import random
+        random.shuffle(samples)
+        samples = samples[: self.MEMORY_PRETRAIN_STEPS]
+
+        cortex = self.cortex
+        hub = cortex._tokenizer_hub
+        general_sp = cortex._general_sp
+        shared_embedding = shadow_emb
+        if hub is None or general_sp is None or shared_embedding is None:
+            return 0
+        domain_sp = hub.get_tokenizer(domain)
+        if domain_sp is None:
+            return 0
+        device = self.device
+        ensemble = cortex.ensemble
+        back_projectors = (getattr(ensemble, "_cross_spec_back_projectors", {})
+                           if ensemble is not None else {})
+
+        neuron = shadow_modules[new_nid]
+        # 读路径 + LoRA（field_read 是记忆注意窗的条件化调制层）
+        read_params = list(neuron.field_read_layers.parameters())
+        read_params += list(neuron.field_read_gate.parameters())
+        lora_params = list(neuron.lora_adapters.parameters())
+        train_params = [p for p in read_params + lora_params if p.requires_grad]
+        if not train_params:
+            return 0
+
+        def _fs_for(vec):
+            """投影记忆向量到 neuron.field_dim（与推理同一 back-projector）。
+
+            无投影器且维度不匹配（记忆统一场空间 vs neuron field_dim）时返回
+            None——调用方跳过该样本（新 neuron 常无专属投影器，靠匹配维度兜底）。
+            """
+            vec = vec.detach().to(device)
+            if vec.dim() > 1:
+                vec = vec.squeeze(0)
+            proj = back_projectors.get(new_nid)
+            if proj is not None:
+                try:
+                    return proj(vec.unsqueeze(0)).squeeze(0)
+                except Exception:
+                    return None
+            # 无投影器：维度必须匹配 neuron 的 field_read 输入（effective_field_dim）
+            try:
+                expected = neuron.field_read_layers[0].in_features
+            except Exception:
+                return None
+            if vec.shape[-1] == expected:
+                return vec
+            return None
+
+        optimizer = torch.optim.AdamW(
+            [{"params": read_params}, {"params": lora_params}],
+            lr=self.MEMORY_PRETRAIN_LR,
+        )
+        neuron.train()
+        steps = 0
+        total_loss = 0.0
+        for vec, text in samples:
+            try:
+                domain_ids = hub.encode(text, domain=domain)
+                if not domain_ids or len(domain_ids) < 3:
+                    continue
+                domain_ids = domain_ids[: self.MAX_TEXT_LEN]
+                gids = []
+                for did in domain_ids:
+                    try:
+                        piece = domain_sp.id_to_piece(did)
+                    except Exception:
+                        piece = None
+                    if piece:
+                        gen_ids = general_sp.EncodeAsIds(piece)
+                        gids.append(gen_ids[0] if gen_ids else 0)
+                    else:
+                        gids.append(0)
+                if len(gids) < 3:
+                    continue
+                ids_t = torch.tensor([gids], dtype=torch.long, device=device)
+                target_ids = torch.tensor([domain_ids], dtype=torch.long, device=device)
+                emb = shared_embedding(ids_t)
+                fs = _fs_for(vec)
+                if fs is None:
+                    continue
+                optimizer.zero_grad()
+                # 记忆注意窗：round2+ 场条件化 forward（field_state=记忆向量）
+                result = neuron.forward(emb, field_state=fs, round_num=2,
+                                        return_logits=True)
+                logits = result["logits"]
+                min_len = logits.size(1) - 1
+                if min_len < 1:
+                    continue
+                sl = logits[:, :min_len, :].contiguous()
+                st = target_ids[:, 1:1 + min_len].contiguous()
+                st = st.clamp(0, logits.size(-1) - 1)
+                loss = F.cross_entropy(sl.reshape(-1, sl.size(-1)), st.reshape(-1),
+                                       ignore_index=-100)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(train_params, max_norm=5.0)
+                optimizer.step()
+                steps += 1
+                total_loss += loss.item()
+            except Exception as e:
+                logger.debug(f"[IntegrateEngine] 记忆预训练单条失败: {e}")
+                continue
+        neuron.eval()
+        if steps > 0:
+            logger.info(
+                f"[IntegrateEngine] {new_nid} 记忆注意窗预训练完成: "
+                f"{steps} 步, avg_loss={total_loss / steps:.3f}"
+            )
+        return steps
+
+    # ──────────────────────────────────────────────
     # ablation 验证 + 固化/凋亡
     # ──────────────────────────────────────────────
     def _verify_commit(self, new_nid: str, shadow_modules: Dict[str, object],
@@ -315,6 +485,10 @@ class IntegrateEngine:
                     p.requires_grad = True
                 if name.startswith("quality_head") or "lora_adapters" in name:
                     p.requires_grad = True
+                # C26 增量七：读路径（记忆注意窗条件化调制）解冻——自组织新生的
+                # 记忆条件化预训练依赖它（从经验生长，非 teacher 蒸馏）
+                if name.startswith("field_read_layers") or name.startswith("field_read_gate"):
+                    p.requires_grad = True
 
     def _neighbor_ids(self, neuron) -> List[str]:
         """拓扑邻居 = side_channel 输入源（excite_channels 的 key = pre neuron id）。"""
@@ -324,14 +498,37 @@ class IntegrateEngine:
             return []
 
     def _collect_samples(self, domain: str) -> list:
-        if self.feed_engine is None:
-            return []
-        try:
-            by_domain = self.feed_engine.get_pending_samples_by_domain()
-            return list(by_domain.get(domain, []))
-        except Exception as e:
-            logger.warning(f"[IntegrateEngine] 获取 feed 样本失败: {e}")
-            return []
+        """收集生长样本（C26 增量七：feed + 记忆混合，用户决策"三者全加入"）。
+
+        feed_engine 的按域样本 + 记忆库中积累的经验文本（问答对 + 原文）。
+        记忆文本并入样本列表：feed 为空时新生不因"无样本"被跳过——从经验生长
+        （自组织新生，非 teacher 蒸馏）。
+        """
+        samples = []
+        if self.feed_engine is not None:
+            try:
+                by_domain = self.feed_engine.get_pending_samples_by_domain()
+                samples.extend(by_domain.get(domain, []))
+            except Exception as e:
+                logger.warning(f"[IntegrateEngine] 获取 feed 样本失败: {e}")
+        # 记忆文本并入（问答对 + 原文）
+        if self.memory_bank is not None:
+            try:
+                entries = getattr(self.memory_bank, "entries", None) or []
+                mem_texts = []
+                for e in entries:
+                    text = e.get("text") or e.get("label", "")
+                    if len(str(text).strip()) < 8:
+                        continue
+                    label = e.get("label", "")
+                    mem_texts.append({"text": f"问：{label}是什么？\n答：{text}"})
+                    mem_texts.append({"text": text})
+                if mem_texts:
+                    random.shuffle(mem_texts)
+                    samples.extend(mem_texts[: self.MEMORY_PRETRAIN_STEPS])
+            except Exception as e:
+                logger.warning(f"[IntegrateEngine] 获取记忆样本失败: {e}")
+        return samples
 
     def _align(self, text: str, hub, general_sp, domain: str):
         """输入/目标对齐（与 _train_single_neuron 同模式）。
