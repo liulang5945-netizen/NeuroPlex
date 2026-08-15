@@ -885,7 +885,7 @@ def main():
                 # 梯度只流 cross_spec_projectors（域 neuron/hub body 冻结，零破坏）。
                 anchor_loss = None
                 if args.hub_path and args.hub_anchor_weight > 0:
-                    anchor_total = torch.tensor(0.0, device=next(iter(neurons.values())).device)
+                    anchor_total = torch.tensor(0.0, device=next(iter(neuron_embeddings.values())).device)
                     n_anchor = 0
                     for anid in neurons:
                         if anid == "hub":
