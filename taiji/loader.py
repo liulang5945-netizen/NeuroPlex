@@ -996,8 +996,20 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
             if cfg is None:
                 cfg = get_domain_neuron_config(nid, spec="compact")
             cfg.unified_field_dim = None
-            neuron = ResonanceNeuron(cfg, shared_lm_head=shared_lm_head).to(device)
-            neuron.load_state_dict(ckpt["state_dict"], strict=False)
+            # hub（expert，自带 lm_head 256K×1024）不注入 shared_lm_head（256K×512）
+            # ——注入会 shape 冲突导致加载失败（2026-08-16 修复：此前 dual 目录
+            # 无 shared_lm_head.pt 意外"绕过"，general 目录暴露该 bug）。
+            # 判据：ckpt state_dict 自带 lm_head 且与 shared_lm_head 同形时注入
+            # （general 基座剥离 head 后 ckpt 自带 256K×512 head，需注入同形 head
+            # 才能与 cfg.vocab_size 建出的域小 head 匹配）；否则保留自身 head。
+            sd_ck = ckpt["state_dict"]
+            own_head = "lm_head.weight" in sd_ck
+            head_to_use = None
+            if own_head and shared_lm_head is not None:
+                if sd_ck["lm_head.weight"].shape == shared_lm_head.weight.shape:
+                    head_to_use = shared_lm_head
+            neuron = ResonanceNeuron(cfg, shared_lm_head=head_to_use).to(device)
+            neuron.load_state_dict(sd_ck, strict=False)
             neuron.eval()
             # C26 增量三补：恢复 ckpt 自带的沉淀 LoRA 增量（strict=False 会静默丢弃）
             if neuron.load_lora(ckpt["state_dict"]):

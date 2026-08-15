@@ -52,7 +52,7 @@ def check(name: str, cond: bool, extra: str = "") -> None:
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
 COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"
-EXTRA_NEURONS_DIR = "data/foundation_v1_dual"
+EXTRA_NEURONS_DIR = "data/foundation_v1_general"
 HUB_CKPT = "data/hub_neuron/neuron_hub.pt"
 # 锚点 cos 评估文本（zh + code 混合，覆盖 hub 跨域语义）
 ANCHOR_TEXTS = [
