@@ -1075,6 +1075,16 @@ def _load_collab_weights_into_cortex(
         是否成功加载（False = 文件不存在或加载失败，调用方按非致命处理）
     """
     collab_path = os.path.join(neurons_dir, collab_name)
+    if not os.path.exists(collab_path) and not collab_name.endswith(".pt"):
+        # 2026-08-15：调用方传裸名（如 "cross_domain_collab_verify"）时自动补后缀
+        # ——此前拼不存在路径仅 info 静默跳过 → 协作层权重从未加载（投影层随机，
+        # 锚点 cos 恒 ~0 假阴性）。补查训练产物 .ckpt.pt 与推理产物 .pt。
+        for cand in (f"{collab_name}.ckpt.pt", f"{collab_name}.pt"):
+            p = os.path.join(neurons_dir, cand)
+            if os.path.exists(p):
+                collab_path = p
+                logger.info("[assemble_cortex] collab_name 无后缀，自动补全: %s", cand)
+                break
     if not os.path.exists(collab_path):
         logger.info("[assemble_cortex] 协作层权重未找到: %s（跳过）", collab_path)
         return False

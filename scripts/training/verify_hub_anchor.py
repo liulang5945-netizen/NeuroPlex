@@ -106,6 +106,11 @@ def main():
     v_d = neurons["code"].forward(neuron_embeddings["code"], round_num=1)["field_vector"]
     v_h = hub.forward(neuron_embeddings["hub"], round_num=1)["field_vector"]
     v_dp = ensemble._cross_spec_projectors["code"](v_d)
+    # 统一空间非 hub 原生维度（3072 口径）时 hub 也经投影参与锚定——与
+    # compute_hub_anchor_loss 内部一致（2026-08-15：此前手动对照漏 hub 投影
+    # → 3072 口径下 3072 vs 4096 维度不匹配必崩）。
+    if "hub" in ensemble._cross_spec_projectors:
+        v_h = ensemble._cross_spec_projectors["hub"](v_h)
     manual = 1.0 - F.cosine_similarity(v_dp, v_h, dim=-1).mean()
     check("A1. anchor loss 与手动计算一致",
           abs(float(loss.item()) - float(manual.item())) < 1e-5,

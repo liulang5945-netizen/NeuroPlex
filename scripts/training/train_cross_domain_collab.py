@@ -877,15 +877,25 @@ def main():
                 # 可得；推理时 quality_logit 直接可用）。所有域 batch 生效（含 dialogue）。
                 total_loss = total_loss + args.contrastive_weight * result["contrastive_loss"]
 
-                # 缺口 L 阶段 3 第三部分：hub 锚定 loss——当前域 neuron field_vector
+                # 缺口 L 阶段 3 第三部分：hub 锚定 loss——约束各域 neuron field_vector
                 # 经 cross_spec 投影对齐 hub field_vector（hub=跨域语义锚点）。
+                # 2026-08-15：全域化——每 batch 对**全部非 hub 域 neuron** 计算
+                # （原仅当前 batch 域，频率 1/3；极小验证实测 zh 0.088→0.128 权重
+                # 效应 +45% 但信号仍弱，全域化 ×3 信号频率，机制级增强而非调权重）。
                 # 梯度只流 cross_spec_projectors（域 neuron/hub body 冻结，零破坏）。
                 anchor_loss = None
-                if (args.hub_path and args.hub_anchor_weight > 0
-                        and domain in neurons and domain != "hub"):
-                    anchor_loss = compute_hub_anchor_loss(
-                        ensemble, neurons, neuron_embeddings, domain)
-                    total_loss = total_loss + args.hub_anchor_weight * anchor_loss
+                if args.hub_path and args.hub_anchor_weight > 0:
+                    anchor_total = torch.tensor(0.0, device=next(iter(neurons.values())).device)
+                    n_anchor = 0
+                    for anid in neurons:
+                        if anid == "hub":
+                            continue
+                        anchor_total = anchor_total + compute_hub_anchor_loss(
+                            ensemble, neurons, neuron_embeddings, anid)
+                        n_anchor += 1
+                    if n_anchor:
+                        anchor_loss = anchor_total / n_anchor
+                        total_loss = total_loss + args.hub_anchor_weight * anchor_loss
 
                 # 阶段 3 第三部分·渐进第二步：跨域对比 loss——每 batch 采样平行语料对，
                 # 同义对（zh↔code）在统一空间（hub 空间）双向 InfoNCE 靠近、不同义远离。
