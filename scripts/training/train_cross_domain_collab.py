@@ -337,12 +337,14 @@ def load_sft_texts(data_dir: str, domain: str, max_texts: int) -> List[str]:
 
 def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
                     muon_optimizer, adamw_optimizer, body_optimizer,
-                    loss_history):
+                    loss_history, resume_pos=None):
     """保存协作层 checkpoint（side_channels + scale/bias + body + 投影层 + Router）。
 
     C16（2026-08-08）：body_state 不再包含 quality_head（判别器拆为独立 head_state，
     解决分解验证发现的"判别器耦合 body 无法归因"问题）；LoRA 模式下 body_state 为空
     （body 冻结未动），尾层增量单独存 lora_state。
+    resume_pos（2026-08-16）：{epoch, domain, batch_i} 断点续训位置（53h 长任务
+    中断保护）。
     """
     side_state = {}
     scale_bias_state = {}
@@ -397,6 +399,8 @@ def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
         "loss_history": loss_history,
         "saved_at": datetime.now().isoformat(),
     }
+    if resume_pos is not None:
+        ckpt["resume_pos"] = resume_pos
     if ensemble.sparse_router is not None:
         ckpt["sparse_router_state"] = ensemble.sparse_router.state_dict()
         # R3（REMEDIATION_PLAN 2026-08-14）：router 拓扑参数随产物保存，
@@ -416,6 +420,112 @@ def save_checkpoint(path, epoch, total_steps, neurons, ensemble,
         ckpt["body_optimizer_state"] = body_optimizer.state_dict()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(ckpt, path)
+
+
+def load_training_state(ckpt_path, neurons, ensemble,
+                        muon_optimizer, adamw_optimizer, body_optimizer, device):
+    """从训练 ckpt 恢复协作层权重 + 优化器状态 + 断点位置（2026-08-16）。
+
+    与 save_checkpoint 对称。用于长任务（53h CPU 全量）中断后断点续训：
+    - side_channels / cross_spec / scale_bias / body / head / lora / router / W_cond
+    - 三个优化器 state_dict
+    - resume_pos（epoch/domain/batch_i）+ total_steps + loss_history
+
+    Returns:
+        (start_epoch, total_steps, loss_history, resume_pos) 或 (0, 0, [], None)
+        当 ckpt 无训练元数据时（旧 ckpt）退化为从头开始但恢复协作层权重。
+    """
+    ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+    print(f"  [resume] 加载 {ckpt_path} (saved_at={ck.get('saved_at', '?')})", flush=True)
+
+    # 1. side_channels（excite/inhibit per-pair 通道）
+    ss = ck.get("side_channels_state") or ck.get("side_channels") or {}
+    n_ch = 0
+    for nid, sd in ss.items():
+        if nid not in neurons:
+            continue
+        for ch_name, ch_map in sd.items():
+            for pid, ch_sd in ch_map.items():
+                ch = neurons[nid].excite_channels if ch_name == "excite" \
+                    else neurons[nid].inhibit_channels
+                if pid in ch:
+                    ch[pid].load_state_dict(ch_sd)
+                    n_ch += 1
+    print(f"  [resume] side_channels 恢复 {n_ch} 条", flush=True)
+
+    # 2. 跨规格投影层（forward/backward）
+    cs = ck.get("cross_spec_state") or ck.get("cross_spec") or {}
+    n_proj = 0
+    for direction, proj_map in cs.items():
+        target = ensemble._cross_spec_projectors if direction == "forward" \
+            else ensemble._cross_spec_back_projectors
+        for nid, sd in proj_map.items():
+            if nid in target:
+                target[nid].load_state_dict(sd)
+                n_proj += 1
+    print(f"  [resume] cross_spec 投影层恢复 {n_proj} 个", flush=True)
+
+    # 3. scale/bias（可学习标量 + 通道 bias）
+    sb = ck.get("scale_bias_state") or {}
+    for nid, sd in sb.items():
+        if nid not in neurons:
+            continue
+        for name, w in sd.items():
+            for pname, p in neurons[nid].named_parameters():
+                if pname == name:
+                    p.data.copy_(w)
+                    break
+            else:
+                for bname, b in neurons[nid].named_buffers():
+                    if bname == name:
+                        b.copy_(w)
+                        break
+
+    # 4. body_state（LoRA 模式为空 dict，直接微调模式非空）
+    body_state = ck.get("body_state") or {}
+    for nid, sd in body_state.items():
+        if nid in neurons:
+            neurons[nid].load_state_dict(sd, strict=False)
+
+    # 5. head_state（quality_head 判别器）
+    head_state = ck.get("head_state") or {}
+    for nid, sd in head_state.items():
+        if nid in neurons and getattr(neurons[nid], "quality_head", None) is not None:
+            neurons[nid].quality_head.load_state_dict(sd)
+
+    # 6. lora_state（LoRA 尾层增量）
+    lora_state = ck.get("lora_state") or {}
+    for nid, sd in lora_state.items():
+        if nid in neurons and getattr(neurons[nid], "lora_enabled", False):
+            neurons[nid].lora_adapters.load_state_dict(sd)
+
+    # 7. sparse_router
+    if ck.get("sparse_router_state") is not None and ensemble.sparse_router is not None:
+        ensemble.sparse_router.load_state_dict(ck["sparse_router_state"])
+
+    # 8. W_cond（场门控）
+    if ck.get("field_w_cond") is not None and ensemble._field is not None \
+            and hasattr(ensemble._field, "W_cond"):
+        ensemble._field.W_cond.data.copy_(ck["field_w_cond"])
+
+    # 9. 优化器状态
+    if muon_optimizer is not None and ck.get("muon_optimizer_state") is not None:
+        muon_optimizer.load_state_dict(ck["muon_optimizer_state"])
+    if adamw_optimizer is not None and ck.get("adamw_optimizer_state") is not None:
+        adamw_optimizer.load_state_dict(ck["adamw_optimizer_state"])
+    if body_optimizer is not None and ck.get("body_optimizer_state") is not None:
+        body_optimizer.load_state_dict(ck["body_optimizer_state"])
+
+    total_steps = ck.get("total_steps", 0)
+    resume_pos = ck.get("resume_pos")
+    if resume_pos is not None:
+        start_epoch = resume_pos.get("epoch", 0)
+    else:
+        start_epoch = ck.get("epoch", 0)  # 旧 ckpt：epoch 语义为 epoch+1（训练循环下标）
+    loss_history = ck.get("loss_history", []) or []
+    print(f"  [resume] 恢复 total_steps={total_steps} epoch={start_epoch} "
+          f"resume_pos={resume_pos}", flush=True)
+    return start_epoch, total_steps, loss_history, resume_pos
 
 
 def main():
@@ -460,6 +570,10 @@ def main():
                         help="对话数据目录（DIALOGUE_DATA_FILES 所在，默认 data/simple_zh）")
     parser.add_argument("--save-name", default="cross_domain_collab",
                         help="checkpoint 文件名前缀")
+    parser.add_argument("--resume-from", default=None,
+                        help="断点续训：训练 ckpt 路径（如 data/neurons/cross_domain_"
+                             "collab_full.ckpt.pt）。加载协作层权重 + 优化器状态 + "
+                             "断点位置，从中断处继续（53h 长任务保护）")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--target-space", default="domain",
                         choices=["domain", "general"],
@@ -791,9 +905,24 @@ def main():
     ckpt_path = os.path.join(OUTPUT_DIR, f"{args.save_name}.ckpt.pt")
     field_warmup_steps = max(1, int(total_steps_per_epoch * args.epochs * 0.1))
 
-    for epoch in range(args.epochs):
+    # 断点续训（2026-08-16）：恢复协作层权重/优化器/断点位置
+    start_epoch = 0
+    resume_pos: Optional[dict] = None
+    if args.resume_from and os.path.exists(args.resume_from):
+        start_epoch, total_steps, loss_history, resume_pos = load_training_state(
+            args.resume_from, neurons, ensemble, muon_optimizer, adamw_optimizer,
+            body_optimizer, DEVICE)
+        print(f"  [resume] 从中断点继续（epoch={start_epoch} 起）", flush=True)
+
+    for epoch in range(start_epoch, args.epochs):
         epoch_start = time.time()
         for domain in data_sources:
+            # 断点续训：跳过已完成的 domain（2026-08-16）
+            if (resume_pos is not None and epoch == resume_pos["epoch"]
+                    and domain != resume_pos["domain"]):
+                # 仅在 resume domain 之后（data_sources 有序）才需跳过其之前的 domain
+                if data_sources.index(domain) < data_sources.index(resume_pos["domain"]):
+                    continue
             texts = domain_texts[domain]
             random.shuffle(texts)
             # general_mode 下 domain_sp 不使用（输入/目标都 general 编码）；dialogue 桶亦然
@@ -806,6 +935,11 @@ def main():
                 answer_marker = None
 
             for i in range(0, len(texts) - args.batch_size, args.batch_size):
+                # 断点续训：本 domain 已有部分 batch 完成时跳过（2026-08-16）
+                if (resume_pos is not None and epoch == resume_pos["epoch"]
+                        and domain == resume_pos["domain"]
+                        and i < resume_pos["batch_i"]):
+                    continue
                 batch_texts = texts[i:i + args.batch_size]
                 neuron_embeddings = {}
                 targets = None
@@ -937,12 +1071,16 @@ def main():
                 if total_steps % 500 == 0:
                     save_checkpoint(ckpt_path, epoch + 1, total_steps, neurons,
                                     ensemble, muon_optimizer, adamw_optimizer,
-                                    body_optimizer, loss_history)
+                                    body_optimizer, loss_history,
+                                    resume_pos={"epoch": epoch, "domain": domain,
+                                                "batch_i": i})
                     print(f"  [checkpoint] step {total_steps} 已保存", flush=True)
 
-        # epoch 结束保存
+        # epoch 结束保存（resume_pos 置 None → 下一 epoch 从第一个 domain 起）
         save_checkpoint(ckpt_path, epoch + 1, total_steps, neurons, ensemble,
-                        muon_optimizer, adamw_optimizer, body_optimizer, loss_history)
+                        muon_optimizer, adamw_optimizer, body_optimizer, loss_history,
+                        resume_pos={"epoch": epoch + 1, "domain": data_sources[0],
+                                    "batch_i": 0})
         epoch_ppl = math.exp(min(loss_history[-1]["loss"] if loss_history else 0, 20))
         print(f"  [Epoch {epoch+1} 完成] PPL≈{epoch_ppl:.1f}, "
               f"耗时 {(time.time()-epoch_start)/60:.1f} min", flush=True)
