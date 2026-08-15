@@ -99,6 +99,8 @@ class SleepReport:
     # C26 增量六（Phase 1.7）：真正睡眠重放——记忆向量场条件化 forward 重放
     forward_replayed: int = 0
     forward_replay_loss: Optional[float] = None
+    # 自举门槛 A2（2026-08-15）：judge 驱动的重放样本数——它自己判定短板优先
+    judge_driven_replay: int = 0
     # C27 增量五（Phase 1.8）：振荡器节奏训练——o 型节奏参数随睡眠经验学习
     osc_trained: int = 0
     osc_train_loss: Optional[float] = None
@@ -116,6 +118,8 @@ class SleepConfig:
     max_training_steps: int = 50             # 睡眠时最大训练步数
     save_checkpoints: bool = True            # 睡眠时保存 checkpoint
     auto_generation_transition: bool = False  # 代际迁移（需手动开启，默认关闭）
+    judge_driven_replay: bool = False  # 自举门槛 A2（2026-08-15）：②→③ 接线——
+    # 重放样本由 judge NLL 选择（它自己判定短板优先），而非随机；False=旧行为
 
 
 class SleepEngine:
@@ -758,6 +762,57 @@ class SleepEngine:
     forward_replay_epochs = 2       # 样本极少，2 epoch 够
     forward_replay_max_samples = 8  # 每 neuron 最多重放样本数（CPU 预算）
 
+    def _sample_judge_nll(self, text: str, target_ids: list, device,
+                          shared_embedding) -> Optional[float]:
+        """②→③ 接线（自举门槛 A2，2026-08-15）：样本的 judge NLL。
+
+        用 judge_lm_head（general 256K 统一判定空间）度量"它自己判定这段文本
+        擅不擅长"——高 NLL = 自己判定不擅长 = 短板。取各 target neuron 的
+        最大 NLL（最短板者）作为该样本的短板度。无 judge 头的 neuron 跳过，
+        全部跳过返回 None（调用方回退随机）。
+
+        judge 空间可比性：judge_lm_head 全局唯一冻结（判定空间统一化），
+        跨 neuron 的 judge NLL 直接可比——这就是"眼睛"。
+        """
+        hub = getattr(self.cortex, "_tokenizer_hub", None)
+        if hub is None:
+            return None
+        domain_ids = hub.encode(text, domain="zh")
+        if not domain_ids or len(domain_ids) < 3:
+            return None
+        general_sp = getattr(self.cortex, "_general_sp", None)
+        domain_sp = hub.get_tokenizer("zh") if general_sp is not None else None
+        if general_sp is None or domain_sp is None:
+            return None
+        gids = []
+        for did in domain_ids[:256]:
+            gg = general_sp.EncodeAsIds(domain_sp.id_to_piece(did))
+            gids.append(gg[0] if gg else 0)
+        if len(gids) < 3:
+            return None
+        input_ids = torch.tensor([gids], dtype=torch.long, device=device)
+        emb = shared_embedding(input_ids)
+        nlls = []
+        for nid in target_ids:
+            n = self.cortex.neurons.get(nid)
+            if n is None or getattr(n, "judge_lm_head", None) is None:
+                continue
+            with torch.no_grad():
+                r = n.forward(emb, round_num=1, return_judge_logits=True)
+            jl = r.get("judge_logits")
+            if jl is None:
+                continue
+            min_len = jl.size(1) - 1
+            if min_len < 1:
+                continue
+            lg = jl[:, :min_len, :].contiguous()
+            tgt = input_ids[:, 1:1 + min_len].contiguous()
+            loss = torch.nn.functional.cross_entropy(
+                lg.view(-1, lg.size(-1)), tgt.view(-1),
+                ignore_index=-100, reduction="mean")
+            nlls.append(float(loss.item()))
+        return max(nlls) if nlls else None
+
     def _sleep_phase_forward_replay(self, report: SleepReport) -> None:
         """Phase 1.7: 真正睡眠重放 — 记忆向量场条件化 forward 重放（C26 增量六）。
 
@@ -865,8 +920,22 @@ class SleepEngine:
             return n
 
         import random
-        random.shuffle(samples)
-        samples = samples[: self.forward_replay_max_samples]
+        if self.config.judge_driven_replay:
+            # ②→③ 接线（自举门槛 A2）：它自己判定短板 → 优先重放。
+            # 样本按 judge NLL 降序（短板优先），取代随机；无 judge 头的
+            # 环境（None 样本）回退随机保兼容。
+            scored = []
+            for vec, text in samples:
+                nll = self._sample_judge_nll(text, target_ids, device, shared_embedding)
+                scored.append((nll, vec, text))
+            scored.sort(key=lambda x: (x[0] is not None, x[0] if x[0] is not None else 0.0),
+                        reverse=True)
+            samples = [(vec, text) for _, vec, text in scored[:self.forward_replay_max_samples]]
+            report.judge_driven_replay = len(samples)
+            logger.info(f"  [重放] judge 驱动样本选择（短板优先）: {len(samples)} 条")
+        else:
+            random.shuffle(samples)
+            samples = samples[: self.forward_replay_max_samples]
 
         total_loss = 0.0
         steps = 0
