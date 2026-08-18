@@ -62,4 +62,6 @@ This decision changes the public contract and the active narrative first:
 
 ## Next implementation slice
 
-Rename active lifecycle and API concepts from “model upgrade/distillation” to population growth and peer coordination, then remove the old single-model upgrade prompt from the product path. Keep checkpoint loading compatibility until a migration test confirms it is no longer needed.
+The naming migration and compatibility boundary are now complete enough for the public path. The next slice is a **minimal reproducible population baseline**: fixed evaluation inputs, a small repeatable neuron population, dense/sparse A/B comparison, route/field observability, and an API/Cortex smoke result that can be reproduced without private long-running checkpoints.
+
+Only after that baseline is stable should the project spend compute on cross-domain peer coordination. The first collaboration experiment must be short, resumable, independently validated per domain, and guarded against anchor or domain regression. The 1.5B distillation path, monolithic upgrade path, and new biological mechanisms remain outside the active roadmap.
