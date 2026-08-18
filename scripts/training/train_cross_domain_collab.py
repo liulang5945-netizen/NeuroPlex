@@ -528,6 +528,34 @@ def load_training_state(ckpt_path, neurons, ensemble,
     return start_epoch, total_steps, loss_history, resume_pos
 
 
+def load_cross_spec_reference(ensemble, ckpt_path: str) -> int:
+    """Load only cross-spec projections from a fixed anchor reference.
+
+    The anchor contract deliberately excludes side channels, neuron bodies,
+    field gates, and optimizer state.  This lets a short run learn domain
+    projections from a known reference while keeping the shared hub mapping
+    immutable when ``--freeze-hub-projector`` is enabled.
+    """
+    ck = torch.load(ckpt_path, map_location="cpu", weights_only=False, mmap=True)
+    cross_spec = ck.get("cross_spec_state") or ck.get("cross_spec") or {}
+    loaded = 0
+    for direction, target in (
+        ("forward", ensemble._cross_spec_projectors),
+        ("backward", ensemble._cross_spec_back_projectors),
+    ):
+        for nid, state in (cross_spec.get(direction) or {}).items():
+            if nid not in target:
+                continue
+            target[nid].load_state_dict(state)
+            loaded += 1
+    if loaded == 0:
+        raise RuntimeError(
+            f"anchor reference 不含可匹配的 cross-spec 投影: {ckpt_path}"
+        )
+    print(f"  [anchor-reference] 仅加载 {loaded} 个 cross-spec 投影: {ckpt_path}", flush=True)
+    return loaded
+
+
 def main():
     parser = __import__("argparse").ArgumentParser(description="跨域协作层联合训练")
     parser.add_argument("--neuron-dir", default=os.path.join(OUTPUT_DIR),
@@ -598,6 +626,9 @@ def main():
     parser.add_argument("--freeze-hub-projector", action="store_true",
                         help="冻结 hub 的 cross-spec 投影，避免短跑改变共享锚点；"
                              "通常与 --cross-spec-only 一起使用")
+    parser.add_argument("--anchor-reference", default=None,
+                        help="仅加载指定 checkpoint 的 cross-spec 投影作为固定锚点参考；"
+                             "不加载 neuron、side、field 或 optimizer 状态")
     parser.add_argument("--hub-path", default=None,
                         help="缺口 L：hub neuron（联合皮层）ckpt 路径，如 "
                              "data/hub_neuron/neuron_hub.pt。加入协作阵容训练 hub-and-spoke "
@@ -629,6 +660,15 @@ def main():
                              "add_neuron 补投影 4096→3072）——传 3072 让训练与装配维度一致，"
                              "hub 的 cross_spec 投影（4096→3072）参与训练，产物可装配复用")
     args = parser.parse_args()
+
+    if args.freeze_hub_projector and not args.cross_spec_only:
+        raise ValueError("--freeze-hub-projector 必须与 --cross-spec-only 一起使用")
+    if args.anchor_reference and not args.cross_spec_only:
+        raise ValueError("--anchor-reference 必须与 --cross-spec-only 一起使用")
+    if args.anchor_reference and not args.freeze_hub_projector:
+        raise ValueError("--anchor-reference 必须同时冻结 hub projector")
+    if args.anchor_reference and args.resume_from:
+        raise ValueError("--anchor-reference 不得与 --resume-from 同时使用")
 
     global DEVICE
     DEVICE = args.device
@@ -797,6 +837,10 @@ def main():
     ensemble.set_tokenizer_hub(hub)
     if rules is not None:
         ensemble.set_alignment_rules(rules)
+    if args.anchor_reference:
+        if not os.path.exists(args.anchor_reference):
+            raise FileNotFoundError(f"anchor reference 不存在: {args.anchor_reference}")
+        load_cross_spec_reference(ensemble, args.anchor_reference)
     for pid, proj in ensemble._cross_spec_projectors.items():
         for p in proj.parameters():
             p.requires_grad = not (args.freeze_hub_projector and pid == "hub")

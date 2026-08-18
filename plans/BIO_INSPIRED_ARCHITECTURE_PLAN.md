@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：30 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查、最小群体基线和跨域评估词表契约。
+- `python -m pytest tests -q`：31 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定 anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
 - 干净启动烟测通过：空神经元目录可以启动 Cortex，并明确进入 fallback；域 tokenizer 由 TokenizerHub 注册。
 - API 烟测通过：健康检查、架构能力接口返回 200；旧整体升级入口返回 410 退役响应。
@@ -127,6 +127,11 @@ holdout 且按实际传入 checkpoint 动态汇总，避免旧投影残留污染
 训练域提升但未见 math 下降；冻结 hub 投影时 code 也下降。两者均未通过非退化门槛，临时
 checkpoint 和日志已清理，不进入主线。
 
+固定 anchor 契约短验收（global 参考、hub 冻结、域投影独立、三域各 2 条、3 步、lr=1e-4）
+在 `code_sft[16:24]` holdout 上与 global 完全一致：均值 `+0.285`，code/math/zh 为
+`+0.142/+0.286/+0.427`。它证明参考加载与冻结边界正确，但不构成语言能力增益；临时
+checkpoint 和日志已清理。
+
 当前尚未验收的不是启动能力，而是真实训练后的语言能力：公开仓库没有随代码交付可用于质量展示的训练后神经元群体；空目录 fallback 和本次 synthetic probe 只能证明工程链路可启动、路由可观测，不能证明生成质量。跨域协作的历史正式训练还出现过 hub 锚点退化，因此不能直接把旧实验结果当作主线结论。
 
 ## 5. 本轮已完成
@@ -146,6 +151,8 @@ checkpoint 和日志已清理，不进入主线。
 13. 完成真实 checkpoint 的 general 口径 hub 锚点 A/B；拒绝 `full` 晋级，保留 `global` 为实验参考。
 14. 修复无 targets 探针和共享 general 词表解码契约，新增回归测试并将总数提升到 30 项。
 15. 将 hub anchor 评估固定到独立 holdout，并验证 cross-spec-only 的两种短跑均不能晋级。
+16. 落实固定 anchor 目标契约：只加载参考 checkpoint 的 cross-spec 投影，强制冻结 hub，拒绝混用 resume/optimizer 状态。
+17. 完成固定 anchor 契约的三域短验收，holdout 非退化通过但不宣称新增能力。
 
 ## 6. 后续工作顺序
 
@@ -162,12 +169,13 @@ checkpoint 和日志已清理，不进入主线。
 
 真实 checkpoint 的协作质量仍需在 P1 中验收；在此之前，不继续扩展新的生物机制，也不把长时训练结果写成产品能力。
 
-### P1：修复跨域协作训练闭环（暂停训练，先重做目标）
+### P1：修复跨域协作训练闭环（anchor 契约已完成）
 
-不要继续启动 cross-spec 训练。先把 hub anchor 目标重写为“共享参考不被训练更新、域投影
-独立学习、固定 holdout 硬门槛”的可验证契约；契约和低学习率配方未通过前，不再投入长时训练。
+anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 cross-spec 投影，hub 投影
+必须冻结，optimizer/body/side/field 不会从参考继承。该路径只作为安全实验基础，不作为
+语言能力来源。
 
-### P1：完成稀疏路由的真实性验证
+### P1：完成稀疏路由的真实性验证（下一阶段）
 
 用同一训练后 checkpoint 做 dense/sparse A/B，确认 Router 不是随机初始化，并记录质量、激活数量、吞吐和路由熵。只有在质量接近 dense 且激活明显减少时，稀疏路由才算主线能力，而不是代码开关。
 
@@ -188,5 +196,5 @@ checkpoint 和日志已清理，不进入主线。
 
 ## 7. 唯一下一步
 
-暂停训练，先实现“固定 hub 参考 + 域级投影独立学习 + code/math/zh holdout 非退化”这一条
-anchor 目标契约；契约通过后再决定是否恢复任何短跑。
+使用同一 `global` 参考阵容做真实 dense/sparse A/B，记录 holdout 质量、激活数量、吞吐和
+路由熵；只有质量不明显退化且激活数确实下降，才把稀疏路由保留为主线能力。
