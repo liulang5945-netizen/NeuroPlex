@@ -43,6 +43,7 @@ CKPTS = {
     "smoke (无 collab 权重)": None,
     "w3.0 (单域锚定)": "data/neurons/cross_domain_collab_verify_w3.ckpt.pt",
     "global (全域锚定)": "data/neurons/cross_domain_collab_verify_global.ckpt.pt",
+    "full (正式全域锚定 17.5K步)": "data/neurons/cross_domain_collab_full.ckpt.pt",
 }
 FIELD_DIM = 3072  # 装配口径（训练 --unified-field-dim 3072 同款）
 
@@ -100,8 +101,9 @@ def main():
         s = results["smoke (无 collab 权重)"][nid]
         w3 = results["w3.0 (单域锚定)"][nid]
         g = results["global (全域锚定)"][nid]
-        print(f"  {nid}: smoke {s:+.3f} → w3.0 {w3:+.3f} → global {g:+.3f} "
-              f"(Δw3 {w3 - s:+.3f}, Δglobal {g - w3:+.3f})", flush=True)
+        f = results["full (正式全域锚定 17.5K步)"][nid]
+        print(f"  {nid}: smoke {s:+.3f} → w3.0 {w3:+.3f} → global {g:+.3f} → full {f:+.3f} "
+              f"(Δw3 {w3 - s:+.3f}, Δglobal {g - w3:+.3f}, Δfull {f - g:+.3f})", flush=True)
 
     print(f"\n  总耗时: {time.time() - t0:.1f}s", flush=True)
 
