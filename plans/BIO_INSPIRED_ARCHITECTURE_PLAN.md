@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `tests/`：25 项核心回归测试通过，覆盖对话格式契约和共振 side-channel。
+- `tests/`：26 项核心回归测试通过，覆盖对话格式契约、共振 side-channel 和 API 健康检查。
 - `verify_c26_*` / `verify_c27_*`：覆盖场记忆、睡眠巩固、跨频耦合、实例路由和自组织新生。
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。

@@ -1,4 +1,4 @@
-# Taiji (态极) - 核心依赖
+# NeuroPlex - core dependencies
 # pip install -r requirements.txt
 
 # ===== 深度学习框架 =====

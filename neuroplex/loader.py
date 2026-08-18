@@ -53,14 +53,14 @@ logger = logging.getLogger("Taiji")
 def _find_default_sentencepiece() -> Optional[str]:
     """查找默认的 SentencePiece 路径。
 
-    按优先级查找：
-    1. NeuroPlex general 域 tokenizer
-    2. tokenizer_native_v2 兼容路径
-    3. data/sentencepiece.model 兼容路径
+    按优先级查找旧的共享 tokenizer 兼容路径。生产 P7 路径使用域
+    tokenizer，不应把 general tokenizer 当作 native tokenizer 加载。
+
+    1. tokenizer_native_v2 兼容路径
+    2. data/sentencepiece.model 兼容路径
     """
     neuroplex_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(neuroplex_dir, "domains", "general", "sp_general.model"),
         os.path.join(neuroplex_dir, "tokenizer_native_v2", "sentencepiece.model"),
         os.path.join(os.path.dirname(neuroplex_dir), "data", "sentencepiece.model"),
     ]
@@ -116,21 +116,23 @@ def create_cortex(
     # P7: 检测域 tokenizer 是否可用
     domain_tokenizers_available = _check_domain_tokenizers()
 
-    # 自动查找 sp_model_path（P7 模式下非必需，但保留兼容性）
-    if sp_model_path is None:
-        sp_model_path = _find_default_sentencepiece()
-
+    # P7 生产路径优先使用域 tokenizer。general tokenizer 会在
+    # assemble_cortex() 的 shared embedding 阶段单独加载，不能包装成旧
+    # native tokenizer，否则 256K vocab 会越过 native text range。
     if sp_model_path is not None:
         tokenizer = TaijiNativeTokenizerV2(sp_model_path=sp_model_path)
     elif domain_tokenizers_available:
-        # P7 模式：域 tokenizer 可用，不需要共享 tokenizer
+        # P7 模式：域 tokenizer 可用，不需要共享 native tokenizer
         tokenizer = None  # generate() 走 _tokenizer_hub 路径
         logger.info("[create_cortex] P7 模式：跳过共享 tokenizer，使用域 tokenizer")
     else:
-        raise FileNotFoundError(
-            "未找到 sentencepiece.model。请通过 sp_model_path 参数指定，"
-            "或将其放置于 neuroplex/domains/general/ 目录。"
-        )
+        sp_model_path = _find_default_sentencepiece()
+        if sp_model_path is None:
+            raise FileNotFoundError(
+                "未找到 SentencePiece 模型。请通过 sp_model_path 参数指定，"
+                "或将其放置于 tokenizer_native_v2/ 目录。"
+            )
+        tokenizer = TaijiNativeTokenizerV2(sp_model_path=sp_model_path)
 
     cortex = Cortex(
         neurons_dir=neurons_dir,

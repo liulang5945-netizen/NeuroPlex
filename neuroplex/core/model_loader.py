@@ -125,4 +125,12 @@ def load_model_on_startup() -> None:
 
 def startup_download_progress() -> dict:
     """兼容旧接口：返回空进度（Cortex 不需要下载）。"""
-    return {"progress": 100, "status": "done", "message": "Cortex loaded"}
+    return {
+        "active": False,
+        "progress": 100,
+        "percent": 100,
+        "status": "done",
+        "message": "Cortex loaded",
+        "total_mb": 0,
+        "downloaded_mb": 0,
+    }

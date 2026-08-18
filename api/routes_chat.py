@@ -325,7 +325,7 @@ async def health_check():
     # 启动未完成时返回 loading / downloading 状态
     if not app_state.startup_complete:
         from neuroplex.core.model_loader import startup_download_progress
-        dl = startup_download_progress
+        dl = startup_download_progress()
         if dl["active"]:
             return {
                 "status": "downloading",

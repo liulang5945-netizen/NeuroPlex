@@ -221,7 +221,7 @@ def get_startup_download_progress():
     """Compatibility helper for startup download progress."""
     from neuroplex.core.model_loader import startup_download_progress
 
-    return startup_download_progress
+    return startup_download_progress()
 
 
 def _build_lifespan(startup_tasks: bool):

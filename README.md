@@ -4,7 +4,6 @@
 >
 > NeuroPlex is a population neural network made of domain-specific neurons (24M–134M each). Neurons coordinate through a shared resonance field, peer connections, routing, memory, and lifecycle control. Capability grows by specializing and composing the population, not by replacing it with one larger model.
 
-[![CI](https://github.com/NeuroPlex/NeuroPlex/actions/workflows/ci.yml/badge.svg)](https://github.com/NeuroPlex/NeuroPlex/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
@@ -42,17 +41,24 @@ Level 3: Population control plane             ← topology, plasticity, growth, 
 ### Install
 
 ```bash
-git clone https://github.com/NeuroPlex/NeuroPlex.git
-cd NeuroPlex
-pip install -e .
+# From the repository root
+python -m pip install -e ".[dev]"
 ```
 
-### Verify the core (16 tests)
+### Verify the core (26 tests)
 
 ```bash
 python -m pytest tests/ -q
-# Expected: 16 passed
+# Expected: 26 passed
 ```
+
+### Run the API
+
+```bash
+python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
+```
+
+Then open `http://127.0.0.1:8000/docs` or check `http://127.0.0.1:8000/api/health`.
 
 ### Train your first domain neuron
 
@@ -70,12 +76,19 @@ python scripts/training/train_hub_neuron.py
 ### Use Cortex (the orchestrator)
 
 ```python
-from neuroplex.brain.cortex import Cortex
+from neuroplex.loader import assemble_cortex
 
-cortex = Cortex(neurons_dir="data/neurons")
+cortex, tokenizer, modules = assemble_cortex(
+    neurons_dir="data/neurons",
+    device="cpu",
+    max_rounds=2,
+)
 result = cortex.generate("今天天气怎么样？")
 print(result)
 ```
+
+If `data/neurons` is empty, NeuroPlex starts with a limited random fallback
+neuron. Add trained domain checkpoints for useful generation quality.
 
 ## Neuron Specifications
 
