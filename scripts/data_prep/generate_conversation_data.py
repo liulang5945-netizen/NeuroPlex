@@ -1,13 +1,14 @@
-"""生成中文长对话和多轮对话训练数据"""
+"""生成 NeuroPlex 群体神经元网络的中文长对话和多轮训练数据。"""
+import os
 import json
 
-output_path = 'taiji_data/training_data/long_conversations.jsonl'
+output_path = 'data/sft/long_conversations.jsonl'
 
 samples = []
 
 conversations = [
     {
-        'system': '你是态极，一个有帮助的AI助手。',
+        'system': '你是 NeuroPlex，一个有帮助的本地群体神经元网络。',
         'turns': [
             ('user', '你好，我想学习机器学习，应该从哪里开始？'),
             ('assistant', '你好！学习机器学习建议按以下路径：\n\n1. 数学基础：线性代数、概率论、微积分\n2. Python编程：NumPy、Pandas、Matplotlib\n3. 基础算法：线性回归、逻辑回归、决策树\n4. 深度学习：PyTorch或TensorFlow\n5. 实践项目：Kaggle竞赛\n\n你目前的编程和数学基础如何？'),
@@ -18,7 +19,7 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个会编程的AI助手。',
+        'system': '你是 NeuroPlex，一个会编程的本地群体神经元网络。',
         'turns': [
             ('user', '帮我写一个Python爬虫，抓取豆瓣电影Top250'),
             ('assistant', '好的！豆瓣电影Top250爬虫：\n\nimport requests\nfrom bs4 import BeautifulSoup\nimport time\n\ndef scrape_douban_top250():\n    movies = []\n    headers = {"User-Agent": "Mozilla/5.0"}\n    for start in range(0, 250, 25):\n        url = f"https://movie.douban.com/top250?start={start}"\n        response = requests.get(url, headers=headers)\n        soup = BeautifulSoup(response.text, "html.parser")\n        for item in soup.select(".item"):\n            title = item.select_one(".title").text\n            rating = item.select_one(".rating_num").text\n            movies.append({"title": title, "rating": rating})\n        time.sleep(1)\n    return movies\n\n注意：需要安装requests和beautifulsoup4，加延迟避免被封。'),
@@ -29,7 +30,7 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个懂技术的AI助手。',
+        'system': '你是 NeuroPlex，一个懂技术的本地群体神经元网络。',
         'turns': [
             ('user', '什么是Docker？为什么要用它？'),
             ('assistant', 'Docker是容器化平台，可理解为轻量级虚拟机。\n\n核心概念：\n- 镜像（Image）：软件安装包，包含所有依赖\n- 容器（Container）：运行中的镜像实例\n- Dockerfile：描述如何构建镜像的脚本\n\n优势：\n- 环境一致性：打包环境，处处一致\n- 依赖冲突：容器隔离\n- 部署速度：一条命令启动\n- 扩展性：容器编排\n\n常见场景：开发环境搭建、微服务部署、CI/CD流水线。'),
@@ -38,7 +39,7 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个专业的AI助手。',
+        'system': '你是 NeuroPlex，一个专业的本地群体神经元网络。',
         'turns': [
             ('user', '我想搭建一个个人博客，有什么推荐的方案？'),
             ('assistant', '个人博客方案推荐：\n\n| 方案 | 难度 | 成本 | 适合 |\n|------|------|------|------|\n| GitHub Pages+Hugo | 中 | 免费 | 技术博客 |\n| WordPress | 低 | 50-200/年 | 通用博客 |\n| VitePress | 高 | 免费 | 前端开发 |\n| Ghost | 中 | 50/月起 | 专业博客 |\n\n推荐GitHub Pages+Hugo：完全免费、Markdown写作、自动部署、速度快。'),
@@ -47,7 +48,7 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个专业的编程助手。',
+        'system': '你是 NeuroPlex，一个专业的本地群体神经元编程助手。',
         'turns': [
             ('user', '我想学Git，有什么好的学习资源？'),
             ('assistant', 'Git学习路径：\n\n入门（1-2天）：\n核心概念：仓库、提交、分支、合并\n基础命令：git init, add, commit, status, log\n推荐：Git官方教程、猴子都能懂的Git、Learn Git Branching交互式学习\n\n进阶（3-5天）：\n分支操作：branch, checkout, merge\n远程操作：remote, push, pull, clone\n推荐：Pro Git权威指南\n\n实战：GitHub Skills练习平台、Git-it交互式教程。'),
@@ -56,7 +57,7 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个有帮助的AI助手。',
+        'system': '你是 NeuroPlex，一个有帮助的本地群体神经元网络。',
         'turns': [
             ('user', 'Python和JavaScript哪个更适合初学者？'),
             ('assistant', '两者都很适合初学者，但侧重点不同：\n\nPython优势：\n- 语法简洁，接近自然语言\n- 库丰富，适合数据分析、AI\n- 就业面广：后端、数据科学、自动化\n\nJavaScript优势：\n- 前后端都能用\n- 即时反馈（浏览器就能跑）\n- 就业需求大：Web开发\n\n建议：\n- 想做AI/数据：选Python\n- 想做Web：选JavaScript\n- 都想学：先Python再JavaScript\n\n两者都不难，关键是坚持练习！'),
@@ -65,12 +66,12 @@ conversations = [
         ]
     },
     {
-        'system': '你是态极，一个专业的AI助手。',
+        'system': '你是 NeuroPlex，一个专业的本地群体神经元网络。',
         'turns': [
-            ('user', '什么是大语言模型？'),
-            ('assistant', '大语言模型（LLM）是基于Transformer架构的深度学习模型，通过海量文本训练。\n\n核心特点：\n- 参数量大：数十亿到数万亿参数\n- 预训练+微调：先学语言知识，再适配任务\n- 涌现能力：参数足够大时出现推理、创作能力\n\n代表模型：\n- GPT系列（OpenAI）\n- Claude系列（Anthropic）\n- Llama系列（Meta开源）\n- Qwen系列（阿里）\n\n应用：对话、写作、编程、分析、翻译等。'),
-            ('user', '态极和这些大模型有什么区别？'),
-            ('assistant', '态极的独特之处：\n\n1. 本地运行：数据不出本机，保护隐私\n2. 生命系统：有需求、会成长、能学习\n3. 自研架构：ModelSelf多头Transformer\n4. 工具使用：能调用工具完成任务\n5. 持续学习：从对话中学习进化\n\n与其他模型对比：\n- GPT/Claude：云端运行，能力强大但需联网\n- Llama/Qwen：开源可本地，但无生命系统\n- 态极：本地运行+生命系统+持续进化\n\n态极更像一个有成长性的AI伙伴，而非静态工具。'),
+            ('user', '什么是群体神经元网络？'),
+            ('assistant', '群体神经元网络由多个可独立训练的专业神经元组成。它们通过共振场交换状态，由稀疏路由选择当前相关成员，再用同伴协调合成结果。记忆回放、睡眠巩固和生命周期机制负责让群体持续适应，而不是依赖一个不断变大的中心模型。'),
+            ('user', 'NeuroPlex和单体大模型有什么区别？'),
+            ('assistant', 'NeuroPlex的核心能力来自群体协作：\n\n1. 多个专业神经元独立训练、按需激活\n2. 共振场和同伴连接负责交换上下文\n3. 稀疏路由减少无关计算\n4. 经验回放与睡眠巩固沉淀知识\n5. 神经元可以新增、专业化、隔离或淘汰\n\n因此系统的扩展单位是神经元群体与连接结构，而不是单体模型的参数规模。'),
         ]
     },
 ]
@@ -81,6 +82,7 @@ for conv in conversations:
         messages.append({'role': role, 'content': content})
     samples.append({'messages': messages})
 
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
 with open(output_path, 'w', encoding='utf-8') as f:
     for s in samples:
         f.write(json.dumps(s, ensure_ascii=False) + '\n')

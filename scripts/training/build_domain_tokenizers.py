@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """为每个领域构建专用 SentencePiece tokenizer。
 
-输出路径统一为 taiji/domains/<domain>/sp_<domain>.model，
+输出路径统一为 neuroplex/domains/<domain>/sp_<domain>.model，
 与 load_domain_tokenizer / load_general_tokenizer 的加载路径一致（修复 T13 路径不一致）。
 
 general 域使用混合语料（zh+en+code+math），vocab=256K，覆盖全词（修复 S2 隐性天花板）。
@@ -17,7 +17,7 @@ import sentencepiece as spm
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # scripts/training/ → 项目根
 DATA_DIR = PROJECT_ROOT / "taiji_data/training_data/pretrain_mix_v1"
 # 修复 T13: 输出路径与 load_domain_tokenizer/load_general_tokenizer 的加载路径一致
-OUTPUT_DIR = PROJECT_ROOT / "taiji" / "domains"
+OUTPUT_DIR = PROJECT_ROOT / "neuroplex" / "domains"
 
 # general 域使用混合语料（zh+en+code+math），vocab=256K
 # 其他域用专用语料，vocab=10K-20K

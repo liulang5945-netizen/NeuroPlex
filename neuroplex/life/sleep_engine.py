@@ -13,7 +13,7 @@ Phase 1 (浅睡眠): 记忆整理 — 清理 WorkingMemory
 Phase 2 (深睡眠): 模型训练 — 用收集的数据在线微调
 Phase 3 (REM): 知识整合 — 进化引擎 + 用户画像更新
 Phase 4 (清醒): 自我评估 — 检查模型健康状态
-Phase 5 (梦境): 进化语料生成 — 态极生成下一代训练数据（递归蒸馏）
+Phase 5 (梦境): 经验素材生成 — 态极生成下一轮群体训练数据
 """
 import os
 import json
@@ -375,11 +375,11 @@ class SleepEngine:
         except Exception as e:
             logger.warning(f"  Phase 3 failed: {e}")
 
-        # Phase 3.5: 知识蒸馏 — 将累积知识转化为训练数据
+        # Phase 3.5: 经验巩固 — 将长期记忆转化为群体训练样本
         try:
-            self._sleep_phase_knowledge_distillation(report)
-            report.phases_completed.append("knowledge_distillation")
-            logger.info("  Phase 3.5: Knowledge distillation ✅")
+            self._sleep_phase_experience_consolidation(report)
+            report.phases_completed.append("experience_consolidation")
+            logger.info("  Phase 3.5: Experience consolidation ✅")
         except Exception as e:
             logger.warning(f"  Phase 3.5 failed: {e}")
         
@@ -1193,7 +1193,7 @@ class SleepEngine:
         logger.warning("Cortex 未注入，跳过睡眠训练")
 
     def _integrate_new_neuron(self, new_nid: str, report) -> None:
-        """C17：新生 neuron 无缝衔接（静默→蒸馏→验证→固化/凋亡）。
+        """C17：新生 neuron 无缝衔接（静默→同伴协调→验证→固化/凋亡）。
 
         由 neurogenesis 创建新 neuron 后调用，避免"粗暴加入"（无整合训练）。
         """
@@ -1473,7 +1473,7 @@ class SleepEngine:
                                 report.recommendations.append(
                                     f"[神经新生] 新神经元 {new_nid} 已创建{split_info}"
                                 )
-                                # C17：无缝衔接（静默→蒸馏→验证→固化/凋亡），避免粗暴加入
+                                # C17：无缝衔接（静默→同伴协调→验证→固化/凋亡），避免粗暴加入
                                 self._integrate_new_neuron(new_nid, report)
                             except Exception as ne:
                                 logger.warning(f"  neurogenesis 创建失败: {ne}")
@@ -1510,7 +1510,7 @@ class SleepEngine:
                                 report.recommendations.append(
                                     f"[神经新生] 孤立神经元 {nid} → 创建协同神经元 {new_nid}{split_info}"
                                 )
-                                # C17：无缝衔接（静默→蒸馏→验证→固化/凋亡），避免粗暴加入
+                                # C17：无缝衔接（静默→同伴协调→验证→固化/凋亡），避免粗暴加入
                                 self._integrate_new_neuron(new_nid, report)
                             except Exception as ne:
                                 logger.warning(f"  孤立协同神经元创建失败: {ne}")
@@ -1771,7 +1771,7 @@ class SleepEngine:
     ) -> tuple:
         """P7: 训练单个神经元的独立 lm_head + shared_embedding 协同学习。
 
-        经验驱动学习（非蒸馏）：
+        经验驱动学习（非中心模型迁移）：
         - 输入：general tokenizer encode → general_ids → cortex._shared_embedding 查表 → embeddings
         - 目标：domain tokenizer encode → domain_ids（lm_head 输出在 domain vocab）
         - 可训练参数：neuron.lm_head + neuron.embed_adapter + cortex._shared_embedding
@@ -1807,7 +1807,7 @@ class SleepEngine:
         device = next(neuron.parameters()).device
 
         # 收集可训练参数：lm_head + embed_adapter + shared_embedding
-        # shared_embedding 是感官层，与神经元协同学习（经验驱动，非蒸馏）
+        # shared_embedding 是感官层，与神经元协同学习（经验驱动，非中心模型迁移）
         lm_head_params = list(neuron.lm_head.parameters())
         if hasattr(neuron, 'embed_adapter'):
             adapter_params = list(neuron.embed_adapter.parameters())
@@ -1968,7 +1968,7 @@ class SleepEngine:
            loss=0 无梯度。修复：用 (sim+margin)²，sim=0 时 loss=margin²>0，
            持续推向负相关。
         3. align_loss 均匀问题：前两信号失效时 softmax 均匀导致 KL≈0。
-           修复：前两信号有效后自然生效，保持 KL 蒸馏。
+           修复：前两信号有效后自然生效，保持同伴分布对齐。
 
         反传到 shared_embedding + embed_adapter + field_write（保护 lm_head）。
         backward 后用 hidden_before_write EMA 更新 domain_prototype。
@@ -2217,8 +2217,8 @@ class SleepEngine:
                     proto_count += 1
         proto_loss = proto_loss / max(proto_count, 1)
 
-        # ── 信号 3: align_loss — prototype 排序与共振分数排序对齐（KL 蒸馏）──
-        # 把"动态共振信号"蒸馏进"易训练的 prototype 方向"。
+        # ── 信号 3: align_loss — prototype 排序与共振分数排序对齐 ──
+        # 把动态共振信号对齐到易训练的 prototype 方向。
         # 前两信号有效后，排序分布不再均匀，KL 才有意义。
         hidden_vecs = [self_hidden[nid].squeeze(0) for nid in all_nids
                        if nid in self_hidden]
@@ -2456,8 +2456,8 @@ class SleepEngine:
         report.evolution_events += result.get("channels_reinforced", 0)
         return result
 
-    def _sleep_phase_knowledge_distillation(self, report: SleepReport) -> dict:
-        """Phase 3.5: 知识蒸馏 — 将累积知识转化为训练数据。
+    def _sleep_phase_experience_consolidation(self, report: SleepReport) -> dict:
+        """Phase 3.5: 经验巩固 — 将累积知识转化为群体训练数据。
 
         从 ContextManager 的对话历史中提取高频重要内容，
         巩固为长期记忆，同时喂入 FeedEngine 作为睡眠训练数据。
@@ -2465,7 +2465,7 @@ class SleepEngine:
         if self._feed_engine is None:
             return {"status": "skipped"}
 
-        distilled = 0
+        consolidated = 0
 
         # 1. 巩固 ContextManager 记忆（短期→长期）
         try:
@@ -2479,12 +2479,12 @@ class SleepEngine:
                     if not slot.is_empty() and slot.content:
                         self._feed_engine.feed_text(
                             text=slot.content,
-                            source="distillation:long_term_memory",
+                            source="experience:long_term_memory",
                             category="knowledge",
                         )
-                        distilled += 1
+                        consolidated += 1
         except Exception as e:
-            logger.debug(f"  Phase 3.5: 记忆蒸馏失败（非关键）: {e}")
+            logger.debug(f"  Phase 3.5: 经验巩固失败（非关键）: {e}")
 
         # 3. 记录 pending 样本数
         pending = 0
@@ -2494,12 +2494,12 @@ class SleepEngine:
             except Exception:
                 pass
 
-        logger.info(f"  Phase 3.5: 蒸馏 {distilled} 条记忆, {pending} 个待处理样本")
-        if distilled > 0:
+        logger.info(f"  Phase 3.5: 巩固 {consolidated} 条记忆, {pending} 个待处理样本")
+        if consolidated > 0:
             report.recommendations.append(
-                f"[知识蒸馏] {distilled} 条长期记忆转化为训练数据"
+                f"[经验巩固] {consolidated} 条长期记忆转化为群体训练数据"
             )
-        return {"status": "ok", "distilled": distilled, "pending_samples": pending}
+        return {"status": "ok", "consolidated": consolidated, "pending_samples": pending}
 
     def _sleep_phase_evaluation(self, report: SleepReport) -> dict:
         """Phase 4: 清醒准备 — 自我评估。
@@ -2681,11 +2681,11 @@ class SleepEngine:
 
     def _sleep_phase_recursive_improvement(self, report: SleepReport):
         """
-        Phase 5: 递归改进 — 策略优化 + 进化语料生成
+        Phase 5: 递归改进 — 策略优化 + 群体训练素材生成
 
         基于 Gödel Agent (ACL 2025) 的思想：
         态极在睡眠时分析自己的行为策略，找出可以改进的地方。
-        同时生成下一代训练数据（递归蒸馏素材）。
+        同时生成下一轮群体训练数据。
         """
         try:
             # B4 修复：使用全局单例，保留历史策略记录
@@ -2855,20 +2855,15 @@ class SleepEngine:
 
     def _get_resource_constraints(self) -> dict:
         """获取当前设备的资源约束"""
-        constraints = {"max_memory_gb": 16, "max_params": "7B"}
+        constraints = {"max_memory_gb": 16, "max_active_neurons": 8}
         try:
             import torch
             if torch.cuda.is_available():
                 mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
                 constraints["max_memory_gb"] = round(mem * 0.8)  # 留 20% 余量
-                if mem < 8:
-                    constraints["max_params"] = "1.5B"
-                elif mem < 16:
-                    constraints["max_params"] = "3B"
-                elif mem < 24:
-                    constraints["max_params"] = "7B"
-                else:
-                    constraints["max_params"] = "14B"
+                # Population capacity is expressed as active members, not as
+                # a single model-size ladder.
+                constraints["max_active_neurons"] = max(8, int(mem * 2))
         except Exception as e:
             logger.debug("sleep_engine: non-critical %s", e, exc_info=True)
         return constraints
@@ -2911,7 +2906,7 @@ class SleepEngine:
             logger.debug(f"  Evolution corpus generation failed: {e}")
 
     def _collect_training_texts(self) -> list:
-        """收集蒸馏训练用的文本数据。
+        """收集群体训练用的文本数据。
 
         从工作记忆、进化语料和最近交互中提取文本列表。
         """
@@ -2949,9 +2944,9 @@ class SleepEngine:
 
         # 3. 确保至少有基本数据
         if not texts:
-            texts = ["态极正在通过递归蒸馏自我进化。"]
+            texts = ["态极正在通过经验巩固和神经元协作扩展群体能力。"]
 
-        logger.info(f"  收集了 {len(texts)} 条训练文本用于蒸馏")
+        logger.info(f"  收集了 {len(texts)} 条训练文本用于群体训练")
         return texts
 
     def _get_device(self) -> str:

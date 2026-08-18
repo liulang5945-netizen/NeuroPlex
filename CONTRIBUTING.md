@@ -53,9 +53,10 @@ Thank you for your interest in NeuroPlex! This document describes how to contrib
 
 ## Architecture Notes
 
-- **Neurons are independent**: Each domain neuron is a standalone Transformer with its own tokenizer and vocab. You can add one without touching others.
-- **Resonance field is not a model**: It's a shared communication medium (a tensor). Neurons write/read `field_vector`s to/from it. The field has no parameters of its own (except optional projection layers).
-- **Hub neuron** (1024-dim, 14-layer, 134M params) serves as a cross-domain semantic anchor. It's the only neuron that spans all domains.
+- **The population is the product**: Each domain or role neuron is an independently trainable Transformer. New capability should normally be added by specializing or adding neurons, not by growing a central backbone.
+- **Resonance field is a communication medium**: Neurons write/read `field_vector`s, peer channels provide local coordination, and routing selects the active subset for each task.
+- **Relay neurons are optional**: An expert neuron can provide cross-domain anchoring, but it remains one member of the population and must not become a hidden central teacher.
+- **Lifecycle is part of the architecture**: memory replay, synaptic updates, maturation, neurogenesis, and apoptosis are first-class population mechanisms.
 
 ## License
 

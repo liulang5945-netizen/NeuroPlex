@@ -1,11 +1,11 @@
-"""Training scheduler — unified interface for "train vs evolve" decisions.
+"""Training scheduler — unified interface for "reuse vs grow" decisions.
 
 The core question from the roadmap: when a new domain dataset arrives,
-does Taiji fine-tune an existing neuron or spawn a new one?
+does the population specialize an existing neuron or grow a new one?
 
 Answer: the TrainingScheduler makes this decision dynamically:
 - High match_score → fine-tune existing neuron
-- Medium match_score → spawn new neuron from parent (distillation)
+- Medium match_score → grow a sibling neuron from a related member
 - Low match_score → train new neuron from scratch
 
 This is the single entry point for all training tasks in the neuron era.
@@ -19,12 +19,12 @@ import torch
 
 
 class TrainingScheduler:
-    """Unified scheduler: "spawn new neuron" vs "reuse existing neuron".
+    """Unified scheduler: "grow a new neuron" vs "reuse existing neuron".
 
     Usage:
         scheduler = TrainingScheduler(neurons, field, REUSE_THRESHOLD=0.7)
         task = scheduler.schedule(domain_data)
-        # task = FineTuneTask / SpawnNeuronTask / NewNeuronTask
+        # task = FineTuneTask / GrowNeuronTask / NewNeuronTask
     """
 
     REUSE_THRESHOLD = 0.7   # cosine similarity: above this → fine-tune
@@ -77,7 +77,7 @@ class TrainingScheduler:
             domain_embedding: optional pre-computed domain embedding.
 
         Returns:
-            Task object: FineTuneTask / SpawnNeuronTask / NewNeuronTask
+            Task object: FineTuneTask / GrowNeuronTask / NewNeuronTask
         """
         best_nid = self.find_best_neuron(domain_embedding) if domain_embedding is not None else None
 
@@ -91,7 +91,7 @@ class TrainingScheduler:
         if match_score > self.REUSE_THRESHOLD:
             return FineTuneTask(neuron_id=best_nid, data=domain_data)
         elif match_score > self.SPAWN_THRESHOLD:
-            return SpawnNeuronTask(parent_id=best_nid, data=domain_data)
+            return GrowNeuronTask(parent_id=best_nid, data=domain_data)
         else:
             return NewNeuronTask(data=domain_data)
 
@@ -104,12 +104,17 @@ class FineTuneTask:
         self.task_type = "finetune"
 
 
-class SpawnNeuronTask:
-    """Spawn a new neuron from a parent via distillation."""
+class GrowNeuronTask:
+    """Grow a sibling neuron from a related population member."""
     def __init__(self, parent_id: str, data):
         self.parent_id = parent_id
         self.data = data
         self.task_type = "spawn"
+
+
+# Compatibility name for callers written before population growth became the
+# canonical training path. New code should use GrowNeuronTask.
+SpawnNeuronTask = GrowNeuronTask
 
 
 class NewNeuronTask:

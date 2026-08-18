@@ -241,7 +241,7 @@ TINY_TEST = NeuronConfig(
 
 
 # ============================================================================
-# 全局默认 spec（神经新生 / fallback / 蒸馏的统一入口）
+# 全局默认 spec（神经新生 / fallback / 兼容加载的统一入口）
 # ============================================================================
 # 所有新创建的生产 neuron 都应使用此 spec，避免硬编码不一致。
 # 修改时同步：scripts/training/train_neuron.py
@@ -252,7 +252,7 @@ DEFAULT_NEURON_SPEC = "compact"  # COMPACT: hidden=512, layers=6, ~85M/neuron
 # P7: 域专用 tokenizer vocab 映射
 # ============================================================================
 # 每 neuron 用域专用 tokenizer，独立 embedding + 独立 lm_head
-# vocab 大小由域 tokenizer 决定（taiji/domains/{domain}/sp_{domain}.model）
+# vocab 大小由域 tokenizer 决定（neuroplex/domains/{domain}/sp_{domain}.model）
 # general 域复用 en tokenizer（16k），避免重新训 tokenizer
 # T12: zh vocab 20K → 50K（词表库热插拔升级，upgrade_tokenizer.py 训练 + hot_swap_vocab.py 迁移 ckpt）
 DOMAIN_VOCAB_SIZES = {

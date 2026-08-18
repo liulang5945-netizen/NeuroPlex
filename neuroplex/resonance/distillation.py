@@ -1,9 +1,12 @@
-"""R7: 代际迁移蒸馏（teacher → student）三联 loss。
+"""Legacy teacher-alignment loss for checkpoint compatibility.
+
+This module is not part of the active population-growth path. New neurons
+should be trained from domain data and population experience; this utility is
+kept only for old experiments and serialized artifacts that still need it.
 
 设计哲学（人脑启发：代际学习 / 髓鞘化）：
 - 老神经元（teacher）已成熟，其输出分布、表示空间、注意力模式蕴含领域知识
 - 新神经元（student）通过模仿 teacher 快速获得基础能力，再个性化发展
-- 与"小神经元协作匹配大模型"的核心理念一致：先继承、再创新
 
 三联蒸馏（用户选定方案 D = A + B + C）：
 A. Logits 蒸馏：KL(student_logits/T, teacher_logits/T) * T^2

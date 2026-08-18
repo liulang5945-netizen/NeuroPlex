@@ -1,5 +1,5 @@
 """快速统计 zh_texts.jsonl 的行数和字符数。"""
-f = open('data/distill/zh_texts.jsonl', 'r', encoding='utf-8')
+f = open('data/corpus/zh_texts.jsonl', 'r', encoding='utf-8')
 n = 0
 chars = 0
 non_empty = 0

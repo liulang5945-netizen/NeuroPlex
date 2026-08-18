@@ -90,7 +90,7 @@ def _cortex_model_info(cortex) -> dict:
         "max_rounds": getattr(cortex, 'max_rounds', None),
         "modalities": modalities,
         "message": (
-            "单神经元 fallback 模式（未蒸馏）" if is_fallback
+            "单神经元 fallback 模式（未训练）" if is_fallback
             else f"Cortex 已加载 {len(neurons)} 个神经元"
         ),
     }

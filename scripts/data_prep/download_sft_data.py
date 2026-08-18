@@ -1,8 +1,7 @@
-"""下载 SFT (Supervised Fine-Tuning) instruction-response 数据.
+"""下载群体神经元训练所需的 SFT instruction-response 数据。
 
-与 download_hf_distill_data.py 区别：
-  - 蒸馏数据：纯文本拼接（instruction + input + output 一段），用于 forward 续写学习
-  - SFT 数据：保留 instruction/response 结构，让模型学"回答"而非"续写"
+保留 instruction/response 结构，让每个专业神经元学习自己的响应能力；
+后续由域 tokenizer 和群体协作训练流程处理。
 
 数据源（每域 3K 样本）：
 - zh:      shibing624/alpaca-zh（中文指令）
@@ -16,7 +15,7 @@
     list[dict] 每项 {"instruction": str, "input": str, "response": str, "prompt": str, "full": str}
       - prompt:   用于输入 neuron 的文本（instruction + input）
       - response: 期望 neuron 生成的回答
-      - full:     prompt + response（teacher-forcing 全序列）
+      - full:     prompt + response（全序列监督）
 
   data/sft/sft_datasets.pt
     dict[domain] -> list[dict]   （与上同结构）
@@ -59,13 +58,6 @@ DEFAULT_SAMPLES = 3000
 # HF datasets-server API
 API_BASE = "https://datasets-server.huggingface.co/rows"
 PAGE_SIZE = 100
-
-# R18（REMEDIATION_PLAN 2026-08-14）：路径已相对，加环境变量覆盖入口
-SPM_PATH = os.path.join(
-    os.environ.get("TAICHI_TEACHER_PATH", "checkpoint-481000"),
-    "sentencepiece.model",
-)
-
 
 # ── 数据源配置 ──
 DOMAIN_SOURCES = {
@@ -172,7 +164,7 @@ def fetch_page(dataset: str, config: str, split: str, offset: int,
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={
-                "User-Agent": "taiji-neuron/1.0",
+                "User-Agent": "neuroplex-population/1.0",
                 "Accept": "application/json",
             })
             with urllib.request.urlopen(req, timeout=60) as resp:
@@ -267,7 +259,7 @@ def tokenize_sft(sp: spm.SentencePieceProcessor, samples: list[dict],
     关键设计：
     - input_ids = tokenize(prompt) + tokenize(response) + [EOS]
     - labels = [-100] * len(prompt_ids) + response_ids + [EOS]
-        （prompt 部分不计 loss，只对 response 计算 LM loss = teacher forcing SFT）
+        （prompt 部分不计 loss，只对 response 计算监督损失）
     - response_mask = [0] * len(prompt_ids) + [1] * (len(response_ids) + 1)
         （标识哪些位置是 response，用于统计训练效果）
 

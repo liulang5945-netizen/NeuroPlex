@@ -4,20 +4,20 @@
 背景：
     现有 zh tokenizer 用 30K 行语料训练（vocab=20K），覆盖率 ~70%，
     导致长词/常见词被切碎（如"表""征"分离），对话质量受限。
-    本脚本用 1314 万行纯文本语料（data/distill/zh_texts.jsonl）采样训练
+    本脚本用中文纯文本语料（data/corpus/zh_texts.jsonl）采样训练
     新的 zh tokenizer（vocab=50K），实现词表库热插拔，不重训神经元。
 
 流程：
-    1. 备份旧模型 taiji/domains/zh/sp_zh.model → sp_zh_v20k.model
+    1. 备份旧模型 neuroplex/domains/zh/sp_zh.model → sp_zh_v20k.model
        （hot_swap_vocab.py 依赖旧模型构建 token id 映射）
     2. 从大语料均匀采样 ~200 万行（跳过空行/过短行）
     3. 训练新 BPE tokenizer（vocab=50K，参数与 build_domain_tokenizers 一致）
-    4. 覆盖写入 taiji/domains/zh/sp_zh.model
+    4. 覆盖写入 neuroplex/domains/zh/sp_zh.model
     5. 诊断：新旧 tokenizer 在测试文本上的 token 数/覆盖率对比
 
 输出：
-    taiji/domains/zh/sp_zh.model        （新 50K tokenizer）
-    taiji/domains/zh/sp_zh_v20k.model   （旧 20K tokenizer 备份，供映射）
+    neuroplex/domains/zh/sp_zh.model        （新 50K tokenizer）
+    neuroplex/domains/zh/sp_zh_v20k.model   （旧 20K tokenizer 备份，供映射）
 
 用法：
     python scripts/training/upgrade_tokenizer.py [--vocab-size 50000]
@@ -34,10 +34,10 @@ from pathlib import Path
 import sentencepiece as spm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-CORPUS_PATH = PROJECT_ROOT / "data" / "distill" / "zh_texts.jsonl"
+CORPUS_PATH = PROJECT_ROOT / "data" / "corpus" / "zh_texts.jsonl"
 # T12-B: 混合对话语料，让 BPE 合并对话高频词（三原色/保持健康等）
 DIALOGUE_PATH = PROJECT_ROOT / "data" / "simple_zh" / "alpaca_zh_sft.jsonl"
-DOMAIN_DIR = PROJECT_ROOT / "taiji" / "domains" / "zh"
+DOMAIN_DIR = PROJECT_ROOT / "neuroplex" / "domains" / "zh"
 MODEL_PATH = DOMAIN_DIR / "sp_zh.model"
 OLD_BACKUP = DOMAIN_DIR / "sp_zh_v20k.model"
 

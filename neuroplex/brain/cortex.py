@@ -194,7 +194,7 @@ class Cortex:
         # ── P6-4: WorkingMemory ──
         # R13（REMEDIATION_PLAN 2026-08-14）：仅"注册未接入"——set_working_memory
         # 后 generate/_generate_p7/think 均不读取本字段（假接线）；生产对话上下文
-        # 由 taiji/agent/working_memory（ContextManager 链）承担。保留接口向后
+        # 由 neuroplex/agent/working_memory（ContextManager 链）承担。保留接口向后
         # 兼容；若未来接 token 级滑动窗口，接入点在 _generate_p7。
         self.working_memory = None
 
@@ -210,7 +210,7 @@ class Cortex:
             print(f"[Cortex] Shared embedding: {self._shared_embedding.num_embeddings} × {self._shared_embedding.embedding_dim}")
 
     def _load_neurons(self, neuron_ids: Optional[List[str]] = None):
-        """Load all distilled neurons from disk.
+        """Load all trained neurons from disk.
 
         H3 修复：原来硬编码 5 域 ['zh','en','code','math','general']，
         新生 neuron（如 neuron_physics_1.pt）被静默忽略。
@@ -377,7 +377,7 @@ class Cortex:
         - 每个 neuron 的 lm_head 权重（输出层）
         - 每个 neuron 的 embed_adapter 权重（如果有）
 
-        不保存：frozen backbone（来自蒸馏 ckpt，不变）、field state（运行时状态）
+        不保存：frozen backbone（来自已训练 ckpt，不变）、field state（运行时状态）
 
         Args:
             path: 保存路径（目录或文件路径）
@@ -2479,7 +2479,7 @@ class Cortex:
         # 2.5 评估口径守卫（2026-08-12 机制化，硬失败）：
         # dialogue neuron（zh_aug*_dialogue / zh_std0_dialogue）用 "问：...\n答：" 格式
         # 训练（SFT answer masking），裸 prompt 下模型陷入换行/空格死循环 → 假退化。
-        # 判断逻辑见 taiji/resonance/dialogue_format.dialogue_prompt_requires_guard
+        # 判断逻辑见 neuroplex/resonance/dialogue_format.dialogue_prompt_requires_guard
         # （核心库单一真相源，配合 tests/test_dialogue_format.py 回归防口径漂移）。
         # 此处 active_nids 已完成归一化（必为 list，非 None）。
         if dialogue_prompt_requires_guard(prompt, domain, active_nids, _allow_plain_prompt):

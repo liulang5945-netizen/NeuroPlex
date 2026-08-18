@@ -1,8 +1,8 @@
-"""生成 ReAct 工具调用训练数据"""
+"""生成 NeuroPlex ReAct 工具调用训练数据"""
 import json
 import os
 
-output_path = 'taiji_data/training_data/react_data.jsonl'
+output_path = 'data/sft/react_data.jsonl'
 
 templates = [
     {
@@ -26,16 +26,16 @@ templates = [
         'thought': '用户想查看配置文件，我需要读取它。',
         'action': 'read_file',
         'args': {'path': 'config.json'},
-        'obs': '{"name": "taiji", "version": "1.6", "model": "1B"}',
-        'answer': '配置文件内容：\n- 名称: taiji\n- 版本: 1.6\n- 模型: 1B参数'
+        'obs': '{"name": "neuroplex", "version": "1.6", "architecture": "population_resonance"}',
+        'answer': '配置文件内容：\n- 名称: NeuroPlex\n- 版本: 1.6\n- 架构: 群体神经元共振网络'
     },
     {
         'task': '列出当前目录的文件',
         'thought': '用户想查看目录结构，我需要列出文件。',
         'action': 'list_directory',
         'args': {'path': '.'},
-        'obs': 'README.md, requirements.txt, taiji/, api/, frontend/',
-        'answer': '当前目录包含：\n- README.md - 项目说明\n- requirements.txt - 依赖\n- taiji/ - 核心代码\n- api/ - API服务\n- frontend/ - 前端'
+        'obs': 'README.md, requirements.txt, neuroplex/, api/, frontend/',
+        'answer': '当前目录包含：\n- README.md - 项目说明\n- requirements.txt - 依赖\n- neuroplex/ - 群体神经元核心代码\n- api/ - API服务\n- frontend/ - 前端'
     },
     {
         'task': '计算斐波那契数列前10项',
@@ -166,22 +166,22 @@ templates = [
         'answer': 'Rust语言核心特点：\n1. 内存安全 - 编译时检查\n2. 零成本抽象 - 性能媲美C++\n3. 并发安全 - 防止数据竞争\n4. 现代化工具 - cargo包管理'
     },
     {
-        'task': '列出taiji目录结构',
+        'task': '列出neuroplex目录结构',
         'thought': '用户想看项目结构，我列出目录。',
         'action': 'list_directory',
-        'args': {'path': 'taiji/'},
-        'obs': 'core/, life/, agent/, brain/, tools/, train/, safety/, multimodal/',
-        'answer': 'taiji项目结构：\n- core/ - 核心推理引擎\n- life/ - 生命系统\n- agent/ - 智能体\n- brain/ - 大脑皮层\n- tools/ - 工具集\n- train/ - 训练系统\n- safety/ - 安全系统\n- multimodal/ - 多模态'
+        'args': {'path': 'neuroplex/'},
+        'obs': 'core/, life/, agent/, brain/, resonance/, multimodal/',
+        'answer': 'neuroplex项目结构：\n- core/ - 核心运行时\n- life/ - 生命周期与巩固\n- agent/ - 智能体\n- brain/ - 皮层与群体编排\n- resonance/ - 神经元、场与路由\n- multimodal/ - 多模态'
     },
 ]
 
-# Convert to Taiji message format
+# Convert to NeuroPlex message format
 samples = []
 for t in templates:
     args_str = json.dumps(t['args'], ensure_ascii=False) if t['args'] else ''
     sample = {
         'messages': [
-            {'role': 'system', 'content': '你是态极，一个会使用工具的AI助手。'},
+            {'role': 'system', 'content': '你是 NeuroPlex，一个会使用工具的群体神经元网络。'},
             {'role': 'user', 'content': t['task']},
             {'role': 'assistant', 'content': f"<think>{t['thought']}</think><tool_call>{t['action']}({args_str})</tool_call>"},
             {'role': 'system', 'content': f"<tool_result>{t['obs']}</tool_result>"},
@@ -190,6 +190,7 @@ for t in templates:
     }
     samples.append(sample)
 
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
 # Save
 with open(output_path, 'w', encoding='utf-8') as f:
     for s in samples:

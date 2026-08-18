@@ -277,17 +277,17 @@ class TokenizerHub:
         domains_dir: str = None,
         general_tokenizer=None,
     ) -> "TokenizerHub":
-        """P7: 从 taiji/domains/ 加载默认 4 个域 tokenizer (zh/en/code/math).
+        """P7: 从 neuroplex/domains/ 加载默认 4 个域 tokenizer (zh/en/code/math).
 
         目录结构：
-            taiji/domains/zh/sp_zh.model
-            taiji/domains/en/sp_en.model
-            taiji/domains/code/sp_code.model
-            taiji/domains/math/sp_math.model
+            neuroplex/domains/zh/sp_zh.model
+            neuroplex/domains/en/sp_en.model
+            neuroplex/domains/code/sp_code.model
+            neuroplex/domains/math/sp_math.model
 
         Args:
             domains_dir: 域 tokenizer 根目录。None 时自动推断为
-                         taiji/domains/
+                         neuroplex/domains/
             general_tokenizer: 可选的通用 tokenizer（向后兼容）。
 
         Returns:
@@ -301,7 +301,7 @@ class TokenizerHub:
             ) from e
 
         if domains_dir is None:
-            # taiji/resonance/translator.py → taiji/domains/
+            # neuroplex/resonance/translator.py → neuroplex/domains/
             here = os.path.dirname(os.path.abspath(__file__))
             domains_dir = os.path.normpath(
                 os.path.join(here, "..", "domains")
@@ -357,7 +357,7 @@ class TokenizerHub:
 
         Args:
             domain: 域名。
-            ext_path: 扩展区持久化路径（如 taiji/domains/zh/sp_zh_ext.json）。
+        ext_path: 扩展区持久化路径（如 neuroplex/domains/zh/sp_zh_ext.json）。
                       存在则自动加载已追加 token；None 仅包装不持久化。
 
         Returns:
@@ -428,7 +428,7 @@ class EditableVocabulary:
         ev = EditableVocabulary(sp)
         nid = ev.add_token("▁量子计算")        # 返回新 token id（≥ base）
         ids = ev.encode("量子计算前沿")          # 新词优先整词编码
-        ev.save_ext("taiji/domains/zh/sp_zh_ext.json")
+    ev.save_ext("neuroplex/domains/zh/sp_zh_ext.json")
         ev2 = EditableVocabulary(sp, ext_path=...)  # 还原
 
     tokenizer_fingerprint(sp) 兼容本类：GetPieceSize / id_to_piece 已实现
@@ -929,7 +929,7 @@ class AlignmentRules:
       不用 token id（随 tokenizer 重训漂移，脆弱）
     - 支持域特定规则 + 全局规则（source_domain="*"）
     - 每次增删递增 version，驱动下游对齐矩阵缓存自动失效
-    - 持久化 JSON（默认 taiji/domains/alignment_rules.json），可热加载
+    - 持久化 JSON（默认 neuroplex/domains/alignment_rules.json），可热加载
 
     Usage:
         rules = AlignmentRules()                      # 空规则

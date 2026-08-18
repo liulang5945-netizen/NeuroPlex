@@ -165,7 +165,7 @@ class GroupedQueryAttention(nn.Module):
         会自动驱逐旧 token 保持 KV cache 长度上限 = sink_size + window_size。
 
         R7: return_attn_weights=True 时返回 attention 权重 [B, num_heads, L, L]，
-        用于代际迁移蒸馏的注意力转移。默认 False（向后兼容）。
+        用于兼容性对齐实验的注意力返回。默认 False（向后兼容）。
         """
         bsz, seqlen, _ = x.shape
 
@@ -407,7 +407,7 @@ class TransformerBlock(nn.Module):
         - field_state: S10 树突化 apical 路径的 KV 来源（全局场状态）
           - None 或 dendritic=False: 走标准 basal 路径（向后兼容）
           - 非 None 且 dendritic=True: basal + apical + 预测编码整合
-        - return_attn_weights: R7 返回 basal attention 权重（用于蒸馏）
+        - return_attn_weights: 返回 basal attention 权重（仅兼容性对齐实验使用）
         """
         # ── Basal 路径: 标准 attention + FFN ──
         h, new_kv_cache, attn_weights = self.attention(

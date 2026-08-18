@@ -268,7 +268,7 @@ class ResonanceEnsemble:
     """Orchestrates multi-round resonance inference across multiple neurons.
 
     P7: 简化为直接共振——移除 ConfidenceGate/EarlyStop/QualityFilter/DivisionPath/DomainRouter，
-    这些机制在旧 teacher-based 架构中设计，与新 P7 从头训练路径不兼容。
+    这些机制属于历史兼容路径，与新 P7 从头训练路径不兼容。
 
     Usage:
         ensemble = ResonanceEnsemble(neurons, field)

@@ -49,7 +49,7 @@
 - 抑制性神经元的 `field_vector` 在 `ResonanceNeuron.forward` 中取反 (`v = -v`)
 - 场的 `write`/`update` 无需感知 neuron_type，向量已携带正负号
 
-**文件**：`taiji/resonance/config.py`, `taiji/resonance/neuron.py`
+**文件**：`neuroplex/resonance/config.py`, `neuroplex/resonance/neuron.py`
 
 ### 2.2 不应期 (Refractory Period)
 
@@ -62,7 +62,7 @@
 - `in_refractory` 属性：round 2+ 中不应期神经元只读场不写场
 - 旧贡献从场 state 中移除，避免"幽灵"影响
 
-**文件**：`taiji/resonance/neuron.py`, `taiji/resonance/ensemble.py`
+**文件**：`neuroplex/resonance/neuron.py`, `neuroplex/resonance/ensemble.py`
 
 ### 2.3 兴奋/抑制双通道
 
@@ -74,7 +74,7 @@
 - `establish_side_channel(peer_id, channel_type)` 支持双类型
 - 同一 peer 可同时拥有两种通道，由 STDP 学习决定主导
 
-**文件**：`taiji/resonance/neuron.py`
+**文件**：`neuroplex/resonance/neuron.py`
 
 ---
 

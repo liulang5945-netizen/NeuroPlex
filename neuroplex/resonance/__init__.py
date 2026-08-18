@@ -37,7 +37,6 @@ from .topology import (
     build_topology, establish_topology_channels,
     infer_topology_from_state, topology_summary, topology_detail,
 )
-from .distillation import DistillationLoss, build_layer_map, HiddenProjector
 
 __all__ = [
     # Core
@@ -73,6 +72,4 @@ __all__ = [
     # S7 拓扑
     "build_topology", "establish_topology_channels",
     "infer_topology_from_state", "topology_summary", "topology_detail",
-    # R7 代际迁移蒸馏
-    "DistillationLoss", "build_layer_map", "HiddenProjector",
 ]

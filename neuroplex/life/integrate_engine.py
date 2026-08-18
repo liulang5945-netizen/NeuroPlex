@@ -5,12 +5,12 @@
    ._confidence_routing_fusion 的 maturity 注入，见 C17 改动）——新生 neuron 初期
    不参与输出融合（人脑"沉默突触"），只训练输入侧（side_channels）+ quality_head
    + LoRA，用 FeedEngine 累积样本学习。
-② 可塑+蒸馏期（0.3-0.8）：高 lr（MaturityTracker.get_lr_multiplier 幼稚 3×）+
-   拓扑邻居 KL 蒸馏——新 neuron 输出对齐其 side_channels 输入源（导师），自然
-   衔接共振场（人脑"被邻居回路引导"）。
+② 可塑+同伴协调期（0.3-0.8）：高 lr（MaturityTracker.get_lr_multiplier 幼稚 3×）+
+   拓扑邻居 KL 对齐——新 neuron 通过 side_channels 与邻近成员协调，逐步
+   融入共振场（人脑"被邻居回路引导"）。
 ③ 验证期（0.8-1.0）：ablation——有 vs 无该 neuron 的 ensemble CE 对比，贡献为正
    才 commit。
-④ 固化/凋亡：贡献正 → tick 满成为正式成员（未来可当导师）；负 → apoptosis 信号。
+④ 固化/凋亡：贡献正 → tick 满成为正式成员；负 → apoptosis 信号。
 
 由 SleepEngine 在 neurogenesis 创建新 neuron 后调用 integrate(new_nid)。
 训练在影子权重 COW 上进行（与 _train_cortex_neurons 同模式，见 sleep_engine.py
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class IntegrateEngine:
-    """新生神经元无缝衔接引擎（静默 → 蒸馏 → 验证 → 固化/凋亡）。"""
+    """新生神经元无缝衔接引擎（静默 → 同伴协调 → 验证 → 固化/凋亡）。"""
 
     # ── 阶段阈值（maturity_ratio）──
     SILENT_END = 0.3      # 静默期结束（此后逐步参与融合）
@@ -40,8 +40,8 @@ class IntegrateEngine:
     # ── 训练超参（v1，保守值）──
     MAX_STEPS_PER_SESSION = 32   # 单次 sleep 会话最大训练步数
     MAX_TEXT_LEN = 256           # 单条样本最大 token 长度
-    DISTILL_WEIGHT = 0.3         # 邻居蒸馏权重（C26 增量七降权：记忆生长为主，蒸馏辅助）
-    DISTILL_TEMP = 2.0           # 蒸馏温度
+    PEER_ALIGNMENT_WEIGHT = 0.3  # 邻居对齐权重（记忆生长为主，协作辅助）
+    PEER_ALIGNMENT_TEMP = 2.0   # 邻居分布对齐温度
     LORA_RANK = 16               # 新 neuron body 保护（C16）
     ABLATION_SAMPLES = 16        # ablation 评估样本数
     # C26 增量七：自组织新生——记忆条件化预训练超参
@@ -93,10 +93,10 @@ class IntegrateEngine:
         try:
             # 成熟 neuron 全部冻结；新 neuron 只训协作层（side_channels/quality_head/LoRA）
             self._prepare_trainable(shadow_modules, new_nid)
-            # C26 增量七：自组织新生——先做记忆条件化预训练（从经验生长，非 teacher
-            # 蒸馏）。用记忆库中积累的高频经验（向量+文本）在记忆注意窗（round2+
+            # C26 增量七：自组织新生——先做记忆条件化预训练（从经验生长，非中心模型
+            # 迁移）。用记忆库中积累的高频经验（向量+文本）在记忆注意窗（round2+
             # 场条件化）下预热新 neuron 的读路径 + LoRA，让其"从经验出生"而非
-            # 完全依赖 feed 样本或邻居蒸馏。无记忆样本时静默跳过（向后兼容）。
+            # 完全依赖 feed 样本或邻居复制。无记忆样本时静默跳过（向后兼容）。
             self._memory_pretrain(shadow_modules, shadow_emb, new_nid, domain)
             status = self._integrate_session(shadow_modules, shadow_emb, new_nid, domain, samples)
         finally:
@@ -141,7 +141,7 @@ class IntegrateEngine:
         steps = 0
         total_loss = 0.0
         ce_sum = 0.0
-        distill_sum = 0.0
+        peer_alignment_sum = 0.0
 
         for text in texts:
             try:
@@ -173,9 +173,9 @@ class IntegrateEngine:
                 ce = F.cross_entropy(sl.reshape(-1, sl.size(-1)), st.reshape(-1),
                                      ignore_index=-100, reduction="mean")
 
-                # 邻居蒸馏（新 neuron 对齐导师输出）
+                # 邻居协调（新 neuron 对齐同伴输出分布）
                 ind = result.get("individual_logits", {})
-                distill = 0.0
+                peer_alignment = 0.0
                 if neighbor_ids:
                     kls = []
                     new_lg = ind.get(new_nid)
@@ -185,14 +185,14 @@ class IntegrateEngine:
                             if nb_lg is None or nb_lg.shape != new_lg.shape:
                                 continue
                             kls.append(F.kl_div(
-                                F.log_softmax(new_lg / self.DISTILL_TEMP, dim=-1),
-                                F.softmax(nb_lg.detach() / self.DISTILL_TEMP, dim=-1),
+                                F.log_softmax(new_lg / self.PEER_ALIGNMENT_TEMP, dim=-1),
+                                F.softmax(nb_lg.detach() / self.PEER_ALIGNMENT_TEMP, dim=-1),
                                 reduction="batchmean",
                             ))
                     if kls:
-                        distill = sum(kls) / len(kls)
+                        peer_alignment = sum(kls) / len(kls)
 
-                loss = ce + self.DISTILL_WEIGHT * distill
+                loss = ce + self.PEER_ALIGNMENT_WEIGHT * peer_alignment
                 if "contrastive_loss" in result:
                     loss = loss + 0.5 * result["contrastive_loss"]
 
@@ -203,14 +203,14 @@ class IntegrateEngine:
                 steps += 1
                 total_loss += loss.item()
                 ce_sum += ce.item()
-                distill_sum += distill
+                peer_alignment_sum += peer_alignment
                 self._tick(new_nid)
 
                 # 每 8 步打印一次进度
                 if steps % 8 == 0:
                     logger.info(f"[IntegrateEngine] {new_nid} step {steps}: "
                                 f"loss={loss.item():.3f} ce={ce.item():.3f} "
-                                f"distill={distill:.3f} maturity={self._maturity_ratio(new_nid):.2f}")
+                                f"peer_alignment={peer_alignment:.3f} maturity={self._maturity_ratio(new_nid):.2f}")
             except Exception as e:
                 logger.warning(f"[IntegrateEngine] {new_nid} 单条样本训练失败: {e}")
                 continue
@@ -236,12 +236,12 @@ class IntegrateEngine:
     # ──────────────────────────────────────────────
     def _memory_pretrain(self, shadow_modules: Dict[str, object], shadow_emb,
                          new_nid: str, domain: str) -> int:
-        """记忆注意窗预训练（从经验生长，非 teacher 蒸馏）。
+        """记忆注意窗预训练（从经验生长，非中心模型迁移）。
 
         用记忆库中积累的高频经验（记忆向量 + 文本）在 round2+ 场条件化
         （记忆注意窗，同增量六 _sleep_phase_forward_replay 机制）下预热
         新 neuron 的读路径（field_read_layers/gate）+ LoRA——新 neuron
-        从自身经验出生，而非只依赖 feed 样本或邻居蒸馏。
+        从自身经验出生，而非只依赖 feed 样本或邻居复制。
 
         样本格式（用户决策：三者全加入）：
         1. 问答对："问：{label}是什么？\n答：{text}"
@@ -486,7 +486,7 @@ class IntegrateEngine:
                 if name.startswith("quality_head") or "lora_adapters" in name:
                     p.requires_grad = True
                 # C26 增量七：读路径（记忆注意窗条件化调制）解冻——自组织新生的
-                # 记忆条件化预训练依赖它（从经验生长，非 teacher 蒸馏）
+                # 记忆条件化预训练依赖它（从经验生长，非中心模型迁移）
                 if name.startswith("field_read_layers") or name.startswith("field_read_gate"):
                     p.requires_grad = True
 
@@ -502,7 +502,7 @@ class IntegrateEngine:
 
         feed_engine 的按域样本 + 记忆库中积累的经验文本（问答对 + 原文）。
         记忆文本并入样本列表：feed 为空时新生不因"无样本"被跳过——从经验生长
-        （自组织新生，非 teacher 蒸馏）。
+        （自组织新生，非中心模型迁移）。
         """
         samples = []
         if self.feed_engine is not None:

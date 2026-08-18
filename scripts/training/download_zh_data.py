@@ -14,7 +14,7 @@
 import sys, os, argparse, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-CACHE_PATH = "data/distill/zh_texts.jsonl"
+CACHE_PATH = "data/corpus/zh_texts.jsonl"
 TARGET_CHARS_PER_ARTICLE = 200  # 平均每条文本约 200 字
 
 

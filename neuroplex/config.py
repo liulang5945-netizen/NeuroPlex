@@ -1,4 +1,8 @@
-"""Core Taiji configuration and token contracts."""
+"""Shared token contracts and compatibility configuration.
+
+运行时的核心配置位于 :mod:`neuroplex.resonance.config`；本文件保留共享
+token/multimodal 合约以及旧 checkpoint 所需的轻量配置兼容层。
+"""
 
 from __future__ import annotations
 
@@ -216,7 +220,11 @@ def get_taiji_data_path(subdir: str) -> str:
 
 @dataclass
 class ModelConfig:
-    """Model architecture configuration."""
+    """Dense-checkpoint compatibility configuration.
+
+    新代码应使用 ``NeuronConfig`` 描述独立神经元，不再以整体模型尺寸
+    作为系统架构入口。
+    """
 
     vocab_size: int = int(NATIVE_V2_TOKENIZER_CONTRACT["total_vocab_size"])
     hidden_size: int = 768
@@ -266,89 +274,6 @@ class ModelConfig:
         }
         return cls(**{k: type(defaults.get(k, v))(v) if isinstance(defaults.get(k), (int, float, bool)) else v
                       for k, v in {**defaults, **data}.items() if k in defaults})
-
-    @classmethod
-    def size_125m(cls) -> "ModelConfig":
-        return cls(
-            hidden_size=768,
-            intermediate_size=2048,
-            num_hidden_layers=12,
-            num_attention_heads=12,
-            num_key_value_heads=12,
-        )
-
-    @classmethod
-    def size_350m(cls) -> "ModelConfig":
-        return cls(
-            hidden_size=1024,
-            intermediate_size=2816,
-            num_hidden_layers=24,
-            num_attention_heads=16,
-            num_key_value_heads=16,
-        )
-
-    @classmethod
-    def size_1b(cls) -> "ModelConfig":
-        return cls(
-            hidden_size=2048,
-            intermediate_size=5504,
-            num_hidden_layers=22,
-            num_attention_heads=32,
-            num_key_value_heads=4,
-        )
-
-    @classmethod
-    def size_3b(cls) -> "ModelConfig":
-        return cls(
-            hidden_size=3072,
-            intermediate_size=8192,
-            num_hidden_layers=26,
-            num_attention_heads=32,
-            num_key_value_heads=4,
-        )
-
-    @classmethod
-    def size_7b(cls) -> "ModelConfig":
-        return cls(
-            hidden_size=4096,
-            intermediate_size=11008,
-            num_hidden_layers=32,
-            num_attention_heads=32,
-            num_key_value_heads=4,
-        )
-
-    @classmethod
-    def from_qwen(cls, model_name: str = "Qwen/Qwen2.5-0.5B") -> "ModelConfig":
-        qwen_configs = {
-            "Qwen/Qwen2.5-0.5B": cls(
-                vocab_size=151936,
-                hidden_size=896,
-                intermediate_size=4864,
-                num_hidden_layers=24,
-                num_attention_heads=14,
-                num_key_value_heads=2,
-                max_position_embeddings=32768,
-            ),
-            "Qwen/Qwen2.5-1.5B": cls(
-                vocab_size=151936,
-                hidden_size=1536,
-                intermediate_size=8960,
-                num_hidden_layers=28,
-                num_attention_heads=12,
-                num_key_value_heads=2,
-                max_position_embeddings=32768,
-            ),
-            "Qwen/Qwen2.5-3B": cls(
-                vocab_size=151936,
-                hidden_size=2048,
-                intermediate_size=11008,
-                num_hidden_layers=36,
-                num_attention_heads=16,
-                num_key_value_heads=2,
-                max_position_embeddings=32768,
-            ),
-        }
-        return qwen_configs.get(model_name, qwen_configs["Qwen/Qwen2.5-0.5B"])
 
     def validate(self) -> bool:
         """Validate model configuration on construction.

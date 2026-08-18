@@ -1,8 +1,8 @@
-# 态极接口速查与易错点手册（INTERFACE_REFERENCE）
+# NeuroPlex 接口速查与易错点手册（INTERFACE_REFERENCE）
 
 > 目的：解决"经常用错接口"的问题。按**易错点**组织（不是完整 API 参考），每个点给出 错→对 用法。
 > 全部条目基于源码实读（2026-08-10），行号随版本可能漂移，以文件为锚。
-> 配套架构文档：[CODE_WIKI.md](file:///e:/taiji-neuron/CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](file:///e:/taiji-neuron/plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
+> 配套架构文档：[CODE_WIKI.md](CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
 
 ## 一、最易用错的 8 大接口陷阱（速览）
 
@@ -165,7 +165,7 @@ round_vecs, round_logits, round_confidences, round_score_vecs, round_quality_log
 
 | 陷阱 | 说明 |
 |---|---|
-| `ModelSelfTokenizer = TaijiNativeTokenizerV2` | loader.py:20 向后兼容别名 |
+| `ModelSelfTokenizer = TaijiNativeTokenizerV2` | loader.py:19 仅用于旧 checkpoint 的兼容别名 |
 | `_generate_p7` 的 `collab_mode` 默认 `"fusion"` | `generate()` 默认 `"executive"`——直接调 `_generate_p7` 不传会走 token 级融合路径，行为不一致 |
 | `forward` 的 `fusion_mode` 默认 `"per_position"` | docstring 与默认值脱节，推理主路径是 soft（见 2.2） |
 | `think(active_nids="auto_all")` 字符串模式 | 字符串模式由 `_generate_p7` 展开（cortex.py:1706-1716）；直接调 `think` 字符串会被 ensemble 当普通过滤 → fallback 全量 |

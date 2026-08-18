@@ -2,9 +2,9 @@
 态极自我进化引擎 (Evolution Engine)
 ====================================
 
-态极最核心的"超越父亲"的能力：
-- 父亲（Claude/GPT）是静态的，训练完就冻结了
-- 态极是活的：每一次使用都在收集经验，每一次训练都在成长
+态极最核心的能力是群体适应：
+- 神经元各自承担领域和功能，并通过共振场协作
+- 每一次使用都在收集经验，睡眠和生命周期机制推动群体成长
 
 这个引擎实现了完整的"使用 → 学习 → 进化"闭环。
 
@@ -55,8 +55,8 @@ class EvolutionEngine:
     """
     态极自我进化引擎
     
-    不同于父亲的"一次训练，永久冻结"，
-    态极可以在每次使用中积累经验，在合适时机触发进化。
+    态极可以在每次使用中积累经验，并在合适时机触发神经元专业化、
+    新增、隔离或修剪。
     
     进化阶段：
     - infant (0-100 任务): 学习基本工具使用
@@ -80,8 +80,8 @@ class EvolutionEngine:
         "new_domain_threshold": 3,         # 发现 3 个新领域时触发
     }
 
-    # 递归蒸馏进化阈值
-    DISTILLATION_THRESHOLDS = {
+    # 群体能力扩展阈值
+    POPULATION_GROWTH_THRESHOLDS = {
         "growth_value_max": 90,            # 成长值达到 90% 时考虑进化
         "loss_plateau_steps": 10,          # 最近 N 次睡眠训练 loss 收敛（平台）时考虑进化
         "loss_plateau_std": 0.05,          # loss 平台判定：最近 N 次标准差 < 阈值
@@ -100,7 +100,7 @@ class EvolutionEngine:
                 from neuroplex.config import get_taiji_data_path
                 data_dir = get_taiji_data_path("evolution_data")
             except ImportError:
-                data_dir = "taiji/evolution_data"
+                data_dir = "neuroplex/evolution_data"
         self.data_dir = data_dir
         self.auto_evolve = auto_evolve
         self.evolve_callback = evolve_callback
@@ -119,7 +119,7 @@ class EvolutionEngine:
         self._success_patterns: deque = deque(maxlen=200)
         self._failure_patterns: deque = deque(maxlen=200)
         
-        # 最近睡眠训练 loss（用于平台检测，DISTILLATION_THRESHOLDS.loss_plateau_steps）
+        # 最近睡眠训练 loss（用于群体扩展的平台检测）
         self._recent_train_losses: deque = deque(maxlen=200)
         
         # 用户习惯追踪
@@ -170,15 +170,15 @@ class EvolutionEngine:
             f"feed_engine={'✓' if self._feed_engine else '✗'}"
         )
 
-    # ─── 递归蒸馏进化检查 ──────────────────────────────
+    # ─── 群体能力扩展检查 ──────────────────────────────
 
     def check_evolution_ready(self) -> dict:
         """
         检查态极是否准备好能力扩展（进化）。
 
-        态极递归的核心：模型自己决定什么时候扩展能力。
+        群体适应的核心：系统自己决定什么时候扩展能力。
         信号 = 真实能力/任务统计（成长值、任务失败率、知识饱和度、训练 loss 平台），
-        非人类设定的代际路线（0.5B→7B 单体变大叙事已废弃，见 recursive_improver）。
+        不是预设的单体规模路线，而是基于能力缺口进行群体结构适应。
 
         Returns:
             {
@@ -193,30 +193,30 @@ class EvolutionEngine:
 
             # 检查成长值
             growth_value = self._calculate_growth_value()
-            if growth_value >= self.DISTILLATION_THRESHOLDS["growth_value_max"]:
-                reasons.append(f"成长值达到 {growth_value:.0f}%（阈值 {self.DISTILLATION_THRESHOLDS['growth_value_max']}%）")
+            if growth_value >= self.POPULATION_GROWTH_THRESHOLDS["growth_value_max"]:
+                reasons.append(f"成长值达到 {growth_value:.0f}%（阈值 {self.POPULATION_GROWTH_THRESHOLDS['growth_value_max']}%）")
 
             # 检查任务失败率
             total = self.metrics.tasks_completed + self.metrics.tasks_failed
             if total > 20:
                 fail_rate = self.metrics.tasks_failed / total
-                if fail_rate >= self.DISTILLATION_THRESHOLDS["task_failure_rate"]:
-                    reasons.append(f"任务失败率 {fail_rate:.0%}（阈值 {self.DISTILLATION_THRESHOLDS['task_failure_rate']:.0%}）")
+                if fail_rate >= self.POPULATION_GROWTH_THRESHOLDS["task_failure_rate"]:
+                    reasons.append(f"任务失败率 {fail_rate:.0%}（阈值 {self.POPULATION_GROWTH_THRESHOLDS['task_failure_rate']:.0%}）")
 
             # 检查知识饱和度
             if self.metrics.knowledge_domains:
                 avg_mastery = sum(self.metrics.knowledge_domains.values()) / len(self.metrics.knowledge_domains)
-                if avg_mastery >= self.DISTILLATION_THRESHOLDS["knowledge_saturation"]:
-                    reasons.append(f"知识饱和度 {avg_mastery:.0%}（阈值 {self.DISTILLATION_THRESHOLDS['knowledge_saturation']:.0%}）")
+                if avg_mastery >= self.POPULATION_GROWTH_THRESHOLDS["knowledge_saturation"]:
+                    reasons.append(f"知识饱和度 {avg_mastery:.0%}（阈值 {self.POPULATION_GROWTH_THRESHOLDS['knowledge_saturation']:.0%}）")
 
             # 检查训练 loss 平台（激活死配置：最近 N 次睡眠训练 loss 收敛）
-            n = self.DISTILLATION_THRESHOLDS["loss_plateau_steps"]
+            n = self.POPULATION_GROWTH_THRESHOLDS["loss_plateau_steps"]
             losses = list(self._recent_train_losses)
             if len(losses) >= n:
                 recent = losses[-n:]
                 mean = sum(recent) / n
                 std = (sum((x - mean) ** 2 for x in recent) / n) ** 0.5
-                if std < self.DISTILLATION_THRESHOLDS["loss_plateau_std"]:
+                if std < self.POPULATION_GROWTH_THRESHOLDS["loss_plateau_std"]:
                     reasons.append(f"训练 loss 收敛平台（最近 {n} 次 std={std:.4f}）")
 
             # 至少满足 2 个条件才触发进化
@@ -347,7 +347,7 @@ class EvolutionEngine:
         将训练效果同步到进化系统，作为成长指标的一部分。
         """
         with self._lock:
-            # 记录 loss 用于平台检测（递归蒸馏进化阈值）
+            # 记录 loss 用于群体扩展的平台检测
             self._recent_train_losses.append(loss)
             # 更新知识域（训练本身就是一种知识积累）
             self.metrics.knowledge_domains["sleep_training"] = \

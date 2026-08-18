@@ -22,7 +22,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from neuroplex.config import ModelConfig
 from neuroplex.layers import RMSNorm, TransformerBlock
 
 from .config import NeuronConfig
@@ -554,7 +553,7 @@ class ResonanceNeuron(nn.Module):
             ffn_gain: S9 FFN 输出增益（dopamine 驱动）。
                       >1 强化（奖励），<1 衰减（惩罚），1.0 标准。
             return_intermediate: R7 若 True，返回每层 hidden 和 attention 权重
-                                 （用于代际迁移蒸馏）。默认 False（向后兼容）。
+                                 （用于兼容性表示对齐实验）。默认 False（向后兼容）。
 
         Returns:
             dict with keys:
@@ -571,14 +570,14 @@ class ResonanceNeuron(nn.Module):
         # ── Step 2: Transformer layers + field conditioning ──
         bsz, seqlen, _ = h.shape
 
-        # R7: 收集中间表示（蒸馏用）
+        # 兼容性表示对齐：按需收集中间表示，默认关闭
         layer_hiddens = []
         layer_attns = []
 
         # Causal mask（修复双向注意力 bug）:
         # GQA.is_causal = (mask is not None) and (seqlen > 1)
         # 之前没传 mask → is_causal=False → 双向注意力 → 训练时偷看未来 token
-        # → teacher-forcing 虚高（100%）、自回归崩溃（死循环重复）
+        # → full-sequence forcing 虚高（100%）、自回归崩溃（死循环重复）
         # 修复：传标准下三角 causal mask，确保位置 K 只看到 0..K
         if seqlen > 1:
             causal_mask = torch.full(
@@ -655,7 +654,7 @@ class ResonanceNeuron(nn.Module):
                         # 加性门控：h = h + gate * conditioning
                         h = h + gate * conditioning
 
-            # R7: 收集该层输出（蒸馏用）
+            # 兼容性表示对齐：收集该层输出
             if return_intermediate:
                 layer_hiddens.append(h)
                 layer_attns.append(attn_w)
@@ -831,7 +830,7 @@ class ResonanceNeuron(nn.Module):
             h_pool = torch.cat([h.mean(dim=1), h.max(dim=1).values], dim=-1)  # [B, 2H]
             result["quality_logit"] = self.quality_head(h_pool)  # [B, 1]
 
-        # ── R7: 中间表示（蒸馏用）──
+        # ── 兼容性表示对齐：中间表示 ──
         if return_intermediate:
             result["intermediate_hidden"] = torch.stack(layer_hiddens, dim=1)  # [B, n_layers, L, hidden]
             # attn_w: [B, num_heads, L, L] per layer；None（如 seqlen<=1）时跳过

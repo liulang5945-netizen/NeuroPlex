@@ -23,9 +23,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # ── 路径常量（PROJECT_ROOT 派生）─────────────────────────────────────────
-DATA_DIR = PROJECT_ROOT / "data" / "distill"
+DATA_DIR = PROJECT_ROOT / "data" / "corpus"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "neurons"
-DOMAIN_TOKENIZER_DIR = PROJECT_ROOT / "taiji" / "domains"
+DOMAIN_TOKENIZER_DIR = PROJECT_ROOT / "neuroplex" / "domains"
 SHARED_EMBEDDING_PATH = PROJECT_ROOT / "data" / "shared_embedding.pt"
 SIMPLE_ZH_DIR = PROJECT_ROOT / "data" / "simple_zh"
 LOG_DIR = PROJECT_ROOT / "logs"

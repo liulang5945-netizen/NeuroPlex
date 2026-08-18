@@ -1,4 +1,6 @@
-"""R7 代际迁移蒸馏 smoke test.
+"""Legacy teacher-alignment smoke test.
+
+该脚本只用于复核历史 checkpoint 兼容性，不属于当前群体神经元训练路径。
 
 验证三联蒸馏（KL + Hidden + Attention）的正确性：
 1. 层映射构建正确（不同层数组合）
@@ -24,9 +26,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn as nn
 
-from taiji.resonance.config import TINY_TEST
-from taiji.resonance.neuron import ResonanceNeuron
-from taiji.resonance.distillation import DistillationLoss, build_layer_map
+from neuroplex.resonance.config import TINY_TEST
+from neuroplex.resonance.neuron import ResonanceNeuron
+from neuroplex.resonance.distillation import DistillationLoss, build_layer_map
 
 
 def make_neuron(seed: int, vocab_size: int = 100, num_layers: int = 2,

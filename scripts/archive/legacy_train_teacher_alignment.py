@@ -1,4 +1,4 @@
-"""R7: 代际迁移蒸馏训练脚本（teacher → student 三联蒸馏）。
+"""Legacy teacher-alignment trainer (compatibility only).
 
 老神经元（teacher）已成熟，通过三联蒸馏（Logits KL + 中间层对齐 + 注意力转移）
 把领域知识迁移给新神经元（student），让新神经元快速获得基础能力再个性化发展。
@@ -11,17 +11,17 @@
 
 Usage:
     # 同域蒸馏（teacher=zh_std0 已训练 standard, student=zh_aug0 已训练 compact）
-    python -u scripts/training/train_distillation.py \
+    python -u scripts/archive/legacy_train_teacher_alignment.py \
         --teacher zh_std0 --student zh_aug0 \
         --epochs 4 --lr 3e-4
 
     # 新建 student（从 teacher 复制匹配权重初始化）
-    python -u scripts/training/train_distillation.py \
+    python -u scripts/archive/legacy_train_teacher_alignment.py \
         --teacher zh_std0 --student zh_new0 --init_from_teacher \
         --epochs 4 --lr 3e-4
 
     # 断点续训
-    python -u scripts/training/train_distillation.py \
+    python -u scripts/archive/legacy_train_teacher_alignment.py \
         --teacher zh_std0 --student zh_aug0 --resume
 """
 from __future__ import annotations
@@ -41,11 +41,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from neuroplex.resonance import (
-    ResonanceNeuron,
-    DistillationLoss,
-    get_domain_neuron_config,
-)
+from neuroplex.resonance import ResonanceNeuron, get_domain_neuron_config
+from neuroplex.resonance.distillation import DistillationLoss
 from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,

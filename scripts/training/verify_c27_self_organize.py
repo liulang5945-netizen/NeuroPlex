@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""C26 增量七验证：自组织新生（从经验生长，非 teacher 蒸馏）（2026-08-14）。
+"""C26 增量七验证：自组织新生（从经验生长，非中心模型迁移）（2026-08-14）。
 
-背景：审计 S9 缺口——"新生依赖外部 teacher → 自组织新生（从经验生长）"。
-现有 IntegrateEngine（C17）新生整合依赖 FeedEngine 样本 + 邻居蒸馏；feed 为空时
+背景：审计 S9 缺口——"新生依赖外部模型 → 自组织新生（从经验生长）"。
+现有 IntegrateEngine（C17）新生整合依赖 FeedEngine 样本 + 邻居协调；feed 为空时
 新生直接 skipped（no_feed_samples），未利用 C26 记忆库积累的经验。增量七让新生
 neuron **从记忆经验生长**：
 1. **记忆注意窗预训练**（_memory_pretrain）：用记忆库经验（向量+文本，问答对+
    原文）在 round2+ 场条件化下预热新 neuron 读路径 + LoRA——从经验出生
 2. **样本源混合**（用户决策：三者全加入）：feed 样本 + 记忆问答对 + 记忆原文
-3. **邻居蒸馏保留降权 0.3**（用户决策）：记忆生长为主，蒸馏辅助融入共振场
+3. **邻居协调保留降权 0.3**（用户决策）：记忆生长为主，同伴辅助融入共振场
 
 验证层次：
 A. feed 为空 + 记忆库有经验 → 新生不 skipped（从经验生长，修复 no_feed_samples）
 B. 读路径已学习：新 neuron field_read_layers 权重变化（记忆注意窗预训练生效）
 C. 记忆条件化可用（软）：记忆向量条件化 forward（round2）对记忆文本 NLL 不劣于
    无条件化（读路径对齐）
-D. 邻居蒸馏保留降权：DISTILL_WEIGHT == 0.3（代码契约）
+D. 邻居协调保留降权：PEER_ALIGNMENT_WEIGHT == 0.3（代码契约）
 E. 零破坏：成熟 dialogue neuron 参数不变（只有新 neuron 被训练）
 F. 持久化：新 neuron 读路径随 state_dict 保存（跨重启保留）
 
@@ -142,7 +142,7 @@ def cond_nll(cortex, nid: str, text: str, vec=None, round_num=1) -> float:
 def main():
     t0 = time.time()
     print("=" * 60, flush=True)
-    print("C26 增量七：自组织新生（从经验生长，非 teacher 蒸馏）", flush=True)
+    print("C26 增量七：自组织新生（从经验生长，非中心模型迁移）", flush=True)
     print("=" * 60, flush=True)
 
     tmp_dir = tempfile.mkdtemp(prefix="c27_selforg_")
@@ -231,10 +231,10 @@ def main():
               nll_cond <= nll_plain + 1.0,
               f"cond={nll_cond:.3f} plain={nll_plain:.3f}")
 
-        # ── 6. 邻居蒸馏保留降权（代码契约）──
-        check("D. 邻居蒸馏保留降权：DISTILL_WEIGHT == 0.3",
-              IntegrateEngine.DISTILL_WEIGHT == 0.3,
-              f"DISTILL_WEIGHT={IntegrateEngine.DISTILL_WEIGHT}")
+        # ── 6. 邻居协调保留降权（代码契约）──
+        check("D. 邻居协调保留降权：PEER_ALIGNMENT_WEIGHT == 0.3",
+              IntegrateEngine.PEER_ALIGNMENT_WEIGHT == 0.3,
+              f"PEER_ALIGNMENT_WEIGHT={IntegrateEngine.PEER_ALIGNMENT_WEIGHT}")
 
         # ── 7. 零破坏：成熟 neuron 参数不变 ──
         mature_after = cortex.neurons[split_parent].state_dict()

@@ -1,8 +1,8 @@
-# NeuroPlex — Bio-inspired Multi-Neuron Resonance Architecture
+# NeuroPlex — Population Neural Network with Resonance
 
-> **Small neurons, together, match large models.**
+> **A population of specialized neurons, coordinated through resonance.**
 >
-> NeuroPlex replaces a single monolithic LLM with multiple domain-specific small neurons (24M–134M each) that collaborate through a shared resonance field. Instead of scaling one model, we scale the *collaboration* — each neuron stays independently trainable, hot-swappable, and CPU-affordable.
+> NeuroPlex is a population neural network made of domain-specific neurons (24M–134M each). Neurons coordinate through a shared resonance field, peer connections, routing, memory, and lifecycle control. Capability grows by specializing and composing the population, not by replacing it with one larger model.
 
 [![CI](https://github.com/NeuroPlex/NeuroPlex/actions/workflows/ci.yml/badge.svg)](https://github.com/NeuroPlex/NeuroPlex/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -12,29 +12,30 @@
 
 ## Why NeuroPlex?
 
-| Problem with monolithic LLM | NeuroPlex alternative |
+| Centralized model assumption | NeuroPlex population design |
 |---|---|
-| Retrain the whole 1.5B model to add one domain | Hot-swap one new neuron (24M), keep others frozen |
-| GPU required for fine-tuning | Domain neurons trainable on CPU (~11s/step) |
-| One model serves all domains equally | Domain-specific neurons specialize (zh/en/code/math) |
-| Catastrophic forgetting on new data | Frozen body + LoRA per-neuron, zero cross-contamination |
-| Black-box internal reasoning | Resonance rounds are inspectable (field vectors, gating, quality) |
+| One model must absorb every domain | Hot-swap one new neuron (24M), keep the rest stable |
+| A single representation serves every task | Domain-specific neurons specialize (zh/en/code/math) |
+| New knowledge risks global interference | Per-neuron protection, peer coordination, and local consolidation |
+| Routing is hidden inside one forward pass | Resonance rounds expose field vectors, gates, quality, and active neurons |
 
 ## Core Idea
 
-Three layers, each replaceable:
+Four cooperating planes, each replaceable:
 
 ```
-Level 0: Universal tokenizer (256K vocab)     ← I/O protocol layer
+Level 0: Shared sensory alignment              ← I/O protocol layer
     ↓
-Level 1: Domain neurons (24M–134M each)      ← Independent Transformers
+Level 1: Neuron population (24M–134M each)   ← Independent Transformers
     ↓  field_write / field_read
-Level 2: Resonance field (3072–4096 dim)     ← Shared communication, not a model
+Level 2: Resonance field (3072–4096 dim)     ← Shared communication medium
+    ↓  routing / memory / lifecycle
+Level 3: Population control plane             ← topology, plasticity, growth, pruning
 ```
 
 **Round 1**: Each neuron reads the input independently, writes its `field_vector` to the shared field.
 **Round 2–N**: Neurons read the updated field state, re-condition, and write again — until logits converge or confidence gate fires.
-**Aggregation**: Cluster-dominant × scale-layering produces the final token logits.
+**Routing and aggregation**: Confidence, quality, topology, and instance-level signals select an active subset. The selected neurons exchange field state and peer signals, then aggregate domain logits into the next token.
 
 ## Quick Start
 
@@ -113,14 +114,14 @@ NeuroPlex/
 
 - **1+1 > 2 is conditional**: Resonance helps only when neurons are uncertain. A `ConfidenceGate` skips resonance when max_prob > 0.9 (avoiding field noise on confident predictions).
 - **Weak neurons dilute strong ones**: `QualityFilter` excludes PPL > 100 neurons from resonance. Scale-layering outperforms equal-weight consensus by 2.6× on code domain.
-- **Hub-and-spoke anchoring**: A 1024-dim hub neuron serves as a cross-domain semantic anchor. Per-neuron `cross_spec_projectors` project domain field vectors into a unified space. Anchor loss aligns them; contrastive loss pulls same-meaning cross-domain pairs closer.
+- **Optional relay anchoring**: An expert neuron can serve as a cross-domain relay, while `cross_spec_projectors` align field vectors into a unified space. The relay is a population member, not a central teacher.
 - **Global anchoring > single-domain anchoring**: Computing anchor loss on ALL non-hub domains every batch (not just the current batch's domain) yielded ×2.3 mean cosine improvement.
 
 ## Architecture Documentation
 
 - [BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md) — Full architecture plan
+- [ARCHITECTURE_DIRECTION_2026_08.md](plans/ARCHITECTURE_DIRECTION_2026_08.md) — Architecture comparison and current decision
 - [DESIGN_PRINCIPLES.md](plans/DESIGN_PRINCIPLES.md) — Design principles
-- [TRAINING_REFERENCE.md](plans/TRAINING_REFERENCE.md) — Training reference
 - [CODE_WIKI.md](CODE_WIKI.md) — Code wiki
 
 ## Contributing

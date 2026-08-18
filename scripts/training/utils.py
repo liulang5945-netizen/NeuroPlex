@@ -93,7 +93,7 @@ def load_general_tokenizer(general_model_path: str = None) -> spm.SentencePieceP
 
     Priority:
     1. Explicit path (general_model_path)
-    2. taiji/domains/general/sp_general.model
+    2. neuroplex/domains/general/sp_general.model
     3. Fallback: use en tokenizer as general tokenizer (16K vocab)
 
     Returns:
@@ -121,8 +121,8 @@ def load_general_tokenizer(general_model_path: str = None) -> spm.SentencePieceP
         return sp
 
     raise FileNotFoundError(
-        "No general tokenizer found. Place sp_general.model in taiji/domains/general/ "
-        "or ensure taiji/domains/en/sp_en.model exists as fallback."
+        "No general tokenizer found. Place sp_general.model in neuroplex/domains/general/ "
+        "or ensure neuroplex/domains/en/sp_en.model exists as fallback."
     )
 
 
@@ -165,7 +165,7 @@ def load_domain_texts(domain: str, max_texts: int = 5000) -> List[str]:
     """Load raw text data for a domain from multiple HuggingFace datasets.
 
     Strategy:
-    1. Try cached text file (data/distill/{domain}_texts.jsonl)
+    1. Try cached corpus file (data/corpus/{domain}_texts.jsonl)
     2. Download from each source in DOMAIN_DATA_SOURCES[domain]
     3. Concatenate text fields into single strings
     """

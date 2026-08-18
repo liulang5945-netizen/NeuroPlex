@@ -1,6 +1,6 @@
 """
 Taiji 态极 - 主入口
-声明：本文档开源共享，遵循 MIT 协议
+项目许可：Apache License 2.0，详见仓库根目录 LICENSE
 
 统一入口点：
   python main.py                    # 启动 API 服务（模型+前端）

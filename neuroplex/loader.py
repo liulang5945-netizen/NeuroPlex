@@ -1,4 +1,4 @@
-"""Taiji Cortex loader.
+"""NeuroPlex Cortex loader.
 
 Cortex 神经元架构是态极的唯一认知主体。本模块提供 create_cortex/load_cortex
 入口，装配 Cortex + TokenizerHub + shared_embedding。
@@ -13,7 +13,6 @@ from typing import Optional, Any
 
 import torch
 
-from .config import ModelConfig
 from .tokenizer_native_v2 import TaijiNativeTokenizerV2
 
 # 向后兼容别名
@@ -52,18 +51,18 @@ logger = logging.getLogger("Taiji")
 
 
 def _find_default_sentencepiece() -> Optional[str]:
-    """查找默认的 sentencepiece.model 路径。
+    """查找默认的 SentencePiece 路径。
 
     按优先级查找：
-    1. taiji/tokenizer_native_v2/sentencepiece.model
-    2. checkpoint-481000/sentencepiece.model
-    3. data/sentencepiece.model
+    1. NeuroPlex general 域 tokenizer
+    2. tokenizer_native_v2 兼容路径
+    3. data/sentencepiece.model 兼容路径
     """
-    taiji_dir = os.path.dirname(os.path.abspath(__file__))
+    neuroplex_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(taiji_dir, "tokenizer_native_v2", "sentencepiece.model"),
-        os.path.join(os.path.dirname(taiji_dir), "checkpoint-481000", "sentencepiece.model"),
-        os.path.join(os.path.dirname(taiji_dir), "data", "sentencepiece.model"),
+        os.path.join(neuroplex_dir, "domains", "general", "sp_general.model"),
+        os.path.join(neuroplex_dir, "tokenizer_native_v2", "sentencepiece.model"),
+        os.path.join(os.path.dirname(neuroplex_dir), "data", "sentencepiece.model"),
     ]
     for candidate in candidates:
         if os.path.exists(candidate):
@@ -74,10 +73,10 @@ def _find_default_sentencepiece() -> Optional[str]:
 def _check_domain_tokenizers() -> bool:
     """P7: 检查域专用 tokenizer 是否可用。
 
-    检测 taiji/domains/ 下是否有至少一个 SentencePiece 模型。
+    检测 neuroplex/domains/ 下是否有至少一个 SentencePiece 模型。
     """
-    taiji_dir = os.path.dirname(os.path.abspath(__file__))
-    domains_dir = os.path.join(taiji_dir, "domains")
+    neuroplex_dir = os.path.dirname(os.path.abspath(__file__))
+    domains_dir = os.path.join(neuroplex_dir, "domains")
     if not os.path.isdir(domains_dir):
         return False
     # 检查 zh（必选）是否有模型
@@ -97,7 +96,7 @@ def create_cortex(
 ) -> tuple[Any, Optional[Any]]:
     """创建 Cortex（运行时认知主体）+ tokenizer。
 
-    若 neurons_dir 下无蒸馏好的神经元，进入"单神经元 fallback 模式"——
+    若 neurons_dir 下没有可用的已训练神经元，进入"单神经元 fallback 模式"——
     创建一个随机初始化的 general 神经元，保证系统可运行（能力有限）。
 
     Args:
@@ -130,7 +129,7 @@ def create_cortex(
     else:
         raise FileNotFoundError(
             "未找到 sentencepiece.model。请通过 sp_model_path 参数指定，"
-            "或将其放置于 taiji/tokenizer_native_v2/ 目录。"
+            "或将其放置于 neuroplex/domains/general/ 目录。"
         )
 
     cortex = Cortex(
@@ -161,7 +160,7 @@ def load_cortex(
 ) -> tuple[Any, Optional[Any]]:
     """加载 Cortex（运行时认知主体）+ tokenizer。
 
-    运行时加载入口。等价于 create_cortex，语义上用于"从已蒸馏神经元加载"。
+    运行时加载入口。等价于 create_cortex，语义上用于"从已训练神经元加载"。
     若无可用神经元，进入单神经元 fallback 模式。
 
     Returns:
@@ -176,7 +175,7 @@ def load_cortex(
 
 
 def _ensure_single_neuron_fallback(cortex, device: str):
-    """单神经元 fallback：当无蒸馏神经元时，创建一个随机 general 神经元。
+    """单神经元 fallback：当无已训练神经元时，创建一个随机 general 神经元。
 
     人脑启发：新生婴儿只有未分化的神经结构，通过经验逐步分化。
     fallback 神经元是"幼稚态"，能力有限但保证系统可运行，
@@ -192,7 +191,7 @@ def _ensure_single_neuron_fallback(cortex, device: str):
     from neuroplex.resonance import ResonanceNeuron, NeuronConfig
 
     logger.warning(
-        "未找到蒸馏神经元，进入单神经元 fallback 模式 "
+        "未找到已训练神经元，进入单神经元 fallback 模式 "
         "（random init general neuron，能力有限）"
     )
 
@@ -332,7 +331,7 @@ def assemble_cortex(
             shared_emb = torch.nn.Embedding(general_vocab, base_embed_dim)
             # 优先加载训练好的 shared_embedding（data/shared_embedding.pt，
             # 由 train_compact_parallel --shared_emb_mode train 保存）；
-            # 否则随机初始化（向后兼容，蒸馏路径）
+            # 否则随机初始化（向后兼容，旧 checkpoint 路径）
             shared_emb_path = os.path.join(neurons_dir, "..", "shared_embedding.pt")
             if not os.path.exists(shared_emb_path):
                 shared_emb_path = os.path.join("data", "shared_embedding.pt")
@@ -583,7 +582,7 @@ def assemble_cortex(
     # Step 7: WorkingMemory（P1-4，上下文维持）
     # R13（REMEDIATION_PLAN 2026-08-14）：注册仅向后兼容——cortex.generate 不读取
     # 该实例（假接线，详见 cortex.py 标注）；真实对话上下文走 agent 层
-    # taiji/agent/working_memory（ContextManager.set_working_memory）。
+    # neuroplex/agent/working_memory（ContextManager.set_working_memory）。
     try:
         from neuroplex.brain.working_memory import WorkingMemory
         wm = WorkingMemory(max_tokens=512)

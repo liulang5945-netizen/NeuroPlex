@@ -33,7 +33,7 @@ CACHE_ROOT = os.path.join(PROJECT_ROOT, "data", "cache")
 CODE_ALPACA_ARROW = os.path.join(
     CACHE_ROOT, "sahil2801___code_alpaca-20k", "default", "0.0.0",
     "152bb5e9a29651266b018106053980070a0521a1", "code_alpaca-20k-train.arrow")
-MATH_TEXTS = os.path.join(PROJECT_ROOT, "data", "distill", "math_texts.jsonl")
+MATH_TEXTS = os.path.join(PROJECT_ROOT, "data", "corpus", "math_texts.jsonl")
 
 MAX_FULL_CHARS = 512  # 超长样本跳过（SEQ_LEN=192 token 装不下，截断会丢 answer 尾部）
 SEED = 42

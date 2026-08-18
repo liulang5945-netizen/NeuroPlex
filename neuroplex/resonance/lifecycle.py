@@ -439,7 +439,7 @@ class NeurogenesisTrigger:
     2. CoactivationTracker 检测到孤立激活模式
 
     触发新生流程：
-    1. 从 teacher 蒸馏新神经元 ckpt
+    1. 从经验和群体上下文初始化新神经元 checkpoint
     2. 初始化为"幼稚态"
     3. 加入 ensemble
     """
