@@ -8,7 +8,8 @@ import os
 import sys
 
 os.environ.setdefault("TAIJI_TEST_MODE", "1")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
 
 import torch
 import torch.nn.functional as F
@@ -25,7 +26,7 @@ from taiji.resonance.geometry import NeuronGeometry
 from taiji.resonance.topology import build_topology, establish_topology_channels
 from taiji.resonance.translator import batch_align_and_embed
 
-CKPT = r"e:\taiji-neuron\data\neurons\collab_v3_c16.ckpt.pt"
+CKPT = os.path.join(PROJECT_ROOT, "data", "neurons", "collab_v3_c16.ckpt.pt")
 SEQ_LEN = 128
 
 # 预热文本（各域轮转，模拟训练分布）

@@ -420,7 +420,7 @@
       "id": "dl_builtin_doubao",
       "version": null,
       "scope": "built-in-global",
-      "path": "c:\\Users\\23747\\.trae-cn\\design_libraries\\dl_builtin_doubao",
+      "path": "~\\.trae-cn\\design_libraries\\dl_builtin_doubao",
       "versionSource": "metadata.json"
     },
     "visualEditorEnabled": true,

@@ -188,7 +188,7 @@ def main():
     # ── E. 生产接入（API 端点注册）──
     print("\n[E] 生产接入 ...", flush=True)
     try:
-        import api.routes_taiji as rt
+        import api.routes_neuroplex as rt
         routes = {getattr(r, "path", ""): r for r in rt.router.routes}
         has_chain = any("/cortex/task_chain" in p for p in routes)
         check("E1. /api/taiji/cortex/task_chain 端点已注册", has_chain,

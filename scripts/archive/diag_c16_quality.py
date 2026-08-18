@@ -8,7 +8,8 @@ import os
 import sys
 
 os.environ.setdefault("TAIJI_TEST_MODE", "1")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
 
 import torch
 import torch.nn.functional as F
@@ -27,7 +28,7 @@ PROMPTS = [
     ("en", "What is the capital of France?"),
 ]
 
-CKPT = r"e:\taiji-neuron\data\neurons\collab_v3_c16.ckpt.pt"
+CKPT = os.path.join(PROJECT_ROOT, "data", "neurons", "collab_v3_c16.ckpt.pt")
 
 
 def main():

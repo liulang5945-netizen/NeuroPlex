@@ -42,10 +42,10 @@ def main():
     print("\n=== Step 2: Create TestClient ===")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from api.routes_taiji import router as taiji_router
+    from api.routes_neuroplex import router as neuroplex_router
 
     app = FastAPI(title="Cortex Chat Test")
-    app.include_router(taiji_router)
+    app.include_router(neuroplex_router)
     client = TestClient(app)
     print("  TestClient ready")
 

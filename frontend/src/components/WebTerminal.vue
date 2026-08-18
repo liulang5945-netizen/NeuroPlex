@@ -65,7 +65,7 @@ function getWsUrl() {
   let wsBase = '';
 
   if (API_BASE && API_BASE.length > 0) {
-    // 生产环境：API_BASE 类似 http://192.168.1.100:8000
+    // 生产环境：API_BASE 类似 http://localhost:8000
     try {
       const apiUrl = new URL(API_BASE);
       const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';

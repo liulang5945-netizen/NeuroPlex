@@ -45,16 +45,16 @@ def main():
         print(f"FAIL: expected Cortex, got {type(app_state.model).__name__}")
         return 1
 
-    # Step 2: 创建最小化 FastAPI app（只注册 routes_taiji）
-    print("\n=== Step 2: Create minimal FastAPI app with routes_taiji ===")
+    # Step 2: 创建最小化 FastAPI app（只注册 routes_neuroplex）
+    print("\n=== Step 2: Create minimal FastAPI app with routes_neuroplex ===")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from api.routes_taiji import router as taiji_router
+    from api.routes_neuroplex import router as neuroplex_router
 
     app = FastAPI(title="Taiji Test")
-    app.include_router(taiji_router)
+    app.include_router(neuroplex_router)
     client = TestClient(app)
-    print("  TestClient created with routes_taiji only")
+    print("  TestClient created with routes_neuroplex only")
 
     # Step 3: 测试 /api/taiji/cortex/generate (随机 image)
     print("\n=== Step 3: POST /api/taiji/cortex/generate (random image) ===")

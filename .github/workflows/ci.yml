@@ -20,7 +20,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # taiji.resonance 核心只依赖 torch + sentencepiece（标准库之外），
+      # neuroplex.resonance 核心只依赖 torch + sentencepiece（标准库之外），
       # 故 CI 不装完整 requirements（PyQt6/langchain 等与 tests 无关）。
       - name: Install torch (CPU)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu

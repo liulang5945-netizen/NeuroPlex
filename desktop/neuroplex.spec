@@ -40,7 +40,7 @@ a = Analysis(
         'neuroplex.tools.desktop', 'neuroplex.tools.searxng', 'neuroplex.tools.browser',
         'neuroplex.safety', 'neuroplex.safety.safety',
         'neuroplex.infra', 'neuroplex.infra.events',
-        'api', 'api.app', 'api.routes_chat', 'api.routes_taiji',
+        'api', 'api.app', 'api.routes_chat', 'api.routes_neuroplex',
         'api.routes_life', 'api.routes_agent', 'api.routes_models',
         'api.routes_training', 'api.routes_settings', 'api.routes_rag',
         'api.chat_strategies', 'api.models',

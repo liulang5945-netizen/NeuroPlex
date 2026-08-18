@@ -306,8 +306,8 @@ def _register_routers(app: FastAPI):
     from .routes_runtime import router as runtime_router
     from .routes_settings import router as settings_router
     from .routes_system import router as system_router
-    from .routes_taiji import router as taiji_router
-    from .routes_taiji_model import router as taiji_model_router
+    from .routes_neuroplex import router as neuroplex_router
+    from .routes_neuroplex_model import router as taiji_model_router
     from .routes_terminal import router as terminal_router
     from .routes_update import router as update_router
     from .routes_workflows import router as workflows_router
@@ -332,7 +332,7 @@ def _register_routers(app: FastAPI):
     app.include_router(terminal_router)
     app.include_router(life_router)
     app.include_router(multimodal_router)
-    app.include_router(taiji_router)
+    app.include_router(neuroplex_router)
     app.include_router(taiji_model_router)
 
 

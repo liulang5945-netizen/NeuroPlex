@@ -362,7 +362,7 @@ class HardwareInfo:
 def analyze_hardware() -> HardwareInfo:
     """
     扫描当前系统硬件信息，返回 HardwareInfo 对象。
-    供 routes_taiji_model.py 的升级检查等模块调用。
+    供 routes_neuroplex_model.py 的升级检查等模块调用。
     """
     info = HardwareInfo()
 

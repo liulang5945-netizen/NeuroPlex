@@ -609,8 +609,8 @@ LLaMA 3风格的Transformer组件：
 | `routes_runtime.py` | 运行时 |
 | `routes_settings.py` | 设置 |
 | `routes_system.py` | 系统 |
-| `routes_taiji.py` | 态极核心接口 |
-| `routes_taiji_model.py` | 态极模型管理 |
+| `routes_neuroplex.py` | 态极核心接口 |
+| `routes_neuroplex_model.py` | 态极模型管理 |
 | `routes_terminal.py` | 终端管理 |
 | `routes_training.py` | 训练 |
 | `routes_update.py` | 更新 |

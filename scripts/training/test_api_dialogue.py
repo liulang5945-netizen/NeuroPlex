@@ -1,6 +1,6 @@
 """API 等价日常对话实测（fastapi 不可用时的内部等价路径）。
 
-模拟 api/routes_taiji.py 的 POST /api/taiji/cortex/chat 端点行为：
+模拟 api/routes_neuroplex.py 的 POST /api/taiji/cortex/chat 端点行为：
   assemble_cortex(neuron_ids=DEFAULT_NEURON_IDS) + cortex.generate(...)
 
 用 API 默认采样参数（temperature=0.8, top_k=50），验证真实 API 体验。

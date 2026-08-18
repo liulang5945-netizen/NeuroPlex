@@ -33,7 +33,7 @@ def clear_output_dir(out_dir: str):
 def simulate_cortex_generate(cortex, hub, modality: str, input_path: str = None,
                              max_tokens: int = 0, temperature: float = 1.0,
                              top_k: int = 0, seed: int = 42):
-    """模拟 routes_taiji.py 中的 cortex_generate 端点逻辑。"""
+    """模拟 routes_neuroplex.py 中的 cortex_generate 端点逻辑。"""
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -159,7 +159,7 @@ def test_imitation_image(cortex, hub):
 
 
 def test_modalities_info(cortex):
-    """模拟 routes_taiji.py 中 _cortex_model_info 的 modalities 信息构造。"""
+    """模拟 routes_neuroplex.py 中 _cortex_model_info 的 modalities 信息构造。"""
     print("\n[Test 5] Modalities info (simulating /api/taiji/model/info)")
     hub = getattr(cortex, "_tokenizer_hub", None)
     assert hub is not None, "TokenizerHub not set on cortex"
