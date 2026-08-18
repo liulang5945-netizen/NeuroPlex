@@ -16,7 +16,8 @@ A. sleep() 完整编排：phases_completed 含 osc_train（Phase 1.8 挂载）
 B. sleep #1 振荡器训练生效（osc_trained=2 + 三参数实际更新）
 C. sleep #1 内容层零破坏（neuron 参数不变——optimizer 只含振荡器）
 D. sleep #2（沉淀 3 条）后振荡器再次训练（osc_trained=2、loss 有限）
-E. 生产零回归：两轮完整睡眠后 generate 非空不退化 + 振荡器兼容
+E. 生产零回归：重启前后 generate 均非空不退化 + 振荡器相位兼容
+F. 重启恢复：Cortex 状态、场记忆库、睡眠历史跨实例恢复
 
 运行：python -u scripts/training/verify_c27_osc_sleep_e2e.py
 """
@@ -24,8 +25,8 @@ E. 生产零回归：两轮完整睡眠后 generate 非空不退化 + 振荡器�
 from __future__ import annotations
 
 import os
+import shutil
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -62,6 +63,7 @@ DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
 COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"
 EXTRA_NEURONS_DIR = "data/foundation_v1_dual"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MEMORY_ITEMS = [
     {"label": "辉光协议",
@@ -108,7 +110,11 @@ def main():
     print("C27 增量五 sleep() 端到端：Phase 1.8 振荡器训练主流程共存", flush=True)
     print("=" * 60, flush=True)
 
-    tmp_dir = tempfile.mkdtemp(prefix="c27_osc_sleep_e2e_")
+    # 不使用系统 Temp：Windows 受控环境可能禁止脚本创建/写入该目录，
+    # 从而把真实的场固化与睡眠历史持久化误判为业务失败。
+    tmp_dir = os.path.join(PROJECT_ROOT, "logs", ".c27_osc_sleep_e2e")
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.makedirs(tmp_dir, exist_ok=True)
     try:
         cortex, tokenizer, modules = assemble_cortex(
             neurons_dir="data/neurons",
@@ -188,14 +194,53 @@ def main():
               and r2.osc_train_loss is not None
               and r2.osc_train_loss == r2.osc_train_loss,
               f"osc_trained={r2.osc_trained}, loss={r2.osc_train_loss}")
+        check("D2b. #2 前向睡眠重放执行", "forward_replay" in r2.phases_completed
+              and r2.forward_replayed > 0,
+              f"forward_replayed={r2.forward_replayed}, loss={r2.forward_replay_loss}")
         params2 = osc_params_snapshot(oscs)
         _changed2 = any(abs(params2[o.nid][i] - params1[o.nid][i]) > 1e-6
                         for o in oscs for i in range(3))
         check("D3. #2 后振荡器参数继续演化（连续学习）", _changed2,
               f"after2={ {k: tuple(round(v, 6) for v in val) for k, val in params2.items()} }")
 
-        # ── 生产零回归 ──
-        print("\n[回归] 两轮完整睡眠后生成 ...", flush=True)
+        # ── 重启恢复：状态文件 + 场记忆 + 睡眠历史 ──
+        print("\n[重启] 保存状态并重新装配 ...", flush=True)
+        state_path = os.path.join(tmp_dir, "cortex_state.pt")
+        cortex.save_state(state_path)
+        cortex_r, _, _ = assemble_cortex(
+            neurons_dir="data/neurons",
+            collab_name=COLLAB_NAME,
+            extra_neurons_dir=EXTRA_NEURONS_DIR,
+            device="cpu",
+            max_rounds=3,
+            wire_bio_modules=True,
+            neuron_ids=DIALOGUE_IDS,
+        )
+        sc_r = SleepConsolidator(replay_buffer_size=50)
+        sleep_engine_r = SleepEngine(config=SleepConfig(training_enabled=False),
+                                     data_dir=tmp_dir)
+        sleep_engine_r.set_brain_interfaces(cortex=cortex_r,
+                                            sleep_consolidator=sc_r)
+        loaded = cortex_r.load_state(state_path)
+        bank_r = sleep_engine_r.get_field_memory()
+        oscs_r = list(cortex_r.ensemble.oscillators)
+        params_r = osc_params_snapshot(oscs_r)
+        check("F1. 重启状态文件成功加载", loaded,
+              f"state={state_path}")
+        check("F2. 场记忆与睡眠历史恢复",
+              len(bank_r) == len(MEMORY_ITEMS)
+              and sleep_engine_r.get_status()["total_sleeps"] == 2
+              and {e["label"] for e in bank_r.entries}
+              == {item["label"] for item in MEMORY_ITEMS},
+              f"field_memory={len(bank_r)}, sleeps="
+              f"{sleep_engine_r.get_status()['total_sleeps']}")
+        check("F3. 振荡器参数跨重启保持",
+              all(abs(params_r[nid][i] - params2[nid][i]) < 1e-6
+                  for nid in params2 for i in range(3)),
+              f"restored={ {k: tuple(round(v, 6) for v in val) for k, val in params_r.items()} }")
+
+        # ── 生产零回归：重启后再次生成 ──
+        print("\n[回归] 重启恢复后生成 ...", flush=True)
         out = cortex.generate(
             build_dialogue_prompt("介绍一下什么是机器学习。"),
             max_tokens=32, domain="zh", temperature=0.55,
@@ -203,9 +248,16 @@ def main():
         check("E1. 生成非空不退化", isinstance(out, str)
               and len(out.strip()) > 0 and not cortex._is_degenerate_text(out),
               f"out={out[:30]!r}")
-        check("E2. 振荡器相位兼容", all(
-            0.0 <= o.phase < 2 * 3.1416 for o in oscs),
-            f"phases={[round(o.phase, 3) for o in oscs]}")
+        out_r = cortex_r.generate(
+            build_dialogue_prompt("介绍一下什么是机器学习。"),
+            max_tokens=32, domain="zh", temperature=0.55,
+        )
+        check("E2. 重启后生成非空不退化", isinstance(out_r, str)
+              and len(out_r.strip()) > 0 and not cortex_r._is_degenerate_text(out_r),
+              f"out={out_r[:30]!r}")
+        check("E3. 振荡器相位兼容", all(
+            0.0 <= o.phase < 2 * 3.1416 for o in oscs_r),
+            f"phases={[round(o.phase, 3) for o in oscs_r]}")
     except Exception as e:
         check("A. sleep 完整编排", False, f"err={e}")
         check("B1. #1 振荡器训练", False, f"err={e}")
@@ -214,9 +266,16 @@ def main():
         check("检索计数", False, f"err={e}")
         check("D1. #2 沉淀", False, f"err={e}")
         check("D2. #2 振荡器训练", False, f"err={e}")
+        check("D2b. #2 前向睡眠重放", False, f"err={e}")
         check("D3. #2 参数演化", False, f"err={e}")
+        check("F1. 重启状态加载", False, f"err={e}")
+        check("F2. 场记忆与睡眠历史恢复", False, f"err={e}")
+        check("F3. 振荡器跨重启保持", False, f"err={e}")
         check("E1. 生产零回归", False, f"err={e}")
-        check("E2. 振荡器兼容", False, f"err={e}")
+        check("E2. 重启后生成", False, f"err={e}")
+        check("E3. 振荡器兼容", False, f"err={e}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print(f"\n  总耗时: {time.time() - t0:.1f}s", flush=True)
     print("=" * 60, flush=True)
