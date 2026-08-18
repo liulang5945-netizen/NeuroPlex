@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -45,6 +44,7 @@ import torch.nn.functional as F  # noqa: E402
 from neuroplex.loader import assemble_cortex  # noqa: E402
 from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 from neuroplex.life.integrate_engine import IntegrateEngine  # noqa: E402
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0
@@ -64,6 +64,7 @@ DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
 COLLAB_NAME = "collab_v3_c24v2.ckpt.pt"
 EXTRA_NEURONS_DIR = "data/foundation_v1_dual"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MEMORY_ITEMS = [
     {
@@ -139,13 +140,27 @@ def cond_nll(cortex, nid: str, text: str, vec=None, round_num=1) -> float:
     return loss.item()
 
 
+def generate_probe(cortex) -> tuple[str, bool]:
+    """用固定短输入确认热插拔前后群体仍可生成。"""
+    out = cortex.generate(
+        build_dialogue_prompt("介绍一下什么是机器学习。"),
+        max_tokens=8, domain="zh", temperature=0.55,
+    )
+    ok = isinstance(out, str) and bool(out.strip()) \
+        and not cortex._is_degenerate_text(out)
+    return out, ok
+
+
 def main():
     t0 = time.time()
     print("=" * 60, flush=True)
     print("C26 增量七：自组织新生（从经验生长，非中心模型迁移）", flush=True)
     print("=" * 60, flush=True)
 
-    tmp_dir = tempfile.mkdtemp(prefix="c27_selforg_")
+    # 使用项目可控目录，避免 Windows 受控环境的系统 Temp 权限差异污染持久化验证。
+    tmp_dir = os.path.join(PROJECT_ROOT, "logs", ".c27_selforg")
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.makedirs(tmp_dir, exist_ok=True)
     new_ckpt = None
     try:
         cortex, tokenizer, modules = assemble_cortex(
@@ -189,6 +204,15 @@ def main():
         print(f"  新生 neuron: {new_nid}（split from {split_parent}）", flush=True)
         check("A0. 新生 neuron 创建并注入", new_nid in cortex.neurons)
 
+        maturity = lifecycle.maturity
+        check("A1. 新生 neuron 从幼稚态开始",
+              maturity.get_maturity_ratio(new_nid) == 0.0
+              and maturity.get_resonance_weight(new_nid) == 0.1
+              and maturity.get_lr_multiplier(new_nid) == 3.0,
+              f"ratio={maturity.get_maturity_ratio(new_nid):.2f}, "
+              f"weight={maturity.get_resonance_weight(new_nid):.2f}, "
+              f"lr_mult={maturity.get_lr_multiplier(new_nid):.2f}")
+
         # 父/子 读路径基线（from_split 已继承父权重）
         parent_read = {k: v.clone() for k, v in
                        cortex.neurons[split_parent].field_read_layers.state_dict().items()}
@@ -211,7 +235,8 @@ def main():
               f"status={status}")
 
         # ── 4. 读路径已学习（记忆注意窗预训练生效）──
-        new_read_after = cortex.neurons[new_nid].field_read_layers.state_dict()
+        new_read_after = {k: v.clone() for k, v in
+                          cortex.neurons[new_nid].field_read_layers.state_dict().items()}
         read_delta = sum(
             float((new_read_after[k] - new_read_before[k]).abs().max().item())
             for k in new_read_before
@@ -246,6 +271,76 @@ def main():
         print(f"    成熟 neuron delta={mature_delta:.6f}", flush=True)
         check("E. 零破坏：成熟 neuron（父本）参数不变",
               mature_delta < 1e-8, f"delta={mature_delta:.2e}")
+
+        # ── 7.5 成熟：幼稚态逐步转为正式成员 ──
+        for _ in range(int(maturity.maturity_rounds) + 1):
+            maturity.tick(new_nid)
+        check("G1. 新生 neuron 完成成熟",
+              maturity.is_mature(new_nid)
+              and maturity.get_maturity_ratio(new_nid) == 1.0
+              and maturity.get_resonance_weight(new_nid) == 1.0
+              and maturity.get_lr_multiplier(new_nid) == 1.0,
+              f"ratio={maturity.get_maturity_ratio(new_nid):.2f}, "
+              f"weight={maturity.get_resonance_weight(new_nid):.2f}, "
+              f"lr_mult={maturity.get_lr_multiplier(new_nid):.2f}")
+
+        # ── 7.6 隔离/恢复：状态机与 Cortex 路由摘除/复活联动 ──
+        before_count = len(cortex.neurons)
+        out_before, ok_before = generate_probe(cortex)
+        check("G2. 新生加入后群体仍可生成", ok_before,
+              f"out={out_before[:24]!r}")
+
+        apoptosis = lifecycle.apoptosis
+        old_failure_threshold = apoptosis.failure_threshold
+        apoptosis.failure_threshold = 1
+        weak_metrics = {
+            "activity": 0.0,
+            "ppl_percentile": 0.0,
+            "connectivity": 0.0,
+            "contribution": None,
+            "redundancy": None,
+            "maturity_ratio": 1.0,
+            "is_inhibitory": False,
+        }
+        apoptosis.step_population({new_nid: weak_metrics}, step_round=1)
+        states = apoptosis.step_population({new_nid: weak_metrics}, step_round=2)
+        check("G3. 低生存分按状态机进入隔离",
+              states.get(new_nid) == "isolated"
+              and new_nid in apoptosis.get_isolated(),
+              f"state={states.get(new_nid)}")
+
+        isolated = cortex.isolate_neuron(new_nid)
+        check("G4. 隔离摘除路由但保留群体", isolated
+              and new_nid not in cortex.neurons
+              and len(cortex.neurons) == before_count - 1
+              and new_nid in cortex.get_isolated_neurons())
+        out_isolated, ok_isolated = generate_probe(cortex)
+        check("G5. 隔离后既有群体仍可生成", ok_isolated,
+              f"out={out_isolated[:24]!r}")
+
+        revived = cortex.revive_neuron(new_nid)
+        apoptosis.revive(new_nid)
+        check("G6. 复活重新加入路由", revived
+              and new_nid in cortex.neurons
+              and new_nid not in cortex.get_isolated_neurons()
+              and apoptosis.get_state(new_nid) == "active"
+              and len(cortex.neurons) == before_count)
+        revived_read = cortex.neurons[new_nid].field_read_layers.state_dict()
+        restore_delta = sum(
+            float((revived_read[k] - new_read_after[k]).abs().max().item())
+            for k in new_read_after if k in revived_read
+        )
+        check("G7. 复活保留新生后的读路径权重",
+              restore_delta < 1e-6, f"delta={restore_delta:.2e}")
+        out_revived, ok_revived = generate_probe(cortex)
+        check("G8. 复活后群体继续生成", ok_revived,
+              f"out={out_revived[:24]!r}")
+        check("G9. 隔离/复活不破坏场记忆",
+              len(bank) == len(MEMORY_ITEMS)
+              and {e["label"] for e in bank.entries}
+              == {item["label"] for item in MEMORY_ITEMS},
+              f"field_memory={len(bank)}")
+        apoptosis.failure_threshold = old_failure_threshold
 
         # ── 8. 持久化：新 neuron 读路径随 state_dict 保存 ──
         saved_sd = cortex.neurons[new_nid].state_dict()

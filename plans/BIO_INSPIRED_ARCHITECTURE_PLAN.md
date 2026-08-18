@@ -97,6 +97,9 @@ scripts/training/verify_*.py
 - `python -X utf8 -u scripts/training/verify_c27_osc_sleep_e2e.py`：17/17 通过（约 190.5 秒），
   固定 checkpoint 完成“交互→场记忆→两轮睡眠→前向重放→状态保存→重新装配→场记忆/睡眠历史/振荡器恢复→再生成”；
   验证脚本使用项目可控临时目录并在结束后清理，避免系统 Temp 权限差异污染结果。
+- `python -X utf8 -u scripts/training/verify_c27_self_organize.py`：20/20 通过（约 87.8 秒），
+  固定群体完成“新生→场记忆整合→成熟→低生存分隔离→摘除路由→复活→最新读路径/LoRA 恢复→再生成”；
+  同时修复热插拔后的 per-neuron embedding 注册，以及隔离前最新权重未写回 checkpoint 两个真实缺口。
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
@@ -164,6 +167,7 @@ checkpoint 和日志已清理。
 17. 完成固定 anchor 契约的三域短验收，holdout 非退化通过但不宣称新增能力。
 18. 新增 general+hub 稠密/稀疏 A/B 评估器，完成真实 Router 状态的机制级验收。
 19. 将 C27 睡眠/振荡器脚本收敛为跨重启端到端回归：场记忆、睡眠历史、前向重放、振荡器参数和重启后生成均通过 17/17。
+20. 将 C27 自组织新生脚本收敛为群体成长生命周期回归：新生、成熟、隔离、复活、路由/生成保护和最新权重恢复均通过 20/20。
 
 ## 6. 后续工作顺序
 
@@ -195,10 +199,16 @@ anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 
 ### P2：打通生命周期闭环（已完成，2026-08-19）
 
 已用固定 checkpoint 和固定输入把“交互 → 场记忆 → 睡眠回放 → 重启恢复 → 再生成”固化为
-`scripts/training/verify_c27_osc_sleep_e2e.py`，17/17 通过。下一项是验证新神经元加入、成熟、
-隔离和恢复不会破坏既有群体。
+`scripts/training/verify_c27_osc_sleep_e2e.py`，17/17 通过；群体成长阶段已由 P2.1 回归覆盖。
 
-### P2：完善社区可用的发布形态
+### P2.1：验证群体成长生命周期（已完成，2026-08-19）
+
+已用 `scripts/training/verify_c27_self_organize.py` 固定群体验证新神经元从场记忆生长，
+幼稚态权重逐步成熟，低生存分进入隔离并摘除路由，复活后恢复最新读路径和 LoRA；隔离前后
+既有生成、路由和场记忆保持可用。过程中修复了新生 neuron 缺少 per-neuron shared
+embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期缺口。
+
+### P3：完善社区可用的发布形态
 
 在能力基线稳定后，再决定训练后 demo 群体的交付方式（小型可下载 artifact 或明确的 bootstrap 流程），补齐版本化指标、示例输出和 API/前端的公开命名。秘密信息与绝对路径扫描属于发布收尾，不应替代能力验收。
 
@@ -211,5 +221,6 @@ anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 
 
 ## 7. 唯一下一步
 
-进入 P2.1 群体成长生命周期回归：固定最小群体，验证“神经元加入 → 成熟 → 隔离/恢复”过程
-对既有生成、路由和场记忆不产生破坏，再决定是否进入社区 demo 交付。
+进入 P3 社区发布面审计：扫描当前公开入口、README、安装/启动路径、计划与代码中的旧叙事和
+绝对本地痕迹，确保对外只呈现群体神经元架构；审计后再确定 demo 采用可下载 artifact 还是
+bootstrap 流程。

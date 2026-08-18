@@ -791,6 +791,19 @@ class Cortex:
         # 6. 注入 ensemble（cortex.neurons 和 ensemble.neurons 是同一引用）
         self.ensemble.add_neuron(nid, neuron)
 
+        # P7 热插拔契约：生成路径若已启用 per-neuron shared embedding，
+        # 新生 neuron 也必须有对应的感知层。分裂模式沿用父 neuron 的 embedding；
+        # 无父 neuron 时回退到目录级 shared embedding，避免 _parallel_forward
+        # 收到 None 并在 embed_adapter 处崩溃。
+        if self._neuron_shared_embeddings is not None:
+            shared_for_new = None
+            if from_split is not None:
+                shared_for_new = self._neuron_shared_embeddings.get(from_split)
+            if shared_for_new is None:
+                shared_for_new = self._shared_embedding
+            if shared_for_new is not None:
+                self._neuron_shared_embeddings[nid] = shared_for_new
+
         # 6.5 C26 增量七：新 neuron 注册到相位动力学（PhasorDynamics.add_neuron）。
         # 装配时相位表按初始 9 集合固定形状，缺此步 → continuous_forward 的
         # binding_tensor 维度错配（9 vs 10）崩溃。相位用同域先验（0 = 与 zh 同相，
@@ -850,6 +863,8 @@ class Cortex:
                 return False
             # 1. 从 neurons dict 移除（cortex.neurons 和 ensemble.neurons 是同一引用）
             self.neurons.pop(nid)
+            if self._neuron_shared_embeddings is not None:
+                self._neuron_shared_embeddings.pop(nid, None)
 
             # 2. 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
             for other_neuron in self.neurons.values():
@@ -898,6 +913,19 @@ class Cortex:
         with self._neurons_lock:
             if nid not in self.neurons:
                 return False
+            # 隔离前先把运行时最新权重（包括睡眠/整合写入的读路径与 LoRA）
+            # 写回 checkpoint。否则 revive 只能恢复 add_neuron 时的初始副本，
+            # 破坏“隔离保留权重、复活继续运行”的生命周期契约。
+            ckpt_path = os.path.join(self.neurons_dir, f"neuron_{nid}.pt")
+            try:
+                neuron = self.neurons[nid]
+                torch.save(
+                    {"neuron_config": neuron.config,
+                     "state_dict": neuron.state_dict()},
+                    ckpt_path,
+                )
+            except Exception as e:
+                logger.warning(f"[Cortex] isolate_neuron: 保存最新权重失败: {e}")
             # 从共享 dict 摘除（cortex.neurons 与 ensemble.neurons 同一引用）
             self.neurons.pop(nid)
             # 清理其他神经元的 side channel 引用（ModuleDict 按 key 删除）
@@ -915,7 +943,11 @@ class Cortex:
                 self._isolated: Dict[str, dict] = {}
             self._isolated[nid] = {
                 "domain": domain,
-                "ckpt": os.path.join(self.neurons_dir, f"neuron_{nid}.pt"),
+                "ckpt": ckpt_path,
+                "shared_embedding": (
+                    self._neuron_shared_embeddings.pop(nid, None)
+                    if self._neuron_shared_embeddings is not None else None
+                ),
             }
         logger.info(f"[Cortex] Isolate: 神经元 {nid} 已隔离（保留 ckpt，可复活）")
         print(f"[Cortex] 💤 Isolate: {nid} 已隔离（保留 ckpt，可复活）")
@@ -962,6 +994,10 @@ class Cortex:
                     logger.warning(f"[Cortex] revive_neuron: {nid} 已在运行中，跳过")
                     return True
                 self.neurons[nid] = neuron
+                if self._neuron_shared_embeddings is not None:
+                    shared_emb = info.get("shared_embedding") or self._shared_embedding
+                    if shared_emb is not None:
+                        self._neuron_shared_embeddings[nid] = shared_emb
                 del isolated[nid]
         except Exception as e:
             logger.error(f"[Cortex] revive_neuron 加载失败 {nid}: {e}")
