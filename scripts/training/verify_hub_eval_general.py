@@ -4,7 +4,7 @@
 修正 verify_hub_eval.py 的装配错位：该脚本装配 dialogue 变体 + dual 基座，
 而 cross_domain_collab 训练用的是 general 基座（code/math/zh + hub）。
 本脚本按训练同款阵容（general code/math/zh + hub, unified=3072）装配，
-从 collab ckpt 注入 cross_spec 投影层，测 hub 锚点 cos——这才是有效口径。
+从 collab ckpt 注入 cross_spec 投影层，测固定 holdout 上的 hub 锚点 cos。
 
 对比三档：
 - smoke 基线：无 collab 权重（随机投影层）
@@ -13,6 +13,9 @@
 
 用法：
     python -u scripts/training/verify_hub_eval_general.py
+
+默认使用 code_sft[16:24]，避开训练/历史评估常用的前 16 条；如需改变片段，
+使用 --eval-start / --eval-count 显式指定。
 """
 from __future__ import annotations
 
@@ -46,6 +49,8 @@ CKPTS = {
     "full (正式全域锚定 17.5K步)": "data/neurons/cross_domain_collab_full.ckpt.pt",
 }
 FIELD_DIM = 3072  # 装配口径（训练 --unified-field-dim 3072 同款）
+DEFAULT_EVAL_START = 16
+DEFAULT_EVAL_COUNT = 8
 
 
 def inject_cross_spec(ensemble, ckpt_path: str) -> None:
@@ -59,6 +64,12 @@ def inject_cross_spec(ensemble, ckpt_path: str) -> None:
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="固定 holdout 上的 hub anchor 评估")
+    parser.add_argument("--eval-start", type=int, default=DEFAULT_EVAL_START)
+    parser.add_argument("--eval-count", type=int, default=DEFAULT_EVAL_COUNT)
+    args = parser.parse_args()
     t0 = time.time()
     print("=" * 60, flush=True)
     print("hub 锚定效果评估（general 同款阵容 code/math/zh + hub）", flush=True)
@@ -70,7 +81,14 @@ def main():
 
     data = torch.load(os.path.join(SFT_DIR, "code_sft.pt"),
                       map_location="cpu", weights_only=False)
-    texts = [d["full"] for d in data][:8]
+    end = args.eval_start + args.eval_count
+    texts = [d["full"] for d in data][args.eval_start:end]
+    if len(texts) != args.eval_count:
+        raise ValueError(
+            f"holdout 样本不足：需要 code_sft[{args.eval_start}:{end}]，"
+            f"实际只有 {len(data)} 条"
+        )
+    print(f"评估片段: code_sft[{args.eval_start}:{end}]（固定 holdout）", flush=True)
     neuron_embeddings, _, _ = make_batch(texts, general_sp, shared_embeddings, seq_len=32)
 
     print("\n装配:", ", ".join(sorted(neurons.keys())), flush=True)
@@ -96,14 +114,17 @@ def main():
             print(f"\n[{label}] hub 锚点 cos 均值 {mean:+.3f}", flush=True)
             print(f"    {detail}", flush=True)
 
-    print("\n对比（全域锚定相对单域锚定的提升）：", flush=True)
-    for nid in DOMAINS:
-        s = results["smoke (无 collab 权重)"][nid]
-        w3 = results["w3.0 (单域锚定)"][nid]
-        g = results["global (全域锚定)"][nid]
-        f = results["full (正式全域锚定 17.5K步)"][nid]
-        print(f"  {nid}: smoke {s:+.3f} → w3.0 {w3:+.3f} → global {g:+.3f} → full {f:+.3f} "
-              f"(Δw3 {w3 - s:+.3f}, Δglobal {g - w3:+.3f}, Δfull {f - g:+.3f})", flush=True)
+    smoke_label = "smoke (无 collab 权重)"
+    if smoke_label in results and len(results) > 1:
+        print("\n对比（相对 smoke 基线的提升）：", flush=True)
+        smoke = results[smoke_label]
+        for label, cos_map in results.items():
+            if label == smoke_label:
+                continue
+            mean_delta = sum(cos_map[nid] - smoke[nid] for nid in DOMAINS) / len(DOMAINS)
+            detail = "  ".join(
+                f"{nid} Δ{cos_map[nid] - smoke[nid]:+.3f}" for nid in DOMAINS)
+            print(f"  {label}: 均值 Δ{mean_delta:+.3f}  {detail}", flush=True)
 
     print(f"\n  总耗时: {time.time() - t0:.1f}s", flush=True)
 

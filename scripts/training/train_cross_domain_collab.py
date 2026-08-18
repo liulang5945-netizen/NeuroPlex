@@ -592,6 +592,12 @@ def main():
                              "冻结并改用低秩增量 BA（B 初始 0 → 个体生成能力零破坏起点），"
                              "解决 C14b 分解验证发现的 'collab 训练 body 微调破坏生成' 根因；"
                              "=0 关闭（退回直接微调 body 尾层旧行为）")
+    parser.add_argument("--cross-spec-only", action="store_true",
+                        help="只训练 cross-spec 前向/反向投影层，用于短跑归因；"
+                             "冻结 neuron side/scale/body、Router 和场门控")
+    parser.add_argument("--freeze-hub-projector", action="store_true",
+                        help="冻结 hub 的 cross-spec 投影，避免短跑改变共享锚点；"
+                             "通常与 --cross-spec-only 一起使用")
     parser.add_argument("--hub-path", default=None,
                         help="缺口 L：hub neuron（联合皮层）ckpt 路径，如 "
                              "data/hub_neuron/neuron_hub.pt。加入协作阵容训练 hub-and-spoke "
@@ -718,11 +724,14 @@ def main():
 
     # 4. 冻结核心参数，仅协作层可训练
     print(f"\n[4] 冻结核心参数 (unfreeze_layers={args.unfreeze_layers}, "
-          f"lora_rank={args.lora_rank})...", flush=True)
+          f"lora_rank={args.lora_rank}, cross_spec_only={args.cross_spec_only})...", flush=True)
     lora_mode = args.lora_rank > 0
     for neuron in neurons.values():
         for p in neuron.parameters():
             p.requires_grad = False
+        if args.cross_spec_only:
+            neuron.eval()
+            continue
         for ch in neuron.excite_channels.values():
             for p in ch.parameters():
                 p.requires_grad = True
@@ -788,15 +797,16 @@ def main():
     ensemble.set_tokenizer_hub(hub)
     if rules is not None:
         ensemble.set_alignment_rules(rules)
-    for proj in ensemble._cross_spec_projectors.values():
+    for pid, proj in ensemble._cross_spec_projectors.items():
         for p in proj.parameters():
-            p.requires_grad = True
-    for proj in ensemble._cross_spec_back_projectors.values():
+            p.requires_grad = not (args.freeze_hub_projector and pid == "hub")
+    for pid, proj in ensemble._cross_spec_back_projectors.items():
         for p in proj.parameters():
-            p.requires_grad = True
+            p.requires_grad = not (args.freeze_hub_projector and pid == "hub")
     # R1（REMEDIATION_PLAN 2026-08-14）：场门控 W_cond 参与训练
     # （训练-推理评分口径统一后，W_cond 需要梯度才能成为可学习门控）
-    if ensemble._field is not None and hasattr(ensemble._field, "W_cond"):
+    if (not args.cross_spec_only and ensemble._field is not None
+            and hasattr(ensemble._field, "W_cond")):
         ensemble._field.W_cond.requires_grad = True
 
     # 6. 优化器：Muon(2D 协作层) + AdamW(1D) + body 低 lr
