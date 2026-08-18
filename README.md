@@ -45,12 +45,24 @@ Level 3: Population control plane             ← topology, plasticity, growth, 
 python -m pip install -e ".[dev]"
 ```
 
-### Verify the core (26 tests)
+### Verify the core (27 tests)
 
 ```bash
 python -m pytest tests/ -q
-# Expected: 26 passed
+# Expected: 27 passed
 ```
+
+### Run the reproducible population baseline
+
+```bash
+python scripts/verify_population_baseline.py --output reports/population_baseline.json
+```
+
+This uses a fixed seed and a tiny synthetic population to compare individual,
+dense, and sparse resonance, then checks route observability, checkpoint
+serialization, Cortex assembly, and the API health endpoint. Its metrics are
+marked `synthetic_probe_only`; they validate the population runtime path, not
+trained language quality.
 
 ### Run the API
 

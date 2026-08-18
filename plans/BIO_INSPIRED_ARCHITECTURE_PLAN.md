@@ -1,6 +1,6 @@
 # NeuroPlex Active Architecture Plan
 
-> **状态**：当前活跃计划 · 2026-08-18
+> **状态**：当前活跃计划 · 2026-08-19
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 
@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：26 项核心回归测试通过，覆盖对话格式契约、共振 side-channel 和 API 健康检查。
+- `python -m pytest tests -q`：27 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查和最小群体基线。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
 - 干净启动烟测通过：空神经元目录可以启动 Cortex，并明确进入 fallback；域 tokenizer 由 TokenizerHub 注册。
 - API 烟测通过：健康检查、架构能力接口返回 200；旧整体升级入口返回 410 退役响应。
@@ -98,7 +98,7 @@ scripts/training/verify_*.py
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
 
-当前尚未验收的不是启动能力，而是群体能力：公开仓库没有随代码交付可用于质量展示的训练后神经元群体；空目录 fallback 只能证明工程链路可启动，不能证明生成质量。跨域协作的历史正式训练还出现过 hub 锚点退化，因此不能直接把旧实验结果当作主线结论。
+当前尚未验收的不是启动能力，而是真实训练后的语言能力：公开仓库没有随代码交付可用于质量展示的训练后神经元群体；空目录 fallback 和本次 synthetic probe 只能证明工程链路可启动、路由可观测，不能证明生成质量。跨域协作的历史正式训练还出现过 hub 锚点退化，因此不能直接把旧实验结果当作主线结论。
 
 ## 5. 本轮已完成
 
@@ -112,19 +112,23 @@ scripts/training/verify_*.py
 8. 将审计、实验历史和旧训练参考移入 `plans/archive/`，活跃 plans 只保留当前架构与验收口径。
 9. 完成开源发布面的安装、README、Cortex 快速开始、API 健康检查和兼容入口验收。
 10. 修正启动进度接口的调用契约，以及空群体加载时错误选择 general 域 tokenizer 的问题。
+11. 新增 `scripts/verify_population_baseline.py`：固定种子下完成单神经元、稠密协作、稀疏协作、场贡献和路由观测。
+12. 完成小型 checkpoint 的内存序列化 round-trip、Cortex.think 和 API health 联合烟测，并加入第 27 项回归测试。
 
 ## 6. 后续工作顺序
 
-### P0：建立最小可复现群体基线（下一步）
+### P0：建立最小可复现群体基线（已完成）
 
-先不重新启动长时间跨域训练。新增一个可重复运行的群体验收入口，固定一组小型测试数据和最小神经元集合，至少输出：
+已完成 `scripts/verify_population_baseline.py`。它不加载本机大 checkpoint，而是固定随机种子和小型 Transformer 群体，至少输出：
 
 - 单神经元、稠密协作、稀疏协作三组质量指标；
-- 每个样本的路由命中、平均激活数、场贡献和置信度；
-- API/Cortex 的端到端生成结果；
-- checkpoint、配置、随机种子和指标文件，能够让社区复跑同一结论。
+- 每个样本的路由命中、平均激活数、场贡献和共振分；
+- Cortex.think 的端到端共振结果和 API health；
+- checkpoint 序列化 round-trip、配置、随机种子和可选指标文件，能够让社区复跑同一结论。
 
-验收条件是：流程不依赖本机大 checkpoint；稀疏模式确实减少激活；协作质量不明显劣于稠密模式；路由和场贡献可解释。这个基线完成前，不继续扩展新的生物机制，也不把长时训练结果写成产品能力。
+当前结果：稀疏 Router 实际介入，round-2 平均激活从 3 降到 2；Cortex 序列化恢复、共振分、场贡献和 API health 均通过。报告明确标记为 `synthetic_probe_only`，因此只验收运行时结构和可观测性，不把随机小模型的 PPL 写成语言能力结论。
+
+真实 checkpoint 的协作质量仍需在 P1 中验收；在此之前，不继续扩展新的生物机制，也不把长时训练结果写成产品能力。
 
 ### P1：修复跨域协作训练闭环
 
@@ -151,4 +155,4 @@ scripts/training/verify_*.py
 
 ## 7. 唯一下一步
 
-建立“最小可复现群体基线”：先做测试夹具、固定评估集、dense/sparse 对照和指标报告，再决定是否投入下一轮跨域协作训练。
+执行 P1 短周期跨域协作实验：先用现有 checkpoint 做可中断的小样本 A/B，逐域记录质量和 anchor 非退化，再决定是否投入正式训练。
