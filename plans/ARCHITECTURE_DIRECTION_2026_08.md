@@ -15,7 +15,7 @@ The runtime has four cooperating planes:
 3. **Resonance plane** — field read/write, peer excitation/inhibition, cross-spec projection, and multi-round aggregation let active neurons exchange partial beliefs.
 4. **Life plane** — routing, confidence/quality gates, field memory, sleep replay, synaptic plasticity, neurogenesis, maturation, and apoptosis control which neurons participate and how the population changes.
 
-The optional expert/relay neuron is a communication aid, not a central model or a mandatory teacher. New neurons grow from data, field experience, and peer coordination. The old whole-model migration path is retained only where compatibility requires it and is not part of the product architecture.
+The optional expert/relay neuron is a communication aid, not a central model or a mandatory coordinator. New neurons grow from data, field experience, and peer coordination. The old centralized migration path is retained only where compatibility requires it and is not part of the product architecture.
 
 ## Candidate comparison
 
@@ -42,12 +42,12 @@ Use these terms in new documentation, APIs, logs, and training data:
 | Prefer | Avoid as the primary framing |
 |---|---|
 | neuron population / population network | one big model / model size ladder |
-| peer coordination / field alignment | teacher–student migration |
-| experience replay / consolidation | recursive model distillation |
+| peer coordination / field alignment | centralized migration |
+| experience replay / consolidation | centralized transfer |
 | neuron growth / specialization | whole-model upgrade |
-| relay or anchor neuron (optional) | central teacher model |
+| relay or anchor neuron (optional) | central control model |
 
-Legacy teacher-alignment utilities may remain for checkpoint compatibility, but they must be clearly isolated from the active population path and must not appear in the product identity or quick-start flow.
+Legacy alignment utilities may remain for checkpoint compatibility, but they must be clearly isolated from the active population path and must not appear in the product identity or quick-start flow.
 
 ## Migration boundary
 
@@ -57,11 +57,11 @@ This decision changes the public contract and the active narrative first:
 - active plans describe current population mechanisms and experiments;
 - generated identity/developer data teaches the population model;
 - stale local file URIs, old package paths, and contradictory license wording are removed;
-- legacy upgrade/distillation entry points are either isolated as compatibility code or replaced by population-growth interfaces;
+- legacy centralized-migration entry points are either isolated as compatibility code or replaced by population-growth interfaces;
 - historical audit files remain historical evidence, but are not linked as current architecture guidance.
 
 ## Next implementation slice
 
 The naming migration and compatibility boundary are complete enough for the public path. The minimal reproducible population baseline is now in `scripts/verify_population_baseline.py`: fixed inputs, dense/sparse comparison, route/field observability, in-memory checkpoint round-trip, Cortex smoke, and API health.
 
-The next slice is a short, resumable cross-domain peer-coordination experiment on real checkpoints, with independent per-domain validation and anchor-regression guards. The synthetic probe is a runtime contract, not a language-quality claim. The 1.5B distillation path, monolithic upgrade path, and new biological mechanisms remain outside the active roadmap.
+The next slice is a short, resumable cross-domain peer-coordination experiment on real checkpoints, with independent per-domain validation and anchor-regression guards. The synthetic probe is a runtime contract, not a language-quality claim. Centralized migration and monolithic upgrade paths remain outside the active roadmap.

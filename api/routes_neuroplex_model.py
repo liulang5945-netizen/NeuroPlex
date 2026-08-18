@@ -1,7 +1,7 @@
 """Compatibility routes for clients that still call the former model-upgrade API.
 
 The active runtime is a population resonance network. These routes deliberately
-do not expose a single-model size ladder or start a teacher-based migration.
+do not expose a single-model size ladder or start a centralized migration.
 They keep the old URLs readable while directing clients to population growth.
 """
 
@@ -74,7 +74,7 @@ def get_capability():
 
 @router.post("/api/taiji_model/upgrade")
 def start_upgrade():
-    """Reject the former whole-model upgrade operation explicitly."""
+    """Reject the deprecated centralized-upgrade operation explicitly."""
     raise HTTPException(
         status_code=410,
         detail=(

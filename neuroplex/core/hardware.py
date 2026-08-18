@@ -41,7 +41,7 @@ def estimate_params_b(config, loaded_model=None) -> tuple:
     1. model.config.num_parameters（HuggingFace 标准属性，不受量化影响）
     2. model.config.hidden_size + num_hidden_layers（从配置估算）
     3. 本地 config.json / 模型名称解析
-    4. 保守回退 1.0B
+    4. 保守回退（仅用于硬件估算）
 
     Returns:
         (params_b: float, source: str)
@@ -130,7 +130,6 @@ def estimate_params_b(config, loaded_model=None) -> tuple:
             (('72b', '70b'), 72.0), (('32b',), 32.0), (('14b', '13b'), 14.0),
             (('12b',), 12.0), (('9b',), 9.0), (('8b',), 8.0), (('7b',), 7.0),
             (('6b',), 6.0), (('3b', '3.8b'), 3.8), (('2b',), 2.0),
-            (('1.5b',), 1.5), (('0.5b',), 0.5),
         ]
         for keywords, scale in scale_map:
             if any(kw in name_lower for kw in keywords):
@@ -143,7 +142,7 @@ def auto_configure_for_hardware(config, loaded_model=None) -> dict:
     """
     纯公式驱动的硬件自适应配置。
 
-    支持 0.5B~72B 任意模型，4GB~128GB 任意设备。
+    支持按实际检测到的模型规模与设备资源进行自适应配置。
     所有决策只依赖于：
     - 模型参数量（自动检测）
     - 可用内存（psutil 实时读取）
