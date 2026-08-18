@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：27 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查和最小群体基线。
+- `python -m pytest tests -q`：30 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查、最小群体基线和跨域评估词表契约。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
 - 干净启动烟测通过：空神经元目录可以启动 Cortex，并明确进入 fallback；域 tokenizer 由 TokenizerHub 注册。
 - API 烟测通过：健康检查、架构能力接口返回 200；旧整体升级入口返回 410 退役响应。
@@ -97,6 +97,28 @@ scripts/training/verify_*.py
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
+
+### 4.1 真实 checkpoint 的 P1 短周期验收（2026-08-19）
+
+本轮只做小样本、可中断的匹配评估，不把旧长训练重新包装成产品能力。
+
+| checkpoint | code | math | zh | 均值 |
+|---|---:|---:|---:|---:|
+| smoke（无协作权重） | +0.003 | -0.005 | +0.006 | +0.001 |
+| w3.0（单域锚定） | +0.236 | +0.015 | +0.117 | +0.123 |
+| global（全域锚定） | +0.175 | +0.237 | +0.423 | +0.279 |
+| full（全量协作训练） | -0.154 | +0.498 | -0.212 | +0.044 |
+
+上表是 general 同款阵容的 hub 锚点 cosine；`full` 相对 `global` 在 code / zh 分别下降
+0.329 / 0.635，因此不具备主线晋级资格。保留 `global` 作为实验参考，不继续投入同配方的长时训练。
+
+逐域 PPL 只取每域 2 条、共振 1 轮，用于检查评估链路而非产品质量：无协作权重平均 EMERGE
+为 +13.1%，`full` 仍为 +13.1%，四域数值差异低于 0.1%。这说明当前增益主要来自固定的
+多域融合/词表投影路径，不能归因于 `full` checkpoint 的训练成果。
+
+本轮同时修复两个评估契约问题：无 targets 的生成探针不再引用 fusion 局部变量；共享 256K
+输出头由通用词表解码，旧域专用 head 仍按目标域词表兼容解码。生成探针已不再触发
+`OUT_OF_RANGE`，但当前随机生成文本仍不可作为语言能力证据。
 
 当前尚未验收的不是启动能力，而是真实训练后的语言能力：公开仓库没有随代码交付可用于质量展示的训练后神经元群体；空目录 fallback 和本次 synthetic probe 只能证明工程链路可启动、路由可观测，不能证明生成质量。跨域协作的历史正式训练还出现过 hub 锚点退化，因此不能直接把旧实验结果当作主线结论。
 
@@ -114,6 +136,8 @@ scripts/training/verify_*.py
 10. 修正启动进度接口的调用契约，以及空群体加载时错误选择 general 域 tokenizer 的问题。
 11. 新增 `scripts/verify_population_baseline.py`：固定种子下完成单神经元、稠密协作、稀疏协作、场贡献和路由观测。
 12. 完成小型 checkpoint 的内存序列化 round-trip、Cortex.think 和 API health 联合烟测，并加入第 27 项回归测试。
+13. 完成真实 checkpoint 的 general 口径 hub 锚点 A/B；拒绝 `full` 晋级，保留 `global` 为实验参考。
+14. 修复无 targets 探针和共享 general 词表解码契约，新增回归测试并将总数提升到 30 项。
 
 ## 6. 后续工作顺序
 
@@ -130,9 +154,11 @@ scripts/training/verify_*.py
 
 真实 checkpoint 的协作质量仍需在 P1 中验收；在此之前，不继续扩展新的生物机制，也不把长时训练结果写成产品能力。
 
-### P1：修复跨域协作训练闭环
+### P1：修复跨域协作训练闭环（下一阶段）
 
-以现有最佳 checkpoint 和 P0 基线为参照，重做小预算、可中断的协作实验：域间交错采样、独立验证集、逐域指标、路由质量校准和 hub/anchor 非退化检查。保留“质量路由”方向，放弃继续堆叠不对称的域分类 loss；任何正式训练必须先通过短跑实验和 P0 回归。
+以 `global` 参考和无协作权重基线为参照，先做可归因的短跑：固定 holdout、逐域指标，
+仅允许一组协作参数变化，并把 hub/anchor 非退化作为停止条件。先隔离 cross-spec 投影与
+side/scale/body 的贡献，再决定是否保留训练更新；不重复当前 `full` 的长时配方。
 
 ### P1：完成稀疏路由的真实性验证
 
@@ -155,4 +181,4 @@ scripts/training/verify_*.py
 
 ## 7. 唯一下一步
 
-执行 P1 短周期跨域协作实验：先用现有 checkpoint 做可中断的小样本 A/B，逐域记录质量和 anchor 非退化，再决定是否投入正式训练。
+执行一次 100 步以内、仅更新 cross-spec 投影的可归因短跑，并用固定 holdout 同时验收逐域 PPL 与 hub 锚点非退化；若任一域退化，立即停止该配方。

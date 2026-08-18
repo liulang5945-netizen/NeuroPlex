@@ -3114,6 +3114,14 @@ class ResonanceEnsemble:
         流程：per-neuron NLL → z-score → 绝对质量 gate → contrastive loss（C15-C25-G 五代增量，
         详见下方原段注释）。返回 (per_neuron_nll, nll_z, nll_gated_z, contrastive_loss)；
         nll_z 同时供 router_contrastive_loss（提取段外）使用。"""
+        # Generation/probe paths intentionally omit targets, so the quality
+        # supervision loss must still be created on the logits device. Do not
+        # reference the caller's fusion-local ``weights`` variable here: this
+        # helper is also used independently of the fusion branch.
+        quality_device = (
+            next(iter(final_logits.values())).device
+            if final_logits else torch.device("cpu")
+        )
         # ── per-neuron NLL（供 C12 共振分对比 + §4.0d Router 对比约束共用）──
         # targets=None 时不计算（向后兼容）
         # C20（2026-08-08）：answer_mask 传入时只对 answer（回复）部分算回合级 NLL——
@@ -3308,7 +3316,7 @@ class ResonanceEnsemble:
                 actual_weights * (actual_weights.clamp(min=1e-8).log() - ideal_weights.clamp(min=1e-8).log())
             ).sum()
         else:
-            contrastive_loss = torch.tensor(0.0, device=weights.device)
+            contrastive_loss = torch.tensor(0.0, device=quality_device)
 
         return per_neuron_nll, nll_z, nll_gated_z, contrastive_loss
 

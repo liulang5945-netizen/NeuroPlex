@@ -45,11 +45,11 @@ Level 3: Population control plane             ← topology, plasticity, growth, 
 python -m pip install -e ".[dev]"
 ```
 
-### Verify the core (27 tests)
+### Verify the core (30 tests)
 
 ```bash
 python -m pytest tests/ -q
-# Expected: 27 passed
+# Expected: 30 passed
 ```
 
 ### Run the reproducible population baseline

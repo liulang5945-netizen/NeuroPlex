@@ -152,15 +152,41 @@ def load_sft_texts(data_dir, domain, max_texts=20):
     return [d["full"] for d in data[:max_texts]]
 
 
+def _resolve_generation_tokenizer(logits, target_sp, general_sp):
+    """Select the decoder that matches the ensemble output contract.
+
+    Current general checkpoints inject a shared 256K LM head into every
+    domain neuron.  The historical evaluator assumed that ``target_domain``
+    also implied a domain-sized output vocabulary, which made SentencePiece
+    reject sampled general-space ids.  Keep native-domain decoding available
+    for old checkpoints, but make the shared general space the explicit path
+    for current checkpoints.
+    """
+    logits_vocab = int(logits.shape[-1])
+    target_vocab = target_sp.GetPieceSize()
+    general_vocab = general_sp.GetPieceSize()
+    if logits_vocab == target_vocab:
+        return target_sp
+    if logits_vocab == general_vocab:
+        return general_sp
+    raise RuntimeError(
+        "无法确定生成词表：logits vocab=%d，target vocab=%d，general vocab=%d"
+        % (logits_vocab, target_vocab, general_vocab)
+    )
+
+
 def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
                           zh_prompt, target_domain="code", max_tokens=30, rounds=1):
-    """跨域生成：中文 prompt（general 编码）→ target 域输出（用 code neuron 表达）。"""
+    """跨域生成：中文 prompt → target 域路由，按实际输出空间解码。
+
+    对当前共享 general LM head，输出是通用词表；只有旧的域专用 head
+    checkpoint 才会按 target tokenizer 解码。
+    """
     target_sp = hub.get_tokenizer(target_domain)
     ids = torch.tensor([general_sp.encode(zh_prompt)], dtype=torch.long, device=DEVICE)
     generated = []
-    eos_id = target_sp.eos_id() if hasattr(target_sp, 'eos_id') else None
-    if eos_id is not None and eos_id < 0:
-        eos_id = None
+    output_sp = None
+    eos_id = None
     with torch.no_grad():
         for _ in range(max_tokens):
             neuron_embeddings = {}
@@ -171,15 +197,21 @@ def cross_domain_generate(neurons, shared_embeddings, ensemble, hub, general_sp,
                 target_domain=target_domain,
             )
             logits = result["fused_logits"][:, -1, :].float()
+            if output_sp is None:
+                output_sp = _resolve_generation_tokenizer(logits, target_sp, general_sp)
+                if output_sp is target_sp and hasattr(target_sp, 'eos_id'):
+                    eos_id = target_sp.eos_id()
+                    if eos_id is not None and eos_id < 0:
+                        eos_id = None
             probs = F.softmax(logits / 0.7, dim=-1)
             nxt = torch.multinomial(probs, num_samples=1).item()
             generated.append(nxt)
             if eos_id is not None and nxt == eos_id:
                 break
-            piece = target_sp.decode([nxt])
+            piece = output_sp.decode([nxt])
             new_ids = general_sp.encode(piece)
             ids = torch.cat([ids, torch.tensor([new_ids], dtype=torch.long, device=DEVICE)], dim=1)
-    return target_sp.decode(generated)
+    return output_sp.decode(generated) if output_sp is not None else ""
 
 
 def cross_domain_generate_general(neurons, shared_embeddings, ensemble, hub, general_sp,
@@ -263,7 +295,7 @@ def main():
             out = cross_domain_generate(neurons, shared_embeddings, ensemble, hub,
                                         general_sp, p, target_domain="code",
                                         rounds=args.rounds)
-            print(f"  [code 域] → {out}", flush=True)
+            print(f"  [目标域路由/实际输出词表] → {out}", flush=True)
         except Exception as e:
             print(f"  生成失败: {e}", flush=True)
         try:
