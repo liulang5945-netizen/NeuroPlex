@@ -11,8 +11,8 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional, Union
 
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.Taiji")
 router = APIRouter()
@@ -162,7 +162,7 @@ async def taiji_upload(file: UploadFile = File(...)):
 def feed_status():
     """获取喂养引擎状态"""
     try:
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         return {"status": "ok", "data": engine.get_status(), "summary": engine.get_summary()}
     except Exception as e:
@@ -174,7 +174,7 @@ def feed_status():
 def feed_taiji():
     """让态极吃饭 — 自动从各来源收集数据"""
     try:
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         report = engine.feed(reason="manual")
         return {
@@ -200,7 +200,7 @@ def feed_text(request: dict):
             raise HTTPException(status_code=400, detail="text 不能为空")
         source = request.get("source", "manual")
         category = request.get("category", "knowledge")
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         item = engine.feed_text(text=text, source=source, category=category)
         if item:
@@ -243,7 +243,7 @@ def feed_file(request: dict):
         if not os.path.isfile(safe_path):
             raise HTTPException(status_code=404, detail="文件不存在")
         category = request.get("category", "knowledge")
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         item = engine.feed_file(file_path=safe_path, category=category)
         if item:
@@ -300,7 +300,7 @@ def feed_multimodal(request: dict):
             )
 
         # 喂养
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         item = engine.feed_multimodal(modality, file_path=safe_path, tokenizer_hub=hub)
         if not item:
@@ -315,7 +315,7 @@ def feed_multimodal(request: dict):
 
         # 触发小睡消化
         if trigger_nap:
-            from taiji.life.sleep_engine import get_sleep_engine
+            from neuroplex.life.sleep_engine import get_sleep_engine
             sleep_engine = get_sleep_engine()
             sleep_engine.set_brain_interfaces(cortex=model)
             report = sleep_engine.nap(duration_minutes=1)
@@ -381,7 +381,7 @@ def cortex_generate(req: CortexGenRequest):
             safe_path = _validate_workspace_path(req.input_path)
             if not os.path.isfile(safe_path):
                 raise HTTPException(status_code=404, detail="参考文件不存在")
-            from taiji.multimodal.io import load_image, load_audio, load_video
+            from neuroplex.multimodal.io import load_image, load_audio, load_video
             if modality == "image":
                 data = load_image(safe_path).to(device)
             elif modality == "audio":
@@ -441,20 +441,20 @@ def cortex_generate(req: CortexGenRequest):
         }
 
         if modality == "image":
-            from taiji.multimodal.io import save_image
+            from neuroplex.multimodal.io import save_image
             path = os.path.join(out_dir, f"cortex_{ts}.png")
             img = recon if recon.dim() == 3 else recon[0]
             save_image(img, path)
             result["file"] = path
         elif modality == "audio":
-            from taiji.multimodal.io import save_audio
+            from neuroplex.multimodal.io import save_audio
             path = os.path.join(out_dir, f"cortex_{ts}.wav")
             # audio decode 返回 1D [samples]，不要索引
             aud = recon if recon.dim() <= 1 else recon[0]
             save_audio(aud, path, sample_rate=16000)
             result["file"] = path
         elif modality == "video":
-            from taiji.multimodal.io import save_video
+            from neuroplex.multimodal.io import save_video
             path = os.path.join(out_dir, f"cortex_{ts}.mp4")
             vid = recon if recon.dim() == 4 else recon[0]
             # video decode 返回 [C, T, H, W]，save_video 需要 [T, C, H, W]
@@ -511,7 +511,7 @@ def cortex_chat(req: CortexChatRequest):
         # （审计发现）。读侧（auto_memory 检索注入生成）已由 sleep_engine
         # set_brain_interfaces → cortex.set_field_memory 接通。
         try:
-            from taiji.life.sleep_engine import get_sleep_engine
+            from neuroplex.life.sleep_engine import get_sleep_engine
             engine = get_sleep_engine()
             fstate = model.get_last_field_state()
             if engine is not None and fstate is not None:
@@ -568,7 +568,7 @@ def cortex_task_chain(req: CortexTaskChainRequest):
             raise HTTPException(status_code=503, detail="Cortex 未加载")
         if not req.stages:
             raise HTTPException(status_code=400, detail="stages 不能为空")
-        from taiji.brain.cortex import TaskSet
+        from neuroplex.brain.cortex import TaskSet
         stages = [TaskSet(
             prompt=s.prompt,
             mode=s.mode,
@@ -608,7 +608,7 @@ def feed_directory(request: dict):
         if not os.path.isdir(safe_path):
             raise HTTPException(status_code=404, detail="目录不存在")
         category = request.get("category", "code")
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         count = engine.feed_directory(dir_path=safe_path, category=category)
         return {"status": "ok", "files_fed": count}
@@ -623,7 +623,7 @@ def feed_directory(request: dict):
 def feed_plan():
     """获取进食计划 — 根据能力短板推荐吃什么"""
     try:
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         plan = engine.get_feed_plan()
         return {"status": "ok", "plan": plan}
@@ -638,7 +638,7 @@ def feed_plan():
 def sleep_status():
     """获取睡眠引擎状态"""
     try:
-        from taiji.life.sleep_engine import get_sleep_engine
+        from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
         return {"status": "ok", "data": engine.get_status(), "summary": engine.get_summary()}
     except Exception as e:
@@ -650,7 +650,7 @@ def sleep_status():
 def sleep_taiji():
     """让态极睡觉"""
     try:
-        from taiji.life.sleep_engine import get_sleep_engine
+        from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
         report = engine.sleep(reason="manual")
         return {
@@ -672,7 +672,7 @@ def sleep_taiji():
 def play_status():
     """获取玩耍引擎状态"""
     try:
-        from taiji.life.play_engine import get_play_engine
+        from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
         return {"status": "ok", "data": engine.get_status(), "summary": engine.get_summary()}
     except Exception as e:
@@ -684,7 +684,7 @@ def play_status():
 def play_taiji():
     """让态极玩耍 — 自由探索和创意实验"""
     try:
-        from taiji.life.play_engine import get_play_engine
+        from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
         report = engine.play(reason="manual")
         activities = []
@@ -712,7 +712,7 @@ def play_taiji():
 def play_personality():
     """获取态极的个性档案"""
     try:
-        from taiji.life.play_engine import get_play_engine
+        from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
         return {"status": "ok", "personality": engine.get_personality()}
     except Exception as e:
@@ -726,7 +726,7 @@ def play_personality():
 def life_status():
     """获取生命状态（需求、状态、心跳数）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         return {"status": "ok", "data": scheduler.get_status(), "summary": scheduler.get_summary()}
     except Exception as e:
@@ -738,7 +738,7 @@ def life_status():
 def life_start():
     """启动生命（启动心跳循环）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.start()
         return {"status": "ok", "message": "🌱 生命已启动"}
@@ -751,7 +751,7 @@ def life_start():
 def life_stop():
     """暂停生命"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.stop()
         return {"status": "ok", "message": "⏸️ 生命已暂停"}
@@ -764,7 +764,7 @@ def life_stop():
 def life_interact(success: bool = True, topic: str = ""):
     """记录一次用户交互（影响需求状态）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.record_interaction(success=success, topic=topic)
         return {"status": "ok", "needs": scheduler.needs.to_dict()}
@@ -779,7 +779,7 @@ def life_force_action(action: str):
     if action not in ("feed", "sleep", "play"):
         raise HTTPException(status_code=400, detail="无效的操作，支持: feed, sleep, play")
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         result = scheduler.force_action(action)
         return {"status": "ok", "result": result, "needs": scheduler.needs.to_dict()}
@@ -792,7 +792,7 @@ def life_force_action(action: str):
 def self_mod_status():
     """获取态极自修改引擎状态（自主发现和安装工具的能力）"""
     try:
-        from taiji.agent_ext.self_modification import get_self_modification_engine
+        from neuroplex.agent_ext.self_modification import get_self_modification_engine
         engine = get_self_modification_engine()
         return {"status": "ok", **engine.get_status()}
     except Exception as e:
@@ -807,7 +807,7 @@ async def self_mod_discover(req: dict):
     if not keyword:
         raise HTTPException(status_code=400, detail="关键词不能为空")
     try:
-        from taiji.agent_ext.self_modification import get_self_modification_engine
+        from neuroplex.agent_ext.self_modification import get_self_modification_engine
         engine = get_self_modification_engine()
         matches = engine._discovery.find_matching_tools(keyword)
         return {"status": "ok", "matches": matches, "count": len(matches)}
@@ -821,7 +821,7 @@ async def self_mod_toggle(req: dict):
     """启用/禁用态极自修改引擎"""
     enabled = req.get("enabled", True)
     try:
-        from taiji.agent_ext.self_modification import get_self_modification_engine
+        from neuroplex.agent_ext.self_modification import get_self_modification_engine
         engine = get_self_modification_engine()
         if enabled:
             engine.enable()
@@ -837,7 +837,7 @@ async def self_mod_toggle(req: dict):
 def life_timeline(hours: int = 24):
     """获取生命时间线"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         timeline = scheduler.get_timeline(hours=hours)
         return {"status": "ok", "timeline": timeline, "hours": hours}

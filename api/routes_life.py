@@ -22,7 +22,7 @@ class LifeActionResponse(BaseModel):
 async def get_life_status():
     """获取态极完整生命状态"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         status = scheduler.get_status()
         needs = scheduler.needs.to_dict() if hasattr(scheduler, 'needs') else {}
@@ -42,11 +42,11 @@ async def get_life_status():
 async def feed_taiji(reason: str = "manual"):
     """手动触发喂养（数据摄取）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.record_interaction(success=True, topic="feed")
 
-        from taiji.life.feed_engine import get_feed_engine
+        from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
         report = engine.feed(reason=reason)
         return LifeActionResponse(
@@ -67,11 +67,11 @@ async def feed_taiji(reason: str = "manual"):
 async def sleep_taiji(reason: str = "manual"):
     """手动触发睡眠（训练/整合）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.record_interaction(success=True, topic="sleep")
 
-        from taiji.life.sleep_engine import get_sleep_engine
+        from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
         report = engine.sleep(reason=reason)
         loss_str = f"{report.training_loss:.4f}" if report.training_loss is not None else "N/A"
@@ -93,11 +93,11 @@ async def sleep_taiji(reason: str = "manual"):
 async def play_taiji(reason: str = "manual"):
     """手动触发玩耍（探索/创造）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.record_interaction(success=True, topic="play")
 
-        from taiji.life.play_engine import get_play_engine
+        from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
         report = engine.play(reason=reason)
         return LifeActionResponse(
@@ -118,7 +118,7 @@ async def play_taiji(reason: str = "manual"):
 async def evolve_taiji():
     """手动触发进化"""
     try:
-        from taiji.life.evolution_engine import get_evolution_engine
+        from neuroplex.life.evolution_engine import get_evolution_engine
         engine = get_evolution_engine()
         return LifeActionResponse(
             success=True,
@@ -137,7 +137,7 @@ async def evolve_taiji():
 async def record_interaction(success: bool = True, topic: str = ""):
     """记录一次用户交互（影响需求状态）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()
         scheduler.record_interaction(success=success, topic=topic)
         return LifeActionResponse(success=True, message="交互已记录")

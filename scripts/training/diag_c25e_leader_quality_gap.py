@@ -25,8 +25,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]

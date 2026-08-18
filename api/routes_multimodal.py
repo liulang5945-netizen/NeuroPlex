@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from taiji.core.app_state import app_state
+from neuroplex.core.app_state import app_state
 
 logger = logging.getLogger("ApiServer.Multimodal")
 router = APIRouter()
@@ -19,7 +19,7 @@ router = APIRouter()
 def _get_output_engine():
     """获取多模态输出引擎"""
     try:
-        from taiji.multimodal.output_engine import MultimodalOutputEngine
+        from neuroplex.multimodal.output_engine import MultimodalOutputEngine
         return MultimodalOutputEngine()
     except Exception as e:
         logger.error(f"Failed to get output engine: {e}")

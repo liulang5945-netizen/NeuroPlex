@@ -85,7 +85,7 @@ SAMPLING_MAX_TOKENS = 60  # 折中默认值（原 single=100, aug_joint=80, dial
 # 口径契约单一真相源已上移至核心库 taiji/resonance/dialogue_format.py
 # （2026-08-12）：此处 re-export 保持 scripts 侧
 # `from scripts.training.experiment_config import build_dialogue_prompt` 等兼容。
-from taiji.resonance.dialogue_format import (  # noqa: E402
+from neuroplex.resonance.dialogue_format import (  # noqa: E402
     SFT_ANSWER_MARKER,
     Q_MARKER,
     build_dialogue_prompt,

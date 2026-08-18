@@ -27,8 +27,8 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.resonance.config import get_domain_neuron_config, NeuronConfig, DOMAIN_VOCAB_SIZES
-from taiji.resonance.neuron import ResonanceNeuron
+from neuroplex.resonance.config import get_domain_neuron_config, NeuronConfig, DOMAIN_VOCAB_SIZES
+from neuroplex.resonance.neuron import ResonanceNeuron
 from scripts.training.experiment_config import OUTPUT_DIR_STR as OUTPUT_DIR
 from scripts.training.utils import create_shared_embedding
 

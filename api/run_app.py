@@ -224,7 +224,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 # 应用配置（通过 config.py 集中管理镜像源等设置）
-from taiji.core.config import apply_env_overrides, get_external_path, get_internal_path, get_writable_base_dir
+from neuroplex.core.config import apply_env_overrides, get_external_path, get_internal_path, get_writable_base_dir
 
 apply_env_overrides()
 
@@ -423,7 +423,7 @@ class Worker(QObject):
             import time
             import urllib.request
             import json
-            from taiji.core.config import MODEL_LOAD_TIMEOUT
+            from neuroplex.core.config import MODEL_LOAD_TIMEOUT
 
             def start_server():
                 uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
@@ -590,7 +590,7 @@ def _real_main():
     app = QApplication(sys.argv)
     app.setApplicationName("Taiji")
     app.setOrganizationName("Taiji")
-    app.setOrganizationDomain("taiji.local")
+    app.setOrganizationDomain("neuroplex.local")
     app.setQuitOnLastWindowClosed(False)
 
     # 确保浏览器数据（如 localStorage、历史记录）持久化保存，防止打包后临时目录导致数据丢失

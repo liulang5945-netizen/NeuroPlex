@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 import asyncio
 
-from taiji.services.tool_service import list_tools, get_registry_schemas, execute_tool
-from taiji.services import agent_service
+from neuroplex.services.tool_service import list_tools, get_registry_schemas, execute_tool
+from neuroplex.services import agent_service
 
 logger = logging.getLogger("ApiServer.Agent")
 router = APIRouter()

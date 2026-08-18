@@ -26,10 +26,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceField, ResonanceEnsemble,
 )
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_dialogue_texts_multi, split_train_eval,

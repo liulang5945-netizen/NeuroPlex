@@ -19,7 +19,7 @@ import time
 import threading
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from taiji.services.settings_service import get_setting
+from neuroplex.services.settings_service import get_setting
 
 logger = logging.getLogger("ApiServer.Terminal")
 router = APIRouter()
@@ -60,7 +60,7 @@ def _verify_ws_token(ws) -> bool:
     - 认证未启用时：检查终端是否允许未认证访问（默认不允许）
     """
     try:
-        from taiji.core.security import AuthManager
+        from neuroplex.core.security import AuthManager
         auth = AuthManager()
 
         if auth.enabled:

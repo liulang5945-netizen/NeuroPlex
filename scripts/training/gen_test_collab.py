@@ -73,11 +73,11 @@ def main():
     from scripts.training.utils import (
         load_general_tokenizer, create_shared_embedding,
     )
-    from taiji.resonance.ensemble import ResonanceEnsemble
-    from taiji.resonance.field import ResonanceField
-    from taiji.resonance.geometry import NeuronGeometry
-    from taiji.resonance.topology import build_topology, establish_topology_channels
-    from taiji.resonance.translator import TokenizerHub
+    from neuroplex.resonance.ensemble import ResonanceEnsemble
+    from neuroplex.resonance.field import ResonanceField
+    from neuroplex.resonance.geometry import NeuronGeometry
+    from neuroplex.resonance.topology import build_topology, establish_topology_channels
+    from neuroplex.resonance.translator import TokenizerHub
     from scripts.training.utils import load_domain_tokenizer
 
     general_sp = load_general_tokenizer()
@@ -109,7 +109,7 @@ def main():
         ckp = torch.load(os.path.join(DIALOGUE_DIR, f"neuron_{nid}.pt"),
                          map_location="cpu", weights_only=False)
         cfg = ckp["neuron_config"]; cfg.unified_field_dim = None
-        n = __import__("taiji.resonance.neuron", fromlist=["ResonanceNeuron"]).ResonanceNeuron(cfg)
+        n = __import__("neuroplex.resonance.neuron", fromlist=["ResonanceNeuron"]).ResonanceNeuron(cfg)
         n.load_state_dict(ckp["state_dict"], strict=False)
         neurons[nid] = n
         emb = create_shared_embedding("cpu")
@@ -239,7 +239,7 @@ def main():
                     r = neurons[nid].forward(emb(ids_t), return_logits=True)
                 logits = r["logits"]
                 if logits.shape[-1] != 256000:  # 旧 5 转译到 general
-                    from taiji.resonance.translator import build_logits_alignment_matrix
+                    from neuroplex.resonance.translator import build_logits_alignment_matrix
                     from scripts.training.utils import load_domain_tokenizer
                     src_sp = load_domain_tokenizer("zh")
                     m = build_logits_alignment_matrix(src_sp, general_sp, "zh", "general",

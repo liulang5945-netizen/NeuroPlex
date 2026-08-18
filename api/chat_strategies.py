@@ -57,7 +57,7 @@ def _apply_rag(prompt, app_state):
 def _get_life_state():
     """读取态极生命状态（仅读取，不记录交互）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         life = get_life_scheduler()
         return life.needs.to_dict()
     except Exception:
@@ -69,7 +69,7 @@ def _record_life_interaction(success: bool = True, topic: str = "",
                              had_search_results: bool = False):
     """记录交互到生命系统（带真实指标）"""
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         life = get_life_scheduler()
         life.record_interaction(
             success=success,
@@ -85,7 +85,7 @@ def _record_life_interaction(success: bool = True, topic: str = "",
 def _get_memory_context():
     """读取近期记忆，注入推理上下文（使用统一上下文管理器）"""
     try:
-        from taiji.agent.context_manager import get_context_manager
+        from neuroplex.agent.context_manager import get_context_manager
         ctx = get_context_manager()
         wm_context = ctx._get_working_memory_context(500)
         if wm_context:
@@ -95,7 +95,7 @@ def _get_memory_context():
 
     # 回退到旧方式
     try:
-        from taiji.agent.working_memory import get_working_memory
+        from neuroplex.agent.working_memory import get_working_memory
         wm = get_working_memory()
         all_memories = wm.export_all()
         if all_memories:
@@ -122,7 +122,7 @@ def _build_history(request):
 def _record_evolution(prompt, result_text, success):
     """记录到进化引擎"""
     try:
-        from taiji.life.evolution_engine import get_evolution_engine
+        from neuroplex.life.evolution_engine import get_evolution_engine
         evo = get_evolution_engine()
         if success:
             evo.record_task_success(
@@ -147,7 +147,7 @@ def _record_recursive_strategies(prompt, system_prompt, success, reasoning_steps
     质量分：success → 1.0，失败 → 0.2（供 high(>=0.8)/low(<0.4) 分组）。
     """
     try:
-        from taiji.life.recursive_improver import get_recursive_improver
+        from neuroplex.life.recursive_improver import get_recursive_improver
         improver = get_recursive_improver()
         q = 1.0 if success else 0.2
         # prompt 策略（system_prompt 是实际生效的提示策略）
@@ -168,11 +168,11 @@ def _record_recursive_strategies(prompt, system_prompt, success, reasoning_steps
 def _has_react_engine() -> bool:
     """检查 ReAct 引擎是否可用"""
     try:
-        from taiji.agent_ext.react_engine import ReActEngine
+        from neuroplex.agent_ext.react_engine import ReActEngine
     except ImportError:
         return False
 
-    from taiji.core.app_state import app_state
+    from neuroplex.core.app_state import app_state
 
     # 有 trainer（模型已加载）就支持 ReAct
     # _call_local_model 会自动根据 tokenizer 类型选择 prompt 格式
@@ -214,7 +214,7 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
     history = _build_history(request)
 
     try:
-        from taiji.agent.context_manager import get_context_manager
+        from neuroplex.agent.context_manager import get_context_manager
         ctx = get_context_manager()
 
         # 注入对话历史到上下文管理器
@@ -254,7 +254,7 @@ async def _stream_unified(request, prompt, app_state, stop_event, collector):
     # 尝试 ReAct 引擎（统一推理）
     if _has_react_engine():
         try:
-            from taiji.agent_ext.react_engine import ReActEngine
+            from neuroplex.agent_ext.react_engine import ReActEngine
             engine = ReActEngine(max_steps=max_steps)
 
             for event in engine.run_stream(

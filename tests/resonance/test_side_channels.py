@@ -1,6 +1,6 @@
 import torch
 
-from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
+from neuroplex.resonance import ResonanceNeuron, get_domain_neuron_config
 
 
 def test_establish_side_channel():

@@ -1,6 +1,6 @@
 import torch
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceEnsemble,
     ResonanceField,
     ResonanceNeuron,

@@ -25,7 +25,7 @@ base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else
 if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 
-from taiji.core.config import TrainingConfig, get_config, save_config
+from neuroplex.core.config import TrainingConfig, get_config, save_config
 import uvicorn
 
 
@@ -66,7 +66,7 @@ def main():
 
     if args.no_ui:
         print("ℹ️ no-ui 模式：仅 Cortex 加载")
-        from taiji.loader import load_cortex
+        from neuroplex.loader import load_cortex
         cortex, tokenizer = load_cortex(
             neurons_dir=config.model_name or "data/neurons",
             device=config.resolve_device(),

@@ -32,12 +32,12 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-from taiji.resonance import ResonanceEnsemble, ResonanceField  # noqa: E402
-from taiji.resonance.geometry import NeuronGeometry  # noqa: E402
-from taiji.resonance.topology import (  # noqa: E402
+from neuroplex.resonance import ResonanceEnsemble, ResonanceField  # noqa: E402
+from neuroplex.resonance.geometry import NeuronGeometry  # noqa: E402
+from neuroplex.resonance.topology import (  # noqa: E402
     _select_hubs, build_topology, establish_topology_channels, topology_detail,
 )
-from taiji.resonance.translator import TokenizerHub, batch_align_and_embed  # noqa: E402
+from neuroplex.resonance.translator import TokenizerHub, batch_align_and_embed  # noqa: E402
 from scripts.training.utils import load_general_tokenizer  # noqa: E402
 import scripts.training.train_cross_domain_collab as tcdc  # noqa: E402
 

@@ -29,7 +29,7 @@ import tiktoken
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.layers import TransformerBlock, RMSNorm
+from neuroplex.layers import TransformerBlock, RMSNorm
 
 
 # ── 配置（和 baseline 完全一致，只多了 field_dim）──

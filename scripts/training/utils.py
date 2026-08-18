@@ -23,7 +23,7 @@ import sentencepiece as spm
 import torch
 import torch.nn as nn
 
-from taiji.resonance.config import DOMAIN_VOCAB_SIZES, GENERAL_TOKENIZER_DOMAIN
+from neuroplex.resonance.config import DOMAIN_VOCAB_SIZES, GENERAL_TOKENIZER_DOMAIN
 # P0 硬编码修复：路径/维度/ID 集中管理，从 experiment_config 导入
 from scripts.training.experiment_config import (
     DATA_DIR_STR as DATA_DIR,

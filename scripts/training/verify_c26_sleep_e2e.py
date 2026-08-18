@@ -39,8 +39,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepConfig  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepConfig  # noqa: E402
 from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 passed = 0
@@ -182,7 +182,7 @@ def main():
               f"{nonzero}/{len(target_ids)}")
 
         # ── 5. consolidated 标记持久化（重启恢复）──
-        from taiji.resonance.field_memory import FieldMemoryBank
+        from neuroplex.resonance.field_memory import FieldMemoryBank
         bank2 = FieldMemoryBank()
         ok5 = bank2.load(os.path.join(tmp_dir, "field_memory.pt"))
         check("E. 磁盘恢复：consolidated 标记保留",

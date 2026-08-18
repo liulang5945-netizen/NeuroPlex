@@ -18,13 +18,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, get_domain_neuron_config,
     NeuronConfig,
 )
-from taiji.resonance.geometry import NeuronGeometry
-from taiji.resonance.topology import build_topology, establish_topology_channels
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance.geometry import NeuronGeometry
+from neuroplex.resonance.topology import build_topology, establish_topology_channels
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.finetune_cross_spec import load_neuron_with_embedding, load_dialogue_texts
 from scripts.training.utils import load_dialogue_texts_multi, load_domain_tokenizer, load_general_tokenizer
 from scripts.training.experiment_config import (

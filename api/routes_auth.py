@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from taiji.services import auth_service
+from neuroplex.services import auth_service
 
 logger = logging.getLogger("ApiServer.Auth")
 router = APIRouter()
@@ -60,7 +60,7 @@ async def enable_auth(req: EnableAuthRequest, request: Request):
     - 首次运行（认证未启用）时可直接调用
     - 认证已启用后需要提供有效的管理员 Token
     """
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
     auth = AuthManager()
 
     # 如果认证已启用，需要验证现有 Token
@@ -80,7 +80,7 @@ async def enable_auth(req: EnableAuthRequest, request: Request):
 @router.post("/api/auth/disable")
 async def disable_auth(request: Request):
     """禁用认证 — 需要有效的管理员 Token"""
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
     auth = AuthManager()
 
     # 认证未启用时，禁止通过此端点操作（防止竞态条件）

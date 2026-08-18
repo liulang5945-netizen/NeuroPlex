@@ -40,8 +40,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceNeuron
-from taiji.resonance.translator import build_position_alignment
+from neuroplex.resonance import ResonanceNeuron
+from neuroplex.resonance.translator import build_position_alignment
 from scripts.training.utils import load_general_tokenizer
 from scripts.training.train_cross_domain_collab import load_tokenizer_for_vocab
 

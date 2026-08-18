@@ -32,8 +32,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceNeuron, ResonanceField, ResonanceEnsemble
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance import ResonanceNeuron, ResonanceField, ResonanceEnsemble
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.eval_dialogue import (
     load_neurons_and_weights, load_cross_spec_weights, _checkpoint_has_router,
 )

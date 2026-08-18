@@ -38,10 +38,10 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.brain.cortex import TaskSet  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.brain.cortex import TaskSet  # noqa: E402
 # 口径契约（2026-08-12）：zh/dialogue 域 prompt 必须走训练格式，裸 prompt 触发硬失败
-from taiji.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0
@@ -132,7 +132,7 @@ def main():
           f"gate3={gates[2]}")
     # B4: 记忆库已收到候选（sleep_engine 全局单例 pending）
     try:
-        from taiji.life.sleep_engine import get_sleep_engine
+        from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
         pending = list(engine.pending_field_memories)
         check("B4. 记忆库收到任务链写入候选",

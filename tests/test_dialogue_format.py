@@ -12,7 +12,7 @@
 """
 import unittest
 
-from taiji.resonance.dialogue_format import (
+from neuroplex.resonance.dialogue_format import (
     SFT_ANSWER_MARKER,
     Q_MARKER,
     build_dialogue_prompt,

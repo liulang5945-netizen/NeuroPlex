@@ -14,7 +14,7 @@ import threading
 
 from fastapi import APIRouter, HTTPException, Request
 
-from taiji.core.utils import get_external_path
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.System")
 router = APIRouter()
@@ -74,7 +74,7 @@ def get_system_hardware():
 @router.post("/api/system/restart")
 def restart_system(request: Request):
     """接收前端发来的重启指令 — 需要认证（认证启用时）"""
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
     auth = AuthManager()
 
     if auth.enabled:

@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "taiji"
+name = "neuroplex"
 version = "1.6.0"
-description = "Taiji (态极) - Locally-deployed AI Life Form System"
+description = "NeuroPlex - Bio-inspired Multi-Neuron Resonance Architecture"
 readme = "README.md"
-license = {text = "GPL-3.0-only"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
     # Deep Learning
@@ -62,10 +62,10 @@ desktop = ["PyQt6>=6.5.0", "PyQt6-WebEngine>=6.5.0"]
 build = ["pyinstaller>=6.0.0"]
 
 [project.scripts]
-taiji = "desktop.main:main"
+neuroplex = "desktop.main:main"
 
 [tool.setuptools.packages.find]
-include = ["taiji*", "api*"]
+include = ["neuroplex*", "api*"]
 
 [tool.pytest.ini_options]
 addopts = [
@@ -75,11 +75,11 @@ addopts = [
 markers = [
     "slow: long-running integration tests",
 ]
-cache_dir = ".taiji_test_tmp/pytest_cache"
+cache_dir = ".neuroplex_test_tmp/pytest_cache"
 norecursedirs = [
     ".git",
     ".pytest*",
-    ".taiji_test_tmp*",
+    ".neuroplex_test_tmp*",
     "pytest-cache-files-*",
     "tmp*",
     ".tmp*",

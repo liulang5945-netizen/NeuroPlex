@@ -5,10 +5,10 @@ import os
 
 from fastapi import APIRouter, HTTPException
 
-from taiji.core.app_state import app_state
-from taiji.core.config import get_config
-from taiji.core.memory_watchdog import force_memory_refresh, get_memory_status_dict
-from taiji.services.settings_service import load_settings, save_settings, update_settings
+from neuroplex.core.app_state import app_state
+from neuroplex.core.config import get_config
+from neuroplex.core.memory_watchdog import force_memory_refresh, get_memory_status_dict
+from neuroplex.services.settings_service import load_settings, save_settings, update_settings
 
 logger = logging.getLogger("ApiServer.Settings")
 router = APIRouter()

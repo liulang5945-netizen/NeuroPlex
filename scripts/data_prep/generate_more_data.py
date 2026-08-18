@@ -15,7 +15,7 @@ def main():
     print("=" * 60)
 
     try:
-        from taiji.data.unified_data_generator import (
+        from neuroplex.data.unified_data_generator import (
             gen_identity_data,
             gen_knowledge_data,
             gen_math_data,

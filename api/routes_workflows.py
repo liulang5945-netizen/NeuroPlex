@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from taiji.agent_ext.workflow_engine import WorkflowDefinition, WorkflowEngine, WorkflowStore
+from neuroplex.agent_ext.workflow_engine import WorkflowDefinition, WorkflowEngine, WorkflowStore
 
 logger = logging.getLogger("ApiServer.Workflows")
 router = APIRouter()

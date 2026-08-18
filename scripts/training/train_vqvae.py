@@ -36,7 +36,7 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.multimodal.vqvae import VQVAE
+from neuroplex.multimodal.vqvae import VQVAE
 
 # ── 默认超参数 ──
 BATCH_SIZE = 16

@@ -23,15 +23,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
     get_domain_neuron_config, NeuronGeometry,
 )
-from taiji.resonance.topology import (
+from neuroplex.resonance.topology import (
     build_topology, establish_topology_channels,
     infer_topology_from_state, topology_detail,
 )
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, load_simple_zh_texts,

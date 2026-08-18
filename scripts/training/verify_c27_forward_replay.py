@@ -48,8 +48,8 @@ np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 import torch.nn.functional as F  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport, _clone_module  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport, _clone_module  # noqa: E402
 
 passed = 0
 failed = 0
@@ -185,7 +185,7 @@ def main():
 
         sleep_engine = SleepEngine(data_dir=tmp_dir)
         # 注入 cortex + sleep_consolidator（重放缓冲区来自 consolidate）
-        from taiji.resonance.neuro_modulation import SleepConsolidator
+        from neuroplex.resonance.neuro_modulation import SleepConsolidator
         sc = SleepConsolidator(replay_buffer_size=50)
         sleep_engine.set_brain_interfaces(cortex=cortex,
                                           sleep_consolidator=sc)

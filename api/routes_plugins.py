@@ -4,7 +4,7 @@
 import logging
 from fastapi import APIRouter, HTTPException
 
-from taiji.core.plugin_manager import PluginManager
+from neuroplex.core.plugin_manager import PluginManager
 
 logger = logging.getLogger("ApiServer.Plugins")
 router = APIRouter()

@@ -15,8 +15,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
 from api.models import ChatRequest
 from api.chat_strategies import create_event_generator
 
@@ -31,7 +31,7 @@ async def chat_stream(request: ChatRequest):
     """流式聊天端点，支持 SSE 推送"""
     # 触发用户指令，中断当前生命活动
     try:
-        from taiji.life.life_scheduler import get_life_scheduler
+        from neuroplex.life.life_scheduler import get_life_scheduler
         get_life_scheduler().handle_user_directive()
     except Exception as e:
         logger.warning(f"Failed to trigger user directive: {e}")
@@ -39,7 +39,7 @@ async def chat_stream(request: ChatRequest):
     # 根据引擎类型选择数据收集器
     def collector_factory():
         try:
-            from taiji.agent_ext.data_collector import DataCollector
+            from neuroplex.agent_ext.data_collector import DataCollector
             return DataCollector(
                 save_path=get_external_path(
                     os.path.join("agent", "conversations", f"{int(time.time())}.jsonl")
@@ -324,7 +324,7 @@ async def health_check():
     """健康检查端点"""
     # 启动未完成时返回 loading / downloading 状态
     if not app_state.startup_complete:
-        from taiji.core.model_loader import startup_download_progress
+        from neuroplex.core.model_loader import startup_download_progress
         dl = startup_download_progress
         if dl["active"]:
             return {

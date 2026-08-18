@@ -42,8 +42,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import torch
 
-from taiji.resonance import ResonanceEnsemble, ResonanceField, ResonanceNeuron
-from taiji.resonance.translator import TokenizerHub
+from neuroplex.resonance import ResonanceEnsemble, ResonanceField, ResonanceNeuron
+from neuroplex.resonance.translator import TokenizerHub
 from scripts.training.utils import (
     load_general_tokenizer, create_shared_embedding,
     load_dialogue_texts_multi,
@@ -325,7 +325,7 @@ def main():
     # 黎曼切向更新 phasors（任务驱动"谁同相"）。同域同相作为先验初始相位。
     phasor = None
     if args.enable_phasor:
-        from taiji.resonance.phasor import PhasorDynamics
+        from neuroplex.resonance.phasor import PhasorDynamics
         phasor = PhasorDynamics(binding_scale=args.phasor_binding_scale)
         domain_to_nids = {}
         for nid in neurons.keys():

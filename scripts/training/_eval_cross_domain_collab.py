@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceField, ResonanceEnsemble
-from taiji.resonance.geometry import NeuronGeometry
-from taiji.resonance.topology import build_topology, establish_topology_channels
-from taiji.resonance.translator import TokenizerHub, batch_align_and_embed
+from neuroplex.resonance import ResonanceField, ResonanceEnsemble
+from neuroplex.resonance.geometry import NeuronGeometry
+from neuroplex.resonance.topology import build_topology, establish_topology_channels
+from neuroplex.resonance.translator import TokenizerHub, batch_align_and_embed
 from scripts.training.train_cross_domain_collab import (
     load_neuron, load_shared_embedding, load_shared_lm_head, load_tokenizer_for_vocab,
 )

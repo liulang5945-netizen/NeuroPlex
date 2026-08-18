@@ -189,8 +189,8 @@ def collate_fn(batch, pad_id=0, max_len=512):
 
 def setup_model(args):
     """鍒濆鍖栨ā鍨?""
-    from taiji.config import ModelConfig
-    from taiji.architecture import ModelSelf
+    from neuroplex.config import ModelConfig
+    from neuroplex.architecture import ModelSelf
 
     preset_map = {
         "125m": ModelConfig.size_125m,

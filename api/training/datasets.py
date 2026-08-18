@@ -9,7 +9,7 @@ import shutil
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
-from taiji.core.utils import get_external_path
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.Training")
 router = APIRouter()

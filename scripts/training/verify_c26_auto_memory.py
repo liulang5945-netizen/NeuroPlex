@@ -29,8 +29,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 passed = 0

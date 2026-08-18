@@ -77,7 +77,7 @@ def build():
 
     # 添加隐式导入
     hidden_imports = [
-        "taiji", "api", "uvicorn", "fastapi", "pydantic",
+        "neuroplex", "api", "uvicorn", "fastapi", "pydantic",
         "torch", "transformers", "sentence_transformers",
         "PyQt6", "PyQt6.QtWebEngineWidgets",
     ]

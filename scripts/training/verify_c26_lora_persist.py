@@ -39,8 +39,8 @@ np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 import torch.nn.functional as F  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 
 passed = 0
 failed = 0
@@ -188,7 +188,7 @@ def main():
               f"{len(lora_keys)} keys")
 
         # ── B 实例：从保存 ckpt 重新装配（主路径 load_lora 恢复）──
-        from taiji.brain.cortex import Cortex
+        from neuroplex.brain.cortex import Cortex
         cortex_b = Cortex(neurons_dir=ckpt_dir, device="cpu",
                           neuron_ids=target_ids)
         # 接上共享资源（nll_of 依赖；与 A 同一张表）

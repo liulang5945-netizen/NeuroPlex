@@ -27,7 +27,7 @@ import torch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from taiji.resonance.config import NeuronConfig
+from neuroplex.resonance.config import NeuronConfig
 
 
 def migrate_state_dict(

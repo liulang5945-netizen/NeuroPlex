@@ -27,11 +27,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble,
     get_domain_neuron_config,
 )
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     OUTPUT_DIR, load_simple_zh_texts, create_shared_embedding,

@@ -42,9 +42,9 @@ np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 import torch.nn.functional as F  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
-from taiji.life.integrate_engine import IntegrateEngine  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from neuroplex.life.integrate_engine import IntegrateEngine  # noqa: E402
 
 passed = 0
 failed = 0

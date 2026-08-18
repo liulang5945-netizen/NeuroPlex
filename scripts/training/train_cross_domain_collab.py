@@ -78,14 +78,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, get_domain_neuron_config,
 )
-from taiji.resonance.geometry import NeuronGeometry
-from taiji.resonance.topology import (
+from neuroplex.resonance.geometry import NeuronGeometry
+from neuroplex.resonance.topology import (
     build_topology, establish_topology_channels, topology_detail,
 )
-from taiji.resonance.translator import (
+from neuroplex.resonance.translator import (
     TokenizerHub, AlignmentRules, batch_align_and_embed,
 )
 from scripts.training.utils import (

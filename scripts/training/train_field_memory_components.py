@@ -23,13 +23,13 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.resonance.field_alignment import (  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.resonance.field_alignment import (  # noqa: E402
     AnchorProjector,
     evaluate_alignment,
     train_anchor_projector,
 )
-from taiji.resonance.field_memory import WriteGate  # noqa: E402
+from neuroplex.resonance.field_memory import WriteGate  # noqa: E402
 
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",
                 "zh_aug3_dialogue", "zh_std0_dialogue"]
@@ -154,7 +154,7 @@ def main():
 
     # ── 4. 保存到 sleep 数据目录（sleep_engine 自动装配）──
     try:
-        from taiji.config import get_taiji_data_path
+        from neuroplex.config import get_taiji_data_path
         data_dir = get_taiji_data_path("sleep_data")
     except ImportError:
         data_dir = "taiji/sleep_data"

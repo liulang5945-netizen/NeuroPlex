@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter
 
-from taiji.core.app_state import app_state
+from neuroplex.core.app_state import app_state
 
 logger = logging.getLogger("ApiServer.Training")
 router = APIRouter()

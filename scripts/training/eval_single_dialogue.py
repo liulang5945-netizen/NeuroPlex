@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
+from neuroplex.resonance import ResonanceNeuron, get_domain_neuron_config
 from scripts.training.utils import load_general_tokenizer, OUTPUT_DIR, create_shared_embedding
 from scripts.training.experiment_config import (
     DEFAULT_DOMAIN,

@@ -8,9 +8,9 @@ import shutil
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
-from taiji.tools.rag import RAGKnowledgeBase, RAGConfig
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
+from neuroplex.tools.rag import RAGKnowledgeBase, RAGConfig
 
 from .models import RAGSearchRequest
 

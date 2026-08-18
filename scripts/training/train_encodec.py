@@ -26,8 +26,8 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.multimodal.encodec import EnCodec
-from taiji.multimodal.io import save_audio
+from neuroplex.multimodal.encodec import EnCodec
+from neuroplex.multimodal.io import save_audio
 
 # ── 默认超参数 ──
 BATCH_SIZE = 8

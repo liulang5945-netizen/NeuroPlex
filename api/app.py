@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from taiji.core.utils import get_external_path, get_internal_path
+from neuroplex.core.utils import get_external_path, get_internal_path
 
 base_dir = (
     os.path.dirname(sys.executable)
@@ -83,7 +83,7 @@ class JWTAuthMiddleware:
             return await self.app(scope, receive, send)
 
         try:
-            from taiji.core.security import AuthManager
+            from neuroplex.core.security import AuthManager
 
             auth = AuthManager()
             if not auth.enabled:
@@ -199,12 +199,12 @@ class RateLimitMiddleware:
 def _load_model_background():
     """Load the model in a background thread."""
     try:
-        from taiji.tools.builtin_tools import register_all_tools
+        from neuroplex.tools.builtin_tools import register_all_tools
 
         register_all_tools()
         # Deep Coupling: 注册引擎间事件订阅
         try:
-            from taiji.infra.event_subscriptions import register_all_subscriptions
+            from neuroplex.infra.event_subscriptions import register_all_subscriptions
             register_all_subscriptions()
             logger.info("EventBus engine subscriptions registered")
         except Exception as exc:
@@ -212,14 +212,14 @@ def _load_model_background():
     except Exception as exc:
         logger.warning(f"Built-in tool registration failed: {exc}")
 
-    from taiji.core.model_loader import load_model_on_startup
+    from neuroplex.core.model_loader import load_model_on_startup
 
     load_model_on_startup()
 
 
 def get_startup_download_progress():
     """Compatibility helper for startup download progress."""
-    from taiji.core.model_loader import startup_download_progress
+    from neuroplex.core.model_loader import startup_download_progress
 
     return startup_download_progress
 
@@ -236,7 +236,7 @@ def _build_lifespan(startup_tasks: bool):
         logger.info("Background model loading started")
 
         try:
-            from taiji.core.model_loader import start_auto_reload
+            from neuroplex.core.model_loader import start_auto_reload
 
             start_auto_reload(check_interval=60)
             logger.info("Model auto reload started")
@@ -244,7 +244,7 @@ def _build_lifespan(startup_tasks: bool):
             logger.warning(f"Model auto reload startup failed: {exc}")
 
         try:
-            from taiji.life.life_scheduler import get_life_scheduler
+            from neuroplex.life.life_scheduler import get_life_scheduler
 
             scheduler = get_life_scheduler()
             scheduler.start()
@@ -255,7 +255,7 @@ def _build_lifespan(startup_tasks: bool):
         yield
 
         try:
-            from taiji.life.life_scheduler import get_life_scheduler
+            from neuroplex.life.life_scheduler import get_life_scheduler
 
             scheduler = get_life_scheduler()
             scheduler.stop()

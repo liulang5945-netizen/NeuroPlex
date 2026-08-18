@@ -12,7 +12,7 @@ import time
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
-from taiji.loader import assemble_cortex  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
 
 # 9 神经元阵容（用户确认 2026-08-10）：5 对话 + 4 域（C24v2 双头）
 DIALOGUE_IDS = ["zh_aug0_dialogue", "zh_aug1_dialogue", "zh_aug2_dialogue",

@@ -11,7 +11,7 @@ import threading
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
 
-from taiji.core.utils import get_external_path
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.Update")
 router = APIRouter()
@@ -25,7 +25,7 @@ def _require_admin_auth(request: Request):
     - 认证启用时：必须提供有效的管理员 Token
     - 认证未启用时：拒绝访问（更新操作必须在认证保护下进行）
     """
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
     auth = AuthManager()
 
     if not auth.enabled:

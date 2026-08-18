@@ -36,11 +36,11 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.brain.cortex import TaskSet  # noqa: E402
-from taiji.resonance.continuous import ContinuousResonance  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.brain.cortex import TaskSet  # noqa: E402
+from neuroplex.resonance.continuous import ContinuousResonance  # noqa: E402
 # 口径契约：zh/dialogue 域 prompt 必须走训练格式
-from taiji.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0
@@ -127,7 +127,7 @@ def main():
     # ── B. 记忆带相位（相位归属记忆）──
     print("\n[B] 记忆带相位（record/consolidate/retrieve）...", flush=True)
     try:
-        from taiji.life.sleep_engine import get_sleep_engine
+        from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
         bank = engine.get_field_memory()
         vec = torch.randn(3072)  # field.dim（5 dialogue 装配 = 3072）

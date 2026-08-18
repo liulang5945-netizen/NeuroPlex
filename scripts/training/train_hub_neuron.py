@@ -44,8 +44,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceNeuron
-from taiji.resonance.config import get_default_neuron_config
+from neuroplex.resonance import ResonanceNeuron
+from neuroplex.resonance.config import get_default_neuron_config
 from scripts.training.utils import load_general_tokenizer
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

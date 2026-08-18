@@ -8,8 +8,8 @@ import os
 import threading
 
 from fastapi import APIRouter, HTTPException
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.Cortex")
 router = APIRouter()
@@ -29,7 +29,7 @@ def _ensure_upgrader():
     global _upgrader
     if _upgrader is None:
         try:
-            from taiji.infra.auto_upgrade import AutoUpgrader
+            from neuroplex.infra.auto_upgrade import AutoUpgrader
             save_dir = get_external_path(os.path.join("taiji", "evolution_data"))
             _upgrader = AutoUpgrader(save_dir=save_dir)
             logger.info("自动升级引擎已初始化")
@@ -61,7 +61,7 @@ def check_upgrade():
     检查态极模型是否应该升级
     返回：当前模型大小、瓶颈状态、推荐升级目标、硬件容量
     """
-    from taiji.core.hardware import analyze_hardware
+    from neuroplex.core.hardware import analyze_hardware
 
     # 获取当前模型配置
     current_config = "125M"  # 默认
@@ -229,12 +229,12 @@ def start_upgrade():
 
     # 也加载种子数据
     try:
-        from taiji.data.seed_data import get_seed_conversation_data, get_seed_react_data
+        from neuroplex.data.seed_data import get_seed_conversation_data, get_seed_react_data
         training_data.extend(get_seed_conversation_data())
         training_data.extend(get_seed_react_data())
     except ImportError:
         try:
-            from taiji.data.seed_data import get_seed_conversation_data, get_seed_react_data
+            from neuroplex.data.seed_data import get_seed_conversation_data, get_seed_react_data
             training_data.extend(get_seed_conversation_data())
             training_data.extend(get_seed_react_data())
         except Exception:

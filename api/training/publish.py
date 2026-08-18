@@ -9,8 +9,8 @@ import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.Training")
 router = APIRouter()

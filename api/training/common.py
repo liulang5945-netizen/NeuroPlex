@@ -44,7 +44,7 @@ def collect_hardware_diag(device_str: str) -> dict:
         ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
     except ImportError:
         try:
-            from taiji.core.config import TrainingConfig
+            from neuroplex.core.config import TrainingConfig
             ram_gb = round(TrainingConfig.get_total_ram_gb(), 1)
         except Exception:
             ram_gb = None

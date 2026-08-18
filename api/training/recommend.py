@@ -102,7 +102,7 @@ async def get_training_recommendation(req: RecommendRequest):
 async def check_dataset_quality(req: DatasetCheckRequest):
     """检查数据集质量"""
     try:
-        from taiji.train.dataset_checker import DatasetQualityChecker
+        from neuroplex.train.dataset_checker import DatasetQualityChecker
         checker = DatasetQualityChecker()
         result = checker.check(req.file_path)
         return {"status": "success", **result}

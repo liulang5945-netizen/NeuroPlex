@@ -59,15 +59,15 @@ user_data/
 rag_data/
 knowledge_store/
 agent_workspace/
-taiji/data/*
-!taiji/data/__init__.py
-!taiji/data/*.py
-taiji/evolution_data/
-taiji/feed_data/
-taiji/life_data/
-taiji/play_data/
-taiji/sleep_data/
-taiji/test_evolution/
+neuroplex/data/*
+!neuroplex/data/__init__.py
+!neuroplex/data/*.py
+neuroplex/evolution_data/
+neuroplex/feed_data/
+neuroplex/life_data/
+neuroplex/play_data/
+neuroplex/sleep_data/
+neuroplex/test_evolution/
 taiji_data/
 
 # Security
@@ -85,8 +85,8 @@ logs/
 pytest-cache-files-*/
 .coverage
 htmlcov/
-.taiji_test_tmp/
-.taiji_test_tmp_manual/
+.neuroplex_test_tmp/
+.neuroplex_test_tmp_manual/
 .hf_cache/
 test_pipeline_ckpt/
 test_pipeline_model/
@@ -96,7 +96,7 @@ test_report.json
 test.txt
 tmp_a/
 tmp_manual_parent/
-.taiji_test_tmp_probe/
+.neuroplex_test_tmp_probe/
 .tmp_b/
 .codex_tmp/
 
@@ -157,4 +157,4 @@ _add_*.py
 .write_test
 
 # Auto-generated cache
-taiji/agent_ext/mcp_remote_cache.json
+neuroplex/agent_ext/mcp_remote_cache.json

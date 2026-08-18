@@ -6,8 +6,8 @@ import shutil
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
-from taiji.core.utils import get_external_path
-from taiji.services.settings_service import get_setting, update_settings
+from neuroplex.core.utils import get_external_path
+from neuroplex.services.settings_service import get_setting, update_settings
 
 from .models import CodeRunRequest, CreateProjectRequest, FileSaveRequest
 
@@ -17,7 +17,7 @@ router = APIRouter()
 
 def _require_admin_auth(request: Request):
     """Validate admin auth for sensitive operations (e.g. pip install)."""
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
     auth = AuthManager()
 
     if not auth.enabled:
@@ -106,7 +106,7 @@ def set_workspace_path(req: dict, request: Request):
         )
 
     # 需要认证才能更改工作区路径
-    from taiji.core.security import AuthManager
+    from neuroplex.core.security import AuthManager
 
     auth = AuthManager()
     if auth.enabled:
@@ -223,7 +223,7 @@ def save_workspace_file(req: FileSaveRequest):
 def run_workspace_code(req: CodeRunRequest):
     """Run Python code in the workspace sandbox."""
     try:
-        from taiji.agent_ext.sandbox_executor import execute_python_with_files
+        from neuroplex.agent_ext.sandbox_executor import execute_python_with_files
 
         result = execute_python_with_files(req.code)
         return {
@@ -240,7 +240,7 @@ def run_workspace_code(req: CodeRunRequest):
 @router.post("/api/workspace/create_project")
 async def create_project(req: CreateProjectRequest):
     """Create a project scaffold."""
-    from taiji.agent_ext.agent import create_project as agent_create_project
+    from neuroplex.agent_ext.agent import create_project as agent_create_project
 
     try:
         os.makedirs(_get_workspace_dir(), exist_ok=True)
@@ -276,7 +276,7 @@ def delete_workspace_item(name: str):
 @router.post("/api/agent/analyze_code")
 async def analyze_code_api(req: CodeRunRequest):
     """Analyze code through the agent helper."""
-    from taiji.agent_ext.agent import analyze_code
+    from neuroplex.agent_ext.agent import analyze_code
 
     try:
         return {"result": analyze_code(req.code)}
@@ -289,7 +289,7 @@ async def analyze_code_api(req: CodeRunRequest):
 async def install_dependency_api(req: CodeRunRequest, request: Request):
     """Install a dependency through the agent helper (admin only)."""
     _require_admin_auth(request)
-    from taiji.agent_ext.agent import install_dependency
+    from neuroplex.agent_ext.agent import install_dependency
 
     try:
         return {"result": install_dependency(req.code)}
@@ -301,7 +301,7 @@ async def install_dependency_api(req: CodeRunRequest, request: Request):
 @router.get("/api/agent/plans")
 def list_plans_api():
     """List saved agent plans."""
-    from taiji.agent_ext.agent import list_plans
+    from neuroplex.agent_ext.agent import list_plans
 
     try:
         return {"plans": list_plans("")}
@@ -313,7 +313,7 @@ def list_plans_api():
 @router.get("/api/agent/context")
 def load_context_api(key: str = ""):
     """Load saved agent context."""
-    from taiji.agent_ext.agent import load_context
+    from neuroplex.agent_ext.agent import load_context
 
     try:
         return {"context": load_context(key)}
@@ -325,7 +325,7 @@ def load_context_api(key: str = ""):
 @router.post("/api/agent/save_context")
 async def save_context_api(req: CodeRunRequest):
     """Save agent context."""
-    from taiji.agent_ext.agent import save_context
+    from neuroplex.agent_ext.agent import save_context
 
     try:
         return {"result": save_context(req.code)}

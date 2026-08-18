@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import numpy as np
 import torch
 
-from taiji.resonance.field import ResonanceField
+from neuroplex.resonance.field import ResonanceField
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_CKPT = os.path.join(PROJECT_ROOT, "data", "neurons", "hub_collab_v2.ckpt.pt")

@@ -42,8 +42,8 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 from scripts.training.experiment_config import build_dialogue_prompt  # noqa: E402
 
 passed = 0
@@ -263,7 +263,7 @@ def main():
               f"{txt_changed}/{len(MEMORY_ITEMS)} 与对照不同")
 
         # ── G. 重启恢复 ──
-        from taiji.resonance.field_memory import FieldMemoryBank
+        from neuroplex.resonance.field_memory import FieldMemoryBank
         bank2 = FieldMemoryBank()
         check("G. 新实例从磁盘恢复场记忆库",
               bank2.load(mem_path) and len(bank2) == 4, f"bank2={len(bank2)}")

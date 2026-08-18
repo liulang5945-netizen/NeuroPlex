@@ -19,9 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceField, ResonanceEnsemble
-from taiji.resonance.geometry import NeuronGeometry
-from taiji.resonance.topology import build_topology, establish_topology_channels
+from neuroplex.resonance import ResonanceField, ResonanceEnsemble
+from neuroplex.resonance.geometry import NeuronGeometry
+from neuroplex.resonance.topology import build_topology, establish_topology_channels
 from scripts.training.eval_dialogue import load_neurons_and_weights, load_cross_spec_weights
 from scripts.training.utils import load_domain_tokenizer, load_general_tokenizer
 from scripts.training.experiment_config import DEFAULT_DOMAIN

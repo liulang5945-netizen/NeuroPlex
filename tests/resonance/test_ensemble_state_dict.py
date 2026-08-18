@@ -5,7 +5,7 @@ state_dict()/load_state_dict() 的 round-trip、跳过语义与混合规格覆�
 """
 import torch
 
-from taiji.resonance import (
+from neuroplex.resonance import (
     ResonanceEnsemble,
     ResonanceField,
     ResonanceNeuron,

@@ -29,7 +29,7 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-from taiji.resonance.translator import batch_align_and_embed  # noqa: E402
+from neuroplex.resonance.translator import batch_align_and_embed  # noqa: E402
 import scripts.training.train_cross_domain_collab as tcdc  # noqa: E402
 from scripts.training.verify_hub_collab_train import build_ensemble_with_hub  # noqa: E402
 

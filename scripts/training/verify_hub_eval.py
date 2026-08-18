@@ -32,8 +32,8 @@ import torch.nn.functional as F  # noqa: E402
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt  # noqa: E402
 
 passed = 0
 failed = 0

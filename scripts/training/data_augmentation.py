@@ -227,7 +227,7 @@ def generate_neuron_augmented_data(
     """
     import torch
     import torch.nn.functional as F
-    from taiji.resonance.translator import build_position_alignment
+    from neuroplex.resonance.translator import build_position_alignment
 
     augmented = []
     neuron.eval()

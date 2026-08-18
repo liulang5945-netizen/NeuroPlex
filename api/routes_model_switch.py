@@ -13,8 +13,8 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from taiji.core.app_state import app_state
-from taiji.core.utils import get_external_path
+from neuroplex.core.app_state import app_state
+from neuroplex.core.utils import get_external_path
 
 logger = logging.getLogger("ApiServer.ModelSwitch")
 router = APIRouter()
@@ -123,7 +123,7 @@ def _do_switch_model(*, async_mode: bool = False) -> dict[str, Any]:
         if async_mode:
             app_state.update_switch_status("switching", "Loading Cortex neuron architecture...")
 
-        from taiji.core.model_loader import load_model_on_startup
+        from neuroplex.core.model_loader import load_model_on_startup
         load_model_on_startup()
 
         if app_state.startup_error:

@@ -41,8 +41,8 @@ np.random.seed(0)
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 import torch.nn.functional as F  # noqa: E402
-from taiji.loader import assemble_cortex  # noqa: E402
-from taiji.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
+from neuroplex.loader import assemble_cortex  # noqa: E402
+from neuroplex.life.sleep_engine import SleepEngine, SleepReport  # noqa: E402
 
 passed = 0
 failed = 0
@@ -250,7 +250,7 @@ def main():
               f"second_consolidated={r3.synaptic_consolidated}")
 
         # ── 8. 持久化 + 重启恢复 ──
-        from taiji.resonance.field_memory import FieldMemoryBank
+        from neuroplex.resonance.field_memory import FieldMemoryBank
         mem_path = os.path.join(tmp_dir, "field_memory.pt")
         bank3 = FieldMemoryBank()
         check("F. 磁盘恢复：consolidated 标记保留",

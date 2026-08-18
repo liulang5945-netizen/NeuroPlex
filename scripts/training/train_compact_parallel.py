@@ -39,8 +39,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from taiji.resonance import ResonanceNeuron, get_domain_neuron_config
-from taiji.resonance.translator import batch_align_and_embed
+from neuroplex.resonance import ResonanceNeuron, get_domain_neuron_config
+from neuroplex.resonance.translator import batch_align_and_embed
 from scripts.training.utils import (
     load_domain_tokenizer, load_general_tokenizer,
     load_or_create_shared_embedding,

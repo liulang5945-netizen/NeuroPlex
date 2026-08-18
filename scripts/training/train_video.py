@@ -26,8 +26,8 @@ import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.multimodal.video import VideoVQVAE
-from taiji.multimodal.io import save_video
+from neuroplex.multimodal.video import VideoVQVAE
+from neuroplex.multimodal.io import save_video
 
 # ── 默认超参数 ──
 BATCH_SIZE = 4

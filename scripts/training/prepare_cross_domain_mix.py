@@ -29,7 +29,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from taiji.resonance.translator import TokenizerHub
+from neuroplex.resonance.translator import TokenizerHub
 
 # ── 配置 ──
 SEQ_LEN = 256
