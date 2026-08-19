@@ -257,6 +257,9 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     初始权重；原始 token-mean 的评估首 token NLL 从 5.680 升至 6.514、Top-1 从 12.5% 降至 0%，
     `0.8×token_mean+0.2×first_token` 则升至 7.262、Top-1 仍为 0%。两种配方训练集目标均下降
     但泛化变差，因此不把首 token 权重直接纳入正式训练入口。
+46. 完成生产 9 成员解码敏感性审计：固定 4 个代表问题、seed、soft fusion、temperature=0.55、
+    repetition penalty=1.4 和 8 token，比较 `top_k=15/40/100/1`；`top_k=40` 仅改善问候，greedy
+    仅改善天气，身份和诗歌在所有候选集都不可靠，故 Top-K 不是根因，不改变默认解码参数。
 
 ## 6. 后续工作顺序
 
@@ -344,6 +347,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-固定 9 成员生产阵容、同一问题和随机种子，做 `top_k=15/40/100` 与 greedy 的解码敏感性审计；
-重点观察首 token rank 接近 15 时，扩大候选集是否能消除重复/答非所问，再决定是否需要训练侧
-改动，仍不启动长训练。
+唯一推荐下一步：在用户确认预算后，做一个不覆盖现有权重的短答案 curriculum 训练 pilot，固定
+修正后的 evaluator 和 5 个 dialogue 阵容，先用短答案子集验证 500 步内的 holdout 首 token rank
+与生成是否同步改善；pilot 未通过前不启动正式长训练。
