@@ -45,7 +45,7 @@ Level 3: Population control plane             ← topology, plasticity, growth, 
 python -m pip install -e ".[dev]"
 ```
 
-### Verify the core (33 tests)
+### Verify the core (34 tests)
 
 ```bash
 python -m pytest tests/ -q

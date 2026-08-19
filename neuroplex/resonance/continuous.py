@@ -134,7 +134,9 @@ class ContinuousResonance(nn.Module):
         b_prev, b_cur = binding_history[-2], binding_history[-1]
         if b_prev.numel() != b_cur.numel() or b_prev.numel() == 0:
             return False
-        delta = (b_cur.std() - b_prev.std()).abs()
+        # singleton active set（单神经元基线/硬件稀疏路由）没有无偏标准差；
+        # unbiased=False 使单元素绑定的方差为 0，避免 NaN 阻断收敛判据。
+        delta = (b_cur.std(unbiased=False) - b_prev.std(unbiased=False)).abs()
         return bool(delta.item() < tol)
 
     # ── 锁定度（诊断）──
@@ -144,7 +146,7 @@ class ContinuousResonance(nn.Module):
         if binding.numel() == 0:
             return 0.0
         m = float(binding.mean().item())
-        s = float(binding.std().item())
+        s = float(binding.std(unbiased=False).item())
         # 全同相 = 1，全异相 = -1；锁定 = |绑定均值| 高
         return m
 
