@@ -159,7 +159,7 @@ def _evaluate(neuron, encoded, texts, domain_sp, general_sp) -> dict:
     return metrics
 
 
-def run(return_state: bool = False):
+def run(return_state: bool = False, steps: int = STEPS):
     logging.disable(logging.CRITICAL)
     torch.manual_seed(20260819)
     random.seed(20260819)
@@ -183,7 +183,7 @@ def run(return_state: bool = False):
         "contract": {
             "neuron_id": cfg.neuron_id,
             "spec": cfg.spec,
-            "steps": STEPS,
+            "steps": steps,
             "batch_size": BATCH_SIZE,
             "lr": LR,
             "train_samples": len(train_texts),
@@ -206,7 +206,7 @@ def run(return_state: bool = False):
     losses = []
     neuron.train()
     generator = torch.Generator().manual_seed(20260819)
-    for step in range(1, STEPS + 1):
+    for step in range(1, steps + 1):
         indices = torch.randint(0, len(train_texts), (BATCH_SIZE,), generator=generator)
         batch = tuple(item[indices] for item in train_encoded)
         optimizer.zero_grad()
@@ -215,8 +215,8 @@ def run(return_state: bool = False):
         torch.nn.utils.clip_grad_norm_(neuron.parameters(), max_norm=1.0)
         optimizer.step()
         losses.append(float(loss.detach()))
-        if step % 40 == 0:
-            print(f"step {step}/{STEPS}: train_answer_loss={losses[-1]:.6f}", flush=True)
+        if step % 40 == 0 or step == steps:
+            print(f"step {step}/{steps}: train_answer_loss={losses[-1]:.6f}", flush=True)
 
     report["after"] = _evaluate(neuron, eval_encoded, eval_texts, domain_sp, general_sp)
     report["loss_trace"] = {
@@ -234,8 +234,9 @@ def run(return_state: bool = False):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-out", type=Path, default=None)
+    parser.add_argument("--steps", type=int, default=STEPS)
     args = parser.parse_args()
-    report = run()
+    report = run(steps=args.steps)
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
     if args.json_out is not None:
