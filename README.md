@@ -52,6 +52,18 @@ python -m pytest tests/ -q
 # Expected: 31 passed
 ```
 
+### Run the bootstrap demo
+
+```bash
+python scripts/bootstrap_population_demo.py
+```
+
+This is the recommended first run for a fresh checkout. It needs no private
+checkpoint and downloads no model artifact: a fixed tiny population exercises
+the resonance field, sparse routing, and state round-trip in a few seconds.
+The output is explicitly `synthetic_probe_only`; it demonstrates the runtime
+contract, not trained language quality.
+
 ### Run the reproducible population baseline
 
 ```bash
@@ -139,7 +151,7 @@ NeuroPlex/
 
 - **1+1 > 2 is conditional**: Resonance helps only when neurons are uncertain. A `ConfidenceGate` skips resonance when max_prob > 0.9 (avoiding field noise on confident predictions).
 - **Weak neurons dilute strong ones**: `QualityFilter` excludes PPL > 100 neurons from resonance. Scale-layering outperforms equal-weight consensus by 2.6× on code domain.
-- **Optional relay anchoring**: An expert neuron can serve as a cross-domain relay, while `cross_spec_projectors` align field vectors into a unified space. The relay is a population member, not a central teacher.
+- **Optional relay anchoring**: An expert neuron can serve as a cross-domain relay, while `cross_spec_projectors` align field vectors into a unified space. The relay is a population member, not a central controller.
 - **Global anchoring > single-domain anchoring**: Computing anchor loss on ALL non-hub domains every batch (not just the current batch's domain) yielded ×2.3 mean cosine improvement.
 
 ## Architecture Documentation

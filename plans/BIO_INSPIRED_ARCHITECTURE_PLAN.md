@@ -103,6 +103,9 @@ scripts/training/verify_*.py
 - 社区发布面审计通过：README、贡献指南、代码 Wiki、API 公开文案和活跃计划不再出现旧的
   固定规模或集中式迁移叙事；旧对齐实现仅作为未导出的 checkpoint 兼容模块保留，合法的
   系统安全路径和合成训练样例路径不作为项目痕迹清理。
+- `python -X utf8 -u scripts/bootstrap_population_demo.py`：通过（约 2 秒），无需私有
+  checkpoint 或外部下载即可展示 3 个 tiny neuron、共振场、稀疏路由和 Cortex 状态 round-trip；
+  输出继续明确标记为 `synthetic_probe_only`。
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
@@ -172,6 +175,7 @@ checkpoint 和日志已清理。
 19. 将 C27 睡眠/振荡器脚本收敛为跨重启端到端回归：场记忆、睡眠历史、前向重放、振荡器参数和重启后生成均通过 17/17。
 20. 将 C27 自组织新生脚本收敛为群体成长生命周期回归：新生、成熟、隔离、复活、路由/生成保护和最新权重恢复均通过 20/20。
 21. 完成社区发布面审计，移除当前入口中的旧规模/集中式迁移叙事，保留兼容模块但不纳入产品主路径。
+22. 新增 `scripts/bootstrap_population_demo.py`，把无 checkpoint 的确定性群体基线收敛为社区首运行入口。
 
 ## 6. 后续工作顺序
 
@@ -212,9 +216,11 @@ anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 
 既有生成、路由和场记忆保持可用。过程中修复了新生 neuron 缺少 per-neuron shared
 embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期缺口。
 
-### P3：完善社区可用的发布形态（发布面审计已完成）
+### P3：完善社区可用的发布形态（bootstrap 入口已完成）
 
-在能力基线稳定后，再决定训练后 demo 群体的交付方式（小型可下载 artifact 或明确的 bootstrap 流程），补齐版本化指标、示例输出和 API/前端的公开命名。秘密信息与绝对路径扫描属于发布收尾，不应替代能力验收。
+已选择可复现 bootstrap 流程作为社区首运行入口：它不下载或加载私有 checkpoint，展示群体运行
+契约但不伪装成训练后语言能力。后续再补版本化指标、示例输出和 API/前端的公开命名；秘密信息
+与绝对路径扫描属于发布收尾，不应替代能力验收。
 
 ### 暂不进入主线
 
@@ -225,5 +231,5 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P3 demo 交付决策：基于当前公开仓库没有随代码交付训练后群体这一事实，优先确定并实施
-可复现的 bootstrap demo 流程，再补版本化指标和示例输出。
+进入 P3.1 发布质量收口：在干净 editable 安装下复跑 bootstrap demo、31 项核心测试和 API
+health，随后固定一份版本化 bootstrap 输出作为社区验收证据。

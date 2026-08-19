@@ -128,4 +128,4 @@ The small regression suite covers dialogue-format contracts and resonance side-c
 
 ## 7. Compatibility boundary
 
-The repository still contains historical checkpoints, environment variables, and migration helpers using the former package name or teacher terminology. They may be used to load old artifacts, but new code and product messaging must use the population vocabulary documented above. Any removal of a compatibility path requires a checkpoint migration test first.
+The repository still contains historical checkpoints, environment variables, and migration helpers using the former package name or legacy terminology. They may be used to load old artifacts, but new code and product messaging must use the population vocabulary documented above. Any removal of a compatibility path requires a checkpoint migration test first.
