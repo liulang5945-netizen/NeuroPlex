@@ -207,7 +207,7 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 27. 发现并纠正验收阵容遗漏：生产主线是 5 个对话神经元 + 4 个 general 神经元的 9 成员 Cortex，`code/math/zh + hub` 只作辅助研究路径。
 28. 按生产默认装配完成 9 成员加载与单问题生成 smoke，并将该阵容列为后续验收的唯一主口径。
 29. 将 5-dialogue + 4-general 的生产阵容写入公开文档，并加入无 checkpoint 依赖的默认 ID 回归测试。
-28. 按生产默认装配完成 9 成员加载与单问题生成 smoke，并将该阵容列为后续验收的唯一主口径。
+30. 完成 9 成员 API 等价对话 smoke；确认运行时可用但生成质量未过门槛，转入 dialogue 路由/融合根因诊断。
 
 ## 6. 后续工作顺序
 
@@ -252,6 +252,10 @@ side/body/optimizer 状态。它只作辅助实验诊断，不能代表生产群
 公开架构契约已补齐：README、CODE_WIKI、CONTRIBUTING 明确 5 个 dialogue + 4 个 general
 的默认 9 成员阵容，`tests/test_population_assembly_contract.py` 锁定 5 个 dialogue ID。
 
+9 成员 API 等价对话 smoke 已完成：8 个问题均能返回结果，总耗时约 209.6 秒，无加载或运行时
+异常；但出现重复、答非所问和截断输出，语言质量门槛未通过。生产阵容已确认，下一步应诊断
+dialogue 路由/融合与基座能力的责任边界，不应直接开始长训练。
+
 ### P1：完成稀疏路由的真实性验证（机制级完成）
 
 已用同一训练后 checkpoint 做 dense/sparse A/B，并增加随机 Router 对照；质量接近 dense、激活
@@ -291,6 +295,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2 对话能力验收：基于默认 5 个 dialogue + 4 个 general 的 9 成员 Cortex，先跑
-对话专项回归和路由观测，确认五个对话成员都被纳入生产路径，再决定是否扩展协作训练；不再
-把 hub 辅助路线当作生产主线。
+进入 P1.2 dialogue 质量根因诊断：基于默认 5 个 dialogue + 4 个 general 的 9 成员 Cortex，
+对比单 dialogue、5 dialogue 协作和完整 9 成员路由的输出/NLL/leader 选择，先判定是基座能力
+不足还是融合/路由破坏；在责任边界明确前不扩展协作训练。
