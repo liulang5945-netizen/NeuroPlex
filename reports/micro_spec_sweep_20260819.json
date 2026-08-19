@@ -1,0 +1,327 @@
+{
+  "contract": "production_resonance_neuron_micro_sweep",
+  "shared_embedding_counted_once": true,
+  "candidate_count": 8,
+  "candidates": [
+    {
+      "name": "micro_2x128",
+      "config": {
+        "hidden_size": 128,
+        "num_hidden_layers": 2,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 384,
+        "field_dim": 256,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 6.940672,
+      "actual_local_params_m": 6.974593,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 6.4,
+        "body": 0.377472,
+        "field_and_interface": 0.197121
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          256
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_3x128",
+      "config": {
+        "hidden_size": 128,
+        "num_hidden_layers": 3,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 384,
+        "field_dim": 256,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 7.161856,
+      "actual_local_params_m": 7.196033,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 6.4,
+        "body": 0.566144,
+        "field_and_interface": 0.229889
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          256
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_4x128",
+      "config": {
+        "hidden_size": 128,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 384,
+        "field_dim": 256,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 7.38304,
+      "actual_local_params_m": 7.417473,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 6.4,
+        "body": 0.754816,
+        "field_and_interface": 0.262657
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          256
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_4x128_field512",
+      "config": {
+        "hidden_size": 128,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 384,
+        "field_dim": 512,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 7.54688,
+      "actual_local_params_m": 7.581313,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 6.4,
+        "body": 0.754816,
+        "field_and_interface": 0.426497
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          512
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_3x160",
+      "config": {
+        "hidden_size": 160,
+        "num_hidden_layers": 3,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 480,
+        "field_dim": 320,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 9.16992,
+      "actual_local_params_m": 9.212577,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 8.0,
+        "body": 0.88432,
+        "field_and_interface": 0.328257
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          320
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_4x160",
+      "config": {
+        "hidden_size": 160,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 480,
+        "field_dim": 320,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 9.51552,
+      "actual_local_params_m": 9.558497,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 8.0,
+        "body": 1.17904,
+        "field_and_interface": 0.379457
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          320
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_4x160_field640",
+      "config": {
+        "hidden_size": 160,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 480,
+        "field_dim": 640,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 9.77152,
+      "actual_local_params_m": 9.814497,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 8.0,
+        "body": 1.17904,
+        "field_and_interface": 0.635457
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          640
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    },
+    {
+      "name": "micro_4x192",
+      "config": {
+        "hidden_size": 192,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 1,
+        "intermediate_size": 576,
+        "field_dim": 384,
+        "vocab_size": 50000,
+        "base_embed_dim": 512
+      },
+      "approx_local_params_m": 11.762688,
+      "actual_local_params_m": 11.814209,
+      "population_shared_embedding_m": 131.072,
+      "breakdown_m": {
+        "lm_head": 9.6,
+        "body": 1.697472,
+        "field_and_interface": 0.516737
+      },
+      "single_forward": {
+        "logits_shape": [
+          1,
+          8,
+          50000
+        ],
+        "field_shape": [
+          1,
+          384
+        ],
+        "finite": true
+      },
+      "mixed_compact_forward": {
+        "field_dim": 2048,
+        "forward_finite": true,
+        "cross_spec_forward": true,
+        "cross_spec_backward": true,
+        "rounds": 2
+      }
+    }
+  ]
+}
