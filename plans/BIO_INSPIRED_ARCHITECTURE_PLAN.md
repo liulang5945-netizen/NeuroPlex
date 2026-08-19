@@ -572,7 +572,16 @@ trust 能把 `zh` 的平均路由权重从 1.0 降到 0.531，并让多个 dialo
 尺度偏置是真问题，但简单校准不是能力信号，不能接入生产。完整报告为
 `reports/micro_route_calibration_697m_20260819.json`。
 
-唯一推荐下一步：在同一冻结 9+3 群体上做只读 oracle projected-NLL 上界审计，逐成员、
-逐位置记录真实 general-space NLL，并计算“每个位置选择最低 NLL 成员”的 oracle route
-与当前 raw hard route 对照；这一步只回答群体里是否已经存在可被利用的互补能力，仍不
-训练、不改路由、不写生产。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
+只读 oracle projected-NLL 上界审计已完成：固定 8 条留出集上，raw hard route 的
+teacher-forcing NLL 为 116.231，单一最佳成员为 14.881，逐 token oracle 为 12.330，
+oracle 相对 raw 的理论改善为 89.4%；三个 micro 专家合计赢得约 29.0% 的答案 token，
+说明 9+3 群体确实存在互补能力。当前 raw 路由选择 `zh`，但 `zh` 的 projected NLL
+均值约 98.22，明显劣于 code/en/math 的约 14.85/15.78/16.23；因此当前主因确定为
+route credit assignment 与输出尺度，而不是 micro 容量。完整报告为
+`reports/micro_oracle_route_audit_697m_20260819.json`。
+
+当前停在实现决策节点。唯一推荐下一步：构造一个临时、有界、输入归一化的 route head，
+只用 projected per-member NLL 生成的理想路由分布做监督，先在同一固定留出集验证它能否
+逼近 oracle；仍冻结 12 个语言主体、原 embed_adapter、field 和 shared embedding，
+只允许内存中的 route head 变化，验证前不得写入生产。当前环境未检测到 CUDA，继续采用
+单进程复用 shared embedding。
