@@ -536,6 +536,7 @@ class ResonanceNeuron(nn.Module):
         temp_gain: float = 1.0,
         ffn_gain: float = 1.0,
         return_intermediate: bool = False,
+        return_quality_tokens: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass through the neuron.
 
@@ -554,6 +555,9 @@ class ResonanceNeuron(nn.Module):
                       >1 强化（奖励），<1 衰减（惩罚），1.0 标准。
             return_intermediate: R7 若 True，返回每层 hidden 和 attention 权重
                                  （用于兼容性表示对齐实验）。默认 False（向后兼容）。
+            return_quality_tokens: 临时逐位置路由实验开关。为 True 时，quality_head
+                                    读取 token hidden 并返回逐位置 logit；默认 False
+                                    保持原有回合级 quality_head 行为。
 
         Returns:
             dict with keys:
@@ -827,8 +831,11 @@ class ResonanceNeuron(nn.Module):
         # mean/max 双 pooling → MLP（mean 全局分布 + max 强信号 token）。
         # 监督由 ensemble.contrastive_loss 提供（对齐 per-neuron NLL 排序）。
         if round_num == 1 and self.quality_head is not None:
-            h_pool = torch.cat([h.mean(dim=1), h.max(dim=1).values], dim=-1)  # [B, 2H]
-            result["quality_logit"] = self.quality_head(h_pool)  # [B, 1]
+            if return_quality_tokens:
+                result["quality_token_logits"] = self.quality_head(h)  # [B, L, 1]
+            else:
+                h_pool = torch.cat([h.mean(dim=1), h.max(dim=1).values], dim=-1)  # [B, 2H]
+                result["quality_logit"] = self.quality_head(h_pool)  # [B, 1]
 
         # ── 兼容性表示对齐：中间表示 ──
         if return_intermediate:

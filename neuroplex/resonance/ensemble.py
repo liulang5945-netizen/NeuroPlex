@@ -2336,6 +2336,7 @@ class ResonanceEnsemble:
         gamma_oscillator: Optional[Any] = None,
         neuromodulator: Optional[Any] = None,
         return_individual_logits: bool = False,
+        return_quality_tokens: bool = False,
         targets: Optional[torch.Tensor] = None,  # C12: per-neuron NLL 排序对比信号
         # ── C20（2026-08-08）：回合级监督 answer_mask ──
         # [B, L] bool，1=answer（回复）部分。per_neuron_nll 只对 answer 部分算
@@ -2403,6 +2404,8 @@ class ResonanceEnsemble:
             gamma_oscillator: GammaOscillator 实例（None 时回退到 self.gamma_oscillator）
             neuromodulator: NeuromodulatorState 实例（None 时回退到 self.neuromodulator）
             return_individual_logits: 是否返回 individual_logits（节省内存，默认 False）
+            return_quality_tokens: 临时逐位置路由实验开关。为 True 时只改变内存返回值和
+                quality_head 调用形状；默认 False 保持原有回合级 quality_head 路径。
 
         Returns:
             dict with:
@@ -2496,6 +2499,7 @@ class ResonanceEnsemble:
         final_logits: Dict[str, torch.Tensor] = {}        # 最后一轮每个 neuron 的 logits
         final_judge_logits: Dict[str, torch.Tensor] = {}  # C24 双头：最后一轮 general 256K 判定 logits
         round_quality_logits_all: Dict[str, torch.Tensor] = {}  # C15: round 1 预测质量 logit（全程保留）
+        round_quality_token_logits_all: Dict[str, torch.Tensor] = {}  # 临时逐位置路由 logit
         # C25-E 连续化：时间平均激活融合权重（连续模式下替代 softmax(scores/temp)）
         continuous_weights: Optional[torch.Tensor] = None
         if ct is None and continuous:
@@ -2666,6 +2670,7 @@ class ResonanceEnsemble:
                     round_num=round_num,
                     return_logits=True,
                     return_judge_logits=True,  # C24 双头：收集 general 256K 判定 logits
+                    return_quality_tokens=return_quality_tokens,
                     temp_gain=temp_gain,
                     ffn_gain=ffn_gain,
                 )
@@ -2692,6 +2697,8 @@ class ResonanceEnsemble:
                 # C15: 收集预测质量 logit（round 1 独立前向，无场耦合）
                 if round_num == 1 and "quality_logit" in result:
                     round_quality_logits_all[nid] = result["quality_logit"]
+                if round_num == 1 and "quality_token_logits" in result:
+                    round_quality_token_logits_all[nid] = result["quality_token_logits"]
                 # C25-E 连续化：final_logits 在 round 1（t=0 独立前向）采集——
                 # 连续积分步不更新 final_logits（C23-C4 监督纯净）
                 if round_num == n_rounds or continuous:
@@ -2937,10 +2944,15 @@ class ResonanceEnsemble:
         # 提前初始化，router/residual 分支不构造也安全（原代码该分支
         # 未定义 → UnboundLocalError，基线缺陷）
         quality_logits_t: Optional[torch.Tensor] = None
+        quality_token_logits_t: Optional[torch.Tensor] = None
         if round_quality_logits_all:
             quality_logits_t = torch.stack([
                 round_quality_logits_all[nid] for nid in active_ids
             ]).mean(dim=1).squeeze(-1)  # [N]
+        if round_quality_token_logits_all:
+            quality_token_logits_t = torch.stack([
+                round_quality_token_logits_all[nid] for nid in active_ids
+            ]).squeeze(-1)  # [N, B, L]
         if continuous and continuous_weights is not None:
             weights = continuous_weights / continuous_weights.sum().clamp_min(1e-8)
             fused_logits = torch.einsum('n,nblv->blv', weights, all_logits)
@@ -2989,6 +3001,7 @@ class ResonanceEnsemble:
                     all_logits, native_list, active_ids, target_domain,
                     scores=scores,
                     quality_logits=quality_logits_t,
+                    quality_token_logits=quality_token_logits_t,
                     trust_override=trust_override)  # trust_override: 上界诊断
                 weights = route_weights  # [N] batch 平均路由权重（监控）
                 # 路由权重由 logits 决定（非参数），balance_loss 梯度会反向干扰路由 → 置 0
@@ -3091,6 +3104,13 @@ class ResonanceEnsemble:
             result["quality_logits"] = ql.squeeze(-1)  # [N]
         else:
             result["quality_logits"] = None
+
+        if round_quality_token_logits_all:
+            result["quality_token_logits"] = torch.stack([
+                round_quality_token_logits_all[nid] for nid in active_ids
+            ]).squeeze(-1)  # [N, B, L]
+        else:
+            result["quality_token_logits"] = None
 
         if return_individual_logits:
             result["individual_logits"] = {nid: final_logits[nid] for nid in active_ids}
@@ -3454,6 +3474,7 @@ class ResonanceEnsemble:
         router_temperature: float = 0.15,
         scores: Optional[torch.Tensor] = None,  # [N] 协作层校准的共振分（per-sample 信任）
         quality_logits: Optional[torch.Tensor] = None,  # [N] C15 预测质量 logit（优先于 scores）
+        quality_token_logits: Optional[torch.Tensor] = None,  # [N, B, L] 临时逐位置信任
         trust_override: Optional[torch.Tensor] = None,  # [N] 实验：直接指定信任系数（覆盖 scores）
     ):
         """跨 vocab 分工融合：per-position **硬路由**，置信度 = min(原生, 投影后) max-prob。
@@ -3500,6 +3521,12 @@ class ResonanceEnsemble:
         if trust_override is not None:
             # 上界诊断：trust 直接给定（如"已知域"硬门控），跳过 scores 软校准
             trust = trust_override.to(conf.dtype).to(conf.device).clamp(min=1e-9)
+        elif quality_token_logits is not None:
+            # 临时逐位置路由实验：token-level quality head 直接生成每个位置的信任
+            # 分布；默认调用方不传该参数，因此生产路径仍使用旧的 sample-level 分支。
+            trust = F.softmax(
+                quality_token_logits / max(router_temperature, 1e-6), dim=0
+            )  # [N, B, L]
         elif quality_logits is not None:
             # C15（2026-08-08，优先）：预测质量 head 输出——每个 neuron 学习"我对当前
             # 样本的预测质量"（round 1 独立前向，梯度无跨 neuron 泄漏），监督 = NLL 排序
@@ -3515,7 +3542,10 @@ class ResonanceEnsemble:
         else:
             trust = None
         if trust is not None:
-            conf = conf * trust.view(-1, 1, 1)
+            if trust.dim() == 3:
+                conf = conf * trust
+            else:
+                conf = conf * trust.view(-1, 1, 1)
         if self.maturity is not None:
             # C17（2026-08-08）静默期：新生 neuron（幼稚态）融合权重按成熟度压低——
             # get_resonance_weight 0.1→1.0 线性 ramp，配合 IntegrateEngine 无缝衔接

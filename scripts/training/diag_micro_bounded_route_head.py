@@ -1,14 +1,13 @@
-"""临时有界 route head + projected-NLL 监督试验。
+"""临时有界 token-level route head + projected-NLL 监督试验。
 
 本试验只改变内存中的 route head：
 
-* 输入先经过 LayerNorm，消除不同神经元表征的尺度差；
-* 输出经过 ``bound * tanh`` 限幅，避免 quality-logit 膨胀；
-* 监督目标是每个答案 token 上各成员 general-space projected NLL 的 softmax，
-  再聚合成样本级信任分布；
+* 输入是每个成员的 token hidden，先经过 LayerNorm，消除不同神经元表征的尺度差；
+* 输出是每个成员、每个位置的 ``bound * tanh`` trust logit；
+* 监督目标是每个答案 token 上各成员 general-space projected NLL 的 softmax；
 * 语言主体、embed_adapter、field、跨规格投影和 shared embedding 全冻结。
 
-它不修改 ResonanceNeuron 的生产实现，不保存任何 production checkpoint。
+token-level 返回路径由显式实验开关触发；默认生产路径不变，不保存任何 production checkpoint。
 """
 
 from __future__ import annotations
@@ -29,19 +28,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from scripts.training.train_round_level_quality import batch_rounds
 from scripts.training.diag_micro_route_fusion_pilot import (
     DEFAULT_SPECIALIST_STEPS,
     ROUTE_EVAL_SAMPLE_CAP,
     ROUTE_SEQ_LEN,
     ROUTE_TRAIN_SAMPLE_CAP,
     SEED,
-    _forward_batch,
     _load_route_rounds,
     _masked_teacher_forcing_nll,
     _prepare_population,
     _projected_logits,
     _rounds_from_texts,
-    _route_snapshot,
+    _route_snapshot as _scalar_route_snapshot,
     _freeze_to_quality_heads,
 )
 from scripts.training.utils import load_dialogue_texts_multi
@@ -55,8 +54,8 @@ ROUTE_PREDICT_TEMPERATURE = 1.0
 DEFAULT_ROUTE_STEPS = 80
 
 
-class BoundedRouteHead(nn.Module):
-    """输入归一化、输出有界的临时质量路由头。"""
+class TokenBoundedRouteHead(nn.Module):
+    """输入 token hidden、输出逐位置有界 trust logits 的临时路由头。"""
 
     def __init__(self, input_dim: int, hidden_dim: int = ROUTE_HEAD_HIDDEN,
                  bound: float = ROUTE_HEAD_BOUND):
@@ -73,15 +72,43 @@ class BoundedRouteHead(nn.Module):
         nn.init.normal_(self.mlp[2].weight, std=0.005)
         nn.init.zeros_(self.mlp[2].bias)
 
-    def forward(self, pooled: torch.Tensor) -> torch.Tensor:
-        return self.bound * torch.tanh(self.mlp(self.norm(pooled)))
+    def forward(self, token_hidden: torch.Tensor) -> torch.Tensor:
+        return self.bound * torch.tanh(self.mlp(self.norm(token_hidden)))
 
 
-def _install_bounded_heads(cortex) -> list[torch.nn.Parameter]:
+def _install_token_bounded_heads(cortex) -> list[torch.nn.Parameter]:
     for neuron in cortex.ensemble.neurons.values():
-        input_dim = neuron.config.hidden_size * 2
-        neuron.quality_head = BoundedRouteHead(input_dim)
+        input_dim = neuron.config.hidden_size
+        neuron.quality_head = TokenBoundedRouteHead(input_dim)
     return _freeze_to_quality_heads(cortex)
+
+
+def _forward_batch(cortex, rounds, general_sp, token_route: bool = False):
+    """实验侧前向；token_route=True 才启用 token-level quality head。"""
+
+    embeddings = {
+        nid: cortex._neuron_shared_embeddings[nid]
+        for nid in cortex.ensemble.neurons
+    }
+    neuron_embeddings, targets, answer_mask = batch_rounds(
+        rounds,
+        general_sp,
+        embeddings,
+        ROUTE_SEQ_LEN,
+    )
+    result = cortex.ensemble.forward_train(
+        neuron_embeddings=neuron_embeddings,
+        n_rounds=2,
+        fusion_mode="soft",
+        targets=None,
+        answer_mask=None,
+        field_conditioning=True,
+        step=0,
+        target_domain="general",
+        return_individual_logits=True,
+        return_quality_tokens=token_route,
+    )
+    return result, targets, answer_mask
 
 
 def _projected_member_nll(result, cortex, targets, answer_mask):
@@ -115,7 +142,7 @@ def _per_position_target_snapshot(cortex, rounds, general_sp) -> dict:
     with torch.no_grad():
         for start in range(0, len(rounds), 1):
             result, targets, answer_mask = _forward_batch(
-                cortex, rounds[start:start + 1], general_sp
+                cortex, rounds[start:start + 1], general_sp, token_route=True
             )
             _projected, _member_nll, token_nll = _projected_member_nll(
                 result, cortex, targets, answer_mask
@@ -142,10 +169,85 @@ def _per_position_target_snapshot(cortex, rounds, general_sp) -> dict:
     }
 
 
+def _masked_shift_teacher_forcing_nll(
+    logits: torch.Tensor, targets: torch.Tensor, answer_mask: torch.Tensor
+) -> torch.Tensor:
+    """对已经右移对齐的 [B, L-1, V] logits 计算 answer NLL。"""
+
+    shift_targets = targets[:, 1:].contiguous()
+    valid = answer_mask[:, 1:].bool() & shift_targets.ge(0)
+    if not bool(valid.any()):
+        valid = shift_targets.ge(0)
+    safe_targets = shift_targets.masked_fill(~valid, -100)
+    return F.cross_entropy(
+        logits.float().reshape(-1, logits.shape[-1]),
+        safe_targets.reshape(-1),
+        ignore_index=-100,
+        reduction="sum",
+    ) / valid.sum().clamp_min(1)
+
+
+def _token_route_snapshot(cortex, rounds, general_sp) -> dict:
+    """评估 token-level trust 的 hard route、soft shadow 和位置权重。"""
+
+    if not rounds:
+        return {"samples": 0}
+    member_ids = list(cortex.ensemble.neurons.keys())
+    hard_nlls = []
+    shadow_nlls = []
+    weight_sums = {nid: 0.0 for nid in member_ids}
+    quality_sums = {nid: 0.0 for nid in member_ids}
+    with torch.no_grad():
+        for start in range(0, len(rounds), 1):
+            result, targets, answer_mask = _forward_batch(
+                cortex, rounds[start:start + 1], general_sp, token_route=True
+            )
+            projected = _projected_logits(cortex, result)
+            token_quality = result.get("quality_token_logits")
+            if token_quality is None:
+                raise RuntimeError("token route head did not return token quality logits")
+            route_logits = token_quality[:, :, :-1]
+            trust = F.softmax(
+                route_logits / ROUTE_PREDICT_TEMPERATURE, dim=0
+            )
+            shadow_logits = torch.einsum(
+                "nbl,nblv->blv", trust, projected[:, :, :-1, :]
+            )
+            hard_nlls.append(float(_masked_teacher_forcing_nll(
+                result["fused_logits"], targets, answer_mask
+            ).detach()))
+            shadow_nlls.append(float(_masked_shift_teacher_forcing_nll(
+                shadow_logits, targets, answer_mask
+            ).detach()))
+            weights = result.get("weights")
+            if weights is not None:
+                for nid, value in zip(member_ids, weights):
+                    weight_sums[nid] += float(value.detach())
+            for nid, value in zip(member_ids, token_quality.mean(dim=(1, 2))):
+                quality_sums[nid] += float(value.detach())
+            del result, projected
+    count = max(len(hard_nlls), 1)
+    hard_mean = sum(hard_nlls) / count
+    shadow_mean = sum(shadow_nlls) / count
+    return {
+        "samples": len(rounds),
+        "hard_route_teacher_forcing_nll": round(hard_mean, 6),
+        "shadow_soft_route_teacher_forcing_nll": round(shadow_mean, 6),
+        "hard_route_ppl": round(math.exp(min(hard_mean, 20)), 4),
+        "shadow_soft_route_ppl": round(math.exp(min(shadow_mean, 20)), 4),
+        "hard_route_mean_weights": {
+            nid: round(value / count, 6) for nid, value in weight_sums.items()
+        },
+        "quality_token_logits_mean": {
+            nid: round(value / count, 6) for nid, value in quality_sums.items()
+        },
+    }
+
+
 def _route_loss(cortex, result, targets, answer_mask):
-    quality_logits = result.get("quality_logits")
-    if quality_logits is None:
-        raise RuntimeError("bounded route head did not return quality logits")
+    quality_token_logits = result.get("quality_token_logits")
+    if quality_token_logits is None:
+        raise RuntimeError("token route head did not return token quality logits")
     _projected, member_nll, member_token_nll = _projected_member_nll(
         result, cortex, targets, answer_mask
     )
@@ -153,10 +255,22 @@ def _route_loss(cortex, result, targets, answer_mask):
         -member_token_nll.detach() / ROUTE_TARGET_TEMPERATURE, dim=0
     )
     ideal = per_position_ideal.mean(dim=1)
+    shift_targets = targets[:, 1:].contiguous()
+    valid = answer_mask[:, 1:].bool() & shift_targets.ge(0)
+    if not bool(valid.any()):
+        valid = shift_targets.ge(0)
+    predicted_logits = quality_token_logits[:, :, :-1].reshape(
+        quality_token_logits.shape[0], -1
+    )[:, valid.reshape(-1)]
+    if predicted_logits.shape != member_token_nll.shape:
+        raise RuntimeError(
+            "token route/projected NLL shape mismatch: "
+            f"route={tuple(predicted_logits.shape)} nll={tuple(member_token_nll.shape)}"
+        )
     predicted_log_probs = F.log_softmax(
-        quality_logits / ROUTE_PREDICT_TEMPERATURE, dim=0
+        predicted_logits / ROUTE_PREDICT_TEMPERATURE, dim=0
     )
-    loss = -(ideal * predicted_log_probs).sum()
+    loss = -(per_position_ideal * predicted_log_probs).sum(dim=0).mean()
     return loss, member_nll.detach(), ideal.detach(), per_position_ideal.detach()
 
 
@@ -193,11 +307,11 @@ def run(
     if not hf_eval_rounds:
         raise RuntimeError("bounded route head HF eval rounds are empty")
 
-    production_before = _route_snapshot(cortex, eval_rounds, general_sp)
-    production_before_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
-    trainable = _install_bounded_heads(cortex)
-    bounded_before = _route_snapshot(cortex, eval_rounds, general_sp)
-    bounded_before_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
+    production_before = _scalar_route_snapshot(cortex, eval_rounds, general_sp)
+    production_before_hf = _scalar_route_snapshot(cortex, hf_eval_rounds, general_sp)
+    trainable = _install_token_bounded_heads(cortex)
+    bounded_before = _token_route_snapshot(cortex, eval_rounds, general_sp)
+    bounded_before_hf = _token_route_snapshot(cortex, hf_eval_rounds, general_sp)
     optimizer = torch.optim.AdamW(
         trainable, lr=ROUTE_HEAD_LR, weight_decay=0.01
     )
@@ -206,7 +320,7 @@ def run(
     for step in range(1, route_steps + 1):
         index = int(torch.randint(0, len(train_rounds), (1,), generator=generator))
         result, targets, answer_mask = _forward_batch(
-            cortex, [train_rounds[index]], general_sp
+            cortex, [train_rounds[index]], general_sp, token_route=True
         )
         loss, member_nll, ideal, per_position_ideal = _route_loss(
             cortex, result, targets, answer_mask
@@ -225,8 +339,12 @@ def run(
                     float((per_position_ideal.argmax(dim=0) == ideal.argmax()).float().mean()),
                     6,
                 ),
-                "quality_min": round(float(result["quality_logits"].detach().min()), 6),
-                "quality_max": round(float(result["quality_logits"].detach().max()), 6),
+                "quality_min": round(float(
+                    result["quality_token_logits"].detach().min()
+                ), 6),
+                "quality_max": round(float(
+                    result["quality_token_logits"].detach().max()
+                ), 6),
             })
             print(
                 f"[bounded-route] step {step}/{route_steps}: "
@@ -237,8 +355,8 @@ def run(
             )
         del result
 
-    bounded_after = _route_snapshot(cortex, eval_rounds, general_sp)
-    bounded_after_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
+    bounded_after = _token_route_snapshot(cortex, eval_rounds, general_sp)
+    bounded_after_hf = _token_route_snapshot(cortex, hf_eval_rounds, general_sp)
     target_current = _per_position_target_snapshot(cortex, eval_rounds, general_sp)
     target_hf = _per_position_target_snapshot(cortex, hf_eval_rounds, general_sp)
     raw_nll = production_before["hard_route_teacher_forcing_nll"]
@@ -250,9 +368,9 @@ def run(
             "expanded_population_size": len(expanded_ids),
             "specialist_steps_per_member": specialist_steps,
             "route_steps": route_steps,
-            "route_head": "LayerNorm -> Linear/GELU/Linear -> 2*tanh",
+            "route_head": "token hidden -> LayerNorm -> Linear/GELU/Linear -> 2*tanh",
             "route_head_bound": ROUTE_HEAD_BOUND,
-            "route_target": "mean_position_softmax(-projected_token_nll / 2.0)",
+            "route_target": "per_position_softmax(-projected_token_nll / 2.0)",
             "language_bodies_frozen": True,
             "embed_adapter_frozen": True,
             "field_and_cross_spec_fusion_frozen": True,

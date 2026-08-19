@@ -633,3 +633,29 @@ micro 各 800 步、bounded route head 80 步的条件下，current holdout hard
 升级为能读取 token-level hidden state、输出 `[成员, 位置]` trust logits 的 per-position
 route head，再用 projected token NLL 监督；在该 head 通过 current/HF 验收前，不接入默认
 路由，也不保存生产权重。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
+
+token-level route head 实现已开始（2026-08-20）：新增显式实验开关，让 Neuron 在默认
+关闭时完全保持原有回合级 quality_head；实验打开时返回 token hidden 上的逐位置 logits，
+并让临时 route fusion 使用 `[成员, batch, 位置]` trust。生产 loader、默认 forward 行为、
+语言主体、field 和 shared embedding 均保持冻结；下一步先跑 smoke，确认默认路径和 token
+路径的张量形状都稳定，再运行正式 current + HF 验收。
+
+token-level route head 烟测已通过（2026-08-20）：默认全量测试保持 `45 passed`，token
+route 的最小 current/HF 样本均完成 forward、逐位置 projected-NLL 反传和 hard-route 评估；
+烟测中 micro 已获得非零实际位置份额，但样本量不足以作结论。正式验收现已开始，仍不写入
+生产 checkpoint。
+
+token-level route head 正式验收已完成（2026-08-20）：current hard-route NLL 为
+`116.231 → 82.869`，HF 为 `129.804 → 86.481`，证明 token-level head 能改善 raw route，
+但明显不如先前的 sample-level bounded head（`17.184/55.725`）；current/HF 的 micro
+实际 hard-route 份额仍接近 0%，尽管 oracle 位置胜率仍存在。结论是逐位置输出形式正确，
+但不同 hidden-size 成员的 token hidden 空间仍不可直接比较，per-member 独立 head 学到
+了 general 成员偏置。本实验没有写入生产 checkpoint，正式报告为
+`reports/micro_token_route_head_697m_20260820.json`。
+
+下一步已确定并开始：在完全相同的冻结边界下增加共享 route feature 对齐层，把 hidden=512
+和 hidden=128 的 token hidden 投影到共同 route 空间，再由一个共享 token route head 输出
+逐成员/逐位置 trust；这样只训练临时 route adapter + shared route head，直接检验问题是否
+来自成员表示空间不可比。通过 current/HF 验收前仍不接入默认路由、不写生产 checkpoint。
+
+*** Delete File: E:\taiji-neuron\reports\micro_token_route_head_smoke_20260820.json
