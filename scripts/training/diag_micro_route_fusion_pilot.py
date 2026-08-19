@@ -253,7 +253,7 @@ def _freeze_to_quality_heads(cortex) -> list[torch.nn.Parameter]:
     return trainable
 
 
-def _forward_batch(cortex, rounds, general_sp):
+def _forward_batch(cortex, rounds, general_sp, trust_override=None):
     embeddings = {
         nid: cortex._neuron_shared_embeddings[nid]
         for nid in cortex.ensemble.neurons
@@ -277,6 +277,7 @@ def _forward_batch(cortex, rounds, general_sp):
         field_conditioning=True,
         step=0,
         target_domain="general",
+        trust_override=trust_override,
         return_individual_logits=True,
     )
     return result, targets, answer_mask
