@@ -48,6 +48,20 @@ LOG_DIR = os.path.join(
 )
 
 
+def effective_sft_mask(
+    shift_targets: torch.Tensor,
+    shift_mask: torch.Tensor,
+    shift_sft_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Return positions that are both answer tokens and valid aligned targets.
+
+    ``batch_align_and_embed`` uses ``-100`` for general-token positions that
+    have no domain-token overlap.  Those positions must be excluded from the
+    validation denominator as well as from the cross-entropy targets.
+    """
+    return shift_mask & shift_sft_mask & shift_targets.ge(0)
+
+
 class TeeLogger:
     def __init__(self, log_path: str):
         self.log_path = log_path
@@ -311,8 +325,9 @@ def main():
             # S3: SFT answer masking — 只对 answer 部分计算 loss
             shift_sft_mask = sft_mask[:, 1:].contiguous()
             shift_targets_flat = shift_targets.clone()
-            # attention_mask & sft_mask 的交集：valid 且 answer 部分
-            shift_targets_flat[~(shift_mask & shift_sft_mask)] = -100
+            # attention_mask、sft_mask 与对齐 target 的交集：有效 answer 部分
+            valid_sft_mask = effective_sft_mask(shift_targets, shift_mask, shift_sft_mask)
+            shift_targets_flat[~valid_sft_mask] = -100
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_targets_flat.view(-1),
@@ -353,9 +368,10 @@ def main():
                     shift_mask = mask[:, 1:].contiguous()
                     shift_sft_mask = sft_mask[:, 1:].contiguous()
                     shift_targets_flat = shift_targets.clone()
-                    shift_targets_flat[~(shift_mask & shift_sft_mask)] = -100
-                    # S3: 用 sum + 手动除 token 数（防止 answer 部分为空时 NaN）
-                    n_ans = (shift_mask & shift_sft_mask).sum().item()
+                    valid_sft_mask = effective_sft_mask(shift_targets, shift_mask, shift_sft_mask)
+                    shift_targets_flat[~valid_sft_mask] = -100
+                    # 用实际有效 aligned answer token 数除，避免未对齐位置把 PPL 压低。
+                    n_ans = valid_sft_mask.sum().item()
                     if n_ans == 0:
                         continue  # 该样本无 answer token，跳过
                     ce = F.cross_entropy(
@@ -382,7 +398,15 @@ def main():
                 "state_dict": {k: v.detach().clone() for k, v in neuron.state_dict().items()},
                 "shared_embedding_state": {k: v.detach().clone() for k, v in shared_emb.state_dict().items()},
                 "domain": DOMAIN,
-                "data_source": "alpaca_zh_sft_finetune",
+                "data_source": "dialogue_sft_finetune",
+                "data_config": {
+                    "max_texts": args.max_texts,
+                    "eval_ratio": 0.05,
+                    "eval_cap": 100,
+                    "max_seq_len": 128,
+                    "answer_marker": SFT_ANSWER_MARKER,
+                    "answer_marker_mode": "first",
+                },
                 "result": {
                     "best_val_ppl": best_val_loss,
                     "best_step": best_step,

@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：35 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
+- `python -m pytest tests -q`：37 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
   默认阵容契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定
   anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
@@ -236,6 +236,11 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     回填；固定 8 条样本的 full teacher-forcing 与 prompt-only 首 token logits 最大差为 0～7e-6。
     但五个神经元首 token Top-1 仅 28.1%～34.4%，中位目标排名为第 4～9 位，故责任边界收敛到
     对话 checkpoint 的首 token 分布与训练数据/目标，不再修改推理映射链，也不启动长训练。
+41. 完成训练目标短审计并修复评估契约：按真实入口的 `max_texts=100000` 复现后，去重得到
+    55,661 条，hash 切分为 train=52,900、eval pool=2,761，但训练只使用前 100 条验证样本；
+    128 token 截断覆盖 eval pool 的 1,211/2,761 条，answer mask 对齐覆盖率为 97.8125%。
+    发现验证 PPL 分母错误包含未对齐 target，已改为只计有效 aligned answer token，新增训练口径
+    元数据和回归测试；不回溯修改现有 checkpoint，不启动重训。
 
 ## 6. 后续工作顺序
 
@@ -323,6 +328,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2 的训练目标短审计：固定五个 dialogue checkpoint 和同一 holdout，核对实际训练入口的
-数据上限、去重/切分口径、answer mask 覆盖率、有效 answer token 数和 checkpoint 元数据；先判断
-当前权重是否确实在预期 SFT 目标上训练，再决定是否需要重训，期间不启动长训练。
+用修正后的有效 aligned answer token 口径，对五个现有 dialogue checkpoint 的同一 100 条
+holdout 重算可比 PPL，并与 32 条首 token rank / 生成基线合并成重训 go/no-go 质量门；在门槛
+明确前不启动长训练。
