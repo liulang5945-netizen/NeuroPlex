@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-08-19T07:49:27.274026+00:00",
-  "mode": "dry_run",
+  "timestamp": "2026-08-19T07:53:08.040632+00:00",
+  "mode": "apply",
   "keep_neuron_files": [
     "collab_v3_c24v2.ckpt.pt",
     "hub_collab_v2.ckpt.pt",
