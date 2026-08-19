@@ -5,7 +5,8 @@ embedding frozen.  It trains two fresh in-memory micro members from the same
 random initialization:
 
 * ``current_only``: the canonical local dialogue pool;
-* ``current_plus_hf``: the same pool plus the audited HF candidate pool.
+* ``current_plus_hf``: the same pool plus a deterministic, ratio-controlled
+  sample of the audited HF candidate pool.
 
 Both members are evaluated on the local holdout and the independent HF
 holdout.  The HF member is then added in memory to the real 5-dialogue +
@@ -65,6 +66,7 @@ SEED = 20260819
 CURRENT_MAX_TEXTS = 100_000
 HF_DIR = Path("data/hf_candidates/moss_003_dialogue")
 DEFAULT_STEPS = 160
+DEFAULT_HF_RATIO = 1.0
 
 
 def _valid_first_token_position(answer_start: int, seq_len: int) -> int | None:
@@ -104,6 +106,23 @@ def _load_pools(eval_cap: int = 0) -> dict[str, list[str]]:
         "hf_train": hf_train,
         "hf_eval": hf_eval,
     }
+
+
+def _select_hf_for_ratio(
+    current_train: list[str], hf_train: list[str], hf_ratio: float
+) -> list[str]:
+    """Select a deterministic HF subset for the requested mixed-pool ratio."""
+
+    if not 0.0 <= hf_ratio <= 1.0:
+        raise ValueError("hf_ratio must be between 0 and 1")
+    if hf_ratio == 0.0:
+        return []
+    if hf_ratio == 1.0:
+        return list(hf_train)
+    target_hf = round(len(current_train) * hf_ratio / (1.0 - hf_ratio))
+    target_hf = min(target_hf, len(hf_train))
+    selector = random.Random(SEED + int(hf_ratio * 10_000))
+    return selector.sample(hf_train, target_hf)
 
 
 def _evaluate(neuron, texts, domain_sp, general_sp, shared) -> dict:
@@ -267,6 +286,7 @@ def run(
     steps: int = DEFAULT_STEPS,
     include_population_canary: bool = True,
     eval_cap: int = 0,
+    hf_ratio: float = DEFAULT_HF_RATIO,
 ) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
@@ -280,6 +300,10 @@ def run(
         "current_eval": pools["current_eval"],
         "hf_eval": pools["hf_eval"],
     }
+    selected_hf_train = _select_hf_for_ratio(
+        pools["current_train"], pools["hf_train"], hf_ratio
+    )
+    mix_name = "current_plus_hf" if hf_ratio == 1.0 else f"current_plus_hf_{int(hf_ratio * 100)}"
     current_report, _ = _train_condition(
         "current_only",
         pools["current_train"],
@@ -290,8 +314,8 @@ def run(
         steps,
     )
     plus_report, plus_neuron = _train_condition(
-        "current_plus_hf",
-        pools["current_train"] + pools["hf_train"],
+        mix_name,
+        pools["current_train"] + selected_hf_train,
         eval_sets,
         shared,
         domain_sp,
@@ -313,9 +337,21 @@ def run(
             "current_train": len(pools["current_train"]),
             "current_eval": len(pools["current_eval"]),
             "hf_train": len(pools["hf_train"]),
+            "hf_train_used": len(selected_hf_train),
             "hf_eval": len(pools["hf_eval"]),
             "eval_cap": eval_cap,
-            "plus_train": len(pools["current_train"]) + len(pools["hf_train"]),
+            "mix_hf_ratio_requested": hf_ratio,
+            "mix_current_fraction": round(
+                len(pools["current_train"])
+                / max(len(pools["current_train"]) + len(selected_hf_train), 1),
+                6,
+            ),
+            "mix_hf_fraction": round(
+                len(selected_hf_train)
+                / max(len(pools["current_train"]) + len(selected_hf_train), 1),
+                6,
+            ),
+            "plus_train": len(pools["current_train"]) + len(selected_hf_train),
             "current_eval_hash_overlap_hf_eval": len(
                 set(pools["current_eval"]) & set(pools["hf_eval"])
             ),
@@ -339,11 +375,18 @@ def main() -> None:
     parser.add_argument("--json-out", type=Path, default=None)
     parser.add_argument("--skip-population-canary", action="store_true")
     parser.add_argument("--eval-cap", type=int, default=0, help="debug cap per eval set; 0=all")
+    parser.add_argument(
+        "--hf-ratio",
+        type=float,
+        default=DEFAULT_HF_RATIO,
+        help="HF share in the mixed training pool; 1=use all HF candidates",
+    )
     args = parser.parse_args()
     report = run(
         steps=args.steps,
         include_population_canary=not args.skip_population_canary,
         eval_cap=args.eval_cap,
+        hf_ratio=args.hf_ratio,
     )
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
