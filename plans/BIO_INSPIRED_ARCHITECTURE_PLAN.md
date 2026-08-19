@@ -656,6 +656,29 @@ token-level route head 正式验收已完成（2026-08-20）：current hard-rout
 下一步已确定并开始：在完全相同的冻结边界下增加共享 route feature 对齐层，把 hidden=512
 和 hidden=128 的 token hidden 投影到共同 route 空间，再由一个共享 token route head 输出
 逐成员/逐位置 trust；这样只训练临时 route adapter + shared route head，直接检验问题是否
-来自成员表示空间不可比。通过 current/HF 验收前仍不接入默认路由、不写生产 checkpoint。
+ 来自成员表示空间不可比。通过 current/HF 验收前仍不接入默认路由、不写生产 checkpoint。
+
+共享 route feature 对齐实验开始（2026-08-20）：保留 token-level 路由和 projected-NLL
+目标，新增共同 128 维 route 空间；每个成员仅训练一个 hidden→128 的临时 route adapter，
+所有成员共享同一个 LayerNorm + MLP + `2*tanh` scorer。上一轮 token-level 独立 head
+保留为默认实验选项，避免历史结果失去可复现性；本轮正式报告单独保存。
+
+共享 route feature 烟测已通过（2026-08-20）：默认 token route 选项仍可用，共享 128D
+adapter + scorer 的 current/HF 单条 smoke 均完成逐位置反传和 hard route，micro 出现
+非零位置份额；正式验收现已开始，仍不写入生产 checkpoint。
+
+共享 route feature 正式验收已完成（2026-08-20）：共同 128D route adapter + shared
+scorer 没有解决表示偏置，current hard-route NLL 从 `116.231` 恶化到 `432.393`，HF
+从 `129.804` 恶化到 `213.569`，三组 micro 的正式 hard-route 份额仍为 0%。因此三种
+临时 route 方向的证据已闭合：sample-level bounded head 能大幅改善 raw route 但偏向
+general；per-member token head 能表达逐位置 trust 但跨 hidden 空间不可比；shared
+feature alignment 又引入更强的统一偏置。所有实验均未写生产 checkpoint，正式报告为
+`reports/micro_shared_route_feature_697m_20260820.json`。
+
+当前停在项目路线决策节点。唯一推荐下一步：停止继续堆叠临时 route head 变体，保持生产
+9 成员路由不变，转回 7.58M micro 专家本体训练与更大独立 holdout 评估；先用主体能力和
+数据专长证据决定 micro 是否值得进入后续架构，而不是继续用未经验证的路由层消耗训练预算。
+
+*** Delete File: E:\taiji-neuron\reports\micro_shared_route_feature_smoke_20260820.json
 
 *** Delete File: E:\taiji-neuron\reports\micro_token_route_head_smoke_20260820.json

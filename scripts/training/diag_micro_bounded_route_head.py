@@ -51,6 +51,7 @@ ROUTE_HEAD_HIDDEN = 128
 ROUTE_HEAD_LR = 2e-3
 ROUTE_TARGET_TEMPERATURE = 2.0
 ROUTE_PREDICT_TEMPERATURE = 1.0
+ROUTE_COMMON_DIM = 128
 DEFAULT_ROUTE_STEPS = 80
 
 
@@ -76,7 +77,75 @@ class TokenBoundedRouteHead(nn.Module):
         return self.bound * torch.tanh(self.mlp(self.norm(token_hidden)))
 
 
-def _install_token_bounded_heads(cortex) -> list[torch.nn.Parameter]:
+class SharedRouteScorer(nn.Module):
+    """所有成员共享的共同 route 空间 scorer。"""
+
+    def __init__(self, input_dim: int = ROUTE_COMMON_DIM,
+                 hidden_dim: int = ROUTE_HEAD_HIDDEN,
+                 bound: float = ROUTE_HEAD_BOUND):
+        super().__init__()
+        self.bound = float(bound)
+        self.norm = nn.LayerNorm(input_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
+        )
+        nn.init.xavier_uniform_(self.mlp[0].weight)
+        nn.init.zeros_(self.mlp[0].bias)
+        nn.init.normal_(self.mlp[2].weight, std=0.005)
+        nn.init.zeros_(self.mlp[2].bias)
+
+    def forward(self, aligned_hidden: torch.Tensor) -> torch.Tensor:
+        return self.bound * torch.tanh(self.mlp(self.norm(aligned_hidden)))
+
+
+class SharedAlignedTokenRouteHead(nn.Module):
+    """成员专属 hidden→共同空间 adapter + 共享 token scorer。"""
+
+    def __init__(self, input_dim: int, shared_scorer: SharedRouteScorer,
+                 common_dim: int = ROUTE_COMMON_DIM):
+        super().__init__()
+        self.adapter = nn.Linear(input_dim, common_dim)
+        if input_dim == common_dim:
+            with torch.no_grad():
+                nn.init.eye_(self.adapter.weight)
+                nn.init.zeros_(self.adapter.bias)
+        else:
+            nn.init.xavier_uniform_(self.adapter.weight)
+            nn.init.zeros_(self.adapter.bias)
+        self.shared_scorer = shared_scorer
+
+    def forward(self, token_hidden: torch.Tensor) -> torch.Tensor:
+        return self.shared_scorer(self.adapter(token_hidden))
+
+
+def _unique_parameters(parameters) -> list[torch.nn.Parameter]:
+    unique = []
+    seen = set()
+    for parameter in parameters:
+        if id(parameter) not in seen:
+            seen.add(id(parameter))
+            unique.append(parameter)
+    return unique
+
+
+def _install_token_bounded_heads(
+    cortex, route_head_kind: str = "token"
+) -> list[torch.nn.Parameter]:
+    if route_head_kind == "shared_aligned":
+        shared_scorer = SharedRouteScorer()
+        for neuron in cortex.ensemble.neurons.values():
+            neuron.quality_head = SharedAlignedTokenRouteHead(
+                neuron.config.hidden_size, shared_scorer
+            )
+    elif route_head_kind == "token":
+        for neuron in cortex.ensemble.neurons.values():
+            input_dim = neuron.config.hidden_size
+            neuron.quality_head = TokenBoundedRouteHead(input_dim)
+    else:
+        raise ValueError(f"unsupported route_head_kind={route_head_kind!r}")
+    return _unique_parameters(_freeze_to_quality_heads(cortex))
     for neuron in cortex.ensemble.neurons.values():
         input_dim = neuron.config.hidden_size
         neuron.quality_head = TokenBoundedRouteHead(input_dim)
@@ -279,6 +348,7 @@ def run(
     route_steps: int = DEFAULT_ROUTE_STEPS,
     train_cap: int = ROUTE_TRAIN_SAMPLE_CAP,
     eval_cap: int = ROUTE_EVAL_SAMPLE_CAP,
+    route_head_kind: str = "token",
 ) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
@@ -309,7 +379,7 @@ def run(
 
     production_before = _scalar_route_snapshot(cortex, eval_rounds, general_sp)
     production_before_hf = _scalar_route_snapshot(cortex, hf_eval_rounds, general_sp)
-    trainable = _install_token_bounded_heads(cortex)
+    trainable = _install_token_bounded_heads(cortex, route_head_kind)
     bounded_before = _token_route_snapshot(cortex, eval_rounds, general_sp)
     bounded_before_hf = _token_route_snapshot(cortex, hf_eval_rounds, general_sp)
     optimizer = torch.optim.AdamW(
@@ -368,7 +438,13 @@ def run(
             "expanded_population_size": len(expanded_ids),
             "specialist_steps_per_member": specialist_steps,
             "route_steps": route_steps,
-            "route_head": "token hidden -> LayerNorm -> Linear/GELU/Linear -> 2*tanh",
+            "route_head_kind": route_head_kind,
+            "route_head": (
+                "hidden -> per-member adapter -> shared 128D LayerNorm/MLP/2*tanh"
+                if route_head_kind == "shared_aligned"
+                else "token hidden -> LayerNorm -> Linear/GELU/Linear -> 2*tanh"
+            ),
+            "route_common_dim": ROUTE_COMMON_DIM if route_head_kind == "shared_aligned" else None,
             "route_head_bound": ROUTE_HEAD_BOUND,
             "route_target": "per_position_softmax(-projected_token_nll / 2.0)",
             "language_bodies_frozen": True,
@@ -426,6 +502,11 @@ def main() -> None:
     parser.add_argument("--route-steps", type=int, default=DEFAULT_ROUTE_STEPS)
     parser.add_argument("--train-cap", type=int, default=ROUTE_TRAIN_SAMPLE_CAP)
     parser.add_argument("--eval-cap", type=int, default=ROUTE_EVAL_SAMPLE_CAP)
+    parser.add_argument(
+        "--route-head",
+        choices=["token", "shared_aligned"],
+        default="token",
+    )
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
     report = run(
@@ -433,6 +514,7 @@ def main() -> None:
         route_steps=args.route_steps,
         train_cap=args.train_cap,
         eval_cap=args.eval_cap,
+        route_head_kind=args.route_head,
     )
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
