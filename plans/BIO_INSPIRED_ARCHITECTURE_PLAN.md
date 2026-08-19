@@ -327,6 +327,16 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     `data/hf_candidates/moss_003_dialogue`，不覆盖现有数据、不写入任何五个 dialogue checkpoint，
     当前仍是 candidate-only；`alpaca-zh`（许可证口径冲突/README 限研究）、Firefly（无明确许可证）
     和 Belle（GPL-3.0）未纳入主来源。
+56. 完成工作区存储审计并建立显式清理边界：总量约 129.1GB，其中 `data/neurons` 单独约
+    97.4GB，主要是已否决的 C13/C14/C16/cross-domain 历史 collab checkpoint、smoke 产物和
+    `pre_t12_backup`；另有已被 `foundation_v1_dual` 替代的 `foundation_v1_general`/
+    `foundation_v1`，以及废弃的 `distill`、`neurons_joint`。核对确认 7 个 `sft_*_clean` 文件
+    与 `alpaca_zh_sft_clean.jsonl` 逐条重复，原始 `sft_*` 是中间拆分产物。新增显式 allowlist
+    清理脚本 `scripts/maintenance/cleanup_redundant_artifacts.py`，干运行精确识别 60 个目标、
+    约 99.2GB；保留 5 个 dialogue、C24v2、slow-test hub fixture、`foundation_v1_dual`、
+    canonical 对话数据和 HF candidate。`DIALOGUE_DATA_FILES` 已收敛为
+    `alpaca_zh_sft_clean.jsonl` + `dialogue_extended_clean.jsonl`，运行时不再静默下载旧的
+    Belle/COIG 来源。
 
 ## 6. 后续工作顺序
 
@@ -415,7 +425,8 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 ## 7. 唯一下一步
 
 唯一推荐下一步：在冻结共享感知表、保持 7.58M micro 规格和现有五个 dialogue checkpoint
-不变的前提下，执行一次固定口径的数据 A/B pilot：`current-only`（现有 train=52,900、eval
-pool=2,761）对比 `current-plus-hf-candidate`（再加入本次 train=45,600，并使用独立的
-HF eval=2,400），同时记录 corrected PPL、首 token Top-1、答案 loss 和 9 成员群体 canary。
+不变的前提下，执行一次固定口径的数据 A/B pilot：`current-only`（canonical 数据在当前
+`MAX_TEXTS=100000` 契约下为 train=95,000、eval=5,000）对比 `current-plus-hf-candidate`
+（再加入本次 train=45,600，并使用独立的 HF eval=2,400），同时记录 corrected PPL、首 token
+Top-1、答案 loss 和 9 成员群体 canary。
 只有这次受控对比仍无泛化或群体增益时，才能判断 7.58M 规模与数据/目标是否真正不匹配。

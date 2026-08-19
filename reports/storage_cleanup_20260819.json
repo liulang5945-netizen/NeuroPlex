@@ -1,0 +1,378 @@
+{
+  "timestamp": "2026-08-19T07:49:27.274026+00:00",
+  "mode": "dry_run",
+  "keep_neuron_files": [
+    "collab_v3_c24v2.ckpt.pt",
+    "hub_collab_v2.ckpt.pt",
+    "neuron_zh_aug0_dialogue.pt",
+    "neuron_zh_aug1_dialogue.pt",
+    "neuron_zh_aug2_dialogue.pt",
+    "neuron_zh_aug3_dialogue.pt",
+    "neuron_zh_std0_dialogue.pt"
+  ],
+  "targets": [
+    {
+      "path": "data\\distill",
+      "kind": "directory",
+      "size_bytes": 1263206602,
+      "size_gb": 1.176
+    },
+    {
+      "path": "data\\foundation_v1",
+      "kind": "directory",
+      "size_bytes": 5310111448,
+      "size_gb": 4.945
+    },
+    {
+      "path": "data\\foundation_v1_general",
+      "kind": "directory",
+      "size_bytes": 7751329138,
+      "size_gb": 7.219
+    },
+    {
+      "path": "data\\neurons\\c20_repro_nophase.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5000705,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\c23_final_seeded.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5006913,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\c23_repro_phase.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5001565,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_resume_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159459401,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\collab_v1_mixed.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7755777161,
+      "size_gb": 7.223
+    },
+    {
+      "path": "data\\neurons\\collab_v2_routing.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7755779435,
+      "size_gb": 7.223
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c13.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7755844115,
+      "size_gb": 7.223
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c13_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 3974994234,
+      "size_gb": 3.702
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c14.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7770777131,
+      "size_gb": 7.237
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c14b.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7770778344,
+      "size_gb": 7.237
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c16.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2069479177,
+      "size_gb": 1.927
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c16_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2069480669,
+      "size_gb": 1.927
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c20.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5004285,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c20_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5000003,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c20_smoke2.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5000100,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_c4.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5006913,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_full.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5007049,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2107419,
+      "size_gb": 0.002
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_smoke2.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2107760,
+      "size_gb": 0.002
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_smoke3.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2107632,
+      "size_gb": 0.002
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c23_verify.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5001425,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c24.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5006869,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c24_smoke.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5001133,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\collab_v3_c24v2_v1.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 5006941,
+      "size_gb": 0.005
+    },
+    {
+      "path": "data\\neurons\\cross_domain_collab_full.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159572979,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\cross_domain_collab_verify.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159460983,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\cross_domain_collab_verify_global.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159463909,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\cross_domain_collab_verify_w3.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159462237,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\cross_domain_g1.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 931007227,
+      "size_gb": 0.867
+    },
+    {
+      "path": "data\\neurons\\cross_domain_v1.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 746687099,
+      "size_gb": 0.695
+    },
+    {
+      "path": "data\\neurons\\cross_domain_v2.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 931007227,
+      "size_gb": 0.867
+    },
+    {
+      "path": "data\\neurons\\cross_domain_v3.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 931007419,
+      "size_gb": 0.867
+    },
+    {
+      "path": "data\\neurons\\cross_spec_dialogue.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 3263422913,
+      "size_gb": 3.039
+    },
+    {
+      "path": "data\\neurons\\cross_spec_dialogue.pt",
+      "kind": "file",
+      "size_bytes": 1261155851,
+      "size_gb": 1.175
+    },
+    {
+      "path": "data\\neurons\\neuron_zh_aug0.pt",
+      "kind": "file",
+      "size_bytes": 729505168,
+      "size_gb": 0.679
+    },
+    {
+      "path": "data\\neurons\\neuron_zh_aug1.pt",
+      "kind": "file",
+      "size_bytes": 729505168,
+      "size_gb": 0.679
+    },
+    {
+      "path": "data\\neurons\\neuron_zh_aug2.pt",
+      "kind": "file",
+      "size_bytes": 729505168,
+      "size_gb": 0.679
+    },
+    {
+      "path": "data\\neurons\\neuron_zh_aug3.pt",
+      "kind": "file",
+      "size_bytes": 729505168,
+      "size_gb": 0.679
+    },
+    {
+      "path": "data\\neurons\\neuron_zh_std0.pt",
+      "kind": "file",
+      "size_bytes": 1083800979,
+      "size_gb": 1.009
+    },
+    {
+      "path": "data\\neurons\\pre_t12_backup",
+      "kind": "directory",
+      "size_bytes": 10571155595,
+      "size_gb": 9.845
+    },
+    {
+      "path": "data\\neurons\\smoke_general.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 931006235,
+      "size_gb": 0.867
+    },
+    {
+      "path": "data\\neurons\\smoke_global.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 2159447579,
+      "size_gb": 2.011
+    },
+    {
+      "path": "data\\neurons\\smoke_mixed_collab.ckpt.pt",
+      "kind": "file",
+      "size_bytes": 7755777788,
+      "size_gb": 7.223
+    },
+    {
+      "path": "data\\neurons_joint",
+      "kind": "directory",
+      "size_bytes": 817208249,
+      "size_gb": 0.761
+    },
+    {
+      "path": "data\\simple_zh\\alpaca_zh_sft.jsonl",
+      "kind": "file",
+      "size_bytes": 32844154,
+      "size_gb": 0.031
+    },
+    {
+      "path": "data\\simple_zh\\sft_shared_core.jsonl",
+      "kind": "file",
+      "size_bytes": 9850454,
+      "size_gb": 0.009
+    },
+    {
+      "path": "data\\simple_zh\\sft_shared_core_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 8842991,
+      "size_gb": 0.008
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_0.jsonl",
+      "kind": "file",
+      "size_bytes": 4585628,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_0_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 4137268,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_1.jsonl",
+      "kind": "file",
+      "size_bytes": 4569729,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_1_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 4064829,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_2.jsonl",
+      "kind": "file",
+      "size_bytes": 4605250,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_2_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 4146712,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_3.jsonl",
+      "kind": "file",
+      "size_bytes": 4593775,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_3_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 4119798,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_4.jsonl",
+      "kind": "file",
+      "size_bytes": 4636027,
+      "size_gb": 0.004
+    },
+    {
+      "path": "data\\simple_zh\\sft_unique_4_clean.jsonl",
+      "kind": "file",
+      "size_bytes": 4178830,
+      "size_gb": 0.004
+    }
+  ],
+  "target_count": 60,
+  "target_size_bytes": 106507223953,
+  "target_size_gb": 99.193
+}
