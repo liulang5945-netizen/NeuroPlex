@@ -409,6 +409,17 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     各有碎片化。结论是不能删除 `data/foundation_v1_dual` 的 4 个 general，当前责任边界
     仍需回到生成契约/对齐链路。完整报告为 `reports/production_dialogue_population_subset_ab_20260819.json`。
 
+    完成 2,000 步全量 micro 数据 A/B：同一随机初始化、冻结 shared embedding、current
+    train=95,059、HF train=10,562（实际 90.0001% / 9.9999%），current eval=4,941、HF
+    eval=2,400。current-only 的 current eval PPL=1,033.12、median rank=161、首 token
+    Top-1=7.11%，HF eval PPL=2,484.42；90/10 的 current eval PPL=1,051.17、median
+    rank=162、Top-1=6.84%，HF eval PPL=1,148.10、median rank=66。相较 800 步，90/10
+    current PPL 继续下降 38.65%，HF PPL 继续下降 43.19%；相较同步 current-only，HF
+    PPL 下降 53.79%，而 current 几乎不退化。结论是 7.581313M local params 已证明有
+    可测的单体学习和跨分布泛化，但 9+micro 临时群体仅 finite forward 通过，固定生成中
+    一条 prompt 发生轻微变化且重复率变差，未形成群体净增益；不写入生产。完整报告为
+    `reports/micro_long_9010_2000_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -501,10 +512,13 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 实现链路通过，当前问题不再归因于 tokenizer 位置、answer mask 或 token 回填；报告为
 `reports/production_dialogue_generation_contract_20260819.json`。
 
-基于 7.58M micro 的本地参数和训练成本显著低于生产 dialogue checkpoint，且 800 步 90/10
-结果仍显示 current/HF eval 持续改善，项目决策改为继续推进 micro 训练路线；生产 9 成员和
-五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
+基于 7.58M micro 的本地参数、低训练成本和 2,000 步结果，项目继续推进小神经元路线；
+但当前证据只支持“单体可学习、HF 跨分布泛化可改善”，不支持“已经产生群体智能”。生产
+9 成员和五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
 
-唯一推荐下一步：固定 90% current / 10% HF、冻结 shared embedding，执行 2,000 步全量
-micro 延长训练，同时保留 current-only 对照、完整 current/HF eval 和临时群体 canary；
-仍不写入生产 checkpoint，用来判断延长训练是否继续改善 micro 本身及其群体接入效果。
+唯一推荐下一步：在同一实验进程内复用一份约 131M 的 shared embedding，进行三档规格对照：
+6.97M（2 层）、7.20M（3 层）、7.58M（4 层）。三档统一 90% current / 10% HF、冻结
+shared embedding 和训练预算，再分别接入临时 9+候选成员群体做 canary；验收同时区分
+单体学习、跨域泛化、路由选择和群体净增益，不把可读片段或单纯 loss 下降直接称为“智能”。
+当前环境未检测到 CUDA，独立 CPU 进程会重复加载 shared embedding，因此不盲目多进程并发；
+该规格对照仍不改变生产 9 成员装配和五个 dialogue checkpoint。
