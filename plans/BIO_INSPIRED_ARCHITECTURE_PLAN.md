@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：32 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
+- `python -m pytest tests -q`：33 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
   默认阵容契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定
   anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
@@ -200,7 +200,7 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 20. 将 C27 自组织新生脚本收敛为群体成长生命周期回归：新生、成熟、隔离、复活、路由/生成保护和最新权重恢复均通过 20/20。
 21. 完成社区发布面审计，移除当前入口中的旧规模/集中式迁移叙事，保留兼容模块但不纳入产品主路径。
 22. 新增 `scripts/bootstrap_population_demo.py`，把无 checkpoint 的确定性群体基线收敛为社区首运行入口。
-23. 完成 editable 安装、bootstrap 版本化输出、API health、31 项核心测试和全量 Python 编译验收。
+23. 完成 editable 安装、bootstrap 版本化输出、API health、33 项核心测试和全量 Python 编译验收。
 24. 将 editable 安装、bootstrap smoke、最小群体/API smoke 纳入 `.github/workflows/ci.yml`，并在本地复跑同一命令链。
 25. 完成公开发布残留扫描并收敛当前入口措辞；保留归档、兼容、安全和合成探针边界。
 26. 完成辅助研究路线的真实资产盘点、固定 anchor 复核和短 PPL 能力探针；确认协作信号存在但当前生成质量未达可用门槛。
@@ -208,6 +208,14 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 28. 按生产默认装配完成 9 成员加载与单问题生成 smoke，并将该阵容列为后续验收的唯一主口径。
 29. 将 5-dialogue + 4-general 的生产阵容写入公开文档，并加入无 checkpoint 依赖的默认 ID 回归测试。
 30. 完成 9 成员 API 等价对话 smoke；确认运行时可用但生成质量未过门槛，转入 dialogue 路由/融合根因诊断。
+31. 受控对比确认五个 dialogue 神经元实际参与生产路由：单 dialogue、显式 5-dialogue
+    continuous、5-dialogue fusion 和完整 9 成员 continuous 均完成；遗漏来自验收口径误把辅助
+    路径当主路径，不是运行时没有加载五个 dialogue。
+32. 发现并修正 C25-E 质量代理的 tokenizer 位置错位：生成输入使用 general tokenizer，旧实现却
+    直接使用 zh tokenizer 的 token 位置；统一改用 `build_position_alignment()`，并加入回归测试，
+    同步修正 leader 诊断脚本。
+33. 用正确对齐重跑 12 条 dialogue 样本：原始共振 leader 命中 NLL 最优仅 1/12（8%），现有
+    50/50 质量融合为 2/12（17%）；短生成仍未过质量门槛，说明责任边界尚未收敛，不能开始长训练。
 
 ## 6. 后续工作顺序
 
@@ -295,6 +303,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2 dialogue 质量根因诊断：基于默认 5 个 dialogue + 4 个 general 的 9 成员 Cortex，
-对比单 dialogue、5 dialogue 协作和完整 9 成员路由的输出/NLL/leader 选择，先判定是基座能力
-不足还是融合/路由破坏；在责任边界明确前不扩展协作训练。
+进入 P1.2 的单 dialogue 基线归因：对五个 dialogue checkpoint 分别做同一组问题的
+对齐后 NLL、短生成和数据/权重来源核对，先确定是某些神经元自身能力不足，还是群体路由/融合
+进一步破坏；在责任边界明确前不扩展协作训练。

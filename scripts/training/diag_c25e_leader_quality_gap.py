@@ -5,8 +5,8 @@
 消除了"时间平均激活均分 → 弱 neuron 独占"的空输出问题。本诊断量化剩余缺口：
 - round1_scores（共振强度）与生成质量是否高度一致？
 - dialogue neuron 无 judge_lm_head（实测，judge NLL 不可用），其 lm_head 是
-  50K zh 词表 → 质量代理 = 用 zh tokenizer 编码 prompt，各 neuron 对 prompt
-  的 next-token NLL（lm_head 对齐空间；越低 = 越贴合该域训练分布）。
+  50K zh 词表 → 质量代理 = 用 general→domain 位置对齐后的 prompt
+  next-token NLL（与生成前向的位置一致；越低 = 越贴合该域训练分布）。
 - 若 leader 常落在 NLL 次优/最差的 neuron 上 → "共振分高但生成差"独占仍存在
   → 值得实施融合（质量信号 × 共振分）；
 - 若两者排序高度相关（leader ≈ NLL 最优）→ 增量四已充分，记录收敛不实施。
@@ -55,17 +55,6 @@ def spearman(a: dict, b: dict) -> float:
     return 1.0 - 6.0 * d2 / (n * (n * n - 1))
 
 
-def prompt_nll(logits: torch.Tensor, tgt_ids: torch.Tensor) -> float:
-    """lm_head logits 对 prompt 的 next-token NLL（target 用 zh tokenizer id）。"""
-    logp = torch.log_softmax(logits[:, :-1, :], dim=-1)  # [1, L-1, V]
-    tgt = tgt_ids[1:].unsqueeze(0).unsqueeze(-1)          # [1, L-1, 1]
-    nll_tok = -logp.gather(-1, tgt).squeeze(-1)           # [1, L-1]
-    mask = (tgt_ids[1:] != 1) & (tgt_ids[1:] != 0)
-    if mask.sum() == 0:
-        return float("inf")
-    return float((nll_tok[0] * mask).sum() / mask.sum().float())
-
-
 def main():
     print("=" * 64, flush=True)
     print("C25-E 遗留诊断：round1_scores vs 生成质量（zh lm_head NLL）错位量化", flush=True)
@@ -80,19 +69,10 @@ def main():
         neuron_ids=DIALOGUE_IDS,
     )
     zh_nids = [nid for nid in cortex.neurons if nid.startswith("zh_")]
-    # zh tokenizer（与 dialogue lm_head 同 50K 空间）
-    zh_tok = None
-    hub = getattr(cortex, "_tokenizer_hub", None)
-    if hub is not None and hasattr(hub, "get_tokenizer"):
-        zh_tok = hub.get_tokenizer("zh")
-    if zh_tok is None:
-        print("  [FAIL] 无 zh tokenizer", flush=True)
-        sys.exit(1)
-    vocab_size = getattr(zh_tok, "GetPieceSize", None)
-    vs = vocab_size() if callable(vocab_size) else getattr(zh_tok, "vocab_size", "?")
-    print(f"zh dialogue neurons: {zh_nids}, zh tokenizer vocab={vs}", flush=True)
+    print(f"zh dialogue neurons: {zh_nids}", flush=True)
 
     leader_nll_ranks = []
+    fused_nll_ranks = []
     sp_vals = []
     for q in _QUESTIONS:
         prompt = build_dialogue_prompt(q)
@@ -111,29 +91,18 @@ def main():
             collab_mode="continuous",
         )
         r1 = r.get("round1_scores") or {}
-        r1_logits = r.get("round1_logits") or {}
-        zh_ids = torch.tensor([zh_tok.encode(prompt)], dtype=torch.long, device=cortex.device)
-        if zh_ids.numel() < 2:
-            continue
-        nll = {}
-        vs = vocab_size() if callable(vocab_size) else getattr(zh_tok, "vocab_size", None)
-        for nid, lg in r1_logits.items():
-            if nid not in zh_nids:
-                continue
-            try:
-                if lg.shape[-1] != vs:
-                    continue
-                v = prompt_nll(lg, zh_ids[0])
-                if v != float("inf"):
-                    nll[nid] = v
-            except Exception:
-                continue
+        quality = cortex._nll_quality_from_round1_logits(r, prompt, "zh")
+        nll = {nid: -score for nid, score in quality.items() if nid in zh_nids}
         if not r1 or not nll:
             continue
         leader = max(r1, key=r1.get)
         nll_rank = sorted(nll, key=nll.get)
         leader_nll_rank = nll_rank.index(leader)
         leader_nll_ranks.append(leader_nll_rank)
+        fused = cortex._fuse_leader_quality(r1, quality)
+        if fused:
+            fused_leader = max(fused, key=fused.get)
+            fused_nll_ranks.append(nll_rank.index(fused_leader))
         neg_nll = {k: -v for k, v in nll.items()}
         sp = spearman(r1, neg_nll)
         sp_vals.append(sp)
@@ -147,10 +116,13 @@ def main():
         print("  [FAIL] 无有效样本", flush=True)
         sys.exit(1)
     perfect = sum(1 for rk in leader_nll_ranks if rk == 0)
+    fused_perfect = sum(1 for rk in fused_nll_ranks if rk == 0)
     mean_sp = sum(sp_vals) / len(sp_vals)
     print("\n" + "=" * 64, flush=True)
     print(f"leader NLL 位次分布: {sorted(leader_nll_ranks)}", flush=True)
     print(f"leader 恰为 NLL 最优: {perfect}/{n}（{(100*perfect/n):.0f}%）", flush=True)
+    print(f"质量融合后 NLL 位次分布: {sorted(fused_nll_ranks)}", flush=True)
+    print(f"质量融合后恰为 NLL 最优: {fused_perfect}/{len(fused_nll_ranks)}（{(100*fused_perfect/max(len(fused_nll_ranks), 1)):.0f}%）", flush=True)
     print(f"平均 Spearman(r1, -NLL): {mean_sp:.3f}", flush=True)
     if perfect / n >= 0.75 and mean_sp >= 0.6:
         print("→ round1_scores 与生成质量高度一致，leader 无弱 neuron 独占 → 收敛不实施", flush=True)

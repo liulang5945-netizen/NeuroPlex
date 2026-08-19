@@ -40,7 +40,10 @@ logger = logging.getLogger("Cortex")
 from neuroplex.resonance import (
     ResonanceNeuron, ResonanceField, ResonanceEnsemble, NeuronConfig,
 )
-from neuroplex.resonance.translator import tokenizer_fingerprint
+from neuroplex.resonance.translator import (
+    build_position_alignment,
+    tokenizer_fingerprint,
+)
 from neuroplex.resonance.dialogue_format import dialogue_prompt_requires_guard
 
 
@@ -2007,8 +2010,8 @@ class Cortex:
         """从 round1 logits 计算各 neuron 对 prompt 的 next-token NLL 质量。
 
         continuous leader 融合信号（C25-E 遗留）：质量 = 该 neuron 对 prompt
-        的拟合度（lm_head 在域 tokenizer 对齐空间的 next-token NLL，越低越
-        贴合该域训练分布）。用 round1 独立 logits（leader 生成同源），零额外
+        的拟合度（域头在 general→domain 位置对齐空间的 next-token NLL，越低
+        越贴合该域训练分布）。用 round1 独立 logits（leader 生成同源），零额外
         前向。返回 {nid: -NLL}（越大质量越好）；失败返回 {}（调用方回退）。
 
         Args:
@@ -2024,13 +2027,18 @@ class Cortex:
             return {}
         try:
             tok = hub.get_tokenizer(domain) or hub.get_tokenizer("general")
-            if tok is None:
+            if tok is None or self._general_sp is None:
                 return {}
-            zids = torch.tensor([tok.encode(prompt)], dtype=torch.long,
-                                device=self.device)
+            # 生成前向的序列位置来自 general tokenizer；域头目标来自 domain
+            # tokenizer。两者词元数通常不同，必须按字符 span 对齐后再计算
+            # next-token NLL，不能直接把两套 tokenizer 的 id 按位置硬配。
+            _, aligned_targets = build_position_alignment(
+                prompt, tok, self._general_sp,
+            )
+            aligned_targets = aligned_targets.to(self.device)
         except Exception:
             return {}
-        if zids.numel() < 2:
+        if aligned_targets.numel() < 2:
             return {}
         vocab = int(tok.GetPieceSize()) if hasattr(tok, "GetPieceSize") else None
         if not vocab:
@@ -2041,13 +2049,14 @@ class Cortex:
                 continue
             try:
                 lg = lg.detach()  # 推理质量信号：仅前向，不携带梯度
-                n = min(lg.shape[1] - 1, zids.numel() - 1)
+                n = min(lg.shape[1] - 1, aligned_targets.numel() - 1)
                 if n < 1:
                     continue
                 logp = torch.log_softmax(lg[:, :n, :], dim=-1)  # [1, n, V]
-                tgt = zids[0][1:n + 1].unsqueeze(0).unsqueeze(-1)
-                nll_tok = -logp.gather(-1, tgt).squeeze(-1)     # [1, n]
-                mask = (zids[0][1:n + 1] != 1) & (zids[0][1:n + 1] != 0)
+                tgt = aligned_targets[1:n + 1]
+                mask = (tgt >= 0) & (tgt != 1) & (tgt != 0)
+                safe_tgt = tgt.clamp_min(0).unsqueeze(0).unsqueeze(-1)
+                nll_tok = -logp.gather(-1, safe_tgt).squeeze(-1)  # [1, n]
                 if mask.sum() == 0:
                     continue
                 out[nid] = -float((nll_tok * mask).sum() / mask.sum().float())
