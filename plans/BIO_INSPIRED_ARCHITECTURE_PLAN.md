@@ -260,6 +260,10 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 46. 完成生产 9 成员解码敏感性审计：固定 4 个代表问题、seed、soft fusion、temperature=0.55、
     repetition penalty=1.4 和 8 token，比较 `top_k=15/40/100/1`；`top_k=40` 仅改善问候，greedy
     仅改善天气，身份和诗歌在所有候选集都不可靠，故 Top-K 不是根因，不改变默认解码参数。
+47. 完成五个 dialogue 的 500 步短答案 curriculum pilot（不落盘）：短答案子集 64,476 条，固定
+    100 条原始 holdout；五个 corrected PPL 全部从 67.34～72.57 恶化到 84.26～89.99，首 token
+    Top-1 没有改善。训练 loss 下降但泛化一致退化，故否决当前 curriculum，不覆盖现有权重，也不
+    启动正式重训。
 
 ## 6. 后续工作顺序
 
@@ -347,6 +351,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：在用户确认预算后，做一个不覆盖现有权重的短答案 curriculum 训练 pilot，固定
-修正后的 evaluator 和 5 个 dialogue 阵容，先用短答案子集验证 500 步内的 holdout 首 token rank
-与生成是否同步改善；pilot 未通过前不启动正式长训练。
+唯一推荐下一步：对代表性最强的 `zh_aug2_dialogue` 做 200 步不落盘冻结 shared embedding
+短 pilot，保持原始混合数据和 corrected evaluator；若 PPL 不再恶化，正式训练优先冻结 shared
+embedding，若仍恶化，则停止训练侧试错，回到 checkpoint/优化器状态审计。
