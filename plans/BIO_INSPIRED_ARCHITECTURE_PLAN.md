@@ -316,6 +316,17 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     提升。重要口径修正：该 pilot 只取了 128 条训练样本，不能据此断言当前完整对话数据不足；
     它只证明在小样本上延长步数会过拟合。完整数据已知为去重 55,661 条、train=52,900、
     eval pool=2,761，但尚未用同一 micro 规格完成全量训练验证。
+55. 完成 Hugging Face 标准候选数据的来源审计与下载：选用
+    [`fnlp/moss-003-sft-data`](https://huggingface.co/datasets/fnlp/moss-003-sft-data)
+    的 no-plugin 原始包，数据卡许可证为 CC BY 4.0，固定 revision 为
+    `42e216d3e3fb331c18d5fa6e7cb4f1c53eef24a4`，原始包 SHA-256 已写入候选 manifest。
+    新增 `scripts/data_prep/download_hf_dialogue_candidates.py`，将 `chat.turn_N.Human/MOSS`
+    转为当前 `问：...\n答：...` 契约，剔除中文占比低于 20%、空/模板答案、重复项和与现有
+    `data/simple_zh` 的精确重叠；结果为每类 6,000 条、共 48,000 条候选回合，其中 train=45,600、
+    eval=2,400，8 类均衡，train/eval 无交集。候选数据写入独立的
+    `data/hf_candidates/moss_003_dialogue`，不覆盖现有数据、不写入任何五个 dialogue checkpoint，
+    当前仍是 candidate-only；`alpaca-zh`（许可证口径冲突/README 限研究）、Firefly（无明确许可证）
+    和 Belle（GPL-3.0）未纳入主来源。
 
 ## 6. 后续工作顺序
 
@@ -403,6 +414,8 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：使用现有完整对话数据（train=52,900、eval pool=2,761）重新做一次冻结共享
-感知表的 micro 全量 pilot，训练与评估均不覆盖现有 checkpoint；只有这次全量数据实验仍无
-泛化或群体增益时，才能判断 7.58M 规模与当前数据/目标是否真正不匹配。
+唯一推荐下一步：在冻结共享感知表、保持 7.58M micro 规格和现有五个 dialogue checkpoint
+不变的前提下，执行一次固定口径的数据 A/B pilot：`current-only`（现有 train=52,900、eval
+pool=2,761）对比 `current-plus-hf-candidate`（再加入本次 train=45,600，并使用独立的
+HF eval=2,400），同时记录 corrected PPL、首 token Top-1、答案 loss 和 9 成员群体 canary。
+只有这次受控对比仍无泛化或群体增益时，才能判断 7.58M 规模与数据/目标是否真正不匹配。
