@@ -19,7 +19,7 @@ from .field import ResonanceField
 from .neuron import ResonanceNeuron
 from .ensemble import ResonanceEnsemble
 from .config import (
-    NeuronConfig, COMPACT, STANDARD, FOUNDATION, EXPERT, TINY_TEST,
+    NeuronConfig, MICRO, COMPACT, STANDARD, FOUNDATION, EXPERT, TINY_TEST,
     DEFAULT_NEURON_SPEC, get_default_neuron_config,
     DOMAIN_VOCAB_SIZES, GENERAL_TOKENIZER_DOMAIN, get_domain_neuron_config,
 )
@@ -44,7 +44,7 @@ __all__ = [
     "ResonanceNeuron",
     "ResonanceEnsemble",
     "NeuronConfig",
-    "COMPACT", "STANDARD", "FOUNDATION",
+    "MICRO", "COMPACT", "STANDARD", "FOUNDATION",
     "EXPERT",
     "TINY_TEST",
     "DEFAULT_NEURON_SPEC",

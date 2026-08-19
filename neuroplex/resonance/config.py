@@ -1,8 +1,8 @@
 """Neuron specification configurations for the resonance field architecture.
 
-Three standard specs (compact / standard / expert), each designed
-as the smallest configuration that can independently understand
-text while staying trainable on CPU (see docs Chapter 8).
+The production population uses compact / standard / expert members.  The
+experimental ``micro`` member keeps the same ResonanceNeuron contract at a
+smaller local budget; it is never selected as the default production spec.
 """
 
 from __future__ import annotations
@@ -225,6 +225,21 @@ EXPERT = NeuronConfig(
     field_dim=4096,
 )
 
+# ── Experimental micro config ──
+
+MICRO = NeuronConfig(
+    hidden_size=128,
+    num_hidden_layers=4,
+    num_attention_heads=4,
+    num_key_value_heads=1,
+    intermediate_size=384,
+    field_dim=512,
+    spec="micro",
+    # 4×hidden keeps field bandwidth proportional to the existing compact
+    # member while remaining below 8M local parameters with zh vocab=50K.
+    # This is a first pilot point, not a hard lower/upper size boundary.
+)
+
 # ── Tiny test config (for smoke-testing the code) ──
 
 TINY_TEST = NeuronConfig(
@@ -235,8 +250,7 @@ TINY_TEST = NeuronConfig(
     intermediate_size=512,
     field_dim=512,
     spec="tiny_test",
-    # 注意：TINY_TEST 是唯一 field_dim != 4096 的 spec，仅用于单元测试，
-    # 严禁用于生产 cortex（会触发 cortex.py 的 field_dim 一致性错误）。
+    # TINY_TEST 仅用于单元测试，不作为生产 Cortex 成员。
 )
 
 
@@ -271,7 +285,7 @@ def get_default_neuron_config(spec: str = None) -> "NeuronConfig":
     """根据 spec 名称返回 NeuronConfig 实例。
 
     Args:
-        spec: spec 名称 ("compact" / "foundation" / "standard" / "expert")
+        spec: spec 名称 ("micro" / "compact" / "foundation" / "standard" / "expert")
               None 表示使用 DEFAULT_NEURON_SPEC
 
     Returns:
@@ -280,6 +294,7 @@ def get_default_neuron_config(spec: str = None) -> "NeuronConfig":
     if spec is None:
         spec = DEFAULT_NEURON_SPEC
     spec_map = {
+        "micro": MICRO,
         "compact": COMPACT,
         "foundation": FOUNDATION,
         "standard": STANDARD,

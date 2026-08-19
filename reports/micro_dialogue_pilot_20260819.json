@@ -1,0 +1,42 @@
+{
+  "contract": {
+    "neuron_id": "zh_micro_dialogue_pilot",
+    "spec": "micro",
+    "steps": 160,
+    "batch_size": 4,
+    "lr": 0.0005,
+    "train_samples": 128,
+    "eval_samples": 100,
+    "max_seq_len": 128,
+    "shared_embedding_frozen": true,
+    "writes_checkpoint": false
+  },
+  "architecture": {
+    "local_params_m": 7.581313,
+    "shared_embedding_params_m": 131.072,
+    "hidden_size": 128,
+    "layers": 4,
+    "field_dim": 512
+  },
+  "before": {
+    "first_token_nll": 11.336411,
+    "median_rank_zero_based": 22312,
+    "top1_rate": 0.0,
+    "answer_loss": 11.319541,
+    "corrected_ppl": 82416.4665,
+    "effective_answer_tokens": 6704
+  },
+  "after": {
+    "first_token_nll": 9.61881,
+    "median_rank_zero_based": 2616,
+    "top1_rate": 0.11,
+    "answer_loss": 8.722458,
+    "corrected_ppl": 6139.2527,
+    "effective_answer_tokens": 6704
+  },
+  "loss_trace": {
+    "first": 11.316929,
+    "last": 5.877028,
+    "min": 5.623189
+  }
+}
