@@ -241,6 +241,10 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     128 token 截断覆盖 eval pool 的 1,211/2,761 条，answer mask 对齐覆盖率为 97.8125%。
     发现验证 PPL 分母错误包含未对齐 target，已改为只计有效 aligned answer token，新增训练口径
     元数据和回归测试；不回溯修改现有 checkpoint，不启动重训。
+42. 完成五个现有 dialogue checkpoint 的修正 holdout PPL 质量门：同一 100 条样本上，corrected
+    PPL 为 67.34～72.57，旧分母将 180 个未对齐位置计入 6,884 个 token，系统性低估约 7.0～7.8
+    PPL；该评估偏差不足以解释首 token Top-1 仅 28.1%～34.4%，且五个 checkpoint 没有形成可用
+    质量梯度，因此当前训练配方不直接进入长训晋级。
 
 ## 6. 后续工作顺序
 
@@ -328,6 +332,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-用修正后的有效 aligned answer token 口径，对五个现有 dialogue checkpoint 的同一 100 条
-holdout 重算可比 PPL，并与 32 条首 token rank / 生成基线合并成重训 go/no-go 质量门；在门槛
-明确前不启动长训练。
+对同一 100 条 holdout 做首答案数据污染/截断审计：统计答案首 token 的来源域、异常标记、英文或
+代码混入、超出 128 token 的截断比例及其与五个神经元 rank 的关系；先判断应清洗数据还是改变
+训练目标，明确前不启动长训练。
