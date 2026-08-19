@@ -36,6 +36,7 @@ PROMPTS = [
 ]
 SEED = 20260819
 MAX_TOKENS = 12
+DEFAULT_PILOT_STEPS = 160
 
 
 def _surface_metrics(text: str) -> dict:
@@ -86,9 +87,12 @@ def _real_population_forward(cortex, active_ids: list[str]) -> dict:
     }
 
 
-def run() -> dict:
+def run(pilot_steps: int = DEFAULT_PILOT_STEPS) -> dict:
     logging.disable(logging.CRITICAL)
-    pilot_report, micro, micro_shared, _, _ = run_micro_pilot(return_state=True)
+    pilot_report, micro, micro_shared, _, _ = run_micro_pilot(
+        return_state=True,
+        steps=pilot_steps,
+    )
     micro.eval()
     micro_id = "zh_micro_dialogue"
     micro.config.neuron_id = micro_id
@@ -152,8 +156,9 @@ def run() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-out", type=Path, default=None)
+    parser.add_argument("--pilot-steps", type=int, default=DEFAULT_PILOT_STEPS)
     args = parser.parse_args()
-    report = run()
+    report = run(pilot_steps=args.pilot_steps)
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
     if args.json_out is not None:
