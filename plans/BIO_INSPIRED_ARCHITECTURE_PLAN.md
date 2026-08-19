@@ -444,6 +444,15 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     固定生成与原 9 成员完全一致，未出现群体净增益。结论是继续复制或延长小成员训练前，
     必须先审计路由可见性和场贡献；完整报告为 `reports/micro_specialist_group_697m_800_20260819.json`。
 
+    完成 3 个 6.97M 专长成员的只读 route/contribution audit：为每个成员单独拟合 65,536
+    参数的 external route projection（语言主体和原 embed_adapter 冻结），两条固定 prompt
+    上三个 specialist 均进入 external top1～top3，route score 约 0.632～0.699；其投影后
+    field norm 约 0.987～1.020，与现有成员同量级，12 成员 field state norm 约 1.0，说明
+    成员不是不可见或场贡献为零。all-12 生成仍只在一条 prompt 上变为更高重复，另一条不变；
+    external top1/top3 能改变表面重复但仍是语义碎片，不能计为能力提升。结论是小成员容量、
+    路由可见性和跨规格投影均已打通，当前瓶颈收敛到 route/fusion 的贡献利用与信用分配；
+    external projection 仍不接入生产。完整报告为 `reports/micro_specialist_route_audit_697m_800_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -541,7 +550,9 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 9 成员和五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
 
 唯一推荐下一步：对已训练的 3 个 6.97M 专长成员执行只读的多成员路由贡献审计，分别记录
-external route score、auto-top-k 是否选中、场向量贡献和 9→12 成员生成差异；语言主体与
-原有 embed_adapter 全部冻结，不再改写 adapter，也不写入生产。当前环境未检测到 CUDA，
-继续采用单进程复用 shared embedding；该审计用于决定小成员应进入哪种路由/融合训练闭环，
-而不是继续无门槛增加训练步数。
+external route score、auto-top-k 是否选中、场向量贡献和 9→12 成员生成差异；该审计已
+完成并确认小成员可以被看见但没有产生语义净增益。当前停在架构决策节点：若继续推进，
+唯一合理的下一步是冻结 12 个语言主体与 shared embedding，只训练临时 route/fusion 参数，
+以固定 teacher-forcing NLL 和群体质量回放作为信用分配目标，再与 no-op、external top1/3
+对照；不得改写原 embed_adapter、不得写入生产。当前环境未检测到 CUDA，继续采用单进程复用
+shared embedding。

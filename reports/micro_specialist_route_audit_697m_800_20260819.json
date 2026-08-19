@@ -1,0 +1,660 @@
+{
+  "contract": {
+    "seed": 20260819,
+    "micro_spec": "micro_2x128",
+    "specialist_roles": [
+      "current_only",
+      "hf_only",
+      "current_plus_hf_10"
+    ],
+    "steps_per_member": 800,
+    "eval_cap": 512,
+    "shared_embedding_frozen": true,
+    "shared_embedding_loaded_once": true,
+    "language_body_frozen_during_route_fit": true,
+    "original_embed_adapter_frozen_during_route_fit": true,
+    "writes_checkpoint": false,
+    "production_population_untouched": true,
+    "base_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh"
+    ],
+    "expanded_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh",
+      "zh_micro_specialist_current_only",
+      "zh_micro_specialist_hf_only",
+      "zh_micro_specialist_current_plus_hf_10"
+    ]
+  },
+  "route_calibration": {
+    "zh_micro_specialist_current_only": {
+      "samples": 256,
+      "epochs": 2,
+      "first_loss": 0.987614,
+      "last_loss": 0.079808,
+      "projection_params": 65536,
+      "prototype_norm": 1.0
+    },
+    "zh_micro_specialist_hf_only": {
+      "samples": 256,
+      "epochs": 2,
+      "first_loss": 0.989909,
+      "last_loss": 0.13627,
+      "projection_params": 65536,
+      "prototype_norm": 1.0
+    },
+    "zh_micro_specialist_current_plus_hf_10": {
+      "samples": 256,
+      "epochs": 2,
+      "first_loss": 1.012113,
+      "last_loss": 0.095612,
+      "projection_params": 65536,
+      "prototype_norm": 1.0
+    }
+  },
+  "members": {
+    "current_only": {
+      "condition": "current_only",
+      "train_samples": 95059,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 11.470749,
+          "corrected_ppl": 95870.0924,
+          "first_token_nll": 11.33914,
+          "median_rank_zero_based": 25890,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 11.436615,
+          "corrected_ppl": 92652.8764,
+          "first_token_nll": 11.297913,
+          "median_rank_zero_based": 22988,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 7.408593,
+          "corrected_ppl": 1650.1027,
+          "first_token_nll": 8.04736,
+          "median_rank_zero_based": 340,
+          "first_token_top1": 0.0078
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 8.256799,
+          "corrected_ppl": 3853.7377,
+          "first_token_nll": 8.303081,
+          "median_rank_zero_based": 238,
+          "first_token_top1": 0.002
+        }
+      },
+      "loss_trace": {
+        "first": 11.576007,
+        "last": 7.303414,
+        "min": 5.399383
+      }
+    },
+    "hf_only": {
+      "condition": "hf_only",
+      "train_samples": 45599,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 11.470749,
+          "corrected_ppl": 95870.0924,
+          "first_token_nll": 11.33914,
+          "median_rank_zero_based": 25890,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 11.436615,
+          "corrected_ppl": 92652.8764,
+          "first_token_nll": 11.297913,
+          "median_rank_zero_based": 22988,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 8.660024,
+          "corrected_ppl": 5767.6745,
+          "first_token_nll": 9.321352,
+          "median_rank_zero_based": 1445,
+          "first_token_top1": 0.0098
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 6.892828,
+          "corrected_ppl": 985.1833,
+          "first_token_nll": 6.357276,
+          "median_rank_zero_based": 25,
+          "first_token_top1": 0.0898
+        }
+      },
+      "loss_trace": {
+        "first": 11.337943,
+        "last": 6.450027,
+        "min": 6.000099
+      }
+    },
+    "current_plus_hf_10": {
+      "condition": "current_plus_hf_10",
+      "train_samples": 140658,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 11.470749,
+          "corrected_ppl": 95870.0924,
+          "first_token_nll": 11.33914,
+          "median_rank_zero_based": 25890,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 11.436615,
+          "corrected_ppl": 92652.8764,
+          "first_token_nll": 11.297913,
+          "median_rank_zero_based": 22988,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 35664,
+          "answer_loss": 7.447167,
+          "corrected_ppl": 1714.9984,
+          "first_token_nll": 8.241311,
+          "median_rank_zero_based": 438,
+          "first_token_top1": 0.0118
+        },
+        "hf_eval": {
+          "samples": 512,
+          "effective_answer_tokens": 51578,
+          "answer_loss": 7.278695,
+          "corrected_ppl": 1449.0959,
+          "first_token_nll": 6.988011,
+          "median_rank_zero_based": 67,
+          "first_token_top1": 0.0488
+        }
+      },
+      "loss_trace": {
+        "first": 11.58925,
+        "last": 7.529885,
+        "min": 6.205191
+      }
+    }
+  },
+  "routes": {
+    "问：你好，请介绍一下自己\n答：": {
+      "scores": {
+        "zh_aug0_dialogue": 0.0,
+        "zh_aug1_dialogue": 0.0,
+        "zh_aug2_dialogue": 0.0,
+        "zh_aug3_dialogue": 0.0,
+        "zh_std0_dialogue": 0.0,
+        "code": 0.0,
+        "en": 0.0,
+        "math": 0.0,
+        "zh": 0.0,
+        "zh_micro_specialist_current_only": 0.6917694807052612,
+        "zh_micro_specialist_hf_only": 0.6320672631263733,
+        "zh_micro_specialist_current_plus_hf_10": 0.6619256138801575
+      },
+      "ordered_ids": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_current_plus_hf_10",
+        "zh_micro_specialist_hf_only",
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "specialist_ranks_zero_based": {
+        "zh_micro_specialist_current_only": 0,
+        "zh_micro_specialist_hf_only": 2,
+        "zh_micro_specialist_current_plus_hf_10": 1
+      },
+      "top1": [
+        "zh_micro_specialist_current_only"
+      ],
+      "top3": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_current_plus_hf_10",
+        "zh_micro_specialist_hf_only"
+      ]
+    },
+    "问：什么是人工智能？\n答：": {
+      "scores": {
+        "zh_aug0_dialogue": 0.0,
+        "zh_aug1_dialogue": 0.0,
+        "zh_aug2_dialogue": 0.0,
+        "zh_aug3_dialogue": 0.0,
+        "zh_std0_dialogue": 0.0,
+        "code": 0.0,
+        "en": 0.0,
+        "math": 0.0,
+        "zh": 0.0,
+        "zh_micro_specialist_current_only": 0.6985586881637573,
+        "zh_micro_specialist_hf_only": 0.6598657965660095,
+        "zh_micro_specialist_current_plus_hf_10": 0.6845237612724304
+      },
+      "ordered_ids": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_current_plus_hf_10",
+        "zh_micro_specialist_hf_only",
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "specialist_ranks_zero_based": {
+        "zh_micro_specialist_current_only": 0,
+        "zh_micro_specialist_hf_only": 2,
+        "zh_micro_specialist_current_plus_hf_10": 1
+      },
+      "top1": [
+        "zh_micro_specialist_current_only"
+      ],
+      "top3": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_current_plus_hf_10",
+        "zh_micro_specialist_hf_only"
+      ]
+    }
+  },
+  "field_contributions": {
+    "问：你好，请介绍一下自己\n答：": {
+      "zh_aug0_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.993317,
+        "projected_field_mean_abs": 0.014333
+      },
+      "zh_aug1_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.988232,
+        "projected_field_mean_abs": 0.014192
+      },
+      "zh_aug2_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.999203,
+        "projected_field_mean_abs": 0.014357
+      },
+      "zh_aug3_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.987968,
+        "projected_field_mean_abs": 0.014139
+      },
+      "zh_std0_dialogue": {
+        "raw_field_dim": 3072,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.0,
+        "projected_field_mean_abs": 0.014486
+      },
+      "code": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.030458,
+        "projected_field_mean_abs": 0.014927
+      },
+      "en": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.991197,
+        "projected_field_mean_abs": 0.014448
+      },
+      "math": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.023768,
+        "projected_field_mean_abs": 0.014768
+      },
+      "zh": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.007601,
+        "projected_field_mean_abs": 0.014522
+      },
+      "zh_micro_specialist_current_only": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.98699,
+        "projected_field_mean_abs": 0.014319
+      },
+      "zh_micro_specialist_hf_only": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.992705,
+        "projected_field_mean_abs": 0.014303
+      },
+      "zh_micro_specialist_current_plus_hf_10": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.01995,
+        "projected_field_mean_abs": 0.014767
+      },
+      "__ensemble__": {
+        "field_state_norm": 0.999994,
+        "rounds": 3
+      }
+    },
+    "问：什么是人工智能？\n答：": {
+      "zh_aug0_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.009904,
+        "projected_field_mean_abs": 0.014549
+      },
+      "zh_aug1_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.991545,
+        "projected_field_mean_abs": 0.014274
+      },
+      "zh_aug2_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.016946,
+        "projected_field_mean_abs": 0.014608
+      },
+      "zh_aug3_dialogue": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.996834,
+        "projected_field_mean_abs": 0.014253
+      },
+      "zh_std0_dialogue": {
+        "raw_field_dim": 3072,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.0,
+        "projected_field_mean_abs": 0.014363
+      },
+      "code": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.003852,
+        "projected_field_mean_abs": 0.014447
+      },
+      "en": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.996378,
+        "projected_field_mean_abs": 0.014302
+      },
+      "math": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.020658,
+        "projected_field_mean_abs": 0.014707
+      },
+      "zh": {
+        "raw_field_dim": 2048,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.031608,
+        "projected_field_mean_abs": 0.014952
+      },
+      "zh_micro_specialist_current_only": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.990885,
+        "projected_field_mean_abs": 0.014297
+      },
+      "zh_micro_specialist_hf_only": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 0.991333,
+        "projected_field_mean_abs": 0.014288
+      },
+      "zh_micro_specialist_current_plus_hf_10": {
+        "raw_field_dim": 256,
+        "raw_field_norm": 1.0,
+        "projected_field_dim": 3072,
+        "projected_field_norm": 1.016046,
+        "projected_field_mean_abs": 0.014631
+      },
+      "__ensemble__": {
+        "field_state_norm": 0.999993,
+        "rounds": 3
+      }
+    }
+  },
+  "generation": {
+    "问：你好，请介绍一下自己\n答：": {
+      "base_9": {
+        "active_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh"
+        ],
+        "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters提供更多生存",
+        "surface": {
+          "chars": 92,
+          "unique_char_ratio": 0.2826,
+          "repeated_bigram_ratio": 0.5714,
+          "has_decode_artifact": false
+        }
+      },
+      "all_12": {
+        "active_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh",
+          "zh_micro_specialist_current_only",
+          "zh_micro_specialist_hf_only",
+          "zh_micro_specialist_current_plus_hf_10"
+        ],
+        "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters part climbers",
+        "surface": {
+          "chars": 100,
+          "unique_char_ratio": 0.23,
+          "repeated_bigram_ratio": 0.5859,
+          "has_decode_artifact": false
+        }
+      },
+      "external_top1": {
+        "active_ids": [
+          "zh_micro_specialist_current_only"
+        ],
+        "text": "\n colonial deadline clicking clusters recycled like dividing clicking climbers recycled clicking",
+        "surface": {
+          "chars": 96,
+          "unique_char_ratio": 0.2083,
+          "repeated_bigram_ratio": 0.4737,
+          "has_decode_artifact": false
+        }
+      },
+      "external_top3": {
+        "active_ids": [
+          "zh_micro_specialist_current_only",
+          "zh_micro_specialist_current_plus_hf_10",
+          "zh_micro_specialist_hf_only"
+        ],
+        "text": "accurately clusters clicking controls delegate outdoors randomly recycled\n",
+        "surface": {
+          "chars": 74,
+          "unique_char_ratio": 0.2432,
+          "repeated_bigram_ratio": 0.2329,
+          "has_decode_artifact": false
+        }
+      }
+    },
+    "问：什么是人工智能？\n答：": {
+      "base_9": {
+        "active_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh"
+        ],
+        "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+        "surface": {
+          "chars": 96,
+          "unique_char_ratio": 0.1875,
+          "repeated_bigram_ratio": 0.6105,
+          "has_decode_artifact": false
+        }
+      },
+      "all_12": {
+        "active_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh",
+          "zh_micro_specialist_current_only",
+          "zh_micro_specialist_hf_only",
+          "zh_micro_specialist_current_plus_hf_10"
+        ],
+        "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+        "surface": {
+          "chars": 96,
+          "unique_char_ratio": 0.1875,
+          "repeated_bigram_ratio": 0.6105,
+          "has_decode_artifact": false
+        }
+      },
+      "external_top1": {
+        "active_ids": [
+          "zh_micro_specialist_current_only"
+        ],
+        "text": "colonial deadline clicking out clusters\n\n colonial decorate dividing\n estimate",
+        "surface": {
+          "chars": 78,
+          "unique_char_ratio": 0.2308,
+          "repeated_bigram_ratio": 0.3377,
+          "has_decode_artifact": false
+        }
+      },
+      "external_top3": {
+        "active_ids": [
+          "zh_micro_specialist_current_only",
+          "zh_micro_specialist_current_plus_hf_10",
+          "zh_micro_specialist_hf_only"
+        ],
+        "text": "带入公式 decorate\n colonial out daughter outdoors clusters outdoors controls delegate e",
+        "surface": {
+          "chars": 83,
+          "unique_char_ratio": 0.241,
+          "repeated_bigram_ratio": 0.3659,
+          "has_decode_artifact": false
+        }
+      }
+    }
+  }
+}
