@@ -337,6 +337,15 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     canonical 对话数据和 HF candidate。`DIALOGUE_DATA_FILES` 已收敛为
     `alpaca_zh_sft_clean.jsonl` + `dialogue_extended_clean.jsonl`，运行时不再静默下载旧的
     Belle/COIG 来源。
+57. 完成 7.58M micro 的完整数据 A/B pilot：同一随机初始化、冻结 shared embedding、160 步、
+    训练池为 current=95,059 与 current+HF=140,658，评估池为 current=4,941、HF=2,400。
+    `current-only` 在 current eval 上 corrected PPL=3,369.54、首 token Top-1=5.07%，
+    在 HF eval 上 PPL=6,109.23；`current-plus-hf` 在 current eval 上 PPL=3,549.24、
+    Top-1=0.67%，但在 HF eval 上 PPL=3,402.01、median rank=479，明显优于 current-only。
+    结论：HF 数据提供互补分布能力，直接无权重合并会损伤 current 分布，不能直接替换
+    canonical 数据或写入五个 dialogue checkpoint。增广 micro 临时加入真实 5 dialogue +
+    4 general 后，10 成员/3 轮 forward 有限、field shape=3072，但生成仍有高重复，暂不计为
+    群体能力提升；完整报告为 `reports/micro_data_ab_20260819.json`。
 
 ## 6. 后续工作顺序
 
@@ -424,9 +433,8 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：在冻结共享感知表、保持 7.58M micro 规格和现有五个 dialogue checkpoint
-不变的前提下，执行一次固定口径的数据 A/B pilot：`current-only`（canonical 数据在当前
-`MAX_TEXTS=100000` 契约下为 train=95,000、eval=5,000）对比 `current-plus-hf-candidate`
-（再加入本次 train=45,600，并使用独立的 HF eval=2,400），同时记录 corrected PPL、首 token
-Top-1、答案 loss 和 9 成员群体 canary。
+唯一推荐下一步：保持 7.58M micro、冻结 shared embedding 和现有五个 dialogue checkpoint，
+执行一次 75% current / 25% HF 的固定混合 pilot（160 步），同时在 current eval、HF eval 和
+真实 5 dialogue + 4 general 群体 canary 上复测；目标是验证能否保留 current-only 的本地
+泛化，同时吸收 HF 分布收益，仍不写入生产 checkpoint。
 只有这次受控对比仍无泛化或群体增益时，才能判断 7.58M 规模与数据/目标是否真正不匹配。

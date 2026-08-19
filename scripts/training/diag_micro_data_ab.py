@@ -67,6 +67,14 @@ HF_DIR = Path("data/hf_candidates/moss_003_dialogue")
 DEFAULT_STEPS = 160
 
 
+def _valid_first_token_position(answer_start: int, seq_len: int) -> int | None:
+    """Return the logits position for the first answer token, if visible."""
+
+    if answer_start <= 0 or answer_start >= seq_len:
+        return None
+    return answer_start - 1
+
+
 def _encode_batch(texts, domain_sp, general_sp, shared):
     return batch_align_and_embed(
         texts,
@@ -118,12 +126,13 @@ def _evaluate(neuron, texts, domain_sp, general_sp, shared) -> dict:
                 prompt = text[:marker + len(SFT_ANSWER_MARKER)]
                 _, targets = build_position_alignment(text, domain_sp, general_sp)
                 answer_start = len(general_sp.encode(prompt))
-                if answer_start <= 0 or answer_start >= len(targets):
+                logit_position = _valid_first_token_position(answer_start, logits.shape[1])
+                if logit_position is None or answer_start >= len(targets):
                     continue
                 target_id = int(targets[answer_start])
                 if target_id < 0:
                     continue
-                next_logits = logits[row_index, answer_start - 1]
+                next_logits = logits[row_index, logit_position]
                 target_logit = next_logits[target_id]
                 ranks.append(int((next_logits > target_logit).sum()))
                 nlls.append(float(-target_logit + torch.logsumexp(next_logits, dim=-1)))
