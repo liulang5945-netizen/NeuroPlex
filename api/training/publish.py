@@ -21,7 +21,7 @@ async def publish_model():
     """保存当前模型（Cortex 模式下不适用传统 save_model）"""
     raise HTTPException(
         status_code=503,
-        detail="Cortex 神经元架构不适用传统单体模型发布。神经元 checkpoint 通过独立训练、协作训练或 sleep_engine 管理。",
+        detail="Cortex 神经元架构通过独立训练、协作训练或 sleep_engine 管理神经元 checkpoint。",
     )
 
 

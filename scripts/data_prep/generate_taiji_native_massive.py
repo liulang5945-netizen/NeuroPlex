@@ -58,7 +58,7 @@ def generate_memory_data(count: int = 1000) -> List[Dict[str, Any]]:
     # 记忆操作
     memory_ops = [
         ("记住我喜欢用 Python 编程", "mem_write", "用户偏好：喜欢用 Python 编程。重要性：高。", "已记住你喜欢用 Python 编程。"),
-        ("记住我的项目目录在 /home/user/projects", "mem_write", "用户项目目录：/home/user/projects。", "已记住你的项目目录。"),
+        ("记住我的项目目录在本地项目目录", "mem_write", "用户项目目录：本地项目目录。", "已记住你的项目目录。"),
         ("我之前学过什么？", "mem_search", "学习记录", "根据我的记忆，你之前学过：\n{observation}"),
         ("我的项目目录在哪？", "mem_read", "项目目录", "根据我的记忆，你的项目目录是：{observation}"),
         ("搜索关于数据库的记忆", "mem_search", "数据库", "关于数据库的记忆：\n{observation}"),

@@ -1,8 +1,7 @@
 """Compatibility routes for clients that still call the former model-upgrade API.
 
-The active runtime is a population resonance network. These routes deliberately
-do not expose a single-model size ladder or start a centralized migration.
-They keep the old URLs readable while directing clients to population growth.
+The active runtime is a population resonance network. These routes keep legacy
+URLs readable while directing clients to population growth.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -47,8 +46,8 @@ def check_upgrade():
         "can_upgrade": False,
         "recommended_action": "population_growth",
         "message": (
-            "NeuroPlex 不通过替换整体模型升级；请通过神经元专业化、"
-            "新增成员、同伴协作训练或生命周期管理扩展群体能力。"
+            "NeuroPlex 通过神经元专业化、新增成员、同伴协作训练或"
+            "生命周期管理扩展群体能力。"
         ),
     }
 
@@ -74,11 +73,11 @@ def get_capability():
 
 @router.post("/api/taiji_model/upgrade")
 def start_upgrade():
-    """Reject the deprecated centralized-upgrade operation explicitly."""
+    """Reject the deprecated upgrade operation explicitly."""
     raise HTTPException(
         status_code=410,
         detail=(
-            "整体模型升级接口已退役。请使用 Cortex 的神经元群体增长、"
+            "旧升级接口已退役。请使用 Cortex 的神经元群体增长、"
             "协作训练和生命周期接口。"
         ),
     )
@@ -90,6 +89,6 @@ def get_upgrade_progress():
     return {
         "state": "deprecated",
         "progress": 0,
-        "message": "整体模型升级已退役，当前采用群体神经元网络。",
+        "message": "旧升级接口已退役，当前采用群体神经元网络。",
         "recommended_action": "population_growth",
     }

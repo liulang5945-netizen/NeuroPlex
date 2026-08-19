@@ -1,4 +1,4 @@
-"""P8-1: 从零独立训练神经元（无教师、无 W_base、纯 per-neuron 独立训练）。
+"""P8-1: 从零独立训练神经元（无 W_base、纯 per-neuron 独立训练）。
 
 P7 架构：每 neuron 有独立 embedding + 独立 Transformer body + 独立 lm_head。
 域专用 tokenizer 控制 vocab 大小（10k-20k），独立 lm_head 仅 5-10M。

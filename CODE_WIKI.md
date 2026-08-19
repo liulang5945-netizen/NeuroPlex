@@ -65,7 +65,7 @@ Continuous resonance, phase dynamics, cross-spec projection, and instance-level 
 
 ### `neuroplex/resonance/topology.py` and `tribal.py`
 
-Topology and coactivation tracking provide local structure: neurons can form task-relevant groups, strengthen useful peer channels, and avoid an all-to-all dependency. An expert/relay neuron can be used as one node in the graph, but the graph does not require a central teacher.
+Topology and coactivation tracking provide local structure: neurons can form task-relevant groups, strengthen useful peer channels, and avoid an all-to-all dependency. An expert/relay neuron can be used as one node in the graph, but the graph does not require a central controller.
 
 ### `neuroplex/life/`
 
@@ -92,12 +92,12 @@ domain data
 Recommended entry points:
 
 - `scripts/training/finetune_neuron_dialogue.py` — specialize a neuron;
-- `scripts/training/train_neurons_from_scratch.py` — create a neuron without a central teacher;
+- `scripts/training/train_neurons_from_scratch.py` — create a neuron through independent training;
 - `scripts/training/train_cross_domain_collab.py` — train cross-domain coordination;
 - `scripts/training/train_hub_neuron.py` — train an optional relay/anchor member;
 - `scripts/training/verify_*.py` — mechanism and product-path checks.
 
-The old teacher-alignment trainer is a compatibility utility only. It is not required for creating the active population and is intentionally absent from the quick-start path.
+Legacy alignment code is a compatibility utility only. It is not required for creating the active population and is intentionally absent from the quick-start path.
 
 ## 4. Public API layers
 
@@ -124,7 +124,7 @@ The small regression suite covers dialogue-format contracts and resonance side-c
 2. Keep neuron-local failures local; routing must be able to isolate a weak member.
 3. Treat field state as communication, not as a substitute for learned neuron parameters.
 4. Add metrics for active members, field contribution, peer traffic, routing decisions, and lifecycle transitions.
-5. New identity or training data must describe population growth, peer coordination, and experience consolidation—not a single-model size ladder.
+5. New identity or training data must describe population growth, peer coordination, and experience consolidation.
 
 ## 7. Compatibility boundary
 

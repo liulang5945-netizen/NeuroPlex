@@ -11,7 +11,7 @@
 
 ## Why NeuroPlex?
 
-| Centralized model assumption | NeuroPlex population design |
+| Single-model scaling assumption | NeuroPlex population design |
 |---|---|
 | One model must absorb every domain | Hot-swap one new neuron (24M), keep the rest stable |
 | A single representation serves every task | Domain-specific neurons specialize (zh/en/code/math) |

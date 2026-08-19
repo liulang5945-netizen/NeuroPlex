@@ -180,7 +180,7 @@ def generate_massive_dedup_data():
     # 记忆操作模板
     memory_operations = [
         ("记住我喜欢用 Python", "mem_write", "用户偏好：喜欢用 Python 编程"),
-        ("记住我的项目目录", "mem_write", "用户项目目录：/home/user/projects"),
+        ("记住我的项目目录", "mem_write", "用户项目目录：本地项目目录"),
         ("我之前学过什么？", "mem_search", "学习记录"),
         ("搜索关于数据库的记忆", "mem_search", "数据库"),
         ("更新我的技能列表", "mem_write", "技能列表更新"),

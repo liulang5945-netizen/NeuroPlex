@@ -222,8 +222,8 @@ def get_taiji_data_path(subdir: str) -> str:
 class ModelConfig:
     """Dense-checkpoint compatibility configuration.
 
-    新代码应使用 ``NeuronConfig`` 描述独立神经元，不再以整体模型尺寸
-    作为系统架构入口。
+    新代码应使用 ``NeuronConfig`` 描述独立神经元；群体架构由神经元配置、
+    共振场和生命周期契约共同定义。
     """
 
     vocab_size: int = int(NATIVE_V2_TOKENIZER_CONTRACT["total_vocab_size"])

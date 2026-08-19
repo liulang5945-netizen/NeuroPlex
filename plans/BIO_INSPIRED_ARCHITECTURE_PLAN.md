@@ -112,6 +112,9 @@ scripts/training/verify_*.py
   `33.4601917`，round-2 平均激活由 `3` 降至 `2`，Cortex round-trip 为真。
 - `.github/workflows/ci.yml`：已加入 editable 安装、bootstrap smoke 和最小群体/API smoke；
   本地按同一命令链复跑通过，CI 不下载私有 checkpoint 或执行长时训练。
+- 公开发布残留扫描通过：README、贡献指南、代码 Wiki、CI、API 文案和当前数据生成样例
+  不再突出整体模型、1.5B 或蒸馏；计划中的边界说明、标准 teacher-forcing 术语和未导出的
+  兼容实现按保留规则处理。
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
@@ -184,6 +187,7 @@ checkpoint 和日志已清理。
 22. 新增 `scripts/bootstrap_population_demo.py`，把无 checkpoint 的确定性群体基线收敛为社区首运行入口。
 23. 完成 editable 安装、bootstrap 版本化输出、API health、31 项核心测试和全量 Python 编译验收。
 24. 将 editable 安装、bootstrap smoke、最小群体/API smoke 纳入 `.github/workflows/ci.yml`，并在本地复跑同一命令链。
+25. 完成公开发布残留扫描并收敛当前入口措辞；保留归档、兼容、安全和合成探针边界。
 
 ## 6. 后续工作顺序
 
@@ -224,7 +228,7 @@ anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 
 既有生成、路由和场记忆保持可用。过程中修复了新生 neuron 缺少 per-neuron shared
 embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期缺口。
 
-### P3：完善社区可用的发布形态（bootstrap、发布收口与 CI smoke 已完成）
+### P3：完善社区可用的发布形态（bootstrap、发布收口、CI smoke 与残留扫描已完成）
 
 已选择可复现 bootstrap 流程作为社区首运行入口：它不下载或加载私有 checkpoint，展示群体运行
 契约但不伪装成训练后语言能力。版本化指标、示例输出、editable 安装和 API/测试验收已完成；
@@ -232,6 +236,9 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 轻量 CI 现在覆盖 Python 3.10/3.12 的 editable 安装、bootstrap、最小群体/API smoke 和核心
 回归测试；它只验证公开运行时契约，不把私有模型或长训练带入开源流水线。
+
+公开入口扫描已经完成：1.5B/蒸馏不再出现在产品身份和首运行路径；兼容实现仍保留在非顶层
+模块中，以避免历史 checkpoint 失效。
 
 ### 暂不进入主线
 
@@ -242,5 +249,5 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P3.3：执行一次公开发布残留扫描，聚焦入口文档、CI、示例和可导入 API 中的秘密、绝对路径、
-旧整体模型/蒸馏措辞；归档、兼容、安全和合成探针路径只做边界确认，不做误删。
+进入 P1.1：为真实群体能力建立最小可复现实验切片，先确认可用训练资产、首批域组合、
+质量指标和非退化门槛，再进入短周期训练与评估；bootstrap 只继续作为工程回归，不冒充语言能力。
