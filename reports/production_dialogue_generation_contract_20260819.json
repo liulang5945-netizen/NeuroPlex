@@ -1,0 +1,23 @@
+{
+  "contract": {
+    "sample_count": 32,
+    "dialogue_population": 5,
+    "population_shape": "5 dialogue + 4 general",
+    "writes_checkpoint": false
+  },
+  "alignment": {
+    "prefix_matches": "32/32",
+    "backfill_nonempty": "32/32",
+    "teacher_forcing_vs_prompt_only_checked": 8,
+    "max_abs_diff": 0.000007,
+    "minimum_cosine": 0.99999893
+  },
+  "dialogue_first_token": {
+    "zh_aug0_dialogue": {"top1_rate": 0.375, "median_rank_zero_based": 3},
+    "zh_aug1_dialogue": {"top1_rate": 0.4062, "median_rank_zero_based": 2},
+    "zh_aug2_dialogue": {"top1_rate": 0.3125, "median_rank_zero_based": 3},
+    "zh_aug3_dialogue": {"top1_rate": 0.375, "median_rank_zero_based": 4},
+    "zh_std0_dialogue": {"top1_rate": 0.4062, "median_rank_zero_based": 2}
+  },
+  "conclusion": "生成/对齐契约通过；当前能力问题不再归因于 tokenizer 位置、mask 或 token 回填实现。"
+}

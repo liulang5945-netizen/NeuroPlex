@@ -495,7 +495,13 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，执行现有生成契约审计脚本，
-在固定 32 条 current holdout 上检查 teacher-forcing 与自回归首 token 的位置对齐、prefix
-parity、域 token→general 回填和首 token rank；不训练、不改 checkpoint，先确认问题是否
-位于生成/对齐链路。
+生成契约审计已完成：固定 32 条 current holdout 全部 prefix 对齐，域 token→general 回填
+32/32 非空；8 条 teacher-forcing 与 prompt-only 首 token 对照的最大绝对差为 0～7e-6、
+cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排名为第 2～4 位。
+实现链路通过，当前问题不再归因于 tokenizer 位置、answer mask 或 token 回填；报告为
+`reports/production_dialogue_generation_contract_20260819.json`。
+
+唯一推荐下一步：冻结当前 9 成员生产架构、现有五个 dialogue checkpoint 和 7.58M 离线
+候选，不再继续盲目训练或扩展成员；进入“重新设计 dialogue 训练目标/数据分布”的决策节点。
+下一轮应以新的可验证训练配方为对象，而不是覆盖当前 baseline。启动该新训练配方前需要
+确认是否接受这次从现有 training recipe 切换的方向。
