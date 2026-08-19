@@ -32,6 +32,8 @@ from scripts.training.diag_micro_data_ab import (
     SEED,
     _load_pools,
     _load_shared_embedding,
+    _encode_batch,
+    _evaluate,
     _select_hf_for_ratio,
     _train_condition,
 )
@@ -46,6 +48,9 @@ from scripts.training.utils import load_domain_tokenizer, load_general_tokenizer
 
 
 DEFAULT_HF_RATIO = 0.10
+CALIBRATION_SAMPLES = 256
+ALIGNMENT_EPOCHS = 2
+DEFAULT_EVAL_CAP = 512
 ROUTE_MODES = (
     "base_9_all",
     "with_micro_10_all",
@@ -80,7 +85,83 @@ def _assemble_with_micro(micro, shared):
     return cortex, base_ids, base_ids + [micro_id]
 
 
-def run(steps: int = DEFAULT_STEPS, hf_ratio: float = DEFAULT_HF_RATIO) -> dict:
+def _warm_route_prototype(micro, texts, domain_sp, general_sp, shared) -> dict:
+    """Warm only the non-parameter EMA prototype used by auto-top-k routing."""
+
+    micro.eval()
+    used = 0
+    with torch.no_grad():
+        for start in range(0, min(len(texts), CALIBRATION_SAMPLES), BATCH_SIZE):
+            batch = texts[start:start + BATCH_SIZE]
+            encoded = _encode_batch(batch, domain_sp, general_sp, shared)
+            result = micro(encoded[0], return_logits=False)
+            hidden = result.get("hidden_before_write")
+            if hidden is not None:
+                micro.update_domain_prototype(hidden)
+                used += len(batch)
+    return {
+        "samples": used,
+        "prototype_norm": round(float(micro.domain_prototype.norm().item()), 6),
+    }
+
+
+def _align_route_adapter(micro, texts, domain_sp, general_sp, shared) -> dict:
+    """Align only the route adapter to the micro neuron's own hidden response."""
+
+    micro.train()
+    optimizer = torch.optim.AdamW(micro.embed_adapter.parameters(), lr=2e-4)
+    losses = []
+    selected = texts[:CALIBRATION_SAMPLES]
+    for _ in range(ALIGNMENT_EPOCHS):
+        for start in range(0, len(selected), BATCH_SIZE):
+            batch = selected[start:start + BATCH_SIZE]
+            encoded = _encode_batch(batch, domain_sp, general_sp, shared)
+            embeddings = encoded[0]
+            with torch.no_grad():
+                target = micro(embeddings, return_logits=False)["hidden_before_write"]
+            projected = micro.embed_adapter(embeddings.mean(dim=1))
+            cosine = torch.nn.functional.cosine_similarity(projected, target.detach(), dim=-1)
+            loss = (1.0 - cosine).mean()
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(micro.embed_adapter.parameters(), max_norm=1.0)
+            optimizer.step()
+            losses.append(float(loss.detach()))
+    micro.eval()
+    return {
+        "samples": len(selected),
+        "epochs": ALIGNMENT_EPOCHS,
+        "first_loss": round(losses[0], 6) if losses else None,
+        "last_loss": round(losses[-1], 6) if losses else None,
+    }
+
+
+def _generation_snapshot(cortex, active_sets, prompts):
+    generation = {mode: {} for mode in active_sets}
+    for index, prompt in enumerate(prompts):
+        seed = SEED + index
+        for mode, active_ids in active_sets.items():
+            if isinstance(active_ids, str) and active_ids.startswith("auto_top"):
+                top_k = int(active_ids[len("auto_top"):])
+                resolved_ids = cortex._auto_topk_route(
+                    cortex._general_sp.encode(prompt), top_k=top_k
+                )
+            else:
+                resolved_ids = list(active_ids)
+            text = _generate(cortex, active_ids, prompt, seed)
+            generation[mode][prompt] = {
+                "active_ids": resolved_ids,
+                "text": text,
+                "surface": _surface_metrics(text),
+            }
+    return generation
+
+
+def run(
+    steps: int = DEFAULT_STEPS,
+    hf_ratio: float = DEFAULT_HF_RATIO,
+    eval_cap: int = DEFAULT_EVAL_CAP,
+) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
     pools = _load_pools()
@@ -123,22 +204,44 @@ def run(steps: int = DEFAULT_STEPS, hf_ratio: float = DEFAULT_HF_RATIO) -> dict:
             "base_ids": base_ids,
             "expanded_ids": expanded_ids,
             "route_modes": list(ROUTE_MODES),
+            "eval_cap": eval_cap,
         },
         "micro_train": train_report,
         "forward": {
             "base_9_all": _real_population_forward(cortex, base_ids),
             "with_micro_10_all": _real_population_forward(cortex, expanded_ids),
         },
-        "generation": {mode: {} for mode in ROUTE_MODES},
+        "generation": {},
     }
-    for index, prompt in enumerate(PROMPTS[:2]):
-        seed = SEED + index
-        for mode, active_ids in active_sets.items():
-            text = _generate(cortex, active_ids, prompt, seed)
-            report["generation"][mode][prompt] = {
-                "text": text,
-                "surface": _surface_metrics(text),
-            }
+    prompts = PROMPTS[:2]
+    report["generation"]["before_prototype_warmup"] = _generation_snapshot(
+        cortex, active_sets, prompts
+    )
+    eval_sets = {
+        "current_eval": pools["current_eval"][:eval_cap],
+        "hf_eval": pools["hf_eval"][:eval_cap],
+    }
+    report["micro_regression_screen"] = {
+        "before_route_calibration": {
+            key: _evaluate(micro, texts, domain_sp, general_sp, shared)
+            for key, texts in eval_sets.items()
+        }
+    }
+    report["route_calibration"] = {
+        "adapter_alignment": _align_route_adapter(
+            micro, pools["current_train"], domain_sp, general_sp, shared
+        ),
+        "prototype_warmup": _warm_route_prototype(
+        micro, pools["current_train"], domain_sp, general_sp, shared
+        ),
+    }
+    report["generation"]["after_prototype_warmup"] = _generation_snapshot(
+        cortex, active_sets, prompts
+    )
+    report["micro_regression_screen"]["after_route_calibration"] = {
+        key: _evaluate(micro, texts, domain_sp, general_sp, shared)
+        for key, texts in eval_sets.items()
+    }
 
     del cortex, micro, shared
     gc.collect()
@@ -149,9 +252,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=DEFAULT_STEPS)
     parser.add_argument("--hf-ratio", type=float, default=DEFAULT_HF_RATIO)
+    parser.add_argument("--eval-cap", type=int, default=DEFAULT_EVAL_CAP)
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
-    report = run(steps=args.steps, hf_ratio=args.hf_ratio)
+    report = run(steps=args.steps, hf_ratio=args.hf_ratio, eval_cap=args.eval_cap)
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
     if args.json_out is not None:

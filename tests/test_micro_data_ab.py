@@ -5,6 +5,7 @@ from scripts.training.diag_micro_data_ab import (
     _valid_first_token_position,
 )
 from scripts.training.diag_micro_route_canary import ROUTE_MODES
+from scripts.training.diag_micro_external_route import EXTERNAL_ROUTE_MODES
 
 
 def test_first_token_metric_skips_answer_outside_truncated_window() -> None:
@@ -27,4 +28,13 @@ def test_route_canary_keeps_nine_member_baseline_and_two_topk_modes() -> None:
         "with_micro_10_all",
         "with_micro_10_auto_top1",
         "with_micro_10_auto_top2",
+    )
+
+
+def test_external_route_canary_is_separate_from_language_adapter() -> None:
+    assert EXTERNAL_ROUTE_MODES == (
+        "base_9_all",
+        "with_micro_10_all",
+        "with_micro_external_top1",
+        "with_micro_external_top2",
     )

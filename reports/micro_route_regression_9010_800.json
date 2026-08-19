@@ -1,0 +1,419 @@
+{
+  "contract": {
+    "seed": 20260819,
+    "steps": 800,
+    "batch_size": 4,
+    "max_seq_len": 128,
+    "hf_ratio": 0.1,
+    "hf_train_used": 10562,
+    "shared_embedding_frozen": true,
+    "writes_checkpoint": false,
+    "base_population": "5 dialogue + 4 general",
+    "base_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh"
+    ],
+    "expanded_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh",
+      "zh_micro_dialogue_ab"
+    ],
+    "route_modes": [
+      "base_9_all",
+      "with_micro_10_all",
+      "with_micro_10_auto_top1",
+      "with_micro_10_auto_top2"
+    ],
+    "eval_cap": 512
+  },
+  "micro_train": {
+    "condition": "current_plus_hf_10",
+    "train_samples": 105621,
+    "steps": 800,
+    "architecture": {
+      "spec": "micro",
+      "local_params_m": 7.581313,
+      "hidden_size": 128,
+      "layers": 4,
+      "field_dim": 512,
+      "shared_embedding_frozen": true
+    },
+    "before": {},
+    "after": {},
+    "loss_trace": {
+      "first": 11.131865,
+      "last": 8.105205,
+      "min": 5.997237
+    }
+  },
+  "forward": {
+    "base_9_all": {
+      "field_shape": [
+        3072
+      ],
+      "finite": true,
+      "rounds": 3
+    },
+    "with_micro_10_all": {
+      "field_shape": [
+        3072
+      ],
+      "finite": true,
+      "rounds": 3
+    }
+  },
+  "generation": {
+    "before_prototype_warmup": {
+      "base_9_all": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters提供更多生存",
+          "surface": {
+            "chars": 92,
+            "unique_char_ratio": 0.2826,
+            "repeated_bigram_ratio": 0.5714,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+          "surface": {
+            "chars": 96,
+            "unique_char_ratio": 0.1875,
+            "repeated_bigram_ratio": 0.6105,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_all": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh",
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters part climbers",
+          "surface": {
+            "chars": 100,
+            "unique_char_ratio": 0.23,
+            "repeated_bigram_ratio": 0.5859,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh",
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters clicking clusters clusters clusters",
+          "surface": {
+            "chars": 103,
+            "unique_char_ratio": 0.1553,
+            "repeated_bigram_ratio": 0.6667,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_auto_top1": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue"
+          ],
+          "text": "awareness exc clusters clicking clusters创意盗窃 controlsak dividing clustersocus",
+          "surface": {
+            "chars": 77,
+            "unique_char_ratio": 0.2857,
+            "repeated_bigram_ratio": 0.3289,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue"
+          ],
+          "text": "ated deployed clicking clusters货币ess lois dividing outdoors考虑 climbers",
+          "surface": {
+            "chars": 70,
+            "unique_char_ratio": 0.3429,
+            "repeated_bigram_ratio": 0.2609,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_auto_top2": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue"
+          ],
+          "text": "awarenessact Ar would领导者的 melod Pro outdoors新的el自动 hand",
+          "surface": {
+            "chars": 55,
+            "unique_char_ratio": 0.4364,
+            "repeated_bigram_ratio": 0.037,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue"
+          ],
+          "text": "ated deployed clicking clusters clicking ground Stchan促进 excess UDP estimate",
+          "surface": {
+            "chars": 76,
+            "unique_char_ratio": 0.3421,
+            "repeated_bigram_ratio": 0.28,
+            "has_decode_artifact": false
+          }
+        }
+      }
+    },
+    "after_prototype_warmup": {
+      "base_9_all": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters提供更多生存",
+          "surface": {
+            "chars": 92,
+            "unique_char_ratio": 0.2826,
+            "repeated_bigram_ratio": 0.5714,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+          "surface": {
+            "chars": 96,
+            "unique_char_ratio": 0.1875,
+            "repeated_bigram_ratio": 0.6105,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_all": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh",
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters rele程序",
+          "surface": {
+            "chars": 93,
+            "unique_char_ratio": 0.2366,
+            "repeated_bigram_ratio": 0.5761,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh",
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+          "surface": {
+            "chars": 96,
+            "unique_char_ratio": 0.1875,
+            "repeated_bigram_ratio": 0.6105,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_auto_top1": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "colonial\n colonial deadline dividing colonial deserves\n colonial circular converts cylinder",
+          "surface": {
+            "chars": 91,
+            "unique_char_ratio": 0.1868,
+            "repeated_bigram_ratio": 0.4778,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_micro_dialogue_ab"
+          ],
+          "text": "colonial\n colonial underway deadline are circular\n estimate converts\n x",
+          "surface": {
+            "chars": 71,
+            "unique_char_ratio": 0.2676,
+            "repeated_bigram_ratio": 0.2571,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_micro_10_auto_top2": {
+        "问：你好，请介绍一下自己\n答：": {
+          "active_ids": [
+            "zh_micro_dialogue_ab",
+            "zh_aug0_dialogue"
+          ],
+          "text": "ne underway outdoors dividing clusters clicking 高效的公共交通系统 deadline climbers\n colonial out",
+          "surface": {
+            "chars": 89,
+            "unique_char_ratio": 0.3371,
+            "repeated_bigram_ratio": 0.2727,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "active_ids": [
+            "zh_micro_dialogue_ab",
+            "zh_aug0_dialogue"
+          ],
+          "text": "ated deployed outdoors clicking underway\n colonial deadline clusters clicking dividing\n",
+          "surface": {
+            "chars": 87,
+            "unique_char_ratio": 0.2299,
+            "repeated_bigram_ratio": 0.3256,
+            "has_decode_artifact": false
+          }
+        }
+      }
+    }
+  },
+  "micro_regression_screen": {
+    "before_route_calibration": {
+      "current_eval": {
+        "samples": 512,
+        "effective_answer_tokens": 35664,
+        "answer_loss": 7.427524,
+        "corrected_ppl": 1681.6379,
+        "first_token_nll": 8.248433,
+        "median_rank_zero_based": 423,
+        "first_token_top1": 0.0471
+      },
+      "hf_eval": {
+        "samples": 512,
+        "effective_answer_tokens": 51578,
+        "answer_loss": 7.604152,
+        "corrected_ppl": 2006.5096,
+        "first_token_nll": 7.768123,
+        "median_rank_zero_based": 144,
+        "first_token_top1": 0.002
+      }
+    },
+    "after_route_calibration": {
+      "current_eval": {
+        "samples": 512,
+        "effective_answer_tokens": 35664,
+        "answer_loss": 7.762967,
+        "corrected_ppl": 2351.8718,
+        "first_token_nll": 8.628637,
+        "median_rank_zero_based": 785,
+        "first_token_top1": 0.0549
+      },
+      "hf_eval": {
+        "samples": 512,
+        "effective_answer_tokens": 51578,
+        "answer_loss": 7.817048,
+        "corrected_ppl": 2482.567,
+        "first_token_nll": 8.402898,
+        "median_rank_zero_based": 355,
+        "first_token_top1": 0.002
+      }
+    }
+  },
+  "route_calibration": {
+    "adapter_alignment": {
+      "samples": 256,
+      "epochs": 2,
+      "first_loss": 0.953012,
+      "last_loss": 0.188699
+    },
+    "prototype_warmup": {
+      "samples": 256,
+      "prototype_norm": 1.0
+    }
+  }
+}

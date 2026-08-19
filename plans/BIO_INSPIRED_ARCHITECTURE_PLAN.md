@@ -373,6 +373,26 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     vs 10 成员生成中，重复 bigram 从 0.5714/0.6105 变为 0.5859/0.6667，micro 尚未
     形成正向群体增益。完整报告为 `reports/micro_long_9010_800_20260819.json`。
 
+    路由 canary 进一步确认，单独对 256 条 current 样本做 prototype warm-up 不足以让 micro
+    进入 auto-top-k；随后只优化 micro 的 `embed_adapter` 与自身 hidden response 的 cosine
+    对齐（2 epochs，loss 0.953012→0.188699），再更新 prototype。此时 auto-top1 已选中
+    `zh_micro_dialogue_ab`，auto-top2 已选中 `zh_micro_dialogue_ab + zh_aug0_dialogue`，
+    auto-top2 重复 bigram 降至 0.2727/0.3256；但输出仍有明显语义碎片，不能只凭表面重复率
+    认定能力提升。完整报告为 `reports/micro_route_adapter_calibration_9010_800.json`。
+
+    路由 adapter 回归筛查证明，直接改写 micro 原有 `embed_adapter` 会破坏语言能力：在
+    512 条 current eval 上 PPL 从 1,681.64 升至 2,351.87，在 512 条 HF eval 上从
+    2,006.51 升至 2,482.57；尽管 micro 成功进入 auto-top-k，代价不可接受。因此该
+    “复用语言 adapter 做路由校准”的方向已标记为失败，不得写入 checkpoint 或生产配置；
+    完整报告为 `reports/micro_route_regression_9010_800.json`。
+
+    外部独立 route projection（65,536 参数）在冻结 micro 语言主体和原有 `embed_adapter`
+    的条件下完成：路由拟合 loss=1.018911→0.087409，current/HF 两套 512 条回归筛查的
+    PPL/NLL 前后完全不变；它能把 micro 排到 external top1，并在 top2 中与 `zh_aug0_dialogue`
+    共存。但生成仍是碎片化文本，top2 重复 bigram=0.4096/0.6765，没有形成可接受的群体
+    语义增益。因此外部 route projection 只证明“可无损接入路由实验”，不证明 micro 可以
+    进入生产；完整报告为 `reports/micro_external_route_9010_800_final.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -459,7 +479,7 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：固定这次 800 步的 7.58M、90/10 训练契约，执行一次路由 canary，对同一
-prompt/seed 比较 9 成员基线、10 成员全融合和 10 成员自动 top-k 门控三条推理路径；不再
-训练新权重、不改数据、不写生产 checkpoint。目标是确认当前退化来自“micro 被无门控地
-加入融合”还是来自 micro 本身，随后才决定是否保留它作为候选成员。
+唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，执行一次真实 9 成员
+dialogue top-k/fusion 诊断，固定现有 5 个 dialogue + 4 个 general，定位生产生成退化究竟
+来自解码 top-k、dialogue 融合还是基座 checkpoint；micro 分支保留为离线候选，不再继续
+训练或扩大架构。
