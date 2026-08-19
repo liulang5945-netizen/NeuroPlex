@@ -26,7 +26,9 @@ jobs:
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install test dependencies
-        run: pip install sentencepiece pytest httpx fastapi python-multipart
+        # FastAPI 可选依赖：python-multipart（form/File）—— test_api_health 触发 Form 中间件
+        # 另带 pydantic+anyio（FastAPI 内部用）确保类型解析工作正常
+        run: pip install sentencepiece pytest httpx fastapi python-multipart pydantic anyio
 
       - name: Install package (editable)
         run: pip install -e . --no-deps
