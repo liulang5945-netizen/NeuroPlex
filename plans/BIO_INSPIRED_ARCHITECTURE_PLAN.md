@@ -437,6 +437,13 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     条 prompt 发生变化且重复率由 0.5714 升至 0.5859，另一条不变，仍无群体净增益；不
     写入生产。完整报告为 `reports/micro_2x128_long_9010_2000_20260819.json`。
 
+    完成 3 个 6.974593M micro 专长成员的同进程实验（各 800 步、shared embedding 只加载
+    一次）：current-only 在 current/HF eval 上为 PPL=1,702.13/3,882.57，HF-only 为
+    5,959.87/1,031.60，90/10 为 1,697.77/1,989.95，证明小成员可以因数据分工形成可测
+    专长。三者临时加入后成为 12 成员，mixed forward 有限且 3 个成员均实际装配，但两条
+    固定生成与原 9 成员完全一致，未出现群体净增益。结论是继续复制或延长小成员训练前，
+    必须先审计路由可见性和场贡献；完整报告为 `reports/micro_specialist_group_697m_800_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -533,8 +540,8 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 但当前证据只支持“单体可学习、HF 跨分布泛化可改善”，不支持“已经产生群体智能”。生产
 9 成员和五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
 
-唯一推荐下一步：固定 6.97M（2 层/hidden=128/field=256）规格，在同一份 shared embedding
-上训练 3 个临时专长成员：current-only、HF-only、90% current / 10% HF；分别完成单体
-current/HF eval，再以 9+3 临时群体做 canary，验证多小成员是否产生可重复的路由选择或
-群体净增益。当前环境未检测到 CUDA，采用单进程复用 shared embedding，不启动重复加载的
-多进程；实验不改变生产 9 成员装配和五个 dialogue checkpoint。
+唯一推荐下一步：对已训练的 3 个 6.97M 专长成员执行只读的多成员路由贡献审计，分别记录
+external route score、auto-top-k 是否选中、场向量贡献和 9→12 成员生成差异；语言主体与
+原有 embed_adapter 全部冻结，不再改写 adapter，也不写入生产。当前环境未检测到 CUDA，
+继续采用单进程复用 shared embedding；该审计用于决定小成员应进入哪种路由/融合训练闭环，
+而不是继续无门槛增加训练步数。

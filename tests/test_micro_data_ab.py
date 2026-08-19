@@ -5,6 +5,7 @@ from scripts.training.diag_micro_data_ab import (
     _valid_first_token_position,
 )
 from scripts.training.diag_micro_spec_data_ab import SCREEN_SPECS, _make_config
+from scripts.training.diag_micro_specialist_group import MICRO_SPEC, SPECIALIST_ROLES
 from scripts.training.diag_micro_route_canary import ROUTE_MODES
 from scripts.training.diag_micro_external_route import EXTERNAL_ROUTE_MODES
 from scripts.training.diag_dialogue_fusion_ab import FUSION_MODES
@@ -31,6 +32,11 @@ def test_micro_spec_screen_uses_three_validated_smaller_candidates() -> None:
     assert [config.num_hidden_layers for config in configs] == [2, 3, 4]
     assert [config.field_dim for config in configs] == [256, 256, 512]
     assert all(config.vocab_size == 50_000 for config in configs)
+
+
+def test_micro_specialist_group_has_explicit_data_roles() -> None:
+    assert MICRO_SPEC == "micro_2x128"
+    assert SPECIALIST_ROLES == ("current_only", "hf_only", "current_plus_hf_10")
 
 
 def test_route_canary_keeps_nine_member_baseline_and_two_topk_modes() -> None:
