@@ -18,7 +18,7 @@ Thank you for your interest in NeuroPlex! This document describes how to contrib
 3. **Verify the core**
    ```bash
    python -m pytest tests/ -q
-   # Expected: 31 passed
+   # Expected: 32 passed
    ```
 
 4. **Run the bootstrap demo**
@@ -61,6 +61,7 @@ Thank you for your interest in NeuroPlex! This document describes how to contrib
 - **The population is the product**: Each domain or role neuron is an independently trainable Transformer. New capability should normally be added by specializing or adding neurons, not by growing a central backbone.
 - **Resonance field is a communication medium**: Neurons write/read `field_vector`s, peer channels provide local coordination, and routing selects the active subset for each task.
 - **Relay neurons are optional**: An expert neuron can provide cross-domain anchoring, but it remains one member of the population and must not become a hidden central controller.
+- **Production assembly has a fixed default contract**: five dialogue neurons plus four general domain neurons form the nine-member Cortex path; changes to these IDs require an explicit contract update and regression test.
 - **Lifecycle is part of the architecture**: memory replay, synaptic updates, maturation, neurogenesis, and apoptosis are first-class population mechanisms.
 
 ## License

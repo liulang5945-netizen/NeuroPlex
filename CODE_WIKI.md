@@ -23,6 +23,12 @@ domain-aware logits → generated output
 
 The population is the unit of capability. `Cortex` is the orchestrator; it is not a replacement monolithic model.
 
+The production loader assembles nine members by default: five dialogue neurons
+(`zh_aug0_dialogue`, `zh_aug1_dialogue`, `zh_aug2_dialogue`, `zh_aug3_dialogue`,
+`zh_std0_dialogue`) plus four general neurons (`code`, `en`, `math`, `zh`). The
+dialogue members provide the default conversation path; the general members
+provide domain routing and shared-space composition when their checkpoints are available.
+
 ## 2. Core modules
 
 ### `neuroplex/brain/cortex.py`

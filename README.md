@@ -45,11 +45,11 @@ Level 3: Population control plane             ← topology, plasticity, growth, 
 python -m pip install -e ".[dev]"
 ```
 
-### Verify the core (31 tests)
+### Verify the core (32 tests)
 
 ```bash
 python -m pytest tests/ -q
-# Expected: 31 passed
+# Expected: 32 passed
 ```
 
 ### Run the bootstrap demo
@@ -113,6 +113,12 @@ print(result)
 
 If `data/neurons` is empty, NeuroPlex starts with a limited random fallback
 neuron. Add trained domain checkpoints for useful generation quality.
+
+The default production assembly is a 9-member population: five dialogue neurons
+(`zh_aug0_dialogue` through `zh_aug3_dialogue` plus `zh_std0_dialogue`) and four
+general neurons (`code`, `en`, `math`, `zh`) from the optional general checkpoint
+directory. The dialogue members are the primary conversation path; the general
+members extend domain routing and shared-space composition.
 
 ## Neuron Specifications
 

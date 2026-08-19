@@ -89,7 +89,9 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：31 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定 anchor 参考加载。
+- `python -m pytest tests -q`：32 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
+  默认阵容契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定
+  anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
 - `python -m pip install -e . --no-deps --no-build-isolation`：在当前公开安装入口下完成 editable 安装，包版本为 `neuroplex 1.6.0`。
 - 干净启动烟测通过：空神经元目录可以启动 Cortex，并明确进入 fallback；域 tokenizer 由 TokenizerHub 注册。
@@ -155,7 +157,7 @@ checkpoint 和日志已清理。
 
 ### 4.2 P1.1 真实资产与能力探针复核（2026-08-19）
 
-本地忽略目录中仍有可复用的 `foundation_v1_general`、`code/math/zh/en + hub` 群体权重、
+本地忽略目录中仍有可复用的 `foundation_v1_general`、`code/math/zh/en + hub` 辅助研究权重、
 三域 SFT 数据和 `cross_domain_collab_verify_global.ckpt.pt`；它们不属于公开仓库交付物。
 固定 `code_sft[16:24]` anchor 评估复现原记录：smoke `-0.003`、w3 `+0.110`、global
 `+0.285`、full `-0.083`，资产和评估口径没有漂移。
@@ -163,7 +165,8 @@ checkpoint 和日志已清理。
 使用 global 参考做每域 2 条的短 PPL 探针，协作相对各域个体改善约 `+8.1%～+21.3%`，但
 绝对 PPL 仍约为 code `8.8e5`、math `7.9e5`、zh `1.5e5`、en `6.2e4`，生成结果不可读。
 因此这次只证明真实 checkpoint 可装配、协作链路有改善信号，不证明语言能力；当前机器也没有
-CUDA，不能在未确认预算前启动长时训练。
+CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/zh + hub` 辅助路线，不能替代
+生产阵容验收。
 
 稀疏 Router 机制级 A/B（global 固定参考、Router top-k=2、无 warmup、12 步）通过门槛：
 同一 general holdout 上 dense PPL `387.47`，trained-sparse `385.33`（-0.55%）；平均激活
@@ -200,7 +203,11 @@ CUDA，不能在未确认预算前启动长时训练。
 23. 完成 editable 安装、bootstrap 版本化输出、API health、31 项核心测试和全量 Python 编译验收。
 24. 将 editable 安装、bootstrap smoke、最小群体/API smoke 纳入 `.github/workflows/ci.yml`，并在本地复跑同一命令链。
 25. 完成公开发布残留扫描并收敛当前入口措辞；保留归档、兼容、安全和合成探针边界。
-26. 完成真实资产盘点、固定 anchor 复核和短 PPL 能力探针；确认协作信号存在但当前生成质量未达可用门槛。
+26. 完成辅助研究路线的真实资产盘点、固定 anchor 复核和短 PPL 能力探针；确认协作信号存在但当前生成质量未达可用门槛。
+27. 发现并纠正验收阵容遗漏：生产主线是 5 个对话神经元 + 4 个 general 神经元的 9 成员 Cortex，`code/math/zh + hub` 只作辅助研究路径。
+28. 按生产默认装配完成 9 成员加载与单问题生成 smoke，并将该阵容列为后续验收的唯一主口径。
+29. 将 5-dialogue + 4-general 的生产阵容写入公开文档，并加入无 checkpoint 依赖的默认 ID 回归测试。
+28. 按生产默认装配完成 9 成员加载与单问题生成 smoke，并将该阵容列为后续验收的唯一主口径。
 
 ## 6. 后续工作顺序
 
@@ -217,14 +224,33 @@ CUDA，不能在未确认预算前启动长时训练。
 
 真实 checkpoint 的协作质量仍需在 P1 中验收；在此之前，不继续扩展新的生物机制，也不把长时训练结果写成产品能力。
 
-### P1：修复跨域协作训练闭环（anchor 契约已完成，真实能力待重训）
+### P1：修复跨域协作训练闭环（anchor 契约已完成，生产阵容待验收）
 
 anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 cross-spec 投影，hub 投影
 必须冻结，optimizer/body/side/field 不会从参考继承。该路径只作为安全实验基础，不作为
 语言能力来源。
 
-P1.1 的资产复核已完成，但真实能力尚未达标；后续训练不能沿用 `full` 失败配方，也不能把
+辅助路线的 P1.1 资产复核已完成，但真实能力尚未达标；后续训练不能沿用 `full` 失败配方，也不能把
 当前高 PPL 或不可读生成包装成产品结论。
+
+此前执行的 P1.2 安全短跑固定 `code/math/zh + hub`，每域 2 条样本、batch 1、1 epoch（共 3 步）、
+`lr=1e-4`；只训练 cross-spec 投影，hub 投影冻结，仅从 `global` 读取 anchor 投影，不加载旧
+side/body/optimizer 状态。它只作辅助实验诊断，不能代表生产群体；临时 checkpoint 与日志已清理。
+
+生产阵容的真相源是 `neuroplex/core/model_loader.py`：默认加载
+`zh_aug0_dialogue`、`zh_aug1_dialogue`、`zh_aug2_dialogue`、`zh_aug3_dialogue`、
+`zh_std0_dialogue` 五个对话神经元，再通过 `data/foundation_v1_dual` 加载 code/math/zh/en
+四个 general 神经元，合计 9 个成员。后续生产能力验收必须以这条装配链为准。
+
+生产主线不能遗漏 5 个对话神经元：它们是当前默认 Cortex 的主要对话能力来源，必须和
+`foundation_v1_dual` 的 4 个 general 成员一起做装配、路由、生成和回归验收。
+
+生产装配 smoke 已按 `model_loader.py` 的默认参数通过：实际加载 9 个成员
+（5 个 dialogue + code/en/math/zh 4 个 general），并完成一条 zh 对话生成；这只证明装配
+和路由入口可用，不等于完整语言质量验收。
+
+公开架构契约已补齐：README、CODE_WIKI、CONTRIBUTING 明确 5 个 dialogue + 4 个 general
+的默认 9 成员阵容，`tests/test_population_assembly_contract.py` 锁定 5 个 dialogue ID。
 
 ### P1：完成稀疏路由的真实性验证（机制级完成）
 
@@ -265,6 +291,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2：确定并启动一个可中断的真实群体能力短跑——固定 `code/math/zh + hub`、
-global 仅作参考、冻结参考边界；在开始前确认可用算力预算，以及“平均质量提升且单域不退化”
-的晋级门槛。没有这项决策，不启动新的长训练。
+进入 P1.2 对话能力验收：基于默认 5 个 dialogue + 4 个 general 的 9 成员 Cortex，先跑
+对话专项回归和路由观测，确认五个对话成员都被纳入生产路径，再决定是否扩展协作训练；不再
+把 hub 辅助路线当作生产主线。
