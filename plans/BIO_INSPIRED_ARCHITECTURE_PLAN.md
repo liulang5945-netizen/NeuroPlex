@@ -91,6 +91,7 @@ scripts/training/verify_*.py
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
 - `python -m pytest tests -q`：31 项核心回归测试通过，覆盖对话格式契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定 anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
+- `python -m pip install -e . --no-deps --no-build-isolation`：在当前公开安装入口下完成 editable 安装，包版本为 `neuroplex 1.6.0`。
 - 干净启动烟测通过：空神经元目录可以启动 Cortex，并明确进入 fallback；域 tokenizer 由 TokenizerHub 注册。
 - API 烟测通过：健康检查、架构能力接口返回 200；旧整体升级入口返回 410 退役响应。
 - `verify_c26_*` / `verify_c27_*`：已有机制级验证，覆盖场记忆、睡眠巩固、跨频耦合、实例路由和自组织新生。
@@ -106,6 +107,9 @@ scripts/training/verify_*.py
 - `python -X utf8 -u scripts/bootstrap_population_demo.py`：通过（约 2 秒），无需私有
   checkpoint 或外部下载即可展示 3 个 tiny neuron、共振场、稀疏路由和 Cortex 状态 round-trip；
   输出继续明确标记为 `synthetic_probe_only`。
+- `python -X utf8 -u scripts/bootstrap_population_demo.py --json-out reports/bootstrap_population_demo.json`：
+  通过并生成版本化社区验收输出；固定种子下 dense/sparse PPL 分别为 `33.4602077`/
+  `33.4601917`，round-2 平均激活由 `3` 降至 `2`，Cortex round-trip 为真。
 - 生产路径默认加载 Cortex 群体，并由 API/客户端使用群体状态。
 - 默认 tokenizer 已切换到 `neuroplex/domains/general/sp_general.model`；旧 checkpoint 路径不再是主加载路径。
 - 旧教师对齐模块未从仓库删除，以避免历史 checkpoint 和实验脚本失效；它不再从 `neuroplex.resonance` 顶层导出，也不在 README/quick start 中出现。
@@ -176,6 +180,7 @@ checkpoint 和日志已清理。
 20. 将 C27 自组织新生脚本收敛为群体成长生命周期回归：新生、成熟、隔离、复活、路由/生成保护和最新权重恢复均通过 20/20。
 21. 完成社区发布面审计，移除当前入口中的旧规模/集中式迁移叙事，保留兼容模块但不纳入产品主路径。
 22. 新增 `scripts/bootstrap_population_demo.py`，把无 checkpoint 的确定性群体基线收敛为社区首运行入口。
+23. 完成 editable 安装、bootstrap 版本化输出、API health、31 项核心测试和全量 Python 编译验收。
 
 ## 6. 后续工作顺序
 
@@ -216,11 +221,11 @@ anchor 目标契约已经落地并通过短验收：参考 checkpoint 只提供 
 既有生成、路由和场记忆保持可用。过程中修复了新生 neuron 缺少 per-neuron shared
 embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期缺口。
 
-### P3：完善社区可用的发布形态（bootstrap 入口已完成）
+### P3：完善社区可用的发布形态（bootstrap 入口与发布收口已完成）
 
 已选择可复现 bootstrap 流程作为社区首运行入口：它不下载或加载私有 checkpoint，展示群体运行
-契约但不伪装成训练后语言能力。后续再补版本化指标、示例输出和 API/前端的公开命名；秘密信息
-与绝对路径扫描属于发布收尾，不应替代能力验收。
+契约但不伪装成训练后语言能力。版本化指标、示例输出、editable 安装和 API/测试验收已完成；
+秘密信息与绝对路径扫描仍属于发布收尾，不应替代能力验收。
 
 ### 暂不进入主线
 
@@ -231,5 +236,5 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P3.1 发布质量收口：在干净 editable 安装下复跑 bootstrap demo、31 项核心测试和 API
-health，随后固定一份版本化 bootstrap 输出作为社区验收证据。
+进入 P3.2：把 bootstrap demo、最小群体基线和 31 项核心测试收敛为轻量 CI smoke，继续保持
+无私有 checkpoint、无外部下载、`synthetic_probe_only` 的公开验收边界。

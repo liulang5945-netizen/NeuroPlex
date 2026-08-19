@@ -1,0 +1,21 @@
+{
+  "architecture": "population_resonance",
+  "quality_scope": "synthetic_probe_only",
+  "seed": 20260819,
+  "population": [
+    "probe_alpha",
+    "probe_beta",
+    "probe_gamma"
+  ],
+  "dense_ppl": 33.460207704180014,
+  "sparse_ppl": 33.46019174911346,
+  "dense_active_round2": 3,
+  "sparse_active_round2": 2.0,
+  "selected_counts": {
+    "probe_alpha": 1,
+    "probe_beta": 4,
+    "probe_gamma": 3
+  },
+  "cortex_roundtrip_ok": true,
+  "status": "pass"
+}
