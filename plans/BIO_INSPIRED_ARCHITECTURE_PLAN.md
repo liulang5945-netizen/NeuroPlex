@@ -501,7 +501,10 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 实现链路通过，当前问题不再归因于 tokenizer 位置、answer mask 或 token 回填；报告为
 `reports/production_dialogue_generation_contract_20260819.json`。
 
-唯一推荐下一步：冻结当前 9 成员生产架构、现有五个 dialogue checkpoint 和 7.58M 离线
-候选，不再继续盲目训练或扩展成员；进入“重新设计 dialogue 训练目标/数据分布”的决策节点。
-下一轮应以新的可验证训练配方为对象，而不是覆盖当前 baseline。启动该新训练配方前需要
-确认是否接受这次从现有 training recipe 切换的方向。
+基于 7.58M micro 的本地参数和训练成本显著低于生产 dialogue checkpoint，且 800 步 90/10
+结果仍显示 current/HF eval 持续改善，项目决策改为继续推进 micro 训练路线；生产 9 成员和
+五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
+
+唯一推荐下一步：固定 90% current / 10% HF、冻结 shared embedding，执行 2,000 步全量
+micro 延长训练，同时保留 current-only 对照、完整 current/HF eval 和临时群体 canary；
+仍不写入生产 checkpoint，用来判断延长训练是否继续改善 micro 本身及其群体接入效果。
