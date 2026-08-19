@@ -7,6 +7,7 @@ from scripts.training.diag_micro_data_ab import (
 from scripts.training.diag_micro_route_canary import ROUTE_MODES
 from scripts.training.diag_micro_external_route import EXTERNAL_ROUTE_MODES
 from scripts.training.diag_dialogue_fusion_ab import FUSION_MODES
+from scripts.training.diag_dialogue_population_subset_ab import SUBSETS
 
 
 def test_first_token_metric_skips_answer_outside_truncated_window() -> None:
@@ -43,3 +44,7 @@ def test_external_route_canary_is_separate_from_language_adapter() -> None:
 
 def test_fusion_ab_covers_only_read_only_production_modes() -> None:
     assert FUSION_MODES == ("soft", "per_position", "residual", "division")
+
+
+def test_population_subset_ab_preserves_five_plus_four_contract() -> None:
+    assert SUBSETS == ("dialogue_only_5", "full_population_9")

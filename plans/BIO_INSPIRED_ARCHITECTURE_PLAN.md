@@ -403,6 +403,12 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     没有实质改善。因此不存在一个现成 fusion mode 可以修复生产语义退化，完整报告为
     `reports/production_dialogue_fusion_ab_20260819.json`。
 
+    5 dialogue-only 与完整 9 成员的同 prompt/seed 对照显示，general 成员会改变输出，但
+    没有一方在问候、身份、天气、诗歌四类问题上全面占优：dialogue-only 的天气输出为
+    “今天天气是晴朗的天气模式”，完整 9 成员为“今天天气很好，我很高兴”；身份和诗歌也
+    各有碎片化。结论是不能删除 `data/foundation_v1_dual` 的 4 个 general，当前责任边界
+    仍需回到生成契约/对齐链路。完整报告为 `reports/production_dialogue_population_subset_ab_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -489,6 +495,7 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，固定同一组 prompt/seed，
-执行 5 个 dialogue-only 与完整 9 成员的短生成对照；不训练、不改 checkpoint，直接判断
-是否是 `data/foundation_v1_dual` 的 4 个 general 成员进入对话路径后造成语义退化。
+唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，执行现有生成契约审计脚本，
+在固定 32 条 current holdout 上检查 teacher-forcing 与自回归首 token 的位置对齐、prefix
+parity、域 token→general 回填和首 token rank；不训练、不改 checkpoint，先确认问题是否
+位于生成/对齐链路。
