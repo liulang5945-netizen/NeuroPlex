@@ -221,6 +221,12 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 35. 完成五个 dialogue 的来源核对：均为 `alpaca_zh_sft_finetune`、8000 steps、含独立 shared
     embedding；对齐后平均 prompt NLL 以 `zh_aug1_dialogue` 最低（2.3595），但单体短生成仍
     未过质量门槛，说明不能只归因于群体路由，需继续检查训练-推理解码链。
+36. 完成 direct/leader/continuous 的训练-推理解码 A/B，并修正 direct 旁路的判定口径：旧旁路
+     未清零 refractory 状态，不能作为公平基线；清零后确认生产 ensemble 的 round1 会额外注入
+     `ffn_gain=1.25`。
+37. 完成五 dialogue 的中性 gain 对照：将 `ffn_gain` 显式设为 1.0 后，单 token round1
+     `max_abs_diff` 由约 1.12 降至约 0.011，argmax 对齐，但短生成的重复问题仍在；因此这是
+     训练-推理契约修复候选，不是完整语言质量修复。
 
 ## 6. 后续工作顺序
 
@@ -308,6 +314,7 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2 的训练-推理解码链 A/B：对同一 dialogue checkpoint 对比直接 neuron 自回归路径
-与生产 Cortex P7 路径的首 token、域词表转译和短生成，定位质量损失发生在单体权重本身还是
-推理封装；在责任边界明确前不扩展协作训练。
+当前进入架构决策节点：是否将默认 DA=0.5 的 `ffn_gain` 从 1.25 收敛为训练一致的 1.0。
+建议采用 1.0，理由是它恢复训练-推理 round1 parity；但它会改变生产调质默认行为，需确认后再
+修改 `NeuromodulatorState`、补契约测试并重跑 9 成员质量 smoke。无论选择哪一项，都不能把它
+包装成语言能力已经解决，也不应在此之前启动长训练。
