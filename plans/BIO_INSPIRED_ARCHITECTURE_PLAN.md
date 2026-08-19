@@ -564,8 +564,15 @@ current-only 为 83,475→1,754，HF-only 为 83,475→5,781，90/10 混合为 8
 初始尺度、温度和质量信号校准；本次试验没有写入生产 checkpoint。完整报告为
 `reports/micro_route_fusion_pilot_697m_20260819.json`。
 
-本轮不再延长路由训练，也不把失败的 quality_head 产物写回生产。唯一推荐下一步：做一个
-只读的 route calibration 小试验，先测量 12 个成员的 quality-logit 分布与 projected
-per-member NLL，固定一个有界的 zero-mean 初始化和温度，再用同一 no-op/留出集验证路由
-是否脱离 `zh` 独占；仍冻结 12 个语言主体、原 embed_adapter、field 和 shared embedding，
-仍不得写入生产。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
+本轮不再延长路由训练，也不把失败的 quality_head 产物写回生产。只读 route calibration
+已完成：12 个成员的 quality-logit 偏置确实巨大（`zh` 均值约 18,096，dialogue 约
+-9,128～-17,459，三个 micro 约 0），member-wise zero-center/unit-scale + bounded
+trust 能把 `zh` 的平均路由权重从 1.0 降到 0.531，并让多个 dialogue/en 成员被选中；
+但固定 8 条留出集的 hard-route teacher-forcing NLL 从 116.231 恶化到 933.673。结论是
+尺度偏置是真问题，但简单校准不是能力信号，不能接入生产。完整报告为
+`reports/micro_route_calibration_697m_20260819.json`。
+
+唯一推荐下一步：在同一冻结 9+3 群体上做只读 oracle projected-NLL 上界审计，逐成员、
+逐位置记录真实 general-space NLL，并计算“每个位置选择最低 NLL 成员”的 oracle route
+与当前 raw hard route 对照；这一步只回答群体里是否已经存在可被利用的互补能力，仍不
+训练、不改路由、不写生产。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
