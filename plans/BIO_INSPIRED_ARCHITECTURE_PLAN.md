@@ -393,6 +393,16 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     语义增益。因此外部 route projection 只证明“可无损接入路由实验”，不证明 micro 可以
     进入生产；完整报告为 `reports/micro_external_route_9010_800_final.json`。
 
+    真实 9 成员单体归因进一步显示，5 个 dialogue 单体的 general→domain 对齐 prompt
+    NLL 均值为 2.3601–2.6909，单体短生成大多保持可读片段；因此当前严重碎片化主要由
+    群体融合/路由引入，而不是五个 dialogue checkpoint 全部失效。完整报告为
+    `reports/production_dialogue_single_baseline_20260819.json`。
+
+    9 成员 fusion A/B（soft、per_position、residual、division）在 4 个固定问题中有 3 个
+    输出完全一致，只有问候问题从“你没有什么？”变为“你怎么样？”；身份、天气和诗歌结果
+    没有实质改善。因此不存在一个现成 fusion mode 可以修复生产语义退化，完整报告为
+    `reports/production_dialogue_fusion_ab_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -479,7 +489,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，执行一次真实 9 成员
-dialogue top-k/fusion 诊断，固定现有 5 个 dialogue + 4 个 general，定位生产生成退化究竟
-来自解码 top-k、dialogue 融合还是基座 checkpoint；micro 分支保留为离线候选，不再继续
-训练或扩大架构。
+唯一推荐下一步：暂不把 micro 或外部 route projection 接入生产，固定同一组 prompt/seed，
+执行 5 个 dialogue-only 与完整 9 成员的短生成对照；不训练、不改 checkpoint，直接判断
+是否是 `data/foundation_v1_dual` 的 4 个 general 成员进入对话路径后造成语义退化。

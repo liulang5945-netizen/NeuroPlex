@@ -1,0 +1,61 @@
+{
+  "contract": {
+    "population": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh"
+    ],
+    "dialogue_population": "5 dialogue + 4 general",
+    "quality_metric": "general_to_domain_aligned_prompt_nll",
+    "questions": 8,
+    "max_generation_tokens": 8,
+    "writes_checkpoint": false,
+    "elapsed_seconds": 47.0
+  },
+  "dialogue_nll_mean": {
+    "zh_aug0_dialogue": 2.6027,
+    "zh_aug1_dialogue": 2.3601,
+    "zh_aug2_dialogue": 2.6803,
+    "zh_aug3_dialogue": 2.6909,
+    "zh_std0_dialogue": 2.5004
+  },
+  "generation_samples": {
+    "zh_aug0_dialogue": {
+      "你好，请介绍一下你自己": "好的，我很高兴。你是一名专业",
+      "你是谁？": "人工智能（Artificial Intelligence，简称计算机科学）",
+      "什么是神经网络？": "神经网络（NN）是一种计算机科学，其",
+      "什么是注意力机制？": "注意力机制是指是一种是一种基于模型，它使用"
+    },
+    "zh_aug1_dialogue": {
+      "你好，请介绍一下你自己": "好的，你没有问题。",
+      "你是谁？": "问题：？\n回答陈述\n回答",
+      "什么是神经网络？": "神经网络是一种是一种基于，它使用计算机计算机视觉（",
+      "什么是注意力机制？": "注意力机制是指：\n。 "
+    },
+    "zh_aug2_dialogue": {
+      "你好，请介绍一下你自己": "您好，我能够描述您所喜欢什么",
+      "你是谁？": "对不起（Artificial Intelligence，简称生活世界的",
+      "什么是神经网络？": "神经网络是一种是一种基于，它使用神经网络、、",
+      "什么是注意力机制？": "注意力机制是一种模拟感知系统中的自然语言"
+    },
+    "zh_aug3_dialogue": {
+      "你好，请介绍一下你自己": "你好，你没有什么，我会尽力为您提供帮助",
+      "你是谁？": "很抱歉（Pick） 是一种国际、",
+      "什么是神经网络？": "神经网络是一种人工神经网络，通过学习大量输入",
+      "什么是注意力机制？": "注意力机制是一种思维思维能力，通常是通过"
+    },
+    "zh_std0_dialogue": {
+      "你好，请介绍一下你自己": "好的，你们有什么角色？",
+      "你是谁？": "很抱歉，也被称为“你好”， 是一种",
+      "什么是神经网络？": "神经网络是一种人工神经网络，它通过通过接收输出",
+      "什么是注意力机制？": "注意力机制是指识别检测图像处理存储"
+    }
+  },
+  "conclusion": "单体 dialogue checkpoint 具备可读片段；群体融合是当前生成退化的首要嫌疑。"
+}
