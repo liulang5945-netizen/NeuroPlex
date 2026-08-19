@@ -365,6 +365,14 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     完整报告为 `reports/micro_data_mix_9010_20260819.json`。因此 10% 是当前唯一保留的
     实验比例候选，但仍不可写入生产。
 
+    在固定 90% current / 10% HF 下继续执行 800 步后，current-only 的 current eval PPL=1,737.48、
+    median rank=296、首 token Top-1=5.31%；90/10 的 current eval PPL=1,713.50、median
+    rank=386、Top-1=5.42%。90/10 的 HF eval PPL=2,020.61、median rank=153，优于
+    current-only 的 PPL=3,906.83、median rank=306。说明 7.581313M local params 在现有
+    数据上可继续学习，且 10% HF 对跨分布泛化有明确收益；但同 prompt/同 seed 的 9 成员
+    vs 10 成员生成中，重复 bigram 从 0.5714/0.6105 变为 0.5859/0.6667，micro 尚未
+    形成正向群体增益。完整报告为 `reports/micro_long_9010_800_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -451,7 +459,7 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：保持 7.58M micro、冻结 shared embedding、固定 90% current / 10% HF，
-执行一次 800 步全量训练，并复测 current eval、HF eval 以及同 prompt/同 seed 的 9 成员
-基线 vs 10 成员群体 canary；仍不写入生产 checkpoint。这样只增加训练充分度，不改变模型、
-数据比例或评估口径，用来判断当前生成退化主要来自训练不足，还是来自 7.58M 微型成员本身。
+唯一推荐下一步：固定这次 800 步的 7.58M、90/10 训练契约，执行一次路由 canary，对同一
+prompt/seed 比较 9 成员基线、10 成员全融合和 10 成员自动 top-k 门控三条推理路径；不再
+训练新权重、不改数据、不写生产 checkpoint。目标是确认当前退化来自“micro 被无门控地
+加入融合”还是来自 micro 本身，随后才决定是否保留它作为候选成员。
