@@ -26,7 +26,7 @@ jobs:
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install test dependencies
-        run: pip install sentencepiece pytest httpx
+        run: pip install sentencepiece pytest httpx fastapi
 
       - name: Install package (editable)
         run: pip install -e . --no-deps
