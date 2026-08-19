@@ -549,10 +549,23 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 但当前证据只支持“单体可学习、HF 跨分布泛化可改善”，不支持“已经产生群体智能”。生产
 9 成员和五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
 
-唯一推荐下一步：对已训练的 3 个 6.97M 专长成员执行只读的多成员路由贡献审计，分别记录
-external route score、auto-top-k 是否选中、场向量贡献和 9→12 成员生成差异；该审计已
-完成并确认小成员可以被看见但没有产生语义净增益。当前停在架构决策节点：若继续推进，
-唯一合理的下一步是冻结 12 个语言主体与 shared embedding，只训练临时 route/fusion 参数，
-以固定 teacher-forcing NLL 和群体质量回放作为信用分配目标，再与 no-op、external top1/3
-对照；不得改写原 embed_adapter、不得写入生产。当前环境未检测到 CUDA，继续采用单进程复用
-shared embedding。
+路由/融合信用分配试验已完成（2026-08-19）：在真实 9 成员上加入 3 个 6.974593M
+临时专家，三个专家各训练 800 步；随后冻结 12 个语言主体、field、跨规格投影和 shared
+embedding，只训练 quality_head 40 步。三个小专家本体的 held-out answer PPL 均显著下降：
+current-only 为 83,475→1,754，HF-only 为 83,475→5,781，90/10 混合为 83,475→1,743
+（同一固定 8 条 current holdout；HF holdout 分别为 91,222→2,961、91,222→780、
+91,222→1,219），再次证明小神经元可学习且能形成数据专长。
+
+但路由训练没有形成群体增益：shadow NLL 在第 10/20 步约 22.33/20.04 后升至
+174.85/961.92，显示 quality_head 尺度与当前 soft shadow 目标不稳定；真实生产硬路由
+训练前后都 100% 选择 `zh`，9→12 群体的固定留出 teacher-forcing NLL、PPL 和两条生成
+均无改善（报告 delta 为 0，第二条生成完全不变，第一条重复率 0.3253→0.5859）。
+这排除了“7M 小神经元不可见/容量不足”作为当前主因，当前瓶颈明确为 quality_head 的
+初始尺度、温度和质量信号校准；本次试验没有写入生产 checkpoint。完整报告为
+`reports/micro_route_fusion_pilot_697m_20260819.json`。
+
+本轮不再延长路由训练，也不把失败的 quality_head 产物写回生产。唯一推荐下一步：做一个
+只读的 route calibration 小试验，先测量 12 个成员的 quality-logit 分布与 projected
+per-member NLL，固定一个有界的 zero-mean 初始化和温度，再用同一 no-op/留出集验证路由
+是否脱离 `zh` 独占；仍冻结 12 个语言主体、原 embed_adapter、field 和 shared embedding，
+仍不得写入生产。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
