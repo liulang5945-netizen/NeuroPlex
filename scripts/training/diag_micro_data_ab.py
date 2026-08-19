@@ -178,10 +178,11 @@ def _train_condition(
     general_sp,
     steps: int,
     return_neuron: bool = False,
+    neuron_config=None,
 ):
     torch.manual_seed(SEED)
     random.seed(SEED)
-    cfg = get_domain_neuron_config("zh", spec="micro")
+    cfg = neuron_config or get_domain_neuron_config("zh", spec="micro")
     cfg.neuron_id = f"zh_micro_dialogue_{name}"
     neuron = ResonanceNeuron(cfg)
     local_params = sum(parameter.numel() for parameter in neuron.parameters())
@@ -237,9 +238,8 @@ def _train_condition(
     return report, None
 
 
-def _population_canary(micro, shared) -> dict:
+def _population_canary(micro, shared, micro_id: str = "zh_micro_dialogue_ab") -> dict:
     micro.eval()
-    micro_id = "zh_micro_dialogue_ab"
     micro.config.neuron_id = micro_id
     with contextlib.redirect_stdout(io.StringIO()):
         cortex, _, _ = assemble_cortex(
