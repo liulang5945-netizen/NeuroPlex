@@ -599,3 +599,16 @@ route head 80 步，语言主体、embed_adapter、field、跨规格投影和 sh
 17.184 的收益是否跨数据分布保持；仍只改内存 route head，不写生产 checkpoint。若 HF
 收益消失，再调整监督温度/边界；在独立泛化验收前不接入默认路由。当前环境未检测到 CUDA，
 继续采用单进程复用 shared embedding。
+
+独立 HF holdout 验收已完成（2026-08-20）：同一 LayerNorm + MLP + `2*tanh` route head
+在 current holdout 上将 hard-route NLL 从 116.231 降到 17.184，在独立 HF holdout 上从
+129.804 降到 55.725，说明 sample-level route head 的收益可以跨数据分布泛化，但幅度
+明显减弱。训练后路由仍主要选择 en/code（current 约 0.766/0.234，HF 约 0.670/0.330），
+三个 micro 基本没有被选中；quality logits 触及边界，说明当前监督用“整回合平均 NLL”
+会偏向稳定的 general 成员，无法利用 micro 在不同 token 位置上的互补优势。完整报告为
+`reports/micro_bounded_route_head_hf_697m_20260820.json`。
+
+当前停在下一项架构决策节点。唯一推荐下一步：保持有界、归一化和全冻结边界不变，把
+route supervision 从 sample-level 平均 NLL 改为 per-position projected-NLL 目标，验证
+route head 能否逼近 oracle 并让 micro 赢得其已证明具备的 token 级互补份额；验证前仍不
+接入默认路由或写生产 checkpoint。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。

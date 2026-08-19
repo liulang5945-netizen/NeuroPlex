@@ -39,9 +39,11 @@ from scripts.training.diag_micro_route_fusion_pilot import (
     _masked_teacher_forcing_nll,
     _prepare_population,
     _projected_logits,
+    _rounds_from_texts,
     _route_snapshot,
     _freeze_to_quality_heads,
 )
+from scripts.training.utils import load_dialogue_texts_multi
 
 
 ROUTE_HEAD_BOUND = 2.0
@@ -128,12 +130,21 @@ def run(
         neuron.eval()
 
     train_rounds, eval_rounds = _load_route_rounds(train_cap, eval_cap)
+    hf_eval_rounds = _rounds_from_texts(load_dialogue_texts_multi(
+        "data/hf_candidates/moss_003_dialogue",
+        filenames=["eval.jsonl"],
+        max_texts=eval_cap,
+    ))
     if not train_rounds or not eval_rounds:
         raise RuntimeError("bounded route head train/eval rounds are empty")
+    if not hf_eval_rounds:
+        raise RuntimeError("bounded route head HF eval rounds are empty")
 
     production_before = _route_snapshot(cortex, eval_rounds, general_sp)
+    production_before_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
     trainable = _install_bounded_heads(cortex)
     bounded_before = _route_snapshot(cortex, eval_rounds, general_sp)
+    bounded_before_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
     optimizer = torch.optim.AdamW(
         trainable, lr=ROUTE_HEAD_LR, weight_decay=0.01
     )
@@ -170,6 +181,7 @@ def run(
         del result
 
     bounded_after = _route_snapshot(cortex, eval_rounds, general_sp)
+    bounded_after_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
     raw_nll = production_before["hard_route_teacher_forcing_nll"]
     after_nll = bounded_after["hard_route_teacher_forcing_nll"]
     report = {
@@ -193,16 +205,33 @@ def run(
             **data_info,
             "route_train_rounds": len(train_rounds),
             "route_eval_rounds": len(eval_rounds),
+            "hf_eval_rounds": len(hf_eval_rounds),
             "route_seq_len": ROUTE_SEQ_LEN,
         },
         "specialist_reports": specialist_reports,
         "production_before": production_before,
+        "production_before_hf": production_before_hf,
         "bounded_before": bounded_before,
+        "bounded_before_hf": bounded_before_hf,
         "bounded_after": bounded_after,
+        "bounded_after_hf": bounded_after_hf,
         "delta": {
             "bounded_after_minus_production_nll": round(after_nll - raw_nll, 6),
             "bounded_after_over_production_ppl_ratio": round(
                 math.exp(min(after_nll - raw_nll, 20)), 6
+            ),
+            "hf_bounded_after_minus_production_nll": round(
+                bounded_after_hf["hard_route_teacher_forcing_nll"]
+                - production_before_hf["hard_route_teacher_forcing_nll"],
+                6,
+            ),
+            "hf_bounded_after_over_production_ppl_ratio": round(
+                math.exp(min(
+                    bounded_after_hf["hard_route_teacher_forcing_nll"]
+                    - production_before_hf["hard_route_teacher_forcing_nll"],
+                    20,
+                )),
+                6,
             ),
         },
         "route_loss_trace": history,
