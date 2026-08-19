@@ -231,6 +231,11 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     调质契约测试，并同步修正归档 smoke 中的旧断言。
 39. 用中性调质重跑完整 9 成员 API 等价对话 smoke：加载与运行均正常，总耗时 228.4 秒；
     但仍出现答非所问、重复、截断和 `1.<0x0A>` 退化，确认调质 parity 修复没有解决语言能力。
+40. 完成生成质量责任边界审计：在去重后的固定 hash holdout 上抽取 32 条跨文件 dialogue 样本，
+    五个 dialogue 神经元均实现 32/32 的 `答：` answer mask / general→zh 前缀对齐 / 域 token→general
+    回填；固定 8 条样本的 full teacher-forcing 与 prompt-only 首 token logits 最大差为 0～7e-6。
+    但五个神经元首 token Top-1 仅 28.1%～34.4%，中位目标排名为第 4～9 位，故责任边界收敛到
+    对话 checkpoint 的首 token 分布与训练数据/目标，不再修改推理映射链，也不启动长训练。
 
 ## 6. 后续工作顺序
 
@@ -318,6 +323,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-进入 P1.2 的生成质量责任边界审计：固定 9 成员生产阵容和中性调质，逐项核对 dialogue
-训练样本的 answer mask、general→zh 位置对齐、首 token 生成和域 token→general 回填；先找出
-退化发生的具体环节，再决定是否需要改推理链或重训，期间不启动长训练。
+进入 P1.2 的训练目标短审计：固定五个 dialogue checkpoint 和同一 holdout，核对实际训练入口的
+数据上限、去重/切分口径、answer mask 覆盖率、有效 answer token 数和 checkpoint 元数据；先判断
+当前权重是否确实在预期 SFT 目标上训练，再决定是否需要重训，期间不启动长训练。
