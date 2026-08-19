@@ -159,7 +159,7 @@ def _evaluate(neuron, encoded, texts, domain_sp, general_sp) -> dict:
     return metrics
 
 
-def run() -> dict:
+def run(return_state: bool = False):
     logging.disable(logging.CRITICAL)
     torch.manual_seed(20260819)
     random.seed(20260819)
@@ -224,6 +224,8 @@ def run() -> dict:
         "last": round(losses[-1], 6),
         "min": round(min(losses), 6),
     }
+    if return_state:
+        return report, neuron, shared, domain_sp, general_sp
     del neuron, shared, optimizer
     gc.collect()
     return report
