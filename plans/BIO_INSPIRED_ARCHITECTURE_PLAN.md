@@ -249,6 +249,10 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     字母、1% 为特殊/byte；来源文件为 `alpaca_zh_sft_clean` 84 条、`dialogue_extended_clean`
     16 条，截断 42%。汉字首 token 在五个 neuron 上 Top-1 仅 10.3%～12.8%，而数字首 token 为
     64.3%～85.7%，故当前主因不是英文/代码污染，而是中文答案起始分布未学好。
+44. 完成单 neuron 不落盘微型过拟合：固定 8 条未截断汉字首答案，32 步后 answer loss 从 4.6889
+    降至 0.2568，首 token NLL 从 6.7835 降至 0.0569，中位 rank 从 244 降至 0，Top-1 从 12.5%
+    升至 100%。因此域输出头、token 对齐和有效 mask 均可学习，长训练退化责任收敛到优化配方/损失
+    对中文答案起始的权重不足，不修改域映射链，也不直接启动长训。
 
 ## 6. 后续工作顺序
 
@@ -336,6 +340,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-对一个现有 dialogue neuron 做不落盘的几十步微型过拟合：固定 8 条汉字首 token、同一
-`batch_align_and_embed` 与有效 aligned answer mask，比较训练前后首 token loss/rank；若能快速
-下降，下一步改训练配方，若不能，则回到域输出头/目标映射的机制审计；两种结果都不触发长训练。
+对同一 dialogue neuron 做不落盘的短 A/B：固定训练/评估样本，比较原始 token-mean loss 与
+首答案 token 加权 loss 的泛化首 token rank 和完整 answer loss；只据此决定是否把首 token 权重
+纳入正式训练入口，仍不启动长训练。
