@@ -356,6 +356,15 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     重复率仍为 0.57/0.61，不能计为群体能力提升。因此 25% HF 仍然过重，不能写入生产或替换
     canonical 数据；完整报告为 `reports/micro_data_mix_7525_20260819.json`。
 
+    进一步执行的固定 90% current / 10% HF pilot 使用 95,059 条 current 与 10,562 条 HF
+    训练样本，实际比例为 90.0001% / 9.9999%。current eval corrected PPL=3,440.38，较
+    current-only 的 3,369.54 上升 2.1%，但 first-token NLL=8.933、median rank=1,046，
+    均优于 current-only 的 9.048 与 1,316；首 token Top-1 仍由 5.07% 降至 1.85%。HF eval
+    PPL=4,784.22，较 current-only 的 6,109.23 改善，median rank=973（对照 1,410）。
+    9 成员装配与临时 10 成员 forward 均有限通过，但生成仍高重复，尚未证明群体能力提升；
+    完整报告为 `reports/micro_data_mix_9010_20260819.json`。因此 10% 是当前唯一保留的
+    实验比例候选，但仍不可写入生产。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -442,8 +451,7 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：保持 7.58M micro、冻结 shared embedding 和现有五个 dialogue checkpoint，
-执行一次 90% current / 10% HF 的固定混合 pilot（160 步），同时复测 current eval、HF eval
-和真实 5 dialogue + 4 general 群体 canary；仍不写入生产 checkpoint。选择 10% 是因为 25%
-已经证明能吸收 HF 分布却损伤 current 首 token 泛化，下一次只降低数据扰动强度，不同时改变
-模型、优化器或评估口径。
+唯一推荐下一步：保持 7.58M micro、冻结 shared embedding、固定 90% current / 10% HF，
+执行一次 800 步全量训练，并复测 current eval、HF eval 以及同 prompt/同 seed 的 9 成员
+基线 vs 10 成员群体 canary；仍不写入生产 checkpoint。这样只增加训练充分度，不改变模型、
+数据比例或评估口径，用来判断当前生成退化主要来自训练不足，还是来自 7.58M 微型成员本身。

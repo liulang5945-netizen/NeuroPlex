@@ -267,15 +267,21 @@ def _population_canary(micro, shared) -> dict:
         "base_population": "5 dialogue + 4 general",
         "micro_added_via": "ResonanceEnsemble.add_neuron",
         "writes_checkpoint": False,
+        "base_forward": _real_population_forward(cortex, base_ids),
         "mixed_forward": _real_population_forward(cortex, expanded_ids),
-        "generation": {},
+        "generation": {"base_9": {}, "with_micro_10": {}},
     }
     for index, prompt in enumerate(PROMPTS[:2]):
         seed = SEED + index
-        text = _generate(cortex, expanded_ids, prompt, seed)
-        report["generation"][prompt] = {
-            "text": text,
-            "surface": _surface_metrics(text),
+        base_text = _generate(cortex, base_ids, prompt, seed)
+        micro_text = _generate(cortex, expanded_ids, prompt, seed)
+        report["generation"]["base_9"][prompt] = {
+            "text": base_text,
+            "surface": _surface_metrics(base_text),
+        }
+        report["generation"]["with_micro_10"][prompt] = {
+            "text": micro_text,
+            "surface": _surface_metrics(micro_text),
         }
     del cortex
     gc.collect()
