@@ -264,6 +264,9 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     100 条原始 holdout；五个 corrected PPL 全部从 67.34～72.57 恶化到 84.26～89.99，首 token
     Top-1 没有改善。训练 loss 下降但泛化一致退化，故否决当前 curriculum，不覆盖现有权重，也不
     启动正式重训。
+48. 完成 `zh_aug2_dialogue` 的 200 步冻结 shared embedding pilot（不落盘）：原始混合数据下
+    corrected PPL 仍从 67.7344 恶化到 72.0445，首 token Top-1 仅 23%→24%，rank 轻微改善但不
+    足以通过质量门；排除“只因 shared embedding 更新”的解释，停止继续试训练配方。
 
 ## 6. 后续工作顺序
 
@@ -351,6 +354,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：对代表性最强的 `zh_aug2_dialogue` 做 200 步不落盘冻结 shared embedding
-短 pilot，保持原始混合数据和 corrected evaluator；若 PPL 不再恶化，正式训练优先冻结 shared
-embedding，若仍恶化，则停止训练侧试错，回到 checkpoint/优化器状态审计。
+唯一推荐下一步：审计五个 dialogue checkpoint 的保存状态与 provenance，核对文件当前权重是否为
+latest 还是 historical best、`best_step` 与 optimizer/scheduler 学习率是否一致、shared embedding
+是否来自同一训练版本；此审计完成前不再启动任何训练。
