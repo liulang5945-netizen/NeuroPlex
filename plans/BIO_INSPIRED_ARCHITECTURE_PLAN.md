@@ -429,6 +429,14 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     7.58M 还出现重复率上升。因此当前最值得延长训练的是 6.97M，而不是默认回到 7.58M；
     完整报告为 `reports/micro_spec_data_ab_800_20260819.json`。
 
+    继续完成 6.974593M（2 层/hidden=128/field=256）的 2,000 步延长训练：current eval
+    PPL=1,028.05、median rank=134、首 token Top-1=7.68%；HF eval PPL=1,136.01、median
+    rank=77、Top-1=0.50%。相较同口径 7.581313M 的 2,000 步结果，current/HF PPL 分别再
+    下降约 2.20%/1.05%，local 参数减少约 8.00%；但群体级 shared embedding 成本仍只
+    能通过一次加载共享，不能误报为总成本同步下降。9+1 canary forward 通过，固定生成一
+    条 prompt 发生变化且重复率由 0.5714 升至 0.5859，另一条不变，仍无群体净增益；不
+    写入生产。完整报告为 `reports/micro_2x128_long_9010_2000_20260819.json`。
+
 ## 6. 后续工作顺序
 
 ### P0：建立最小可复现群体基线（已完成）
@@ -525,8 +533,8 @@ cosine 约 1。五个 dialogue 首 token Top-1 为 31.25%～40.62%，中位排�
 但当前证据只支持“单体可学习、HF 跨分布泛化可改善”，不支持“已经产生群体智能”。生产
 9 成员和五个 dialogue checkpoint 仍保持冻结，不被实验权重覆盖。
 
-唯一推荐下一步：固定 6.97M（2 层/hidden=128/field=256）规格，继续使用 90% current /
-10% HF、冻结 shared embedding，执行 2,000 步延长训练并完成完整 current/HF eval 与临时
-9+1 canary；验收重点是确认它相对 7.58M 的成本优势能否保持，同时观察更小成员是否出现
-任何稳定群体净增益。当前环境未检测到 CUDA，仍不启动重复加载 shared embedding 的多进程；
-实验不改变生产 9 成员装配和五个 dialogue checkpoint。
+唯一推荐下一步：固定 6.97M（2 层/hidden=128/field=256）规格，在同一份 shared embedding
+上训练 3 个临时专长成员：current-only、HF-only、90% current / 10% HF；分别完成单体
+current/HF eval，再以 9+3 临时群体做 canary，验证多小成员是否产生可重复的路由选择或
+群体净增益。当前环境未检测到 CUDA，采用单进程复用 shared embedding，不启动重复加载的
+多进程；实验不改变生产 9 成员装配和五个 dialogue checkpoint。

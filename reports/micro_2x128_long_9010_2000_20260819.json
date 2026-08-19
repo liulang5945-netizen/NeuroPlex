@@ -1,0 +1,171 @@
+{
+  "contract": {
+    "seed": 20260819,
+    "specs": [
+      "micro_2x128"
+    ],
+    "steps_per_spec": 2000,
+    "hf_ratio_requested": 0.1,
+    "max_seq_len": 128,
+    "shared_embedding_frozen": true,
+    "shared_embedding_loaded_once": true,
+    "writes_checkpoint": false,
+    "production_population_untouched": true
+  },
+  "data": {
+    "current_train": 95059,
+    "current_eval": 4941,
+    "hf_train": 45599,
+    "hf_train_used": 10562,
+    "hf_eval": 2400,
+    "eval_cap": 0,
+    "train_samples": 105621,
+    "current_fraction": 0.900001,
+    "hf_fraction": 0.099999
+  },
+  "candidates": {
+    "micro_2x128": {
+      "condition": "micro_2x128",
+      "train_samples": 105621,
+      "steps": 2000,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 4941,
+          "effective_answer_tokens": 341345,
+          "answer_loss": 11.472658,
+          "corrected_ppl": 96053.271,
+          "first_token_nll": 11.354378,
+          "median_rank_zero_based": 25483,
+          "first_token_top1": 0.0002
+        },
+        "hf_eval": {
+          "samples": 2400,
+          "effective_answer_tokens": 240611,
+          "answer_loss": 11.428588,
+          "corrected_ppl": 91912.0726,
+          "first_token_nll": 11.297385,
+          "median_rank_zero_based": 23831,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 4941,
+          "effective_answer_tokens": 341345,
+          "answer_loss": 6.935414,
+          "corrected_ppl": 1028.0451,
+          "first_token_nll": 7.308397,
+          "median_rank_zero_based": 134,
+          "first_token_top1": 0.0768
+        },
+        "hf_eval": {
+          "samples": 2400,
+          "effective_answer_tokens": 240611,
+          "answer_loss": 7.035275,
+          "corrected_ppl": 1136.0068,
+          "first_token_nll": 7.106689,
+          "median_rank_zero_based": 77,
+          "first_token_top1": 0.005
+        }
+      },
+      "loss_trace": {
+        "first": 11.427159,
+        "last": 6.982387,
+        "min": 4.402318
+      },
+      "spec_name": "micro_2x128",
+      "population_canary": {
+        "base_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh"
+        ],
+        "expanded_ids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "code",
+          "en",
+          "math",
+          "zh",
+          "zh_micro_2x128"
+        ],
+        "base_population": "5 dialogue + 4 general",
+        "micro_added_via": "ResonanceEnsemble.add_neuron",
+        "writes_checkpoint": false,
+        "base_forward": {
+          "field_shape": [
+            3072
+          ],
+          "finite": true,
+          "rounds": 3
+        },
+        "mixed_forward": {
+          "field_shape": [
+            3072
+          ],
+          "finite": true,
+          "rounds": 3
+        },
+        "generation": {
+          "base_9": {
+            "问：你好，请介绍一下自己\n答：": {
+              "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters提供更多生存",
+              "surface": {
+                "chars": 92,
+                "unique_char_ratio": 0.2826,
+                "repeated_bigram_ratio": 0.5714,
+                "has_decode_artifact": false
+              }
+            },
+            "问：什么是人工智能？\n答：": {
+              "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+              "surface": {
+                "chars": 96,
+                "unique_char_ratio": 0.1875,
+                "repeated_bigram_ratio": 0.6105,
+                "has_decode_artifact": false
+              }
+            }
+          },
+          "with_micro_10": {
+            "问：你好，请介绍一下自己\n答：": {
+              "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clusters part climbers",
+              "surface": {
+                "chars": 100,
+                "unique_char_ratio": 0.23,
+                "repeated_bigram_ratio": 0.5859,
+                "has_decode_artifact": false
+              }
+            },
+            "问：什么是人工智能？\n答：": {
+              "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+              "surface": {
+                "chars": 96,
+                "unique_char_ratio": 0.1875,
+                "repeated_bigram_ratio": 0.6105,
+                "has_decode_artifact": false
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

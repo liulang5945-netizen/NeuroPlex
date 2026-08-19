@@ -56,7 +56,12 @@ def _make_config(spec_name: str) -> NeuronConfig:
     )
 
 
-def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0) -> dict:
+def run(
+    steps: int = 800,
+    hf_ratio: float = DEFAULT_HF_RATIO,
+    eval_cap: int = 0,
+    specs: tuple[str, ...] = SCREEN_SPECS,
+) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
     pools = _load_pools(eval_cap=eval_cap)
@@ -74,7 +79,7 @@ def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0)
     )
     train_texts = pools["current_train"] + selected_hf_train
     results = {}
-    for spec_name in SCREEN_SPECS:
+    for spec_name in specs:
         print(f"[{spec_name}] starting {steps} steps", flush=True)
         report, neuron = _train_condition(
             spec_name,
@@ -99,7 +104,7 @@ def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0)
     report = {
         "contract": {
             "seed": SEED,
-            "specs": list(SCREEN_SPECS),
+            "specs": list(specs),
             "steps_per_spec": steps,
             "hf_ratio_requested": hf_ratio,
             "max_seq_len": MAX_SEQ_LEN,
@@ -135,9 +140,22 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=800)
     parser.add_argument("--hf-ratio", type=float, default=DEFAULT_HF_RATIO)
     parser.add_argument("--eval-cap", type=int, default=0)
+    parser.add_argument(
+        "--spec",
+        dest="specs",
+        action="append",
+        choices=SCREEN_SPECS,
+        help="run only the selected validated candidate; repeat for multiple specs",
+    )
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
-    report = run(steps=args.steps, hf_ratio=args.hf_ratio, eval_cap=args.eval_cap)
+    selected_specs = tuple(args.specs) if args.specs else SCREEN_SPECS
+    report = run(
+        steps=args.steps,
+        hf_ratio=args.hf_ratio,
+        eval_cap=args.eval_cap,
+        specs=selected_specs,
+    )
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
     if args.json_out is not None:
