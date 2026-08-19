@@ -612,3 +612,24 @@ route head 80 步，语言主体、embed_adapter、field、跨规格投影和 sh
 route supervision 从 sample-level 平均 NLL 改为 per-position projected-NLL 目标，验证
 route head 能否逼近 oracle 并让 micro 赢得其已证明具备的 token 级互补份额；验证前仍不
 接入默认路由或写生产 checkpoint。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。
+
+per-position projected-NLL 监督实验已进入实现阶段（2026-08-20）：临时 route head 仍为
+LayerNorm + MLP + `2*tanh`，但训练目标改为每个答案 token 上各成员 projected NLL 的
+softmax，再聚合为样本级信任分布；同时报告 current/HF 的逐 token target 权重和 oracle
+位置胜率。该改动仍只作用于内存 route head，不改生产 forward、默认 loader 或 checkpoint；
+下一步先完成烟测，再运行正式 current + HF 验收。
+
+per-position projected-NLL 正式验收已完成（2026-08-20）：在同一 9+3 临时群体、三组
+micro 各 800 步、bounded route head 80 步的条件下，current holdout hard-route NLL 为
+`116.231 → 17.876`，独立 HF holdout 为 `129.804 → 59.675`，均略差于 sample-level
+目标的 `17.184/55.725`。逐 token target 本身确认了 micro 的互补能力仍存在：current
+三组 micro 获得约 14.9% 的平均 target 权重、赢得 29.0% 的 oracle 位置；HF 获得约
+13.7% target 权重、赢得 21.3% oracle 位置。但训练后的实际 hard route 中三组 micro
+仍为 0%，而 code/en/math logits 触及 `2*tanh` 上界，说明瓶颈已从监督目标进一步收敛
+为“标量样本级 quality head 无法表达逐位置信任”。本实验没有写入生产 checkpoint；
+正式报告为 `reports/micro_per_position_route_head_697m_20260820.json`。
+
+当前停在架构决策节点。唯一推荐下一步：保持全冻结和生产边界不变，把临时 route head
+升级为能读取 token-level hidden state、输出 `[成员, 位置]` trust logits 的 per-position
+route head，再用 projected token NLL 监督；在该 head 通过 current/HF 验收前，不接入默认
+路由，也不保存生产权重。当前环境未检测到 CUDA，继续采用单进程复用 shared embedding。

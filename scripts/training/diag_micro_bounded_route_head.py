@@ -4,7 +4,8 @@
 
 * 输入先经过 LayerNorm，消除不同神经元表征的尺度差；
 * 输出经过 ``bound * tanh`` 限幅，避免 quality-logit 膨胀；
-* 监督目标是同一回合上各成员 general-space projected NLL 的 softmax；
+* 监督目标是每个答案 token 上各成员 general-space projected NLL 的 softmax，
+  再聚合成样本级信任分布；
 * 语言主体、embed_adapter、field、跨规格投影和 shared embedding 全冻结。
 
 它不修改 ResonanceNeuron 的生产实现，不保存任何 production checkpoint。
@@ -89,22 +90,74 @@ def _projected_member_nll(result, cortex, targets, answer_mask):
         _masked_teacher_forcing_nll(member_logits, targets, answer_mask)
         for member_logits in projected
     ])
-    return projected, nlls
+    shift_targets = targets[:, 1:].contiguous()
+    valid = answer_mask[:, 1:].bool() & shift_targets.ge(0)
+    if not bool(valid.any()):
+        valid = shift_targets.ge(0)
+    token_nlls = []
+    for member_logits in projected:
+        token_nll = F.cross_entropy(
+            member_logits[:, :-1, :].float().reshape(-1, member_logits.shape[-1]),
+            shift_targets.reshape(-1),
+            reduction="none",
+        ).reshape_as(shift_targets)
+        token_nlls.append(token_nll[valid])
+    return projected, nlls, torch.stack(token_nlls)
+
+
+def _per_position_target_snapshot(cortex, rounds, general_sp) -> dict:
+    """汇总逐 token oracle 目标，检查 micro 是否得到真实互补份额。"""
+
+    member_ids = list(cortex.ensemble.neurons.keys())
+    target_sum = torch.zeros(len(member_ids))
+    oracle_wins = torch.zeros(len(member_ids), dtype=torch.long)
+    total_tokens = 0
+    with torch.no_grad():
+        for start in range(0, len(rounds), 1):
+            result, targets, answer_mask = _forward_batch(
+                cortex, rounds[start:start + 1], general_sp
+            )
+            _projected, _member_nll, token_nll = _projected_member_nll(
+                result, cortex, targets, answer_mask
+            )
+            ideal = F.softmax(-token_nll / ROUTE_TARGET_TEMPERATURE, dim=0)
+            target_sum += ideal.sum(dim=1).cpu()
+            oracle_wins += torch.bincount(
+                ideal.argmax(dim=0).cpu(), minlength=len(member_ids)
+            )
+            total_tokens += token_nll.shape[1]
+            del result
+    total_tokens = max(total_tokens, 1)
+    return {
+        "samples": len(rounds),
+        "answer_tokens": total_tokens,
+        "mean_target_weights": {
+            nid: round(float(target_sum[i] / total_tokens), 6)
+            for i, nid in enumerate(member_ids)
+        },
+        "oracle_position_winner_fraction": {
+            nid: round(float(oracle_wins[i] / total_tokens), 6)
+            for i, nid in enumerate(member_ids)
+        },
+    }
 
 
 def _route_loss(cortex, result, targets, answer_mask):
     quality_logits = result.get("quality_logits")
     if quality_logits is None:
         raise RuntimeError("bounded route head did not return quality logits")
-    _projected, member_nll = _projected_member_nll(
+    _projected, member_nll, member_token_nll = _projected_member_nll(
         result, cortex, targets, answer_mask
     )
-    ideal = F.softmax(-member_nll.detach() / ROUTE_TARGET_TEMPERATURE, dim=0)
+    per_position_ideal = F.softmax(
+        -member_token_nll.detach() / ROUTE_TARGET_TEMPERATURE, dim=0
+    )
+    ideal = per_position_ideal.mean(dim=1)
     predicted_log_probs = F.log_softmax(
         quality_logits / ROUTE_PREDICT_TEMPERATURE, dim=0
     )
     loss = -(ideal * predicted_log_probs).sum()
-    return loss, member_nll.detach(), ideal.detach()
+    return loss, member_nll.detach(), ideal.detach(), per_position_ideal.detach()
 
 
 def run(
@@ -155,7 +208,7 @@ def run(
         result, targets, answer_mask = _forward_batch(
             cortex, [train_rounds[index]], general_sp
         )
-        loss, member_nll, ideal = _route_loss(
+        loss, member_nll, ideal, per_position_ideal = _route_loss(
             cortex, result, targets, answer_mask
         )
         optimizer.zero_grad()
@@ -168,6 +221,10 @@ def run(
                 "loss": round(float(loss.detach()), 6),
                 "best_member_nll": round(float(member_nll.min()), 6),
                 "ideal_top1": int(ideal.argmax()),
+                "ideal_position_top1_fraction": round(
+                    float((per_position_ideal.argmax(dim=0) == ideal.argmax()).float().mean()),
+                    6,
+                ),
                 "quality_min": round(float(result["quality_logits"].detach().min()), 6),
                 "quality_max": round(float(result["quality_logits"].detach().max()), 6),
             })
@@ -182,6 +239,8 @@ def run(
 
     bounded_after = _route_snapshot(cortex, eval_rounds, general_sp)
     bounded_after_hf = _route_snapshot(cortex, hf_eval_rounds, general_sp)
+    target_current = _per_position_target_snapshot(cortex, eval_rounds, general_sp)
+    target_hf = _per_position_target_snapshot(cortex, hf_eval_rounds, general_sp)
     raw_nll = production_before["hard_route_teacher_forcing_nll"]
     after_nll = bounded_after["hard_route_teacher_forcing_nll"]
     report = {
@@ -193,7 +252,7 @@ def run(
             "route_steps": route_steps,
             "route_head": "LayerNorm -> Linear/GELU/Linear -> 2*tanh",
             "route_head_bound": ROUTE_HEAD_BOUND,
-            "route_target": "softmax(-projected_member_nll / 2.0)",
+            "route_target": "mean_position_softmax(-projected_token_nll / 2.0)",
             "language_bodies_frozen": True,
             "embed_adapter_frozen": True,
             "field_and_cross_spec_fusion_frozen": True,
@@ -215,6 +274,8 @@ def run(
         "bounded_before_hf": bounded_before_hf,
         "bounded_after": bounded_after,
         "bounded_after_hf": bounded_after_hf,
+        "per_position_target_current": target_current,
+        "per_position_target_hf": target_hf,
         "delta": {
             "bounded_after_minus_production_nll": round(after_nll - raw_nll, 6),
             "bounded_after_over_production_ppl_ratio": round(
