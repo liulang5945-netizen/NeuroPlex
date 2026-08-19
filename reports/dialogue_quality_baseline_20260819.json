@@ -1,0 +1,74 @@
+{
+  "schema_version": "dialogue-quality-gate/v1",
+  "generated_at": "2026-08-19",
+  "population": [
+    "zh_aug0_dialogue",
+    "zh_aug1_dialogue",
+    "zh_aug2_dialogue",
+    "zh_aug3_dialogue",
+    "zh_std0_dialogue",
+    "code",
+    "en",
+    "math",
+    "zh"
+  ],
+  "dialogue_checkpoint_baseline": {
+    "holdout_contract": {
+      "loaded_texts_after_dedup": 55661,
+      "eval_pool": 2761,
+      "eval_used": 100,
+      "max_seq_len": 128,
+      "effective_token_definition": "attention_mask & sft_mask & target >= 0",
+      "aligned_answer_tokens": 6704
+    },
+    "corrected_ppl": {
+      "zh_aug0_dialogue": 69.638,
+      "zh_aug1_dialogue": 72.5655,
+      "zh_aug2_dialogue": 67.7344,
+      "zh_aug3_dialogue": 71.4108,
+      "zh_std0_dialogue": 67.3371
+    },
+    "first_target_top1_rate": {
+      "zh_aug0_dialogue": 0.24,
+      "zh_aug1_dialogue": 0.21,
+      "zh_aug2_dialogue": 0.23,
+      "zh_aug3_dialogue": 0.23,
+      "zh_std0_dialogue": 0.22
+    }
+  },
+  "answer_data_audit": {
+    "eval_samples": 100,
+    "first_token_categories": {
+      "han": 78,
+      "numeric": 14,
+      "latin": 5,
+      "special_or_byte": 1,
+      "other": 2
+    },
+    "source_files": {
+      "alpaca_zh_sft_clean.jsonl": 84,
+      "dialogue_extended_clean.jsonl": 16
+    },
+    "truncated_samples_at_128_tokens": 42
+  },
+  "decode_audit": {
+    "questions": 4,
+    "top_k_variants": [15, 40, 100, 1],
+    "temperature": 0.55,
+    "repetition_penalty": 1.4,
+    "max_tokens": 8,
+    "conclusion": "no top-k variant reliably removes irrelevant, repetitive, or malformed output"
+  },
+  "training_pilot_audit": {
+    "short_curriculum": "rejected: five 500-step in-memory pilots increased corrected PPL to 84.26-89.99",
+    "frozen_shared_embedding": "rejected: zh_aug2 200-step pilot increased corrected PPL from 67.7344 to 72.0445",
+    "checkpoint_provenance": "consistent: all five at step 8000, log best at final step, optimizer/scheduler aligned"
+  },
+  "quality_gate_passed": false,
+  "blocking_reasons": [
+    "dialogue first-target Top-1 remains 21%-24% on the fixed 100-sample holdout",
+    "production short generation is not reliably relevant or non-repetitive",
+    "available low-cost training pilots degrade holdout quality"
+  ],
+  "next_boundary": "do not modify these checkpoints; require new high-quality training assets or an explicitly approved training budget before another weight experiment"
+}

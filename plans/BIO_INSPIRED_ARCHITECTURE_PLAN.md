@@ -272,6 +272,9 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
     embedding 均为 256000×512，未发现 latest/best、optimizer 恢复或结构错位。当前训练侧低成本
     修复路径全部否决，不再盲目续训；旧 checkpoint 的 `data_source` 标签仍是历史值，新训练入口已
     改为记录完整 dialogue 数据口径。
+50. 建立并提交 `reports/dialogue_quality_baseline_20260819.json` 发布阻断报告：固定 9 成员阵容、
+    corrected PPL、首 token、答案数据、解码敏感性和两种短 pilot 结果全部版本化；quality gate 明确
+    为不通过，当前权重冻结为 baseline，不再包装为已达标语言能力。
 
 ## 6. 后续工作顺序
 
@@ -359,6 +362,5 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-唯一推荐下一步：冻结当前五个 dialogue checkpoint 为质量基线，建立公开发布阻断门——固定 9 成员
-生产阵容、8 个问题、corrected PPL/首 token rank/短生成三类指标；在新的高质量训练资产或明确
-训练预算进入前，不再修改权重、不宣称当前生成质量达标。
+唯一推荐下一步：保持当前 quality gate 阻断，等待新的高质量对话训练资产或明确训练预算；在此之前
+只做公开文档/评估工具收口，不再修改五个 dialogue 权重、不启动新的训练实验。
