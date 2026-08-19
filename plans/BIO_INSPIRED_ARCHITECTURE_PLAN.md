@@ -585,3 +585,17 @@ route credit assignment 与输出尺度，而不是 micro 容量。完整报告�
 逼近 oracle；仍冻结 12 个语言主体、原 embed_adapter、field 和 shared embedding，
 只允许内存中的 route head 变化，验证前不得写入生产。当前环境未检测到 CUDA，继续采用
 单进程复用 shared embedding。
+
+临时有界 route head 试验已完成（2026-08-20）：LayerNorm + MLP + `2*tanh` 只训练
+route head 80 步，语言主体、embed_adapter、field、跨规格投影和 shared embedding 全部
+冻结。固定 current holdout 上 hard-route teacher-forcing NLL 从生产 raw route 的
+116.231 降到 17.184，接近单一最佳成员 14.881，但仍高于 oracle 12.330；这证明输入
+归一化和有界输出确实修复了 `zh` 独占造成的主要损失。与此同时 quality logits 很快
+触及 ±2 边界，最终路由主要落在 en/code（0.766/0.234），三个 micro 仍未获得有效
+路由权重，因此不能宣称群体能力已被完全利用。完整报告为
+`reports/micro_bounded_route_head_697m_20260819.json`。
+
+唯一推荐下一步：在完全相同的临时 route head 配方下加入独立 HF eval holdout，验证
+17.184 的收益是否跨数据分布保持；仍只改内存 route head，不写生产 checkpoint。若 HF
+收益消失，再调整监督温度/边界；在独立泛化验收前不接入默认路由。当前环境未检测到 CUDA，
+继续采用单进程复用 shared embedding。
