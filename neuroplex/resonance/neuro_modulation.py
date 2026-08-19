@@ -138,9 +138,10 @@ class NeuromodulatorState:
         - 低 DA → ffn_gain < 1 → FFN 输出衰减（惩罚信号，弱化非重要特征）
         - DA = 0.5 → ffn_gain = 1.0（中性，标准 FFN）
 
-        与 get_lr_multiplier 使用相同映射范围 [0.5, 2.0]。
+        采用以 1.0 为中性的 [0.5, 1.5] 映射；训练/推理均以标准 FFN
+        （ffn_gain=1.0）作为默认基线。
         """
-        return 0.5 + self.dopamine * 1.5
+        return 0.5 + self.dopamine
 
     def should_trigger_neurogenesis(self) -> bool:
         """是否应该触发神经元新生（低多巴胺持续）。"""

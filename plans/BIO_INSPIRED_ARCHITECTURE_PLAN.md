@@ -89,7 +89,7 @@ scripts/training/verify_*.py
 ## 4. 当前验收状态
 
 - `python -m compileall -q api neuroplex scripts/data_prep scripts/training`：通过。
-- `python -m pytest tests -q`：34 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
+- `python -m pytest tests -q`：35 项核心回归测试通过，覆盖对话格式契约、生产 5-dialogue
   默认阵容契约、共振 side-channel、API 健康检查、最小群体基线、跨域评估词表契约和固定
   anchor 参考加载。
 - `python -m pip install -e ".[dev]" --no-deps`：可完成 editable 安装。
@@ -200,7 +200,7 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
 20. 将 C27 自组织新生脚本收敛为群体成长生命周期回归：新生、成熟、隔离、复活、路由/生成保护和最新权重恢复均通过 20/20。
 21. 完成社区发布面审计，移除当前入口中的旧规模/集中式迁移叙事，保留兼容模块但不纳入产品主路径。
 22. 新增 `scripts/bootstrap_population_demo.py`，把无 checkpoint 的确定性群体基线收敛为社区首运行入口。
-23. 完成 editable 安装、bootstrap 版本化输出、API health、34 项核心测试和全量 Python 编译验收。
+23. 完成 editable 安装、bootstrap 版本化输出、API health、35 项核心测试和全量 Python 编译验收。
 24. 将 editable 安装、bootstrap smoke、最小群体/API smoke 纳入 `.github/workflows/ci.yml`，并在本地复跑同一命令链。
 25. 完成公开发布残留扫描并收敛当前入口措辞；保留归档、兼容、安全和合成探针边界。
 26. 完成辅助研究路线的真实资产盘点、固定 anchor 复核和短 PPL 能力探针；确认协作信号存在但当前生成质量未达可用门槛。
@@ -225,8 +225,12 @@ CUDA，不能在未确认预算前启动长时训练。该探针是 `code/math/z
      未清零 refractory 状态，不能作为公平基线；清零后确认生产 ensemble 的 round1 会额外注入
      `ffn_gain=1.25`。
 37. 完成五 dialogue 的中性 gain 对照：将 `ffn_gain` 显式设为 1.0 后，单 token round1
-     `max_abs_diff` 由约 1.12 降至约 0.011，argmax 对齐，但短生成的重复问题仍在；因此这是
-     训练-推理契约修复候选，不是完整语言质量修复。
+    `max_abs_diff` 由约 1.12 降至约 0.011，argmax 对齐，但短生成的重复问题仍在；因此这是
+    训练-推理契约修复候选，不是完整语言质量修复。
+38. 按决策将默认 DA=0.5 的 `ffn_gain` 收敛为 1.0，映射范围调整为 [0.5, 1.5]，补充中性
+    调质契约测试，并同步修正归档 smoke 中的旧断言。
+39. 用中性调质重跑完整 9 成员 API 等价对话 smoke：加载与运行均正常，总耗时 228.4 秒；
+    但仍出现答非所问、重复、截断和 `1.<0x0A>` 退化，确认调质 parity 修复没有解决语言能力。
 
 ## 6. 后续工作顺序
 
@@ -314,7 +318,6 @@ embedding、以及隔离 checkpoint 落后于运行时权重两个生命周期�
 
 ## 7. 唯一下一步
 
-当前进入架构决策节点：是否将默认 DA=0.5 的 `ffn_gain` 从 1.25 收敛为训练一致的 1.0。
-建议采用 1.0，理由是它恢复训练-推理 round1 parity；但它会改变生产调质默认行为，需确认后再
-修改 `NeuromodulatorState`、补契约测试并重跑 9 成员质量 smoke。无论选择哪一项，都不能把它
-包装成语言能力已经解决，也不应在此之前启动长训练。
+进入 P1.2 的生成质量责任边界审计：固定 9 成员生产阵容和中性调质，逐项核对 dialogue
+训练样本的 answer mask、general→zh 位置对齐、首 token 生成和域 token→general 回填；先找出
+退化发生的具体环节，再决定是否需要改推理链或重训，期间不启动长训练。

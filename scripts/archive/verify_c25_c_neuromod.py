@@ -135,7 +135,7 @@ def main() -> None:
     check("refractory 接口保留", abs(nm7.get_refractory_multiplier() - 1.0) < 1e-6)
     check("field_write 接口保留", abs(nm7.get_field_write_scale() - 1.0) < 1e-6)
     check("attention_temp 接口保留", abs(nm7.get_attention_temp_gain() - 1.0) < 1e-6)
-    check("ffn_gain 接口保留", abs(nm7.get_ffn_gain() - 1.25) < 1e-6)
+    check("ffn_gain 接口保留", abs(nm7.get_ffn_gain() - 1.0) < 1e-6)
 
     print(f"\n结果: {passed} PASS / {failed} FAIL")
     sys.exit(1 if failed else 0)

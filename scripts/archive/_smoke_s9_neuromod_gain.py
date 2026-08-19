@@ -41,7 +41,7 @@ def test_neuromodulator_gain_methods():
 
     # 默认 NE=0.5, DA=0.5
     assert abs(nm.get_attention_temp_gain() - 1.0) < 1e-6, "NE=0.5 → temp_gain 应为 1.0"
-    assert abs(nm.get_ffn_gain() - 1.25) < 1e-6, "DA=0.5 → ffn_gain 应为 1.25 (0.5+0.5*1.5)"
+    assert abs(nm.get_ffn_gain() - 1.0) < 1e-6, "DA=0.5 → ffn_gain 应为 1.0（训练/推理中性基线）"
 
     # NE 极端值（直接设置属性，跳过 EMA 收敛等待）
     nm.norepinephrine = 1.0
@@ -125,7 +125,7 @@ def test_ensemble_forward_train_passes_gain():
 
     shared_emb = torch.randn(2, 16, 512)
 
-    # 场景 A：中性调质（NE=DA=0.5 → temp_gain=1.0, ffn_gain=1.25）
+    # 场景 A：中性调质（NE=DA=0.5 → temp_gain=1.0, ffn_gain=1.0）
     nm_neutral = NeuromodulatorState()
     nm_neutral.dopamine = 0.5
     nm_neutral.norepinephrine = 0.5
