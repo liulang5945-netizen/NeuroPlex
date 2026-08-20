@@ -1,0 +1,467 @@
+{
+  "timestamp": "2026-08-20 18:49:16",
+  "task": "B1 探索自主性：1000 次 micro-sleep + 20 次自主选主题",
+  "cortex": {
+    "n_neurons": 9,
+    "judge_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 1000,
+    "decision_every": 50,
+    "decay": 0.9,
+    "n_decisions": 20,
+    "n_topic_pools": 6,
+    "n_prompts_per_pool": 24
+  },
+  "selected_counts": {
+    "philosophy": 20,
+    "law": 0,
+    "medicine": 0,
+    "art": 0,
+    "history": 0,
+    "engineering": 0
+  },
+  "top_topic": "philosophy",
+  "top_concentration": 1.0,
+  "nontrivial_concentration_count": 1,
+  "decision_log": [
+    {
+      "decision_idx": 0,
+      "step": 1,
+      "nll_per_pool": {
+        "philosophy": 14.598552227020264,
+        "law": 13.78633451461792,
+        "medicine": 14.538992881774902,
+        "art": 13.843135356903076,
+        "history": 13.86106824874878,
+        "engineering": 13.325334072113037
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.05955934524536133
+    },
+    {
+      "decision_idx": 1,
+      "step": 51,
+      "nll_per_pool": {
+        "philosophy": 14.598552227020264,
+        "law": 13.78633451461792,
+        "medicine": 14.538992881774902,
+        "art": 13.843135356903076,
+        "history": 13.86106824874878,
+        "engineering": 13.325334072113037
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.05955934524536133
+    },
+    {
+      "decision_idx": 2,
+      "step": 101,
+      "nll_per_pool": {
+        "philosophy": 14.621681213378906,
+        "law": 13.814852237701416,
+        "medicine": 14.498180866241455,
+        "art": 13.837235450744629,
+        "history": 13.840662002563477,
+        "engineering": 13.325085639953613
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.12350034713745117
+    },
+    {
+      "decision_idx": 3,
+      "step": 151,
+      "nll_per_pool": {
+        "philosophy": 14.621681213378906,
+        "law": 13.814852237701416,
+        "medicine": 14.498180866241455,
+        "art": 13.837235450744629,
+        "history": 13.840662002563477,
+        "engineering": 13.325085639953613
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.12350034713745117
+    },
+    {
+      "decision_idx": 4,
+      "step": 201,
+      "nll_per_pool": {
+        "philosophy": 14.682401657104492,
+        "law": 13.88706111907959,
+        "medicine": 14.388908863067627,
+        "art": 13.830214977264404,
+        "history": 13.793825149536133,
+        "engineering": 13.322307586669922
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.29349279403686523
+    },
+    {
+      "decision_idx": 5,
+      "step": 251,
+      "nll_per_pool": {
+        "philosophy": 14.682401657104492,
+        "law": 13.88706111907959,
+        "medicine": 14.388908863067627,
+        "art": 13.830214977264404,
+        "history": 13.793825149536133,
+        "engineering": 13.322307586669922
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.29349279403686523
+    },
+    {
+      "decision_idx": 6,
+      "step": 301,
+      "nll_per_pool": {
+        "philosophy": 14.740678787231445,
+        "law": 13.963712215423584,
+        "medicine": 14.37238359451294,
+        "art": 13.835514068603516,
+        "history": 13.782965183258057,
+        "engineering": 13.311351776123047
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.36829519271850586
+    },
+    {
+      "decision_idx": 7,
+      "step": 351,
+      "nll_per_pool": {
+        "philosophy": 14.740678787231445,
+        "law": 13.963712215423584,
+        "medicine": 14.37238359451294,
+        "art": 13.835514068603516,
+        "history": 13.782965183258057,
+        "engineering": 13.311351776123047
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.36829519271850586
+    },
+    {
+      "decision_idx": 8,
+      "step": 401,
+      "nll_per_pool": {
+        "philosophy": 14.840070247650146,
+        "law": 14.06370735168457,
+        "medicine": 14.298036575317383,
+        "art": 13.821858406066895,
+        "history": 13.738323211669922,
+        "engineering": 13.305572509765625
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.5420336723327637
+    },
+    {
+      "decision_idx": 9,
+      "step": 451,
+      "nll_per_pool": {
+        "philosophy": 14.840070247650146,
+        "law": 14.06370735168457,
+        "medicine": 14.298036575317383,
+        "art": 13.821858406066895,
+        "history": 13.738323211669922,
+        "engineering": 13.305572509765625
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.5420336723327637
+    },
+    {
+      "decision_idx": 10,
+      "step": 501,
+      "nll_per_pool": {
+        "philosophy": 14.979498863220215,
+        "law": 14.18817138671875,
+        "medicine": 14.163204669952393,
+        "art": 13.79988956451416,
+        "history": 13.754050731658936,
+        "engineering": 13.320484161376953
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.7913274765014648
+    },
+    {
+      "decision_idx": 11,
+      "step": 551,
+      "nll_per_pool": {
+        "philosophy": 14.979498863220215,
+        "law": 14.18817138671875,
+        "medicine": 14.163204669952393,
+        "art": 13.79988956451416,
+        "history": 13.754050731658936,
+        "engineering": 13.320484161376953
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.7913274765014648
+    },
+    {
+      "decision_idx": 12,
+      "step": 601,
+      "nll_per_pool": {
+        "philosophy": 15.08626937866211,
+        "law": 14.281639099121094,
+        "medicine": 14.256829738616943,
+        "art": 13.825995922088623,
+        "history": 13.788256168365479,
+        "engineering": 13.332334041595459
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.8046302795410156
+    },
+    {
+      "decision_idx": 13,
+      "step": 651,
+      "nll_per_pool": {
+        "philosophy": 15.08626937866211,
+        "law": 14.281639099121094,
+        "medicine": 14.256829738616943,
+        "art": 13.825995922088623,
+        "history": 13.788256168365479,
+        "engineering": 13.332334041595459
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.8046302795410156
+    },
+    {
+      "decision_idx": 14,
+      "step": 701,
+      "nll_per_pool": {
+        "philosophy": 14.99264907836914,
+        "law": 14.313679218292236,
+        "medicine": 14.292588233947754,
+        "art": 13.84587574005127,
+        "history": 13.755980014801025,
+        "engineering": 13.284575939178467
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.6789698600769043
+    },
+    {
+      "decision_idx": 15,
+      "step": 751,
+      "nll_per_pool": {
+        "philosophy": 14.99264907836914,
+        "law": 14.313679218292236,
+        "medicine": 14.292588233947754,
+        "art": 13.84587574005127,
+        "history": 13.755980014801025,
+        "engineering": 13.284575939178467
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "law",
+      "top2_nll_gap": 0.6789698600769043
+    },
+    {
+      "decision_idx": 16,
+      "step": 801,
+      "nll_per_pool": {
+        "philosophy": 14.912204265594482,
+        "law": 14.245407581329346,
+        "medicine": 14.44148588180542,
+        "art": 13.856717109680176,
+        "history": 13.818583011627197,
+        "engineering": 13.257195949554443
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.4707183837890625
+    },
+    {
+      "decision_idx": 17,
+      "step": 851,
+      "nll_per_pool": {
+        "philosophy": 14.912204265594482,
+        "law": 14.245407581329346,
+        "medicine": 14.44148588180542,
+        "art": 13.856717109680176,
+        "history": 13.818583011627197,
+        "engineering": 13.257195949554443
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.4707183837890625
+    },
+    {
+      "decision_idx": 18,
+      "step": 901,
+      "nll_per_pool": {
+        "philosophy": 14.787721157073975,
+        "law": 14.136409282684326,
+        "medicine": 14.52961254119873,
+        "art": 13.848099708557129,
+        "history": 13.888318061828613,
+        "engineering": 13.220866680145264
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.25810861587524414
+    },
+    {
+      "decision_idx": 19,
+      "step": 951,
+      "nll_per_pool": {
+        "philosophy": 14.787721157073975,
+        "law": 14.136409282684326,
+        "medicine": 14.52961254119873,
+        "art": 13.848099708557129,
+        "history": 13.888318061828613,
+        "engineering": 13.220866680145264
+      },
+      "chosen_topic": "philosophy",
+      "second_topic": "medicine",
+      "top2_nll_gap": 0.25810861587524414
+    }
+  ],
+  "checkpoint_curve": [
+    {
+      "step": 1,
+      "elapsed_total_s": 132.9,
+      "dt_step_s": 17.2
+    },
+    {
+      "step": 50,
+      "elapsed_total_s": 132.9,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 100,
+      "elapsed_total_s": 212.0,
+      "dt_step_s": 61.9
+    },
+    {
+      "step": 150,
+      "elapsed_total_s": 229.4,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 200,
+      "elapsed_total_s": 317.7,
+      "dt_step_s": 71.0
+    },
+    {
+      "step": 250,
+      "elapsed_total_s": 333.9,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 300,
+      "elapsed_total_s": 427.8,
+      "dt_step_s": 77.8
+    },
+    {
+      "step": 350,
+      "elapsed_total_s": 444.0,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 400,
+      "elapsed_total_s": 567.2,
+      "dt_step_s": 105.9
+    },
+    {
+      "step": 450,
+      "elapsed_total_s": 587.8,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 500,
+      "elapsed_total_s": 725.4,
+      "dt_step_s": 117.7
+    },
+    {
+      "step": 550,
+      "elapsed_total_s": 745.1,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 600,
+      "elapsed_total_s": 878.9,
+      "dt_step_s": 114.4
+    },
+    {
+      "step": 650,
+      "elapsed_total_s": 898.4,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 700,
+      "elapsed_total_s": 1037.4,
+      "dt_step_s": 119.5
+    },
+    {
+      "step": 750,
+      "elapsed_total_s": 1057.8,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 800,
+      "elapsed_total_s": 1199.4,
+      "dt_step_s": 121.2
+    },
+    {
+      "step": 850,
+      "elapsed_total_s": 1220.0,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 900,
+      "elapsed_total_s": 1370.4,
+      "dt_step_s": 130.0
+    },
+    {
+      "step": 950,
+      "elapsed_total_s": 1392.8,
+      "dt_step_s": 0.0
+    },
+    {
+      "step": 1000,
+      "elapsed_total_s": 1549.3,
+      "dt_step_s": 133.2
+    }
+  ],
+  "crash_count": 0,
+  "post_groups": {
+    "dialogue": {
+      "std": 0.5506578312298082,
+      "mean": 14.287724733352661,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 0.6779265997219818,
+      "mean": 14.34824538230896,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.4717060685049277,
+      "mean": 14.373926281929016,
+      "n_valid": 8
+    }
+  },
+  "passed": 4,
+  "failed": 0,
+  "verdict": "B1 PASS：20 次决策 top 主题 100.0% ≥ 30%，它向 philosophy 方向集中（≥ 15%），0 崩溃，耗时 26.0 min ≤ 60 min",
+  "next_step": "B1 通过。下一步：B2 —— play 引擎常态运行下，它能不能在不被喂新经验时仍维持 100 步无遗忘（autonomous 续航）。",
+  "elapsed_seconds": 1558.8094446659088
+}

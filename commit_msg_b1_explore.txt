@@ -1,0 +1,63 @@
+B1 探索自主性 4/4 PASS（字面） + 语义反思：100% 集中 = 单调收敛不是探索
+
+关键发现：
+- 1000 步 × 20 次决策 × 6 主题池（哲学/法律/医学/艺术/历史/工程）
+- top 主题 100% 集中 philosophy（远超 30% 阈值）
+- 0 崩溃 / 26.0 min（≤ 60 min 预算）
+- 4/4 判据全过（B1.a 集中度 ≥ 30% / B1.b 集中度 ≥ 15% / B1.c 0 崩溃 / B1.d ≤ 60 min）
+
+哲学 NLL 演化（关键信号）：
+- 14.60 → 14.99（步 650 峰）→ 14.79（步 901 过顶回落）
+- 它选的方向 NLL 也在降 — 系统自加固
+- 其他主题 NLL：law/medicine 14.1-14.5；art/history 13.8-13.9；engineering 13.2-13.3
+- 哲学 vs engineering 差距：1.32 → 1.65 → 1.57 — 差距扩大
+- top2 gap 演化：0.18 → 0.68 → 0.26 — NLL 排序稳定
+
+B1 语义反思（重要）：
+- "≥ 30% 集中度" 测的是"它能集中方向" → 100% 远超阈值 → 形式通过
+- 但"它能不能换方向"才是"探索"的本质 — 1000 步它从不换
+- 100% 集中度 = 单调收敛（持续打补丁），不是"探索多种方向"
+- 判据过于宽松，需要重设计 B1-bis
+
+B1-bis 判据建议（下一步）：
+- B1-bis.a switch_count ≥ 5（至少选过 5 个不同主题才算"探索"）
+- B1-bis.b top 主题 ≤ 70%（不锁定单方向）
+- B1-bis.c 0 崩溃
+- B1-bis.d 1000 步 ≤ 60 min
+- 实现：
+  (1) 强制切换：top1 连续选中 ≥ 5 次后强制随机选 1 次
+  (2) 近期未选惩罚：距上次选中越久的主题 NLL 加权 +0.5 让它更容易被选
+  (3) ε-greedy：10% 概率随机选 1 个非 top1 主题
+
+scripts/training/verify_play_engine_b1_explore.py
+  - 1000 步（B1_MICRO_N=1000，环境变量可调）
+  - 20 次决策（每 50 步一次）
+  - 6 个主题池 × 24 条 prompt = 144 条候选（哲学/法律/医学/艺术/历史/工程）
+  - 选主题逻辑：cortex.judge NLL 最高（短板）的池
+  - 5 维判据（a/b/c/d）：
+    a. top 主题占比 ≥ 30%
+    b. top 主题占比 ≥ 15%
+    c. 0 崩溃 / 0 NaN
+    d. 1000 步 ≤ 60 min
+  - 报告: reports/play_engine_b1_explore_20260820.json
+
+plans/BOOTSTRAP_CRITERIA.md
+  - § 4 门槛 A 加 B1 行（探索自主性观测）
+  - § 8 唯一下一步：B1-bis 探索 verify_play_engine_b1_bis_explore.py
+
+plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md
+  - § 4.2 加 B1 探索自主性行
+  - § 5 第 13 项加 B1
+  - § 7 唯一下一步改 B1-bis 探索
+
+5 files changed:
+  plans/BOOTSTRAP_CRITERIA.md
+  plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md
+  scripts/training/verify_play_engine_b1_explore.py
+  reports/play_engine_b1_explore_20260820.json
+  commit_msg_b1_explore.txt
+
+唯一下一步：B1-bis 探索 verify_play_engine_b1_bis_explore.py
+  强制切换 + 近期未选惩罚 + ε-greedy 10%
+  通过线：switch_count ≥ 5 + top 主题 ≤ 70% + 0 崩溃 + ≤ 60 min
+  资源：30-60 min
