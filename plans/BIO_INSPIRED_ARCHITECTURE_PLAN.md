@@ -146,31 +146,40 @@ scripts/training/verify_*.py
 2. A3 快速版局部闭环 + 多轮累积失效实证（`verify_a3_autonomous_sleep_fast.py`，117.5s）
 3. C28 增量一：`SleepConfig.lora_decay_per_sleep` 机制 + Phase 1.7 末尾 LoRA 衰减
 4. A3 衰减版 0.95 / 0.9 两组对照（`verify_a3_with_decay.py`，245s/组）
-5. 机制根因诊断：judge 头与 LoRA 训练耦合
+5. P0 judge 头解耦 sniff（`verify_judge_lora_decouple_sniff.py`）
 
 ## 6. 后续工作顺序
 
-### P0：judge 头解耦（自举 A3 闭环的根因修复）
+### P0 误诊澄清：judge 头与 LoRA 训练**几乎不耦合**（2026-08-20）
 
-**为什么是 P0**：A3 局部闭环成立但多轮不稳定，根因是 judge 头在 forward_replay 训练时**自己被 LoRA 改写影响**——这是架构层面的"自指信号在训练中被自己的行动削弱"问题。衰减只是治标，解耦才是治本。
+P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
+- 加载生产神经元后 `lora_adapters.B = 0`（设计如此，B 初始 0 保持 body 零破坏起点）
+- LoRA 未训练状态下，baseline / lora_zeroed / lora_detached 三种 forward 输出**完全相同**（max|Δ|=0.0）——这是数学必然，不是 bug
+- 即使先训练 50 步让 B norm 涨到 1.8，再做 zero LoRA 对比：|Δ NLL| = 0.0042（<0.5%）
+- **结论**：512→256K 投影平均掉了小 h 变化，judge 头对 LoRA 改动几乎不敏感。"自指信号被自己训练削弱"是误诊
 
-**目标**：
-- judge NLL 计算时只走"冻结的基座权重"路径，**完全跳过 LoRA 影响**
-- 训练用 LoRA 路径照常走
-- 这样 judge 头在 N 轮 sleep 累积后仍保持"它自己判定擅不擅长"的能力
+### P0 重置：真根因不在 judge 头，在 judge NLL 漂移来源本身
 
-**实现路径**（推荐，**先做可行性 sniff，再决定**）：
-- 方案 A（**最简，先试**）：`_sample_judge_nll` 中临时把 `live.lora_adapters` 置零或 detach，测 NLL 后恢复
-  - 风险：LoRA=0 可能让 forward 路径异常
-- 方案 B（**更彻底**）：judge 头在初始化时存一份 `lora_free_view`（base embedding → judge head），只走这条路径
-  - 代价：需要为 judge 头单独建一个 256K 输出头副本
-- 方案 C（**架构级**）：judge 头与 `ResonanceNeuron` 解耦——独立模块，不参与 LoRA
-  - 代价：需要改 SleepEngine / judge 训练逻辑
+既然 judge 头对 LoRA 不敏感，那 A3 漂移（judge NLL 漂移 +0.122 / 5 轮）的来源是什么？**需要先定位，再谈修复**。
+
+候选根因（按信息量从高到低）：
+- **R1**：4 个 compact dialogue neuron 的 `lora_l2` 实际在累积（从 0 涨到 4.2+），但 `zh_std0_dialogue`（standard neuron）的 LoRA 始终是 0（不被训练）——漂移不是 LoRA 导致，可能是**不同 neuron 的非 LoRA 路径在动**
+- **R2**：A3 衰减版显示 `lora_l2` 真的从 4.2 降到 2.6，但 `judge_nll` 漂移没改善（仍是 0.057 / 8 轮）——说明 A3 漂移与 LoRA 累积**相关性弱**
+- **R3**：真正的漂移来源可能是 `_sample_judge_nll` 中**有状态组件**在工作集外的变化（working memory、gamma phase、neuromodulator state）——但 A3 快速版未控制这些变量
+- **R4**：judge 漂移本身是**采样噪声**：24 条 prompt 的 NLL 测量 NPY 抽样变异
+
+**当前最简诊断（sniff 级，3 分钟）**：
+- 写 `verify_a3_drift_source_sniff.py`：
+  - 固定 cortex / LoRA / 所有有状态组件
+  - 在**无 sleep 训练**下，对同一 24 prompt 跑 8 轮 `_sample_judge_nll`，看 judge NLL 漂移幅度
+  - 如果漂移 < 0.01 → 噪声是根因，A3 阈值要放宽到 |Δ| < 0.15
+  - 如果漂移 0.01-0.05 → 找到"测量抖动"组件（如 gamma phase 抖动），加控制
+  - 如果漂移 > 0.05 → 还是有状态组件在动，需要逐个 freeze 排查
 
 **判据**：
-- A3 多轮稳定版（decay=0.95 或 0.9）：8 轮内归因通过 ≥ 6/8（vs 现状 4/8），最终漂移 |Δ|<0.05
+- 找到 R1-R4 哪个是真根因后，再决定 P0 是否还要做"judge 头解耦"（R3 假说正确则仍要解耦，R1/R2 假说正确则不用）
 
-**资源预算**：3-5 分钟（与 A3 快速版同量级）
+**资源预算**：3-5 分钟 CPU 短跑
 
 ### 暂不进入主线
 
@@ -183,14 +192,14 @@ scripts/training/verify_*.py
 
 ## 7. 唯一下一步
 
-**P0：judge 头解耦**——A3 多轮稳定的根因修复。
+**P0 重置：定位 A3 judge NLL 漂移的真根因**——而非"修复误判的解耦"。
 
-具体动作：
-1. 在 `_sample_judge_nll` 中先 sniff LoRA=0 / LoRA=detach 对 NLL 的影响（1-2 行代码，2 分钟）
-2. 如果 sniff 异常（LoRA=0 让 forward 异常）→ 走方案 B（建 lora_free_view）
-3. 如果 sniff 通过 → 在 `verify_a3_with_decay.py` 中跑"带解耦的 8 轮"，验证归因通过 ≥ 6/8
-4. 通过：进入 P1（A4 经验驱动自适应）
-5. 不通过：分析是 judge 头初始化就有偏（不是解耦能解决），需进一步追溯到 256K 空间设计
+具体动作（`verify_a3_drift_source_sniff.py`，3-5 分钟）：
+1. **无 sleep 训练**下，对 24 prompt 跑 8 轮 `_sample_judge_nll`
+2. 看 judge NLL 漂移幅度（基线噪声）
+3. 若漂移 < 0.01：噪声是根因，把 A3a 阈值从 0.1 放宽到 0.15
+4. 若漂移 0.01-0.05：控制有状态组件（gamma phase / working memory）逐个排查
+5. 若漂移 > 0.05：再回到 judge 头架构（但这次是 noise test 设计问题，不是解耦问题）
 
 **资源**：3-5 分钟 CPU 短跑。
 

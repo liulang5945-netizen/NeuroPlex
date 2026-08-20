@@ -125,27 +125,46 @@
 
 > **🧪 A3 衰减版实证（2026-08-20）：LoRA 衰减有效，但根因不在衰减**。A3 快速版发现多轮累积失效后，C28 增量一新增 `SleepConfig.lora_decay_per_sleep`（默认 1.0，向后兼容），在 Phase 1.7 末尾对 lora_adapters 全体乘此系数。`verify_a3_with_decay.py` 复用 A1 真实版 24 条 prompt，跑 8 轮 × 2 系数（0.95 / 0.9，每组 ~245s）。
 >
-> | 系数 | judge NLL 漂移 | 归因通过 | LoRA L2 趋势 |
+> | 系数 | judge NLL 漂移 | 归因通过 | LoRA L2 趋势（4 个 compact dialogue neuron）|
 > |---:|---:|---:|---|
 > | decay=1.0（基线） | +0.122 / 5 轮 | 2/5 | 单调上升 0→3.543→3.546（持续累积）|
 > | **decay=0.95** | **+0.057 / 8 轮** | 4/8 | 0→3.543→3.477→3.447→3.442→3.455→3.473→3.498→3.546（不再单调）|
 > | **decay=0.9** | **+0.057 / 8 轮** | 4/8 | **0→3.356→3.129→2.961→2.839→2.757→2.695→2.661→2.642（真正单调降）** |
 >
 > **关键发现**（每个系数 ~245s ≈ 4 分钟）：
-> 1. **decay 0.9 真正让 LoRA L2 单调下降**：衰减机制本身工作正常——每轮 sleep 末尾 LoRA 强度被乘 0.9，连续 8 轮 L2 从 3.356 稳步降到 2.642
+> 1. **decay 0.9 真正让 LoRA L2 单调下降**（4 个 compact neuron）：衰减机制本身工作正常——每轮 sleep 末尾 LoRA 强度被乘 0.9，连续 8 轮 L2 从 3.356 稳步降到 2.642
 > 2. **但归因通过仍只 4/8**（vs 期望 ≥ 6/8）：衰减让"累计幅度"降下来，但**判据差距（top vs bot）始终在 0.04 以下**——说明信号幅度本身不够，衰减不是根因
-> 3. **真根因**：judge 头（general 256K 统一判定空间）在 Phase 1.7 forward_replay 训练时**也被 LoRA 改写**——judge 头与 LoRA 训练耦合，"自指信号→行动→自指改善"链中"信号"被自己的行动削弱
+> 3. **zh_std0_dialogue LoRA 始终 = 0**：standard neuron 的 LoRA 没被训练（架构差异？需追）——它的存在让"4 个 compact neuron 的 LoRA 累积"在均值中被稀释
 > 4. **body 本身未被破坏**：zh_std0_dialogue 全程 Δ=0.0，4 个 compact dialogue 的 body 不动——所有变动只在 LoRA 路径
 >
 > **结论**：
 > - C28 衰减机制已落地且验证有效（LoRA L2 单调下降）
-> - 但衰减只是"压住幅度"，不解决"信号被自指削弱"的机制问题
-> - 真主线转 **P0：judge 头解耦**（让 judge NLL 计算走冻结基座，绕过 LoRA）
+> - 但衰减只是"压住幅度"，**未解 A3 漂移与归因反转**
+> - **"judge 头与 LoRA 训练耦合"是误诊**（见下一节 sniff 推翻）
 > - 65h 全量长跑已彻底证否（4 分钟快速版能提供同等或更高信息量）
 >
 > 报告：`reports/a3_with_decay_0.95_20260820.json` / `reports/a3_with_decay_0.90_20260820.json`
 > 脚本：`scripts/training/verify_a3_with_decay.py`
 > 机制改动：`neuroplex/life/sleep_engine.py`（SleepConfig.lora_decay_per_sleep）
+>
+> ---
+>
+> **🧪 P0 judge 头解耦 sniff 推翻"耦合"诊断（2026-08-20）**。`verify_judge_lora_decouple_sniff.py` 在 24 条 prompt 上对比 baseline / lora_zeroed / lora_detached 三种 forward 模式：
+>
+> | 模式 | judge NLL | 备注 |
+> |---|---|---|
+> | baseline（LoRA 训练后，B norm = 1.82）| 13.3730 | 实测 |
+> | lora_zeroed（临时把 LoRA 参数置 0）| 13.3771 | |
+> | |Δ NLL| = **0.0042** | <0.5% |
+> | max|Δ judge_logits| = 0.2307 | 仅发生在被改的 LoRA 层 |
+>
+> **关键发现**：
+> 1. **生产神经元加载后 `lora_adapters.B = 0`**（设计如此，B 初始 0 保持 body 零破坏起点）——LoRA 未训练时 forward 输出与 zero LoRA 完全相同（数学必然）
+> 2. **训练 50 步后** B norm = 1.82，|Δ NLL| = 0.0042（<0.5%）
+> 3. **512→256K 投影平均掉了小 h 变化**：judge 头对 LoRA 改动几乎不敏感
+> 4. **"自指信号被自己训练削弱"是误诊**——耦合强度可忽略
+>
+> **结论**：P0 judge 头解耦**不是真根因修复**。A3 漂移 +0.122 来源需要从其它角度定位（见后续 P0 重置：drift source sniff）。
 
 ### 门槛 B：目标自由（进入"自己定义目标"模式）
 
