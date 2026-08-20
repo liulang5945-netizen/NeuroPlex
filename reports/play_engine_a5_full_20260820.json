@@ -1,0 +1,219 @@
+{
+  "timestamp": "2026-08-20 18:15:36",
+  "task": "A5 完整：100 次 micro-sleep + 10 批 (8 条/批) 新经验",
+  "cortex": {
+    "n_neurons": 9,
+    "judge_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 100,
+    "checkpoint_every": 10,
+    "decay": 0.9,
+    "new_prompts_per_batch": 8,
+    "n_complete_3phase_cycles": 10,
+    "n_new_batches": 10
+  },
+  "pre_groups": {
+    "dialogue": {
+      "std": 0.5660052486303611,
+      "mean": 14.24802815914154,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 1.0281596319891215,
+      "mean": 14.466376662254333,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.622965598417961,
+      "mean": 14.39274251461029,
+      "n_valid": 8
+    }
+  },
+  "post_groups": {
+    "dialogue": {
+      "std": 0.47525914188161883,
+      "mean": 14.441553950309753,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 0.9858122487126687,
+      "mean": 14.67829430103302,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.6433486773301076,
+      "mean": 14.617269158363342,
+      "n_valid": 8
+    }
+  },
+  "pre_means": {
+    "dialogue": 14.24802815914154,
+    "knowledge": 14.466376662254333,
+    "unfamiliar": 14.39274251461029
+  },
+  "post_means": {
+    "dialogue": 14.441553950309753,
+    "knowledge": 14.67829430103302,
+    "unfamiliar": 14.617269158363342
+  },
+  "delta_means": {
+    "dialogue": 0.1935257911682129,
+    "knowledge": 0.21191763877868652,
+    "unfamiliar": 0.22452664375305176
+  },
+  "worst_step_jump_ratio": 0.17954851501270416,
+  "plateau_means": {
+    "dialogue": 14.438901424407959,
+    "knowledge": 14.773459315299988,
+    "unfamiliar": 14.687098503112793
+  },
+  "plateau_drift": 0.09516501426696777,
+  "checkpoint_curve": [
+    {
+      "step": 10,
+      "elapsed_total_s": 61.2,
+      "dt_step_s": 16.6,
+      "new_injected_so_far": 0,
+      "mean_dialogue": 14.244534850120544,
+      "mean_knowledge": 14.466089129447937,
+      "mean_unfamiliar": 14.392431735992432,
+      "std_dialogue": 0.5618025684705141,
+      "std_knowledge": 1.0189083814929343,
+      "std_unfamiliar": 0.6140554451580612,
+      "lora_l2_zh_aug3": 4.148550018306846
+    },
+    {
+      "step": 20,
+      "elapsed_total_s": 105.4,
+      "dt_step_s": 22.4,
+      "new_injected_so_far": 24,
+      "mean_dialogue": 14.238289952278137,
+      "mean_knowledge": 14.489086627960205,
+      "mean_unfamiliar": 14.414599537849426,
+      "std_dialogue": 0.5464338208409111,
+      "std_knowledge": 1.020489510604603,
+      "std_unfamiliar": 0.6076130825814268,
+      "lora_l2_zh_aug3": 3.7394715808064096
+    },
+    {
+      "step": 30,
+      "elapsed_total_s": 156.6,
+      "dt_step_s": 29.1,
+      "new_injected_so_far": 48,
+      "mean_dialogue": 14.28614866733551,
+      "mean_knowledge": 14.58172857761383,
+      "mean_unfamiliar": 14.486815929412842,
+      "std_dialogue": 0.5167932020805478,
+      "std_knowledge": 1.0524023238356788,
+      "std_unfamiliar": 0.6118468510239561,
+      "lora_l2_zh_aug3": 3.3762285239487477
+    },
+    {
+      "step": 40,
+      "elapsed_total_s": 214.2,
+      "dt_step_s": 35.6,
+      "new_injected_so_far": 72,
+      "mean_dialogue": 14.355839252471924,
+      "mean_knowledge": 14.696931719779968,
+      "mean_unfamiliar": 14.59707486629486,
+      "std_dialogue": 0.490548314341787,
+      "std_knowledge": 1.1038970878420424,
+      "std_unfamiliar": 0.6374711513399313,
+      "lora_l2_zh_aug3": 3.053541534075277
+    },
+    {
+      "step": 50,
+      "elapsed_total_s": 278.7,
+      "dt_step_s": 42.6,
+      "new_injected_so_far": 96,
+      "mean_dialogue": 14.410053491592407,
+      "mean_knowledge": 14.767637729644775,
+      "mean_unfamiliar": 14.669682025909424,
+      "std_dialogue": 0.4715799975917123,
+      "std_knowledge": 1.1463291596348086,
+      "std_unfamiliar": 0.6696026547277198,
+      "lora_l2_zh_aug3": 2.768315495312422
+    },
+    {
+      "step": 60,
+      "elapsed_total_s": 346.5,
+      "dt_step_s": 46.3,
+      "new_injected_so_far": 120,
+      "mean_dialogue": 14.438901424407959,
+      "mean_knowledge": 14.773459315299988,
+      "mean_unfamiliar": 14.687098503112793,
+      "std_dialogue": 0.4643798467493833,
+      "std_knowledge": 1.1171307481028463,
+      "std_unfamiliar": 0.6727496250356532,
+      "lora_l2_zh_aug3": 2.51696822929924
+    },
+    {
+      "step": 70,
+      "elapsed_total_s": 419.7,
+      "dt_step_s": 52.5,
+      "new_injected_so_far": 144,
+      "mean_dialogue": 14.449251651763916,
+      "mean_knowledge": 14.752317309379578,
+      "mean_unfamiliar": 14.672534227371216,
+      "std_dialogue": 0.4654829228269753,
+      "std_knowledge": 1.0680961781073175,
+      "std_unfamiliar": 0.6530332408387293,
+      "lora_l2_zh_aug3": 2.294017117490122
+    },
+    {
+      "step": 80,
+      "elapsed_total_s": 499.2,
+      "dt_step_s": 58.7,
+      "new_injected_so_far": 168,
+      "mean_dialogue": 14.447607159614563,
+      "mean_knowledge": 14.72605836391449,
+      "mean_unfamiliar": 14.651862859725952,
+      "std_dialogue": 0.46952666706085966,
+      "std_knowledge": 1.002847046125573,
+      "std_unfamiliar": 0.6303782467515227,
+      "lora_l2_zh_aug3": 2.1016547774862944
+    },
+    {
+      "step": 90,
+      "elapsed_total_s": 579.7,
+      "dt_step_s": 60.0,
+      "new_injected_so_far": 192,
+      "mean_dialogue": 14.450984716415405,
+      "mean_knowledge": 14.704224586486816,
+      "mean_unfamiliar": 14.633125305175781,
+      "std_dialogue": 0.46893432896651827,
+      "std_knowledge": 0.9724577612398224,
+      "std_unfamiliar": 0.6260363772671015,
+      "lora_l2_zh_aug3": 1.932610951741757
+    },
+    {
+      "step": 100,
+      "elapsed_total_s": 659.8,
+      "dt_step_s": 59.6,
+      "new_injected_so_far": 216,
+      "mean_dialogue": 14.441553950309753,
+      "mean_knowledge": 14.67829430103302,
+      "mean_unfamiliar": 14.617269158363342,
+      "std_dialogue": 0.47525914188161883,
+      "std_knowledge": 0.9858122487126687,
+      "std_unfamiliar": 0.6433486773301076,
+      "lora_l2_zh_aug3": 1.788452644184042
+    }
+  ],
+  "crash_count": 0,
+  "new_injected_total": 216,
+  "passed": 3,
+  "failed": 2,
+  "verdict": "A5 完整 部分失败（3 PASS / 2 FAIL）",
+  "next_step": "A5 完整失败：mean 上升爆炸 > 0.20。需把每批 8 条改 4 条，或 decay 改 0.95 压住 LoRA 累积。",
+  "elapsed_seconds": 666.4762306213379
+}
