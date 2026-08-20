@@ -1,0 +1,185 @@
+{
+  "contract": {
+    "mode": "fresh_process_reload_only_three",
+    "specialist_ids": [
+      "zh_micro_specialist_current_only",
+      "zh_micro_specialist_hf_only",
+      "zh_micro_specialist_current_plus_hf_10"
+    ],
+    "max_seq_len": 128,
+    "shared_embedding_loaded_once": true,
+    "production_population_untouched": true,
+    "writes_checkpoint": false
+  },
+  "checkpoint": {
+    "directory_name": "tmp_micro_specialist_reload_697m_800_20260820",
+    "files": [
+      {
+        "filename": "neuron_zh_micro_specialist_current_only.pt",
+        "bytes": 27911776,
+        "sha256": "30b8945e937f8c2bbce9c0032f1d5f85a702d33b2fcfd9ef6e9d9f3f89a4e20f"
+      },
+      {
+        "filename": "neuron_zh_micro_specialist_hf_only.pt",
+        "bytes": 27911581,
+        "sha256": "e1b656399145944136144134e87f6ef023c6bb54435b9bd832e83683924f2248"
+      },
+      {
+        "filename": "neuron_zh_micro_specialist_current_plus_hf_10.pt",
+        "bytes": 27912010,
+        "sha256": "9090d83738b7cb3c8a893a7936d5a5eae44041ba970dab6434bef8011abfd86a"
+      }
+    ]
+  },
+  "data": {
+    "current_eval": 32,
+    "hf_eval": 32,
+    "eval_cap": 32
+  },
+  "loaded_population": {
+    "loaded_ids": [
+      "zh_micro_specialist_current_only",
+      "zh_micro_specialist_hf_only",
+      "zh_micro_specialist_current_plus_hf_10"
+    ],
+    "member_count": 3,
+    "field_dim": 256,
+    "shared_embedding_source": "canonical_base_checkpoint",
+    "loader_default_embedding_overridden": true
+  },
+  "members": {
+    "zh_micro_specialist_current_only": {
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256
+      },
+      "after_reload": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 7.467524,
+          "corrected_ppl": 1750.267,
+          "first_token_nll": 7.972346,
+          "median_rank_zero_based": 300,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 8.177154,
+          "corrected_ppl": 3558.7125,
+          "first_token_nll": 8.334358,
+          "median_rank_zero_based": 226,
+          "first_token_top1": 0.0
+        }
+      }
+    },
+    "zh_micro_specialist_hf_only": {
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256
+      },
+      "after_reload": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 8.748741,
+          "corrected_ppl": 6302.7457,
+          "first_token_nll": 9.123047,
+          "median_rank_zero_based": 1381,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 6.730044,
+          "corrected_ppl": 837.1844,
+          "first_token_nll": 6.357809,
+          "median_rank_zero_based": 24,
+          "first_token_top1": 0.125
+        }
+      }
+    },
+    "zh_micro_specialist_current_plus_hf_10": {
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256
+      },
+      "after_reload": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 7.406849,
+          "corrected_ppl": 1647.2279,
+          "first_token_nll": 7.954499,
+          "median_rank_zero_based": 372,
+          "first_token_top1": 0.0312
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 7.476419,
+          "corrected_ppl": 1765.9061,
+          "first_token_nll": 7.561584,
+          "median_rank_zero_based": 99,
+          "first_token_top1": 0.0
+        }
+      }
+    }
+  },
+  "forward": {
+    "field_shape": [
+      256
+    ],
+    "finite": true,
+    "rounds": 3
+  },
+  "generation_prompt_count": 4,
+  "generation": {
+    "问：你好，请介绍一下自己\n答：": {
+      "text": "\n colonial deadline clicking decorate\n colonial deadline randomly sparking\n estimate",
+      "surface": {
+        "chars": 84,
+        "unique_char_ratio": 0.2143,
+        "repeated_bigram_ratio": 0.3855,
+        "has_decode_artifact": false
+      }
+    },
+    "问：什么是人工智能？\n答：": {
+      "text": "cylinder decorate out daughter controls outdoors\n colonial underway\n\n",
+      "surface": {
+        "chars": 69,
+        "unique_char_ratio": 0.2609,
+        "repeated_bigram_ratio": 0.25,
+        "has_decode_artifact": false
+      }
+    },
+    "问：今天天气怎么样？\n答：": {
+      "text": "qu circular\n colonial\n estimate deadline underway underway clusters clicking recycled",
+      "surface": {
+        "chars": 85,
+        "unique_char_ratio": 0.2353,
+        "repeated_bigram_ratio": 0.2619,
+        "has_decode_artifact": false
+      }
+    },
+    "问：请写一首关于春天的短诗。\n答：": {
+      "text": "\n colonial decorate clustersact outdoors clusters climbers delegate clustershe\n",
+      "surface": {
+        "chars": 79,
+        "unique_char_ratio": 0.2278,
+        "repeated_bigram_ratio": 0.4103,
+        "has_decode_artifact": false
+      }
+    }
+  }
+}

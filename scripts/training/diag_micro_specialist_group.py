@@ -64,6 +64,35 @@ def _make_config(neuron_id: str, micro_spec: str = DEFAULT_MICRO_SPEC) -> Neuron
     )
 
 
+def _save_specialist_checkpoints(
+    neurons: dict[str, torch.nn.Module], checkpoint_dir: Path
+) -> dict:
+    """Persist only local specialist weights; the shared embedding stays global."""
+
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    files = []
+    for neuron_id, neuron in neurons.items():
+        path = checkpoint_dir / f"neuron_{neuron_id}.pt"
+        payload = {
+            "neuron_config": neuron.config,
+            "state_dict": {
+                key: value.detach().cpu() for key, value in neuron.state_dict().items()
+            },
+            "checkpoint_contract": {
+                "local_weights_only": True,
+                "shared_embedding_loaded_once": True,
+                "production_population_untouched": True,
+            },
+        }
+        torch.save(payload, path)
+        files.append({"filename": path.name, "bytes": path.stat().st_size})
+    return {
+        "enabled": True,
+        "shared_embedding_saved": False,
+        "files": files,
+    }
+
+
 def _standalone_specialists_forward(
     neurons: dict[str, torch.nn.Module], shared, general_sp
 ) -> dict:
@@ -179,6 +208,7 @@ def run(
     hf_ratio: float = DEFAULT_HF_RATIO,
     eval_cap: int = 0,
     micro_spec: str = DEFAULT_MICRO_SPEC,
+    checkpoint_dir: Path | None = None,
 ) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
@@ -218,6 +248,11 @@ def run(
         )
         results[role] = report
         neurons[neuron_id] = neuron
+    checkpoint = (
+        _save_specialist_checkpoints(neurons, checkpoint_dir)
+        if checkpoint_dir is not None
+        else {"enabled": False, "shared_embedding_saved": False, "files": []}
+    )
     group_canary = _population_canary_multi(neurons, shared, general_sp)
     del neurons, shared
     gc.collect()
@@ -231,7 +266,8 @@ def run(
             "max_seq_len": MAX_SEQ_LEN,
             "shared_embedding_frozen": True,
             "shared_embedding_loaded_once": True,
-            "writes_checkpoint": False,
+            "writes_experiment_checkpoint": checkpoint_dir is not None,
+            "writes_production_checkpoint": False,
             "production_population_untouched": True,
         },
         "data": {
@@ -244,6 +280,7 @@ def run(
             "mix_train_samples": len(train_sets["current_plus_hf_10"]),
         },
         "members": results,
+        "checkpoint": checkpoint,
         "population_canary": group_canary,
     }
 
@@ -253,6 +290,12 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=800)
     parser.add_argument("--hf-ratio", type=float, default=DEFAULT_HF_RATIO)
     parser.add_argument("--eval-cap", type=int, default=0)
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        help="optional temporary directory for local specialist checkpoints",
+    )
     parser.add_argument(
         "--micro-spec",
         choices=tuple(CANDIDATES),
@@ -266,6 +309,7 @@ def main() -> None:
         hf_ratio=args.hf_ratio,
         eval_cap=args.eval_cap,
         micro_spec=args.micro_spec,
+        checkpoint_dir=args.checkpoint_dir,
     )
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)

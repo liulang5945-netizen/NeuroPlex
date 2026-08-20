@@ -711,3 +711,19 @@ bigram 为 `0.3548/0.3152`，低于 9 成员基线的 `0.5670/0.6105` 和 12 成
 当前结论是“装配机制成立、能力证据未闭合”。唯一推荐下一步：为这三个 6.97M 成员增加
 独立实验 checkpoint 保存/加载验收，在新进程中只加载这三个成员后重复 holdout 与固定生成，
 确认协作效果不是训练进程内存状态或装配顺序造成；通过前不修改 9 成员生产配置。
+
+三成员 checkpoint 保存/加载验收已完成（2026-08-20）：三个本地 checkpoint 各约 27.9MB，
+只保存 neuron config/state_dict，不复制 131M shared embedding；新进程仅加载这三个成员，
+loaded population=3、field_dim=256、3 轮 forward finite。第一次 reload 暴露出通用 loader
+默认读取 `data/shared_embedding.pt`，而训练使用 `neuron_zh_aug0_dialogue.pt` 内的冻结表；
+两者 mean absolute diff=`0.014654`、max diff=`0.499485`。诊断脚本已显式覆盖为训练用 canonical
+表，修正后三个成员 current/HF PPL 与保存进程逐项完全一致：`1,750.27/3,558.71`、
+`6,302.75/837.18`、`1,647.23/1,765.91`。四类固定 prompt 的 reload-only-three 平均
+重复 bigram=`0.3269`，但输出仍为碎片化文本；临时约 84MB checkpoint 已清理，不写入生产。
+完整报告为 `reports/micro_specialist_checkpoint_save_697m_800_20260820.json` 和
+`reports/micro_specialist_checkpoint_reload_697m_800_20260820.json`。
+
+当前 micro 路线的证据链已闭合为：可训练、可形成数据专长、可独立装配、可部分激活、可
+checkpoint 持久化；但尚未证明生成智能或群体净增益。当前停在架构路线决策节点。唯一推荐
+下一步：暂停三个 micro 成员的继续训练与生产接入，回到 9 成员生成契约和对齐链路，优先
+定位并修复现有生成碎片化；micro 仅保留为后续对照实验，不再继续消耗训练预算。
