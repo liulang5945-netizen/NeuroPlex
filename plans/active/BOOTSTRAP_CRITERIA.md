@@ -279,7 +279,9 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**唯一下一步 → D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。
+**当前唯一下一步 → PlayEngine 运行契约修复**：源码级 runtime trace 已确认普通 `Cortex.generate()` 的连续场/相位路径可运行，但 PlayEngine 在进入 neuron 前因迭代器错误退出，且读取字段与 `ResonanceNeuron.forward()` 契约不一致。当前执行顺序以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 和 [NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md) 为准：先修复 PlayEngine 并用回归 trace 确认 replay 边界，再决定场记忆自动捕获和后续训练。
+
+**历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。
 
 **资源**：30-60 min（1000 步长程，继承 B1-bis 主循环）。
 

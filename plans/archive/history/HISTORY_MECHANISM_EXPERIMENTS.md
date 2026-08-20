@@ -1,7 +1,7 @@
 # 机制迭代与实验记录（Mechanism Experiments & Iteration History）
 
 > **归档文档**（2026-08-11 重组织）：**C 编号 = 机制演进迭代代号（工程版本号）**，按时间顺序递增。
-> 本文档是 C 编号记录的**唯一边集**；主 plan（[BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md)）只保留"当前状态 + 下一步 + C 编号索引"，不再展开实施细节。
+> 本文档是 C 编号记录的**唯一边集**；主 plan（[BIO_INSPIRED_ARCHITECTURE_PLAN.md](../../active/BIO_INSPIRED_ARCHITECTURE_PLAN.md)）只保留"当前状态 + 下一步 + C 编号索引"，不再展开实施细节。
 > 早期里程碑（2026-07-29 EMERGE 时代）保留在本文档开头。
 
 ## 编号规范

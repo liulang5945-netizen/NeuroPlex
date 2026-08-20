@@ -1,7 +1,7 @@
 # 修复方案 (Remediation Plan)
 
 > **日期**: 2026-08-14
-> **依据**: [AUDIT_2026_08.md](AUDIT_2026_08.md) 严苛审计
+> **依据**: [AUDIT_2026_08.md](../audits/AUDIT_2026_08.md) 严苛审计
 > **原则**: 核心诉求是仿人脑机制与更高上限——未训练的可学习机制优先"训练闭环"而非"删除"；验证体系从严（阈值与声明对齐、断言真实验证、结果可复现落盘）。
 > **状态图例**: 🔴 未开始 / 🟡 进行中 / ✅ 完成 / ⛔ 回退或否决
 
@@ -182,7 +182,7 @@ checkpoint-481000 绝对路径（scripts/data_prep/download_sft_data.py:63、fil
 ## P4 — 文档校准
 
 ### R20: 主 plan 声明降级/对齐 ✅
-BIO_INSPIRED_ARCHITECTURE_PLAN.md 1.3 状态表："✅ 记忆可读"→标注"验证脚本级，生产待接线"；"verify 10/10"与代码阈值对齐（N4）；"降 79%"注明口径（同分布列表式，提问式仅 33%）。
+`plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 1.3 状态表："✅ 记忆可读"→标注"验证脚本级，生产待接线"；"verify 10/10"与代码阈值对齐（N4）；"降 79%"注明口径（同分布列表式，提问式仅 33%）。
 
 ### R21: README/CODE_WIKI 修正 ✅
 field_dim 声明修正：COMPACT=2048 / STANDARD=3072 / FOUNDATION=4096 / EXPERT=4096（原文"统一 4096"过时）；README checkpoint 路径更新。

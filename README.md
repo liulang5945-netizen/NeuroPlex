@@ -162,9 +162,10 @@ NeuroPlex/
 
 ## Architecture Documentation
 
-- [BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md) — Full architecture plan
-- [ARCHITECTURE_DIRECTION_2026_08.md](plans/ARCHITECTURE_DIRECTION_2026_08.md) — Architecture comparison and current decision
-- [DESIGN_PRINCIPLES.md](plans/DESIGN_PRINCIPLES.md) — Design principles
+- [plans/README.md](plans/README.md) — Plan index and active/archive navigation
+- [BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) — Full active architecture plan
+- [ARCHITECTURE_DIRECTION_2026_08.md](plans/active/ARCHITECTURE_DIRECTION_2026_08.md) — Architecture comparison and current decision
+- [DESIGN_PRINCIPLES.md](plans/active/DESIGN_PRINCIPLES.md) — Design principles
 - [CODE_WIKI.md](CODE_WIKI.md) — Code wiki
 
 ## Contributing

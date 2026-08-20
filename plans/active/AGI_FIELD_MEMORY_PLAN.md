@@ -2,7 +2,7 @@
 
 > 2026-08-20 重新基线：场记忆是 AGI 主线能力，不再作为睡眠模块的附属验证项。
 >
-> 源码审计总图：[`plans/NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md`](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md)。本计划中的“已有能力”必须以该运行地图的代码证据为准。
+> 源码审计总图：[`NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md`](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md)。本计划中的“已有能力”必须以该运行地图的代码证据为准。
 
 ## 1. 结论
 
@@ -99,7 +99,7 @@ consolidation_state
 但 `pending memory` 仍为 `0 → 0`；PlayEngine 则在进入 neuron 前于
 `play_engine.py:211-212` 因 `dict_values` 迭代器错误退出，且其后续字段契约也与
 `ResonanceNeuron.forward()` 不一致。详见
-[`plans/NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md`](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md)
+[`NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md`](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md)
 和 `reports/runtime_mechanism_trace_20260820.json`。
 
 因此唯一下一步是：先修复 PlayEngine 的迭代器和结果契约，让它通过真实

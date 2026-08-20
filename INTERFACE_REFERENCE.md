@@ -2,7 +2,7 @@
 
 > 目的：解决"经常用错接口"的问题。按**易错点**组织（不是完整 API 参考），每个点给出 错→对 用法。
 > 全部条目基于源码实读（2026-08-10），行号随版本可能漂移，以文件为锚。
-> 配套架构文档：[CODE_WIKI.md](CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
+> 配套架构文档：[CODE_WIKI.md](CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
 
 ## 一、最易用错的 8 大接口陷阱（速览）
 

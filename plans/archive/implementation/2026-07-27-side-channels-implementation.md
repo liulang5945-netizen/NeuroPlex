@@ -2,7 +2,7 @@
 
 > **⚠️ 已归档（2026-07-28）**
 > Task 1-5 全部实现完成，Task 6 Step 1-2 完成，Step 3（联合微调）进行中。
-> 当前进度已同步到 `BIO_INSPIRED_ARCHITECTURE_PLAN.md` 第 0.4 节。
+> 当前进度已同步到 [`BIO_INSPIRED_ARCHITECTURE_PLAN.md`](../../active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) 第 0.4 节。
 > 保留作为 side_channels 实现细节参考。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

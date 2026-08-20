@@ -1,6 +1,6 @@
 # 对话/Standard 神经元训练历史
 
-> **拆分文档**（2026-08-10）：从 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 按内容拆分。
+> **拆分文档**（2026-08-10）：从 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](../../active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) 按内容拆分。
 > 记录对话神经元与 Standard 神经元的训练历程、突破与负向结论。
 > 当前项目状态、路线图与接口梳理以主 plan 为准。
 
@@ -161,7 +161,7 @@ should_create = lifecycle.neurogenesis.record_domain_error("dialogue", 0.7)
 
 ## 📚 历史实验记录（归档）
 
-> 以下章节按时间线记录历史实验与结论，供追溯参考。当前项目状态以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 为准。
+> 以下章节按时间线记录历史实验与结论，供追溯参考。当前项目状态以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](../../active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) 为准。
 > 关键结论已提炼到全景章节，此处保留细节。
 
 ### 协作层训练实验（2026-07-30，负向结论）

@@ -3,8 +3,8 @@
 <!-- 整合来源: 全部对话讨论内容 -->
 
 > **⚠️ 已归档（2026-07-28）**
-> 本文档为 v1.0 设计文档，最后更新 2026-07-22，已被 `BIO_INSPIRED_ARCHITECTURE_PLAN.md` 取代。
-> 保留作为历史参考，不再维护。当前活跃 plan 见 `plans/` 根目录。
+> 本文档为 v1.0 设计文档，最后更新 2026-07-22，已被 `plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 取代。
+> 保留作为历史参考，不再维护。当前活跃 plan 见 `plans/active/`，导航见 `plans/README.md`。
 
 # 态极神经元架构全面计划
 
@@ -1074,7 +1074,7 @@ Cortex.save_state() → cortex_state.pt（fp16 shared_embedding + fp32 lm_head +
 
 - scripts/training/verify_1plus1.py -- 使用真实 teacher hidden states 的验证脚本
 - scripts/training/verify_h1h8.py -- H1-H8 冒烟测试（24 项）
-- plans/H1-H8-mechanism-fixes.md -- H1-H10 机制解析
+- plans/archive/implementation/H1-H8-mechanism-fixes.md -- H1-H10 机制解析
 
 ---
 

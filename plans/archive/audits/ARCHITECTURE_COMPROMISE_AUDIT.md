@@ -305,9 +305,9 @@
       - **定性**：C12-C16 全部撞在同一堵墙——"统一空间 + 全局 token 级竞争"范式本身与生物机制相悖。人脑分工是**解剖结构**（面孔→梭状回/语言→布罗卡区），路由是**任务级**（前额叶执行控制切换任务模式），竞争只发生在**同功能内部**（侧抑制），跨脑区协作是**层级流水线**（前馈预测+反馈误差），从不做"跨脑区全局 token 竞争"
       - **已终止**：C16d 重训（gate+z-score，刚起步 step 10）已停止，定时任务已删除。token 级融合训练线（train_cross_domain_collab.py 的 quality_head 路由）废弃
       - **保留资产**：① LoRA 保护 body 原则（body 冻结 + 低秩增量，C16 已验证零崩坏）；② quality_head 结构（升级为**回合级**质量信号）；③ cortex 已有回合级判定基础设施（_infer_domain 启发式 + domain 参数 + hybrid 共振校验 + _fingerprint_route prototype）；④ C18 客户端链路（assemble_cortex + chat/feed/sleep）
-      - **下一步**：C19 任务级路由设计（见 BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.7 节）
+      - **下一步**：C19 任务级路由设计（见 `plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 2.7 节）
 15. ✅ **C17 实施：新生神经元无缝衔接 IntegrateEngine（2026-08-08，设计→代码→冒烟）**：
-    - **设计**：BIO_INSPIRED_ARCHITECTURE_PLAN.md 2.6 节——人脑神经发生 4 阶段（静默→蒸馏→验证→固化/凋亡），参考"沉默突触/关键期可塑性/use-it-or-lose-it/关键期关闭"
+    - **设计**：`plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md` 2.6 节——人脑神经发生 4 阶段（静默→蒸馏→验证→固化/凋亡），参考"沉默突触/关键期可塑性/use-it-or-lose-it/关键期关闭"
     - **ensemble.py**：`_confidence_routing_fusion` 的 conf 乘 `maturity.get_resonance_weight`（新 neuron 融合权重 0.1→1.0 渐进，静默期不参与输出；成熟 neuron 返回 1.0 不受影响；maturity=None 时跳过向后兼容）
     - **integrate_engine.py（新）**：`IntegrateEngine.integrate(new_nid)`——影子 COW 训练（复用 sleep_engine._clone_module/staticmethod _copy_shadow_back），只训新 neuron 协作层（side_channels/quality_head/LoRA，body 冻结 C16 延续），loss = CE + 邻居蒸馏 KL（DISTILL_TEMP=2.0）+ contrastive，每步 tick maturity，maturity≥0.8 跑 ablation（临时从 ensemble 弹出对比 CE）→ commit / apoptosis 信号
     - **sleep_engine.py**：`_integrate_new_neuron` helper，挂载到两个 neurogenesis 创建点（域错误率 + 孤立检测）后

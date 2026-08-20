@@ -1,6 +1,6 @@
 # 项目事件与旧状态归档
 
-> **拆分文档**（2026-08-10）：从 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 按内容拆分。
+> **拆分文档**（2026-08-10）：从 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](../../active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) 按内容拆分。
 > 项目整理记录、架构级 bug 修复事件、以及 2026-07-26 旧版状态总览（已过时，仅追溯）。
 > 当前项目状态、路线图与接口梳理以主 plan 为准。
 

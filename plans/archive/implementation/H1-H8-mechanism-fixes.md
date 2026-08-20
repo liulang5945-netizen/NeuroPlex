@@ -4,7 +4,7 @@
 > H1-H8 全部修复完成（H9 暂缓，H10 已删除），不再活跃维护。
 > 保留作为机制修复的历史记录，遇到类似 bug 时可参考诊断方法论。
 
-> 与 `COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md` 配套阅读。
+> 与 [`COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md`](../architecture/COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md) 配套阅读。
 > 每个 H 对应共振场架构中一个"不报错但破坏 1+1>2 效果"的机制缺陷。
 
 ---
@@ -320,7 +320,7 @@ H3/H4/H10 是工程条件修复——它们不直接改变路由行为，但没�
 
 ## 相关文件
 
-- 架构主文档: [COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md](COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md)
+- 架构主文档: [COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md](../architecture/COMPREHENSIVE_NEURON_ARCHITECTURE_PLAN.md)
 - 冒烟测试: [scripts/training/verify_h1h8.py](/E:/taiji-neuron/scripts/training/verify_h1h8.py)
 - 1+1>2 验证: [scripts/training/verify_1plus1.py](/E:/taiji-neuron/scripts/training/verify_1plus1.py)
-- 老文档归档: [_archive/](_archive/)
+- 归档导航: [plans/README.md](../../README.md)
