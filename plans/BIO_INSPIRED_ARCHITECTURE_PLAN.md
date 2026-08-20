@@ -4,7 +4,7 @@
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 >
-> **🆕 2026-08-20：自举门槛 A/B/C 完整闭环 ✅ + D1 首测 3/5 PASS（过度收敛根因已定位）**。下一步：D1-fix — LoRA 衰减从固定常数改为 judge 驱动自调节。完整判据与决策表见 [`plans/BOOTSTRAP_CRITERIA.md`](BOOTSTRAP_CRITERIA.md)。
+> **🆕 2026-08-20：自举门槛 A/B/C 完整闭环 ✅ + D1 首测 3/5 PASS（过度收敛根因已定位）**。当前优先级已切换为源码级机制审计：每条线路必须核对真实入口、调用者、状态流、梯度和持久化，再决定是否训练或修复。总图见 [`plans/NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md`](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md)。D1-fix 改动暂保留在工作区，不作为本轮架构结论。
 
 ## 1. 架构决策
 
@@ -58,7 +58,7 @@ NeuroPlex 采用**稀疏路由群体共振网络**。系统的能力单位是神
 | 场通信 | `neuroplex/resonance/field.py` | ✅ 共享场状态、贡献记录、评分 |
 | 拓扑协作 | `topology.py`、`tribal.py`、side channels | ✅ 同伴连接、跨规格投影、共激活追踪 |
 | 路由 | `ensemble.py`、实例级路由模块 | ✅ 任务/实例级稀疏选择 |
-| 记忆 | `field_memory.py`、`sleep_engine.py` | ✅ 写门控、锚点检索、条件化生成、跨重启保存 |
+| 记忆 | `field_memory.py`、`sleep_engine.py`、`cortex.py` | 🟡 有读取和睡眠固化，但正常交互不自动写入；phase 跨重启丢失；完整边界见运行地图 |
 | 学习 | `life/`、`training/` | ✅ 独立训练、协作训练、睡眠回放、LoRA 巩固 |
 | 生命周期 | `lifecycle.py`、`integrate_engine.py` | ✅ 静默、成熟、验证、固化、隔离、复活、凋亡、新生 |
 | 产品接口 | `api/`、`frontend/`、`desktop/` | ✅ Cortex/API/客户端已接入；旧升级 URL 仅保留兼容响应 |
@@ -210,6 +210,16 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ## 7. 唯一下一步
 
+### 7.0 当前优先级：先完成源码运行证据
+
+本轮审计发现，项目中存在生产主链、训练专线、睡眠专线和实验/诊断专线并行运行的情况。不能仅依据计划中的“✅”继续训练。实际 trace 已确认 `assemble_cortex → generate → continuous_forward → field/phase` 运行，但普通生成没有产生 pending memory；PlayEngine 在 `play_engine.py:211-212` 的迭代器错误处退出，尚未进入 neuron/replay。trace 不训练、不改变 9 成员生产权重。
+
+唯一下一步改为：
+
+**修复 PlayEngine 的实际运行契约：消除迭代器错误，让它通过真实 `Cortex.think()/Ensemble` 获取场状态和 resonance 分数，并用回归 trace 重新确认高共振 replay。**
+
+### 7.1 D1-fix 状态（保留，不作为当前下一步）
+
 **D1 长程稳定性：3/5 PASS + 2/5 FAIL — 根因 = 过度收敛（非爆炸非遗忘）**
 
 - 1000 步 + 6 主题池 + 3 探索机制 + 每 100 步采样轨迹
@@ -231,7 +241,7 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ---
 
-**唯一下一步 → D1-fix：LoRA 衰减从固定常数改为 judge 驱动的自调节**
+此前的唯一下一步曾是 D1-fix：LoRA 衰减从固定常数改为 judge 驱动的自调节。该方向和未提交改动暂时保留，但在完成源码运行 trace 前不启动新的长程训练，避免把训练结果建立在未核实的运行线路上。
 
 D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per_sleep=0.9` 在长程下让衰减压过训练。两种修法：
 

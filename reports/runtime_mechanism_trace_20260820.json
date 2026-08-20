@@ -1,0 +1,796 @@
+{
+  "prompt": "请用一句话说明你现在的任务。",
+  "generated": "这句话",
+  "elapsed_seconds": 1.332,
+  "population": [
+    "code",
+    "en",
+    "math",
+    "zh",
+    "zh_aug0_dialogue",
+    "zh_aug1_dialogue",
+    "zh_aug2_dialogue",
+    "zh_aug3_dialogue",
+    "zh_std0_dialogue"
+  ],
+  "default_collab_mode": "continuous",
+  "pending_field_memories": {
+    "before": 0,
+    "after": 0
+  },
+  "sleep_replay_buffer": {
+    "before": 0,
+    "after": 0
+  },
+  "play_result": null,
+  "play_error": null,
+  "play_line_trace": [
+    167,
+    169,
+    172,
+    174,
+    176,
+    177,
+    180,
+    181,
+    182,
+    185,
+    187,
+    188,
+    194,
+    196,
+    197,
+    212,
+    211,
+    {
+      "exception_type": "TypeError",
+      "exception": "'dict_values' object is not an iterator",
+      "line": 211
+    },
+    276,
+    277,
+    278
+  ],
+  "play_preconditions": {
+    "module_present": true,
+    "cortex_set": true,
+    "neuron_count": 9,
+    "tokenizer_hub_present": true,
+    "shared_embedding_present": true
+  },
+  "play_probe": {
+    "general_encode": {
+      "length": 31,
+      "max_id": 15913
+    },
+    "en_encode": {
+      "length": 31,
+      "max_id": 15913
+    },
+    "shared_embedding_probe": {
+      "shape": [
+        1,
+        31,
+        512
+      ]
+    }
+  },
+  "counts": {
+    "think_calls": 1,
+    "ensemble_calls": 2,
+    "parallel_calls": 3,
+    "neuron_forward_calls": 18,
+    "field_events": 23,
+    "coaction_updates": 0
+  },
+  "neuron_round_histogram": {
+    "round=1": 6,
+    "round=2": 6,
+    "round=3": 6
+  },
+  "events": {
+    "neuron_forwards": [
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits",
+          "quality_logit"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      },
+      {
+        "nid": null,
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0,
+        "output_keys": [
+          "field_attn_weights",
+          "field_confidence",
+          "field_vector",
+          "hidden_before_write",
+          "logits"
+        ],
+        "has_resonance_score": false,
+        "has_last_field_state": false
+      }
+    ],
+    "field_events": [
+      {
+        "op": "reset",
+        "dim": 3072,
+        "state_norm": 0.0
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug0_dialogue",
+        "scale": 6.711483001708984e-05,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.7155023813247681
+        },
+        "state_norm": 6.711484456900507e-05
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug1_dialogue",
+        "scale": 6.085634231567383e-05,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.3092789947986603
+        },
+        "state_norm": 9.148214303422719e-05
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug2_dialogue",
+        "scale": 0.0001010894775390625,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.2015122026205063
+        },
+        "state_norm": 0.00013671039778273553
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug3_dialogue",
+        "scale": 2.682209014892578e-05,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.8984287977218628
+        },
+        "state_norm": 0.0001382684422424063
+      },
+      {
+        "op": "write",
+        "nid": "zh_std0_dialogue",
+        "scale": 3.6776065826416016e-05,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.89956134557724
+        },
+        "state_norm": 0.00014257727889344096
+      },
+      {
+        "op": "write",
+        "nid": "zh",
+        "scale": 3.647804260253906e-05,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.8573883175849915
+        },
+        "state_norm": 0.00014695969002787024
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug0_dialogue",
+        "scale": 4.215092594961334e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.9309229254722595
+        },
+        "state_norm": 0.9999338388442993
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug1_dialogue",
+        "scale": 3.812081838194814e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.48896902799606323
+        },
+        "state_norm": 0.999935507774353
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug2_dialogue",
+        "scale": 6.281630399174176e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.2011834681034088
+        },
+        "state_norm": 0.9999397397041321
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug3_dialogue",
+        "scale": 1.6784022172089408e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 1.0043249130249023
+        },
+        "state_norm": 0.9999399781227112
+      },
+      {
+        "op": "write",
+        "nid": "zh_std0_dialogue",
+        "scale": 2.304900167171553e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.9803621172904968
+        },
+        "state_norm": 0.9999405145645142
+      },
+      {
+        "op": "write",
+        "nid": "zh",
+        "scale": 2.286381420191219e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.9631668329238892
+        },
+        "state_norm": 0.9999411702156067
+      },
+      {
+        "op": "write_inhibit",
+        "nid": "__osc_osc_theta_0__",
+        "weight": 0.07984379907135991,
+        "vector_norm": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999998807907104
+        },
+        "state_norm": 0.9999999403953552
+      },
+      {
+        "op": "write_inhibit",
+        "nid": "__osc_osc_gamma_0__",
+        "weight": 0.03980738816641223,
+        "vector_norm": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999998211860657
+        },
+        "state_norm": 0.9999999403953552
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug0_dialogue",
+        "scale": 4.2184508473042115e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.9993451833724976
+        },
+        "state_norm": 1.0000017881393433
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug1_dialogue",
+        "scale": 3.823938641289715e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.7606034278869629
+        },
+        "state_norm": 1.000003457069397
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug2_dialogue",
+        "scale": 6.2727594618561255e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.20105519890785217
+        },
+        "state_norm": 1.0000077486038208
+      },
+      {
+        "op": "write",
+        "nid": "zh_aug3_dialogue",
+        "scale": 1.682100858602098e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 1.017364501953125
+        },
+        "state_norm": 1.0000081062316895
+      },
+      {
+        "op": "write",
+        "nid": "zh_std0_dialogue",
+        "scale": 2.307164528314587e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.9957762956619263
+        },
+        "state_norm": 1.0000085830688477
+      },
+      {
+        "op": "write",
+        "nid": "zh",
+        "scale": 2.288487735313538e-06,
+        "vector_norm": {
+          "shape": [
+            1,
+            3072
+          ],
+          "norm": 0.983923614025116
+        },
+        "state_norm": 1.0000091791152954
+      },
+      {
+        "op": "write_inhibit",
+        "nid": "__osc_osc_theta_0__",
+        "weight": 0.07937581160415863,
+        "vector_norm": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999998807907104
+        },
+        "state_norm": 0.9999999403953552
+      },
+      {
+        "op": "write_inhibit",
+        "nid": "__osc_osc_gamma_0__",
+        "weight": 0.039231410296600495,
+        "vector_norm": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999998211860657
+        },
+        "state_norm": 0.9999999403953552
+      }
+    ],
+    "ensemble_calls": [
+      {
+        "path": "continuous_forward.enter",
+        "active_nids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "zh"
+        ],
+        "seed_memory_count": 0
+      },
+      {
+        "path": "continuous_forward.exit",
+        "result_keys": [
+          "continuous_weights",
+          "field_state",
+          "final_scores",
+          "n_rounds",
+          "n_steps",
+          "neuron_logits",
+          "phase_code",
+          "phase_lock",
+          "phase_locked",
+          "phase_mean",
+          "quality_logits",
+          "round1_judge_logits",
+          "round1_logits",
+          "round1_scores",
+          "skip_reason",
+          "skipped_resonance",
+          "stop_reason",
+          "weighted_logits"
+        ],
+        "n_steps": 2,
+        "final_score_count": 6,
+        "phase_mean": 0.3244860034994484,
+        "phase_lock": 0.784527063369751,
+        "field_state": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999999403953552
+        }
+      }
+    ],
+    "parallel_calls": [
+      {
+        "active_nids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "zh"
+        ],
+        "round_num": 1,
+        "field_state_present": false,
+        "side_signal_count": 0
+      },
+      {
+        "active_nids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "zh"
+        ],
+        "round_num": 2,
+        "field_state_present": true,
+        "side_signal_count": 0
+      },
+      {
+        "active_nids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "zh"
+        ],
+        "round_num": 3,
+        "field_state_present": true,
+        "side_signal_count": 0
+      }
+    ],
+    "think_calls": [
+      {
+        "active_nids": [
+          "zh_aug0_dialogue",
+          "zh_aug1_dialogue",
+          "zh_aug2_dialogue",
+          "zh_aug3_dialogue",
+          "zh_std0_dialogue",
+          "zh"
+        ],
+        "collab_mode": "continuous",
+        "result_keys": [
+          "continuous_weights",
+          "field_state",
+          "final_scores",
+          "n_rounds",
+          "n_steps",
+          "neuron_logits",
+          "phase_code",
+          "phase_lock",
+          "phase_locked",
+          "phase_mean",
+          "quality_logits",
+          "round1_judge_logits",
+          "round1_logits",
+          "round1_scores",
+          "skip_reason",
+          "skipped_resonance",
+          "stop_reason",
+          "weighted_logits"
+        ],
+        "field_state": {
+          "shape": [
+            3072
+          ],
+          "norm": 0.9999999403953552
+        }
+      }
+    ],
+    "coaction_updates": []
+  },
+  "elapsed_total_seconds": 34.313,
+  "contract": {
+    "writes_checkpoint": false,
+    "trains": false,
+    "uses_assemble_cortex": true,
+    "uses_cortex_generate": true,
+    "play_path_attempted": true
+  }
+}
