@@ -401,13 +401,21 @@ def main():
         print(f"下一步: {next_msg}", flush=True)
     else:
         print(f"判定: D1 FAIL ({failed} 维不过)", flush=True)
-        if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0:
+        if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0 and DECAY >= 0.88:
             next_msg = (
                 f"D1-fix v4 (hysteresis N={HYSTERESIS_N} + ceiling "
                 f"{CEILING_RATIO}) 仍 FAIL——"
                 f"考虑：a) 调高 HYSTERESIS_N (2→3) 进一步抗噪声；"
                 f"b) 收紧 CEILING_RATIO (1.3→1.15) 抑制 SKIP 累积；"
                 f"c) 上调 decay_min_rel_ratio (0.95→0.98) 让 SKIP 触发更难"
+            )
+        elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO <= 1.7 and DECAY < 0.88:
+            next_msg = (
+                f"D1-fix v5 (hysteresis N={HYSTERESIS_N} + ceiling "
+                f"{CEILING_RATIO} + DECAY={DECAY}) 仍 FAIL——"
+                f"考虑：a) 进一步放宽 ceiling (1.6→1.8) 给 SKIP 更多空间；"
+                f"b) 进一步收紧 DECAY (0.85→0.80) 让被允许累积衰减更快；"
+                f"c) hysteresis N 2→1（既然 v5 ceiling 已经够宽，不再需要抗噪）"
             )
         elif JUDGE_DRIVEN_DECAY:
             next_msg = ("D1-fix judge 驱动衰减自调节仍 FAIL——"
@@ -457,8 +465,11 @@ def main():
         "next_step": next_msg,
         "elapsed_seconds": time.time() - t0,
     }
-    if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0:
+    if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0 and DECAY >= 0.88:
         out_path = (f"reports/play_engine_d1_fix_v4_hysteresis_ceiling_"
+                    f"{today}.json")
+    elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO <= 1.7 and DECAY < 0.88:
+        out_path = (f"reports/play_engine_d1_fix_v5_ceiling16_decay85_"
                     f"{today}.json")
     elif JUDGE_DRIVEN_DECAY:
         out_path = (f"reports/play_engine_d1_fix_judge_driven_decay_"
