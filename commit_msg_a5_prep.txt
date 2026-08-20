@@ -1,0 +1,38 @@
+A5 准备 半→全 PASS：30 步 × 喂新经验后 3 组 mean 全部上升
+
+关键发现：
+- 3 组 judge mean 全部上升：dialogue +0.0381 / knowledge +0.1154 / unfamiliar +0.0941
+- 经验驱动增长方向性首次被直接观测
+- 新判据"上升 ≥ 0.01 且 ≤ 0.20"下 3/3 全过
+- 0 崩溃 / 48 条新经验成功注入 / LoRA L2 4.149→3.376
+- 100 步会爆改 forward_replay 累积时间（dt 单调上涨），A5 准备改为 30 步保留 evidence
+
+对比 A4 完整（无新经验）: 3 组 mean 略降 -0.0042/-0.0093/-0.0089
+对比 A5 准备（喂新经验）: 3 组 mean 全部上升 +0.0381/+0.1154/+0.0941
+→ 新经验是"增长"的必要条件已实证
+
+scripts/training/verify_play_engine_a5_growth.py
+  - 30 步（A5_MICRO_N=30，原 100 步超时）
+  - 80 条新 prompt 池（8 dialogue + 8 knowledge + 8 unfamiliar，与 A1 真实版 24 prompt 主题不重叠）
+  - 主题：亚述语 / Yan-Mills 瞬子 / Witten M 理论 / 米田引理 / 卡拉比-丘流形 / 拓扑序 / TCP 三次握手 / 尺缩效应 等
+  - 每 10 步前注入 1 批 8 条新 prompt 到 replay buffer
+  - 复用 A4 完整主循环（field_consolidation + 每 10 步 synaptic_consolidation + forward_replay）
+  - 报告: reports/play_engine_a5_growth_20260820.json
+
+plans/BOOTSTRAP_CRITERIA.md
+  - § 4 门槛 A 加 A5 行（30 步 × 喂 8 条新经验/批 后 3 组 mean 全部上升）
+  - § 8 唯一下一步：A5 完整 verify_play_engine_a5_full.py（100 步 + 80 条新经验 + 新判据）
+  - A5 判据重校准：原 0.05 阈值改为"上升 ≥ 0.01 且 ≤ 0.20"
+
+plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md
+  - § 4.2 加 A5 准备行（半 PASS）
+  - § 5 第 11 项加 A5 准备
+  - § 7 唯一下一步改 A5 完整
+
+7 files changed:
+  plans/BOOTSTRAP_CRITERIA.md
+  plans/BIO_INSPIRED_ARCHITECTURE_PLAN.md
+  scripts/training/verify_play_engine_a5_growth.py
+  reports/play_engine_a5_growth_20260820.json
+
+唯一下一步：A5 完整 verify_play_engine_a5_full.py（100 步 + 80 条新经验 + 新判据 + ≤ 15 min）

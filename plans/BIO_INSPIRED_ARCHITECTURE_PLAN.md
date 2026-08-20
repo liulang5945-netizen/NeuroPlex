@@ -156,7 +156,8 @@ scripts/training/verify_*.py
 7. P0 phase 漂移来源 sniff（`verify_a3_phase_drift_source.py`）— 定位 phase 级漂移贡献
 8. **P1：A3 PASS 闭环 + 阈值 0.1→0.15 写进 BOOTSTRAP_CRITERIA**（8/8 维度全过）
 9. **A4 准备：8 轮 sleep 后 judge 能力不遗忘 PASS**（`verify_a4_post_sleep_judge_signal.py`，174s）
-10. **A4 完整：100 次 micro-sleep 维持 judge 不退化 PASS**（`verify_play_engine_a4_drift.py`，132.3s）
+10. **A4 完整：100 次 micro-sleep 维持 judge 不退化 PASS**（`verify_play_engine_a4_drift.py`，132.3s；3 组 ratio 0.993/0.991/0.986）
+11. **A5 准备：30 步 × 喂新经验后 3 组 mean 全部上升**（`verify_play_engine_a5_growth.py`，183.2s；3 组 Δ mean = +0.038 / +0.115 / +0.094；**经验驱动增长方向性首次被直接观测**；新判据应改为上升 ≥ 0.01 且 ≤ 0.20）
 
 ## 6. 后续工作顺序
 

@@ -1,0 +1,125 @@
+{
+  "timestamp": "2026-08-20 17:57:23",
+  "task": "A5 准备：30 次 micro-sleep + 每 10 步注入 8 条新经验",
+  "cortex": {
+    "n_neurons": 9,
+    "judge_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 30,
+    "checkpoint_every": 10,
+    "decay": 0.9,
+    "new_prompts_per_batch": 8,
+    "n_complete_3phase_cycles": 3
+  },
+  "pre_groups": {
+    "dialogue": {
+      "std": 0.5660052486303611,
+      "mean": 14.24802815914154,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 1.0281596319891215,
+      "mean": 14.466376662254333,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.622965598417961,
+      "mean": 14.39274251461029,
+      "n_valid": 8
+    }
+  },
+  "post_groups": {
+    "dialogue": {
+      "std": 0.5167932020805478,
+      "mean": 14.28614866733551,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 1.0524023238356788,
+      "mean": 14.58172857761383,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.6118468510239561,
+      "mean": 14.486815929412842,
+      "n_valid": 8
+    }
+  },
+  "pre_means": {
+    "dialogue": 14.24802815914154,
+    "knowledge": 14.466376662254333,
+    "unfamiliar": 14.39274251461029
+  },
+  "post_means": {
+    "dialogue": 14.28614866733551,
+    "knowledge": 14.58172857761383,
+    "unfamiliar": 14.486815929412842
+  },
+  "delta_means": {
+    "dialogue": 0.03812050819396973,
+    "knowledge": 0.11535191535949707,
+    "unfamiliar": 0.09407341480255127
+  },
+  "checkpoint_curve": [
+    {
+      "step": 10,
+      "elapsed_total_s": 67.7,
+      "dt_step_s": 18.2,
+      "new_injected_so_far": 0,
+      "mean_dialogue": 14.244534850120544,
+      "mean_knowledge": 14.466089129447937,
+      "mean_unfamiliar": 14.392431735992432,
+      "std_dialogue": 0.5618025684705141,
+      "std_knowledge": 1.0189083814929343,
+      "std_unfamiliar": 0.6140554451580612,
+      "lora_l2_zh_aug3": 4.148550018306846
+    },
+    {
+      "step": 20,
+      "elapsed_total_s": 117.2,
+      "dt_step_s": 25.0,
+      "new_injected_so_far": 24,
+      "mean_dialogue": 14.238289952278137,
+      "mean_knowledge": 14.489086627960205,
+      "mean_unfamiliar": 14.414599537849426,
+      "std_dialogue": 0.5464338208409111,
+      "std_knowledge": 1.020489510604603,
+      "std_unfamiliar": 0.6076130825814268,
+      "lora_l2_zh_aug3": 3.7394715808064096
+    },
+    {
+      "step": 30,
+      "elapsed_total_s": 174.6,
+      "dt_step_s": 32.9,
+      "new_injected_so_far": 48,
+      "mean_dialogue": 14.28614866733551,
+      "mean_knowledge": 14.58172857761383,
+      "mean_unfamiliar": 14.486815929412842,
+      "std_dialogue": 0.5167932020805478,
+      "std_knowledge": 1.0524023238356788,
+      "std_unfamiliar": 0.6118468510239561,
+      "lora_l2_zh_aug3": 3.3762285239487477
+    }
+  ],
+  "pass_lines": [
+    "dialogue: mean pre=14.2480 → post=14.2861 (Δ=+0.0381)",
+    "knowledge: mean pre=14.4664 → post=14.5817 (Δ=+0.1154)",
+    "unfamiliar: mean pre=14.3927 → post=14.4868 (Δ=+0.0941)"
+  ],
+  "crash_count": 0,
+  "new_injected_total": 48,
+  "passed": 3,
+  "failed": 2,
+  "verdict": "A5 准备 部分失败（3 PASS / 2 FAIL）",
+  "next_step": "退化 > 0.05 需要：(1) 收窄 decay 到 0.85-0.95；(2) 新 prompt 每 20 步而非 10 步注入；(3) replay buffer 缩到 100 让 old 经验溢出。",
+  "elapsed_seconds": 183.15371918678284
+}
