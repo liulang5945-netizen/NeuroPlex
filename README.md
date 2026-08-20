@@ -148,6 +148,11 @@ NeuroPlex/
 ├── api/                    #   FastAPI server
 ├── frontend/               #   Vue 3 web UI
 ├── desktop/                #   PyQt6 desktop app
+├── docs/                   #   Supplementary design and history materials
+├── data/                   #   Runtime datasets and model checkpoints (local, ignored)
+├── reports/                #   Validation reports referenced by plans
+├── logs/                   #   Runtime and historical experiment logs (local, ignored)
+├── plans/                  #   Active plans and categorized historical archive
 ├── scripts/training/       #   Training scripts + verify_*.py tests
 ├── tests/                  #   pytest regression suite
 └── plans/                  #   Architecture documentation
