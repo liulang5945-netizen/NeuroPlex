@@ -42,13 +42,16 @@
     D1_JUDGE_DRIVEN_DECAY=1   # 0/1；1 开启 D1-fix
     D1_DECAY_MIN_STD=0.05
     D1_DECAY_SAMPLE_N=3
+    D1_HYSTERESIS_N=2          # D1-fix v4：连续 N 周期 SKIP 信号才真 SKIP
+    D1_CEILING_RATIO=1.3       # D1-fix v4：LoRA L2 > baseline × 此值强制衰减
     D1_EPSILON=0.10
     D1_FORCE_STREAK=5
     D1_RECENCY_BONUS=0.5
     D1_SAMPLE_EVERY=100
 
 运行：python -u scripts/training/verify_play_engine_d1_long_run.py
-或 D1-fix 版：D1_JUDGE_DRIVEN_DECAY=1 python -u scripts/training/verify_play_engine_d1_long_run.py
+或 D1-fix v3：D1_JUDGE_DRIVEN_DECAY=1 python -u scripts/training/verify_play_engine_d1_long_run.py
+或 D1-fix v4：D1_JUDGE_DRIVEN_DECAY=1 D1_HYSTERESIS_N=2 D1_CEILING_RATIO=1.3 python -u scripts/training/verify_play_engine_d1_long_run.py
 """
 from __future__ import annotations
 
@@ -91,6 +94,8 @@ JUDGE_DRIVEN_DECAY = bool(int(os.environ.get("D1_JUDGE_DRIVEN_DECAY", "0")))
 DECAY_MIN_STD = float(os.environ.get("D1_DECAY_MIN_STD", "0.05"))
 DECAY_MIN_REL_RATIO = float(os.environ.get("D1_DECAY_MIN_REL_RATIO", "0.95"))
 DECAY_SAMPLE_N = int(os.environ.get("D1_DECAY_SAMPLE_N", "3"))
+HYSTERESIS_N = int(os.environ.get("D1_HYSTERESIS_N", "2"))
+CEILING_RATIO = float(os.environ.get("D1_CEILING_RATIO", "1.3"))
 EPSILON = float(os.environ.get("D1_EPSILON", "0.10"))
 FORCE_SWITCH_STREAK = int(os.environ.get("D1_FORCE_STREAK", "5"))
 RECENCY_BONUS = float(os.environ.get("D1_RECENCY_BONUS", "0.5"))
@@ -151,7 +156,9 @@ def main():
           f"judge_driven_decay={JUDGE_DRIVEN_DECAY}  "
           f"decay_min_std={DECAY_MIN_STD}  "
           f"decay_min_rel_ratio={DECAY_MIN_REL_RATIO}  "
-          f"decay_sample_n={DECAY_SAMPLE_N}", flush=True)
+          f"decay_sample_n={DECAY_SAMPLE_N}  "
+          f"hysteresis_n={HYSTERESIS_N}  "
+          f"ceiling_ratio={CEILING_RATIO}", flush=True)
     print(f"  每 {SAMPLE_EVERY} 步采样轨迹（NLL / LoRA L2 / coaction）", flush=True)
     print("=" * 64, flush=True)
 
@@ -184,6 +191,9 @@ def main():
         decay_baseline_prompts=tuple(
             DIALOGUE_PROMPTS + KNOWLEDGE_PROMPTS + UNFAMILIAR_PROMPTS),
         decay_baseline_sample_n=DECAY_SAMPLE_N,
+        decay_hysteresis_n=HYSTERESIS_N,
+        decay_lora_ceiling_ratio=CEILING_RATIO,
+        pre_lora_l2_baseline=None,  # 首次测量时自动写
     )
     sleep_engine = SleepEngine(config=cfg, data_dir=tmp_data)
     sc = SleepConsolidator(replay_buffer_size=400)
@@ -391,7 +401,15 @@ def main():
         print(f"下一步: {next_msg}", flush=True)
     else:
         print(f"判定: D1 FAIL ({failed} 维不过)", flush=True)
-        if JUDGE_DRIVEN_DECAY:
+        if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0:
+            next_msg = (
+                f"D1-fix v4 (hysteresis N={HYSTERESIS_N} + ceiling "
+                f"{CEILING_RATIO}) 仍 FAIL——"
+                f"考虑：a) 调高 HYSTERESIS_N (2→3) 进一步抗噪声；"
+                f"b) 收紧 CEILING_RATIO (1.3→1.15) 抑制 SKIP 累积；"
+                f"c) 上调 decay_min_rel_ratio (0.95→0.98) 让 SKIP 触发更难"
+            )
+        elif JUDGE_DRIVEN_DECAY:
             next_msg = ("D1-fix judge 驱动衰减自调节仍 FAIL——"
                         "考虑：a) 调高 decay_min_std（0.05→0.10）让 skip 更激进；"
                         "b) 调低 DECAY（0.9→0.7）让保留的 LoRA 也衰减；"
@@ -413,6 +431,8 @@ def main():
             "judge_driven_decay": JUDGE_DRIVEN_DECAY,
             "decay_min_judge_std": DECAY_MIN_STD,
             "decay_judge_sample_n": DECAY_SAMPLE_N,
+            "hysteresis_n": HYSTERESIS_N,
+            "ceiling_ratio": CEILING_RATIO,
             "epsilon": EPSILON,
             "force_switch_streak": FORCE_SWITCH_STREAK,
             "recency_bonus": RECENCY_BONUS,
@@ -437,7 +457,10 @@ def main():
         "next_step": next_msg,
         "elapsed_seconds": time.time() - t0,
     }
-    if JUDGE_DRIVEN_DECAY:
+    if HYSTERESIS_N >= 2 and CEILING_RATIO < 10.0:
+        out_path = (f"reports/play_engine_d1_fix_v4_hysteresis_ceiling_"
+                    f"{today}.json")
+    elif JUDGE_DRIVEN_DECAY:
         out_path = (f"reports/play_engine_d1_fix_judge_driven_decay_"
                     f"{today}.json")
     else:

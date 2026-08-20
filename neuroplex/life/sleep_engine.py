@@ -111,6 +111,17 @@ class SleepReport:
     decay_skipped_count: int = 0
     decay_judge_std: Optional[float] = None  # 最近一次判定的 std
     decay_baseline_std: Optional[float] = None  # 本轮 baseline std（重测）
+    # D1-fix v4（2026-08-21）：hysteresis 复合——
+    # 当前周期 SKIP 信号累计到阈值前，pending 计数（< hysteresis_n 时本轮
+    # 不真正 skip，仍走衰减；达阈值才生效 +1）
+    decay_hysteresis_pending: int = 0
+    # D1-fix v4：ceiling 强制衰减次数——本周期 LoRA L2 超 baseline ×
+    # ceiling_ratio 时即便 SKIP 也强制衰减的次数
+    decay_ceiling_forced_count: int = 0
+    # D1-fix v4：本轮 LoRA L2 测量值（ceiling 判定用）
+    decay_current_lora_l2: Optional[float] = None
+    # D1-fix v4：ceiling 参考基线 LoRA L2（首次测量写入或外部注入）
+    decay_lora_l2_baseline: Optional[float] = None
 
 
 @dataclass
@@ -156,6 +167,21 @@ class SleepConfig:
     # baseline 测量用的 prompt 集合——D1 脚本传 8+8+8=24 条；不传则用 bank
     # 随机采样（fallback）。设为元组避免外部修改。
     decay_baseline_sample_n: int = 8  # D1-fix v3 从 prompts 抽的条数（每组等比）
+    # D1-fix v4（2026-08-21）：hysteresis 复合——连续 N 个 sleep 周期
+    # 满足 v3 SKIP 条件才真正跳过本轮衰减（避免单周期噪声）。N=1 = 旧 v3
+    # 行为（立即 skip）；N=2-3 = 抗单周期噪声；N=0 = 永远不 skip。
+    # 副作用：增加 N-1 次测量/100步（成本 ~8×N forward），但显著降低
+    # "v3 SKIP 触发过于激进"的风险（D1-fix v3 失败根因）。
+    decay_hysteresis_n: int = 2
+    # D1-fix v4：LoRA ceiling——若本轮 LoRA L2 > baseline × 此比例，
+    # 即便 SKIP 也强制衰减（不让 SKIP 累积导致 LoRA 爆炸）。1.3 = 允许
+    # LoRA 在 baseline 130% 之内浮动；1.0 = 永远不超 baseline；
+    # 10.0 = 不启用 ceiling。
+    decay_lora_ceiling_ratio: float = 1.3
+    # D1-fix v4：外部注入的 pre LoRA L2 baseline（缺省时 SleepEngine
+    # 在第一次测量时自动写）。用于跨进程/重启时让 ceiling 有稳定
+    # 参考点；与 decay_lora_ceiling_ratio 配对使用。
+    pre_lora_l2_baseline: Optional[float] = None
 
 
 class SleepEngine:
@@ -198,6 +224,13 @@ class SleepEngine:
         self._is_sleeping = False
         self._auto_sleep_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # D1-fix v4（2026-08-21）：hysteresis 计数器——连续 N 个 sleep 周期
+        # 满足 v3 SKIP 条件时才真正跳过本轮衰减。reset 在每轮真正 skip 生效时
+        # 归零；每轮非 skip 判定（衰减生效）也归零（必须重新累计）。
+        self._consecutive_skip_count: int = 0
+        # D1-fix v4：LoRA L2 ceiling baseline——首次测量时写入，之后用
+        # 同一 baseline 判定 ceiling；可被外部 pre_lora_l2_baseline 覆盖。
+        self._lora_l2_baseline: Optional[float] = None
 
         # 神经元架构接口（由 set_brain_interfaces 注入）
         self.cortex: Optional[Any] = None  # Cortex 实例
@@ -1056,6 +1089,12 @@ class SleepEngine:
         # baseline std（用 8-prompt baseline 集合），当前 std < baseline ×
         # ratio → skip 本次衰减。让"眼睛"在每个 sleep 周期校准一次，
         # 跟踪 D1 报告同口径信号（pre/post 8-prompt std 收窄 = over-converge）。
+        # D1-fix v4（2026-08-21）：在 v3 基础上叠加两层防护——
+        # ①ceiling：本轮 LoRA L2 超 baseline × decay_lora_ceiling_ratio
+        #   时**强制衰减**（即便 SKIP 信号成立），让 SKIP 不会让 LoRA 累积爆炸
+        # ②hysteresis：连续 N 个 sleep 周期 v3 SKIP 信号才真 SKIP，
+        #   避免单周期噪声（v3 失败的根因：v3 SKIP 触发过于激进 → LoRA
+        #   16.84→18.76 ↑，dialogue 反而被训练累积压低）
         effective_decay = float(self.config.lora_decay_per_sleep)
         if self.config.judge_driven_decay and effective_decay < 1.0:
             try:
@@ -1092,20 +1131,130 @@ class SleepEngine:
                         f"cur={cur_std:.4f} < "
                         f"{self.config.decay_min_judge_std:.4f}"
                     )
-                if skip_reason is not None:
+                # D1-fix v4 第一层：LoRA ceiling 测量——跨所有 nid 的 lora_adapters
+                # L2 范数。首次测量时写入 baseline（外部 pre_lora_l2_baseline
+                # 优先——跨进程稳定参考点）。
+                cur_l2 = None
+                try:
+                    sq = 0.0
+                    for nid in target_ids:
+                        live = neurons.get(nid)
+                        if live is None:
+                            continue
+                        for p in live.lora_adapters.parameters():
+                            if p is None:
+                                continue
+                            try:
+                                sq += float(p.data.detach().pow(2).sum().item())
+                            except Exception:
+                                continue
+                    cur_l2 = (sq ** 0.5) if sq > 0 else None
+                except Exception:
+                    cur_l2 = None
+                report.decay_current_lora_l2 = cur_l2
+                # 写入 baseline：外部优先；否则首次测量时自动写
+                if self._lora_l2_baseline is None:
+                    self._lora_l2_baseline = (
+                        self.config.pre_lora_l2_baseline
+                        if self.config.pre_lora_l2_baseline is not None
+                        else cur_l2
+                    )
+                report.decay_lora_l2_baseline = self._lora_l2_baseline
+                # ceiling 强制：cur_l2 > baseline × ratio → 强制衰减
+                ceiling_forced = False
+                if (cur_l2 is not None
+                        and self._lora_l2_baseline is not None
+                        and self._lora_l2_baseline > 0
+                        and self.config.decay_lora_ceiling_ratio < 10.0):
+                    ceiling_thresh = (
+                        self._lora_l2_baseline
+                        * self.config.decay_lora_ceiling_ratio
+                    )
+                    if cur_l2 > ceiling_thresh:
+                        ceiling_forced = True
+                # D1-fix v4 第二层：hysteresis 复合——
+                # 仅当 skip 信号成立 AND ceiling 未强制时累加 SKIP 计数；
+                # 达到 decay_hysteresis_n 才真 SKIP（effective_decay=1.0），
+                # 否则 pending 计数（仍走衰减）。
+                h_n = max(0, int(self.config.decay_hysteresis_n))
+                # h_n == 0 → 永远不 skip（hysteresis 全关闭）
+                # h_n == 1 → 等同 v3（立即 skip）
+                # h_n >= 2 → 抗单周期噪声
+                will_skip = False
+                skip_path = "无 SKIP 信号"
+                if skip_reason is None:
+                    # v3 判定无 SKIP 信号 → 任何 pending 都归零
+                    if self._consecutive_skip_count > 0:
+                        logger.info(
+                            f"  [D1-fix v4] hysteresis reset: "
+                            f"pending {self._consecutive_skip_count}→0 "
+                            f"（v3 SKIP 信号不成立）")
+                    self._consecutive_skip_count = 0
+                elif ceiling_forced:
+                    # v3 SKIP 信号成立但 ceiling 强制覆盖 → 走衰减，重置 pending
+                    if self._consecutive_skip_count > 0:
+                        logger.info(
+                            f"  [D1-fix v4] hysteresis reset: "
+                            f"pending {self._consecutive_skip_count}→0 "
+                            f"（ceiling 强制）")
+                    self._consecutive_skip_count = 0
+                    skip_path = "ceiling 强制覆盖"
+                else:
+                    # v3 SKIP 信号成立 + 未被 ceiling 强制
+                    self._consecutive_skip_count += 1
+                    if h_n == 0:
+                        skip_path = (
+                            f"hysteresis 关闭 (N=0) → 不 skip，"
+                            f"pending {self._consecutive_skip_count}"
+                        )
+                        will_skip = False
+                    elif self._consecutive_skip_count >= h_n:
+                        will_skip = True
+                        skip_path = (
+                            f"hysteresis 达到 {h_n} 周期 → 真 SKIP，"
+                            f"reset pending"
+                        )
+                    else:
+                        skip_path = (
+                            f"hysteresis 累计 {self._consecutive_skip_count}/{h_n}"
+                            f" → 暂 skip pending，仍走衰减"
+                        )
+                # 报告 pending 计数（仅 h_n>0 且未真 skip 时）
+                if (not will_skip
+                        and self._consecutive_skip_count > 0
+                        and skip_reason is not None
+                        and not ceiling_forced
+                        and h_n > 0):
+                    report.decay_hysteresis_pending = (
+                        self._consecutive_skip_count
+                    )
+                if ceiling_forced:
+                    report.decay_ceiling_forced_count = est_replayed
+                if will_skip:
+                    # 真 skip：effective_decay=1.0 → LoRA 保留
                     effective_decay = 1.0
                     report.decay_skipped_count = est_replayed
+                    self._consecutive_skip_count = 0  # 真 skip 后重置
+                    _l2_info = (
+                        f", LoRA L2={cur_l2:.3f}, "
+                        f"baseline={self._lora_l2_baseline:.3f}"
+                        if cur_l2 is not None
+                        and self._lora_l2_baseline is not None
+                        else ""
+                    )
                     logger.info(
-                        f"  [D1-fix v3] judge-driven decay SKIP: "
-                        f"{skip_reason} → 保留 LoRA (~{est_replayed} 个 nid)")
+                        f"  [D1-fix v4] judge-driven decay SKIP: "
+                        f"{skip_reason} + {skip_path} → "
+                        f"保留 LoRA (~{est_replayed} 个 nid{_l2_info})")
                 else:
                     logger.info(
-                        f"  [D1-fix v3] judge-driven decay KEEP: "
-                        f"cur={cur_std} base={base_std} → 正常衰减 "
-                        f"{effective_decay}")
+                        f"  [D1-fix v4] judge-driven decay KEEP: "
+                        f"cur={cur_std} base={base_std} "
+                        f"LoRA L2={cur_l2} baseline={self._lora_l2_baseline} "
+                        f"→ {skip_path}，正常衰减 {effective_decay}")
             except Exception as e:
                 logger.debug(
-                    f"  [D1-fix v3] judge-driven decay 判定失败: "
+                    f"  [D1-fix v4] judge-driven decay 判定失败: "
                     f"{type(e).__name__}: {e}")
 
         for nid in target_ids:

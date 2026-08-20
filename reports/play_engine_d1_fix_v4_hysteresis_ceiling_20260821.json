@@ -1,0 +1,227 @@
+{
+  "timestamp": "2026-08-21 01:13:51",
+  "task": "D1 长程稳定性：1000 步压力测试 + 轨迹采样",
+  "config": {
+    "n_micro": 1000,
+    "decay": 0.9,
+    "judge_driven_decay": true,
+    "decay_min_judge_std": 0.05,
+    "decay_judge_sample_n": 8,
+    "hysteresis_n": 2,
+    "ceiling_ratio": 1.3,
+    "epsilon": 0.1,
+    "force_switch_streak": 5,
+    "recency_bonus": 0.5,
+    "decision_every": 50,
+    "sample_every": 100
+  },
+  "pre_groups": {
+    "dialogue": {
+      "std": 0.5660052486303611,
+      "mean": 14.24802815914154
+    },
+    "knowledge": {
+      "std": 1.0281596319891215,
+      "mean": 14.466376662254333
+    },
+    "unfamiliar": {
+      "std": 0.622965598417961,
+      "mean": 14.39274251461029
+    }
+  },
+  "post_groups": {
+    "dialogue": {
+      "std": 0.49488731259202157,
+      "mean": 14.317382574081421
+    },
+    "knowledge": {
+      "std": 0.8160116120689432,
+      "mean": 14.514866828918457
+    },
+    "unfamiliar": {
+      "std": 0.5156030416554349,
+      "mean": 14.463926315307617
+    }
+  },
+  "ratio_summary": {
+    "dialogue": 0.8743511014952015,
+    "knowledge": 0.7936623717566623,
+    "unfamiliar": 0.8276589316726697
+  },
+  "pre_lora_l2": 0.0,
+  "post_lora_l2": 14.810748179990684,
+  "trajectory": [
+    {
+      "nlls": {
+        "dialogue": 14.365586280822754,
+        "knowledge": 13.733726501464844,
+        "unfamiliar": 13.966437339782715
+      },
+      "lora_l2": 0.0,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 0
+    },
+    {
+      "nlls": {
+        "dialogue": 14.323478698730469,
+        "knowledge": 13.724323749542236,
+        "unfamiliar": 13.97672700881958
+      },
+      "lora_l2": 16.83607620784974,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 100
+    },
+    {
+      "nlls": {
+        "dialogue": 14.250592231750488,
+        "knowledge": 13.703582763671875,
+        "unfamiliar": 14.008084297180176
+      },
+      "lora_l2": 15.737970174217333,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 200
+    },
+    {
+      "nlls": {
+        "dialogue": 14.299591064453125,
+        "knowledge": 13.699169635772705,
+        "unfamiliar": 14.059875965118408
+      },
+      "lora_l2": 15.035185689679555,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 300
+    },
+    {
+      "nlls": {
+        "dialogue": 14.361196517944336,
+        "knowledge": 13.70917272567749,
+        "unfamiliar": 14.09798002243042
+      },
+      "lora_l2": 14.5503121903774,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 400
+    },
+    {
+      "nlls": {
+        "dialogue": 14.394017696380615,
+        "knowledge": 13.715951442718506,
+        "unfamiliar": 14.108043670654297
+      },
+      "lora_l2": 14.247349891507726,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 500
+    },
+    {
+      "nlls": {
+        "dialogue": 14.427987098693848,
+        "knowledge": 13.761775970458984,
+        "unfamiliar": 14.135536670684814
+      },
+      "lora_l2": 14.083146193397646,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 600
+    },
+    {
+      "nlls": {
+        "dialogue": 14.478539943695068,
+        "knowledge": 13.827808380126953,
+        "unfamiliar": 14.197594165802002
+      },
+      "lora_l2": 13.912907760376415,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 700
+    },
+    {
+      "nlls": {
+        "dialogue": 14.445639610290527,
+        "knowledge": 13.832754611968994,
+        "unfamiliar": 14.180863380432129
+      },
+      "lora_l2": 13.82524857033442,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 800
+    },
+    {
+      "nlls": {
+        "dialogue": 14.41805362701416,
+        "knowledge": 13.861313819885254,
+        "unfamiliar": 14.168102264404297
+      },
+      "lora_l2": 15.418608062068058,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 900
+    },
+    {
+      "nlls": {
+        "dialogue": 14.309318542480469,
+        "knowledge": 13.781704902648926,
+        "unfamiliar": 14.116270542144775
+      },
+      "lora_l2": 14.810748179990684,
+      "coaction": {
+        "fast_pair_count": 0,
+        "strong_pair_count": 0,
+        "activation_count_sum": 0
+      },
+      "step": 1000
+    }
+  ],
+  "switch_count": 13,
+  "selected_counts": {
+    "philosophy": 10,
+    "law": 3,
+    "medicine": 3,
+    "art": 1,
+    "history": 2,
+    "engineering": 1
+  },
+  "distinct_topics": 6,
+  "epsilon_used": 3,
+  "force_used": 2,
+  "crash_count": 0,
+  "passed": 2,
+  "failed": 3,
+  "verdict": "D1 FAIL (3 维不过)",
+  "next_step": "D1-fix v4 (hysteresis N=2 + ceiling 1.3) 仍 FAIL——考虑：a) 调高 HYSTERESIS_N (2→3) 进一步抗噪声；b) 收紧 CEILING_RATIO (1.3→1.15) 抑制 SKIP 累积；c) 上调 decay_min_rel_ratio (0.95→0.98) 让 SKIP 触发更难",
+  "elapsed_seconds": 1543.6069350242615
+}
