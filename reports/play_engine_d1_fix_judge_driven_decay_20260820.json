@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-08-20 23:46:08",
+  "timestamp": "2026-08-21 00:03:33",
   "task": "D1 长程稳定性：1000 步压力测试 + 轨迹采样",
   "config": {
     "n_micro": 1000,
     "decay": 0.9,
-    "judge_driven_decay": false,
+    "judge_driven_decay": true,
     "decay_min_judge_std": 0.05,
-    "decay_judge_sample_n": 3,
+    "decay_judge_sample_n": 8,
     "epsilon": 0.1,
     "force_switch_streak": 5,
     "recency_bonus": 0.5,
@@ -29,25 +29,25 @@
   },
   "post_groups": {
     "dialogue": {
-      "std": 0.5155203849288315,
-      "mean": 14.315958619117737
+      "std": 0.4912398051130497,
+      "mean": 14.330230951309204
     },
     "knowledge": {
-      "std": 0.7728866262918996,
-      "mean": 14.475899577140808
+      "std": 0.8674199537167328,
+      "mean": 14.524669408798218
     },
     "unfamiliar": {
-      "std": 0.5013308164550488,
-      "mean": 14.423070907592773
+      "std": 0.5484188678400828,
+      "mean": 14.501973628997803
     }
   },
   "ratio_summary": {
-    "dialogue": 0.9108049548591738,
-    "knowledge": 0.7517185096993549,
-    "unfamiliar": 0.8047487978921997
+    "dialogue": 0.8679068017509884,
+    "knowledge": 0.8436627219438533,
+    "unfamiliar": 0.8803357187504547
   },
   "pre_lora_l2": 0.0,
-  "post_lora_l2": 13.762957630373764,
+  "post_lora_l2": 18.758259272895245,
   "trajectory": [
     {
       "nlls": {
@@ -107,11 +107,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.361196517944336,
-        "knowledge": 13.70917272567749,
-        "unfamiliar": 14.09798002243042
+        "dialogue": 14.402326583862305,
+        "knowledge": 13.698040962219238,
+        "unfamiliar": 14.126460075378418
       },
-      "lora_l2": 14.5503121903774,
+      "lora_l2": 16.16701387683391,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -121,11 +121,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.394017696380615,
-        "knowledge": 13.715951442718506,
-        "unfamiliar": 14.108043670654297
+        "dialogue": 14.437188148498535,
+        "knowledge": 13.73398208618164,
+        "unfamiliar": 14.16328239440918
       },
-      "lora_l2": 14.247349891507726,
+      "lora_l2": 15.629310330982694,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -135,11 +135,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.427987098693848,
-        "knowledge": 13.761775970458984,
-        "unfamiliar": 14.135536670684814
+        "dialogue": 14.435862064361572,
+        "knowledge": 13.783451557159424,
+        "unfamiliar": 14.163297653198242
       },
-      "lora_l2": 14.083146193397646,
+      "lora_l2": 15.217287946414517,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -149,11 +149,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.445219993591309,
-        "knowledge": 13.79020071029663,
-        "unfamiliar": 14.167914867401123
+        "dialogue": 14.500505924224854,
+        "knowledge": 13.841445922851562,
+        "unfamiliar": 14.218273639678955
       },
-      "lora_l2": 13.817431399549918,
+      "lora_l2": 14.968834139782462,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -163,11 +163,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.460675239562988,
-        "knowledge": 13.823236465454102,
-        "unfamiliar": 14.188372135162354
+        "dialogue": 14.51183557510376,
+        "knowledge": 13.823440551757812,
+        "unfamiliar": 14.229737281799316
       },
-      "lora_l2": 13.783235697354034,
+      "lora_l2": 16.421601492458226,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -177,11 +177,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.43819808959961,
-        "knowledge": 13.82343578338623,
-        "unfamiliar": 14.176409721374512
+        "dialogue": 14.405301094055176,
+        "knowledge": 13.781423091888428,
+        "unfamiliar": 14.17796516418457
       },
-      "lora_l2": 13.681775239107154,
+      "lora_l2": 17.662358363475523,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -191,11 +191,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.395895004272461,
-        "knowledge": 13.782420635223389,
-        "unfamiliar": 14.0898756980896
+        "dialogue": 14.294740200042725,
+        "knowledge": 13.711531639099121,
+        "unfamiliar": 14.136616230010986
       },
-      "lora_l2": 13.762957630373764,
+      "lora_l2": 18.758259272895245,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -204,22 +204,22 @@
       "step": 1000
     }
   ],
-  "switch_count": 11,
+  "switch_count": 13,
   "selected_counts": {
-    "philosophy": 12,
-    "law": 2,
-    "medicine": 1,
-    "art": 2,
+    "philosophy": 10,
+    "law": 3,
+    "medicine": 3,
+    "art": 1,
     "history": 2,
     "engineering": 1
   },
   "distinct_topics": 6,
-  "epsilon_used": 0,
-  "force_used": 3,
+  "epsilon_used": 3,
+  "force_used": 2,
   "crash_count": 0,
-  "passed": 3,
-  "failed": 2,
-  "verdict": "D1 FAIL (2 维不过)",
-  "next_step": "D1 FAIL 根因=过度收敛。运行 D1_JUDGE_DRIVEN_DECAY=1 让 judge 驱动衰减自调节（SleepConfig.judge_driven_decay=True）—— std<0.05 时 skip 本次衰减，保留训练累积的 LoRA。",
-  "elapsed_seconds": 2288.938653945923
+  "passed": 2,
+  "failed": 3,
+  "verdict": "D1 FAIL (3 维不过)",
+  "next_step": "D1-fix judge 驱动衰减自调节仍 FAIL——考虑：a) 调高 decay_min_std（0.05→0.10）让 skip 更激进；b) 调低 DECAY（0.9→0.7）让保留的 LoRA 也衰减；c) 缩短 N_MICRO 到 500 看半程",
+  "elapsed_seconds": 2217.774862766266
 }

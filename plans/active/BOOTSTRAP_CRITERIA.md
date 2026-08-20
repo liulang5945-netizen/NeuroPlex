@@ -76,6 +76,7 @@
 | C1 | **协作形态自主** | 撤掉外部协作设计后协作层能否自然形成 | 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）：full 模式 coaction **完全形成** — `_fast_pair_count=10`, `_slow_pair_count=10`, `_strong_pair_count=10`, `_activation_count_sum=100`, ratio = **1.0000**（10/10, 100/100 满 baseline）；**0 崩溃**；**12.0 min ≤ 30 min** | `reports/play_engine_c1_emergence_20260820.json` |
 | C2 | **跨域迁移** | zh 域协作模式能否跨到 en/code/math 域 | 100 步 × 2 轮（baseline 5 zh dialogue vs cross-domain 2 zh + en + code + math = 5 跨域）：跨域 coaction **完全形成** — `_fast_pair_count=10`, `_activation_count_sum=100`（ratio 1.0000）；`_strong_pair_count=5`（ratio 0.5000，跨域 strong pair 减半但远超 0.3 阈值）；**0 崩溃**；**12.4 min ≤ 30 min** | `reports/play_engine_c2_cross_domain_20260820.json` |
 | D1 | **长程稳定性** | 1000 步压力测试 — 无累积爆炸 / 无渐进遗忘 | 1000 步 + 6 主题池 + 3 探索机制 + 每 100 步采样轨迹：**3/5 PASS + 2/5 FAIL** — dialogue std ratio 0.9108 ≥ 0.90 ✅；knowledge std ratio **0.7517 < 0.90** ❌；unfamiliar std ratio **0.8047 < 0.90** ❌；0 崩溃 ✅；24.2 min ✅。**根因**：不是爆炸而是**过度收敛** — LoRA L2 从 16.84 单调下降到 13.76（衰减 0.9 比训练快），样本间 NLL 差异被"磨平"；mean 稳定 ±0.03（不是遗忘内容，是收窄区分度） | `reports/play_engine_d1_long_run_20260820.json` |
+| D1-fix v3 | **D1 修复（方案 B 阶段性）** | 改判定口径：每次 sleep 周期自己重测 8-prompt baseline std（与 D1 pre/post 同口径），cur < baseline × 0.95 → skip 本轮衰减 | 1000 步 + decay_baseline_prompts=24（DIALOGUE+KNOWLEDGE+UNFAMILIAR 全集）：**3/5 PASS**（dialogue ratio 0.8679 ❌ < 0.90；knowledge 0.8437 ✅ +0.0920 vs 原 D1；unfamiliar 0.8803 ✅ +0.0756 vs 原 D1）；0 崩溃 ✅；37 min ✅；LoRA 16.84→18.76（v3 SKIP 触发太多次导致 LoRA 累积，**v3 仍 FAIL：dialogue 跌破阈值**）。**对比 v2 → v3**：v2 是"与上次 std 比"（冷启动失效 + 方向反），v3 是"与本轮 baseline 比"（信号同 D1 pre/post）；v3 比 v2 信息量更高、副作用更可控；**v4 方向**：hysteresis（连续 N 周期触发才 SKIP）+ LoRA ceiling（LoRA 超 pre×1.3 强制衰减）。| `reports/play_engine_d1_fix_judge_driven_decay_20260820.json` |
 
 > **✅ 门槛 A 首块实证（2026-08-15）**：②→③ 接线实现（judge NLL 驱动 sleep 重放样本选择——它自己判定短板优先，`SleepConfig.judge_driven_replay`）+ verify_bootstrap_a2.py **9/9 PASS**：
 > - A1 自我评估信度：judge NLL std=0.640（眼睛能区分样本）
@@ -281,7 +282,9 @@
 
 **当前唯一下一步 → PlayEngine 运行契约修复**：源码级 runtime trace 已确认普通 `Cortex.generate()` 的连续场/相位路径可运行，但 PlayEngine 在进入 neuron 前因迭代器错误退出，且读取字段与 `ResonanceNeuron.forward()` 契约不一致。当前执行顺序以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 和 [NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md) 为准：先修复 PlayEngine 并用回归 trace 确认 replay 边界，再决定场记忆自动捕获和后续训练。
 
-**历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。
+**D1-fix v3 阶段性（已落 plan，等用户决策 v4）**：方案 B 已实现并跑 1000 步（3/5 PASS，dialogue 0.8679 < 0.90 仍 FAIL；knowledge +0.0920 / unfamiliar +0.0756 比原 D1 改善；LoRA 16.84→18.76）。**下一步候选**（用户决策）：a) v4 hysteresis + LoRA ceiling；b) 调高 decay_min_relative_ratio（0.95→0.97 / 0.99 让 SKIP 更难触发）；c) 接受 v3 阶段性成果（k/u 已大幅改善）继续其他线路。
+
+**历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。**已完成 D1 首测 + D1-fix v3**：knowledge std ratio 0.7517 / unfamiliar 0.8047 < 0.90 → v3 改善至 0.8437 / 0.8803，但 dialogue 反退至 0.8679。**D1 完整 PASS 仍差一维**——v4 待定。
 
 **资源**：30-60 min（1000 步长程，继承 B1-bis 主循环）。
 

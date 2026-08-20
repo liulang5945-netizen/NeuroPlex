@@ -22,13 +22,15 @@ import logging
 import threading
 import math
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from collections import deque
 
 import torch
 
 logger = logging.getLogger("SleepEngine")
+if not logger.handlers and logger.level == logging.NOTSET:
+    logger.setLevel(logging.INFO)
 
 # 神经元架构组件（try/except 守住，避免循环导入）
 try:
@@ -104,6 +106,11 @@ class SleepReport:
     # C27 增量五（Phase 1.8）：振荡器节奏训练——o 型节奏参数随睡眠经验学习
     osc_trained: int = 0
     osc_train_loss: Optional[float] = None
+    # D1-fix v3（2026-08-20）：judge 驱动的衰减自调节——本次 forward_replay
+    # 因 judge NLL std 健康而**跳过**衰减的次数（0 或 replayed_nids）
+    decay_skipped_count: int = 0
+    decay_judge_std: Optional[float] = None  # 最近一次判定的 std
+    decay_baseline_std: Optional[float] = None  # 本轮 baseline std（重测）
 
 
 @dataclass
@@ -126,6 +133,29 @@ class SleepConfig:
     # 用于"自指→行动"多轮可持续——A3 快速版 3+ 轮漂移的根因是 LoRA 无衰减。
     # 仅作用于 Phase 1.7 forward_replay（读路径相关 LoRA），不影响 Phase 1.6
     # synaptic_consolidation（round1 条件化影响极小）。
+    judge_driven_decay: bool = False  # D1-fix v3（2026-08-20）：是否让 judge 自己
+    # 决定**本轮是否衰减**。若 True：每次 forward_replay 触发时用
+    # 8-prompt baseline 测量（同 D1 pre/post 口径，DIALOGUE+KNOWLEDGE
+    # +UNFAMILIAR 等比各取）得到 std；若 std < 本轮 baseline ×
+    # decay_min_relative_ratio → 跳过本次衰减（不乘系数）。**"眼睛驱动手"**
+    # 从 replay 选择延伸到衰减强度——D1 暴露了固定常数在长程下的结构性
+    # 缺陷（过度收敛）。默认 False = 旧固定常数行为，向后兼容。
+    decay_min_judge_std: float = 0.05  # D1-fix v3 绝对底线：std 低于此值视为
+    # "区分度已丢"，跳过衰减。0.05 = A1 真实版通过线。
+    decay_judge_sample_n: int = 8  # D1-fix v3 采样条数：从 baseline 8-prompt
+    # 中抽 N 条算 std。N=8 = 与 D1 pre/post 测量**口径完全一致**——关键修复
+    # 点（v2 用 3 样本随机抽取，与 8 样本 pre/post 口径不同，导致
+    # std 信号方向不一致，relative 阈值失效）。N=8 每 100 步 +约 8 次
+    # judge NLL forward，开销与 D1 主循环同量级但 < 1s。
+    decay_min_relative_ratio: float = 0.95  # D1-fix v3 相对判定阈值。
+    # 若当前 std < 本轮 baseline × 此比例，视为"std 在降"→ skip 衰减。
+    # baseline 在每次 sleep 周期重测（不是上次 std）——与 D1 pre/post 测量
+    # 信号同源，std 收窄 = baseline 持续走低 → relative 阈值稳定触发。
+    # 0.95 = 5% 下降触发；1.0 = 永不 skip（绝对判定）；0.0 = 永远 skip。
+    decay_baseline_prompts: Optional[Tuple[str, ...]] = None  # D1-fix v3
+    # baseline 测量用的 prompt 集合——D1 脚本传 8+8+8=24 条；不传则用 bank
+    # 随机采样（fallback）。设为元组避免外部修改。
+    decay_baseline_sample_n: int = 8  # D1-fix v3 从 prompts 抽的条数（每组等比）
 
 
 class SleepEngine:
@@ -201,6 +231,10 @@ class SleepEngine:
 
         self._data_dir_ready = False
         self._load_history()
+        # D1-fix v3（2026-08-20）：judge-driven-decay 的"眼睛"由
+        # _judge_decay_measurement 在每次 sleep 周期**重测** baseline
+        # std（与 D1 pre/post 同口径），不依赖历史 std——更稳定且无
+        # 启动期冷启动问题（v2 的 last 字段首次为 None 时不能做相对判定）。
 
         logger.info(f"SleepEngine initialized: auto={self.config.auto_sleep_enabled}, interval={self.config.sleep_interval_hours}h")
 
@@ -819,6 +853,76 @@ class SleepEngine:
             nlls.append(float(loss.item()))
         return max(nlls) if nlls else None
 
+    def _judge_decay_measurement(self, target_ids, device, shared_embedding):
+        """D1-fix v3（2026-08-20）：双 std 测量——与 D1 pre/post 同口径。
+
+        设计核心：判定信号 = D1 报告信号（pre/post 8-prompt std 收窄）。
+        每次 sleep 周期**重测**两个独立子集：
+        - cur_std：从 baseline prompts 抽 N 条算 std（本周期"现在的眼睛"）
+        - base_std：从 baseline prompts **不同** N 条算 std（同期独立参考）
+        两个子集独立采样避免恒等比较；都来自 baseline prompts 集合（如果
+        外部传 8+8+8=24 条）→ 与 D1 measure_group_stds 信号同源。
+        判定：cur < base × ratio → skip（std 趋势下行 = 过度收敛）。
+
+        Returns:
+            (cur_std, base_std) — 都可能是 None（测量失败时不 skip，
+            走原有效衰减路径，让训练继续）。
+        """
+        prompts_pool = self.config.decay_baseline_prompts
+        n_per = int(self.config.decay_judge_sample_n)
+        import random as _random
+
+        def _sample_n(texts, n):
+            if not texts or n < 2:
+                return []
+            n = min(n, len(texts))
+            return _random.sample(list(texts), n)
+
+        def _measure_std(texts):
+            if not texts:
+                return None
+            nlls = []
+            for text in texts:
+                jnll = self._sample_judge_nll(
+                    text, target_ids, device, shared_embedding)
+                if jnll is not None and jnll < 1e6:
+                    nlls.append(jnll)
+            if len(nlls) < 2:
+                return None
+            import statistics
+            return float(statistics.pstdev(nlls))
+
+        cur_texts: list = []
+        base_texts: list = []
+        if prompts_pool:
+            cur_texts = _sample_n(prompts_pool, n_per)
+            # baseline 用**不同**子集（顺序遍历后半段，避免抽到与 cur 重叠）
+            # 简化：把剩下的 prompts 也抽 n_per
+            rest = [p for p in prompts_pool if p not in set(cur_texts)]
+            base_texts = _sample_n(rest, n_per) if rest else _sample_n(prompts_pool, n_per)
+        else:
+            # fallback：从 bank 抽 prompts（无 baseline prompts 配置时）
+            try:
+                bank = self.get_field_memory()
+                cand_texts = [
+                    (e.get("text") or "")
+                    for e in bank.entries
+                    if len((e.get("text") or "").strip()) >= 8
+                ]
+            except Exception:
+                cand_texts = []
+            if len(cand_texts) >= 2 * n_per:
+                cur_texts = _sample_n(cand_texts, n_per)
+                rest = [t for t in cand_texts if t not in set(cur_texts)]
+                base_texts = _sample_n(rest, n_per) if rest else []
+            else:
+                cur_texts = _sample_n(cand_texts, n_per)
+                base_texts = []
+
+        cur_std = _measure_std(cur_texts)
+        base_std = _measure_std(base_texts)
+        return cur_std, base_std
+
     def _sleep_phase_forward_replay(self, report: SleepReport) -> None:
         """Phase 1.7: 真正睡眠重放 — 记忆向量场条件化 forward 重放（C26 增量六）。
 
@@ -947,6 +1051,63 @@ class SleepEngine:
         steps = 0
         replayed_nids = 0
         max_steps = self.config.max_training_steps
+        # D1-fix v3（2026-08-20）：judge 驱动的衰减自调节——**口径与 D1
+        # pre/post 测量同源**。关键设计：每次 forward_replay 触发时**重测**
+        # baseline std（用 8-prompt baseline 集合），当前 std < baseline ×
+        # ratio → skip 本次衰减。让"眼睛"在每个 sleep 周期校准一次，
+        # 跟踪 D1 报告同口径信号（pre/post 8-prompt std 收窄 = over-converge）。
+        effective_decay = float(self.config.lora_decay_per_sleep)
+        if self.config.judge_driven_decay and effective_decay < 1.0:
+            try:
+                cur_std, base_std = self._judge_decay_measurement(
+                    target_ids, device, shared_embedding)
+                report.decay_judge_std = cur_std
+                report.decay_baseline_std = base_std
+                # 先估算本轮会 replay 多少 nid（用于 decay_skipped_count 计数）
+                est_replayed = sum(
+                    1 for nid in target_ids
+                    if neurons.get(nid) is not None)
+                # D1-fix v3 复合判定：相对（与 baseline 比）+ 绝对（与底线比）
+                # - 相对：cur < base × decay_min_relative_ratio → skip
+                # - 绝对：cur < decay_min_judge_std → skip
+                # baseline 在每次 sleep 周期**重测**——同 D1 pre/post 口径，
+                # std 收窄 = baseline 持续走低，relative 阈值稳定触发。
+                skip_reason = None
+                if cur_std is not None and base_std is not None and base_std > 0:
+                    rel_thresh = float(
+                        base_std * self.config.decay_min_relative_ratio)
+                    if cur_std < rel_thresh:
+                        skip_reason = (
+                            f"相对下降 "
+                            f"cur={cur_std:.4f} < "
+                            f"base={base_std:.4f} × "
+                            f"{self.config.decay_min_relative_ratio:.2f}"
+                            f"={rel_thresh:.4f}"
+                        )
+                if (skip_reason is None
+                        and cur_std is not None
+                        and cur_std < float(self.config.decay_min_judge_std)):
+                    skip_reason = (
+                        f"绝对过小 "
+                        f"cur={cur_std:.4f} < "
+                        f"{self.config.decay_min_judge_std:.4f}"
+                    )
+                if skip_reason is not None:
+                    effective_decay = 1.0
+                    report.decay_skipped_count = est_replayed
+                    logger.info(
+                        f"  [D1-fix v3] judge-driven decay SKIP: "
+                        f"{skip_reason} → 保留 LoRA (~{est_replayed} 个 nid)")
+                else:
+                    logger.info(
+                        f"  [D1-fix v3] judge-driven decay KEEP: "
+                        f"cur={cur_std} base={base_std} → 正常衰减 "
+                        f"{effective_decay}")
+            except Exception as e:
+                logger.debug(
+                    f"  [D1-fix v3] judge-driven decay 判定失败: "
+                    f"{type(e).__name__}: {e}")
+
         for nid in target_ids:
             live = neurons[nid]
             if len(live.lora_adapters) == 0:
@@ -1023,7 +1184,10 @@ class SleepEngine:
             # C28 增量一（A3 多轮累积衰减）：每轮 sleep 后对读路径 LoRA
             # 整体衰减——避免多轮累积挤占 judge 判定空间。
             # 默认 1.0=不衰减（向后兼容）；≥0.99 几乎不衰减，0.9 强衰减。
-            decay = float(self.config.lora_decay_per_sleep)
+            # D1-fix（2026-08-20）：若 judge_driven_decay=True 且本轮判定 skip，
+            # effective_decay 已被设为 1.0 → 衰减条件 if decay < 1.0 不进入
+            # → LoRA 保留。判定共享：一次判定，整轮 replay 多个 nid 共用。
+            decay = effective_decay
             if decay < 1.0:
                 try:
                     with torch.no_grad():

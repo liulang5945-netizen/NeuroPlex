@@ -22,13 +22,33 @@
 
     5 维全过 = D1 PASS → 长程稳定性成立（1000 步无累积爆炸 / 无渐进遗忘）。
 
+    D1-fix（2026-08-20）：judge 驱动的衰减自调节。
+    原版 D1 暴露固定 lora_decay_per_sleep=0.9 在长程下让衰减压过训练
+    （knowledge std ratio 0.7517 / unfamiliar 0.8047 < 0.90）—— 过度收敛，
+    不是遗忘内容（mean 全程 ±0.03 稳定）。修法：开启 `judge_driven_decay`，
+    judge 每次判定 NLL std，< decay_min_judge_std 跳过本轮衰减，让训练
+    继续累积 LoRA 防止 std 收窄。
+
 约束：
     - 冻结 9 成员 production weights
     - 复用 B1-bis 6 主题池 + 3 探索机制
     - 每 100 步采样轨迹（NLL / LoRA L2 / coaction）
     - 每 50 步决策（与 B1-bis 一致）
 
+环境变量：
+    D1_MICRO_N=1000
+    D1_DECISION_EVERY=50
+    D1_DECAY=0.9
+    D1_JUDGE_DRIVEN_DECAY=1   # 0/1；1 开启 D1-fix
+    D1_DECAY_MIN_STD=0.05
+    D1_DECAY_SAMPLE_N=3
+    D1_EPSILON=0.10
+    D1_FORCE_STREAK=5
+    D1_RECENCY_BONUS=0.5
+    D1_SAMPLE_EVERY=100
+
 运行：python -u scripts/training/verify_play_engine_d1_long_run.py
+或 D1-fix 版：D1_JUDGE_DRIVEN_DECAY=1 python -u scripts/training/verify_play_engine_d1_long_run.py
 """
 from __future__ import annotations
 
@@ -67,6 +87,10 @@ failed = 0
 N_MICRO = int(os.environ.get("D1_MICRO_N", "1000"))
 DECISION_EVERY = int(os.environ.get("D1_DECISION_EVERY", "50"))
 DECAY = float(os.environ.get("D1_DECAY", "0.9"))
+JUDGE_DRIVEN_DECAY = bool(int(os.environ.get("D1_JUDGE_DRIVEN_DECAY", "0")))
+DECAY_MIN_STD = float(os.environ.get("D1_DECAY_MIN_STD", "0.05"))
+DECAY_MIN_REL_RATIO = float(os.environ.get("D1_DECAY_MIN_REL_RATIO", "0.95"))
+DECAY_SAMPLE_N = int(os.environ.get("D1_DECAY_SAMPLE_N", "3"))
 EPSILON = float(os.environ.get("D1_EPSILON", "0.10"))
 FORCE_SWITCH_STREAK = int(os.environ.get("D1_FORCE_STREAK", "5"))
 RECENCY_BONUS = float(os.environ.get("D1_RECENCY_BONUS", "0.5"))
@@ -123,6 +147,11 @@ def main():
     print(f"  3 机制: ε-greedy {EPSILON*100:.0f}% + "
           f"force_switch streak={FORCE_SWITCH_STREAK} + "
           f"recency_bonus={RECENCY_BONUS}", flush=True)
+    print(f"  衰减: lora_decay={DECAY}  "
+          f"judge_driven_decay={JUDGE_DRIVEN_DECAY}  "
+          f"decay_min_std={DECAY_MIN_STD}  "
+          f"decay_min_rel_ratio={DECAY_MIN_REL_RATIO}  "
+          f"decay_sample_n={DECAY_SAMPLE_N}", flush=True)
     print(f"  每 {SAMPLE_EVERY} 步采样轨迹（NLL / LoRA L2 / coaction）", flush=True)
     print("=" * 64, flush=True)
 
@@ -148,6 +177,13 @@ def main():
         training_enabled=False,
         judge_driven_replay=True,
         lora_decay_per_sleep=DECAY,
+        judge_driven_decay=JUDGE_DRIVEN_DECAY,
+        decay_min_judge_std=DECAY_MIN_STD,
+        decay_min_relative_ratio=DECAY_MIN_REL_RATIO,
+        decay_judge_sample_n=DECAY_SAMPLE_N,
+        decay_baseline_prompts=tuple(
+            DIALOGUE_PROMPTS + KNOWLEDGE_PROMPTS + UNFAMILIAR_PROMPTS),
+        decay_baseline_sample_n=DECAY_SAMPLE_N,
     )
     sleep_engine = SleepEngine(config=cfg, data_dir=tmp_data)
     sc = SleepConsolidator(replay_buffer_size=400)
@@ -349,13 +385,23 @@ def main():
     if d1_pass:
         print("判定: D1 PASS：长程稳定性成立 — 1000 步无累积爆炸 / 无渐进遗忘",
               flush=True)
-        print("下一步: D1 通过。门槛 D 起步。"
-              "下一步：D2 极限压力 — 5000 步 + 减少 LoRA 衰减 0.9→0.8 "
-              "看何时崩", flush=True)
+        next_msg = ("D1 通过。门槛 D 起步。"
+                    "下一步：D2 极限压力 — 5000 步 + 减少 LoRA 衰减 0.9→0.8 "
+                    "看何时崩")
+        print(f"下一步: {next_msg}", flush=True)
     else:
         print(f"判定: D1 FAIL ({failed} 维不过)", flush=True)
-        print("下一步: 调 DECAY 更高（0.9→0.95）；或降 N_MICRO 到 500 看半程",
-              flush=True)
+        if JUDGE_DRIVEN_DECAY:
+            next_msg = ("D1-fix judge 驱动衰减自调节仍 FAIL——"
+                        "考虑：a) 调高 decay_min_std（0.05→0.10）让 skip 更激进；"
+                        "b) 调低 DECAY（0.9→0.7）让保留的 LoRA 也衰减；"
+                        "c) 缩短 N_MICRO 到 500 看半程")
+        else:
+            next_msg = ("D1 FAIL 根因=过度收敛。"
+                        "运行 D1_JUDGE_DRIVEN_DECAY=1 让 judge 驱动衰减自调节"
+                        "（SleepConfig.judge_driven_decay=True）"
+                        "—— std<0.05 时 skip 本次衰减，保留训练累积的 LoRA。")
+        print(f"下一步: {next_msg}", flush=True)
     print("=" * 64, flush=True)
 
     report_obj = {
@@ -364,6 +410,9 @@ def main():
         "config": {
             "n_micro": N_MICRO,
             "decay": DECAY,
+            "judge_driven_decay": JUDGE_DRIVEN_DECAY,
+            "decay_min_judge_std": DECAY_MIN_STD,
+            "decay_judge_sample_n": DECAY_SAMPLE_N,
             "epsilon": EPSILON,
             "force_switch_streak": FORCE_SWITCH_STREAK,
             "recency_bonus": RECENCY_BONUS,
@@ -385,14 +434,14 @@ def main():
         "passed": passed,
         "failed": failed,
         "verdict": ("D1 PASS" if d1_pass else f"D1 FAIL ({failed} 维不过)"),
-        "next_step": ("D1 通过。门槛 D 起步。"
-                      "下一步：D2 极限压力 — 5000 步 + 减少 LoRA 衰减 0.9→0.8 "
-                      "看何时崩"
-                      if d1_pass else
-                      "调 DECAY 更高（0.9→0.95）；或降 N_MICRO 到 500 看半程"),
+        "next_step": next_msg,
         "elapsed_seconds": time.time() - t0,
     }
-    out_path = f"reports/play_engine_d1_long_run_{today}.json"
+    if JUDGE_DRIVEN_DECAY:
+        out_path = (f"reports/play_engine_d1_fix_judge_driven_decay_"
+                    f"{today}.json")
+    else:
+        out_path = f"reports/play_engine_d1_long_run_{today}.json"
     os.makedirs("reports", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report_obj, f, ensure_ascii=False, indent=2)
