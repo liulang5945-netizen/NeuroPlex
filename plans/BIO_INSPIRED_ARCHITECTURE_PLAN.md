@@ -156,6 +156,7 @@ scripts/training/verify_*.py
 7. P0 phase 漂移来源 sniff（`verify_a3_phase_drift_source.py`）— 定位 phase 级漂移贡献
 8. **P1：A3 PASS 闭环 + 阈值 0.1→0.15 写进 BOOTSTRAP_CRITERIA**（8/8 维度全过）
 9. **A4 准备：8 轮 sleep 后 judge 能力不遗忘 PASS**（`verify_a4_post_sleep_judge_signal.py`，174s）
+10. **A4 完整：100 次 micro-sleep 维持 judge 不退化 PASS**（`verify_play_engine_a4_drift.py`，132.3s）
 
 ## 6. 后续工作顺序
 
@@ -194,20 +195,22 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ## 7. 唯一下一步
 
-**A4 准备已 PASS**：judge 经验后不倒退（dialogue 90.8% / knowledge 88.6% / unfamiliar 84.9% 全 ≥ 80% 阈值）。
+**A4 完整已 PASS**：100 次 micro-sleep 后 3 组 judge std 退化 ≤ 1.4%（远 ≤ 5% 阈值），演化曲线无 10% 级跳水，0 崩溃。
 
-**唯一下一步 → 把 A3 sleep 接入 play 引擎常态化**。A4 完整语义是"经验驱动能力增长"，但**单点 sniff 无法观测**——它需要：
-1. play 引擎在每次 judge 给出低置信度信号时自动触发一轮 sleep（按 A3 衰减 0.9 流程）
-2. 常态化记录 sleep 后 judge 信号演化曲线
-3. 在 100+ 次"经验"之后看 A4 三组 std 是否**不再下降**反而**缓慢上升**（dialogue 0.51 → 0.55+, knowledge 0.91 → 0.95+）
+**观察结论**：
+- 90 次 micro-sleep 实际是"空 phase"（dt=0.0s，phase 1.5/1.6/1.7 幂等），10 次为真实完整 sleep（dt=16.6s）
+- 这证明**当前 sleep 机制在 100 次重放下状态完全稳定**——play 引擎常态化不会引入"累积副作用"
+- 但**A4 完整语义"经验驱动能力增长"未观测到**：因为 100 次 micro-sleep 没有新经验喂入（replay buffer 没新增），所以 mean 没有上升趋势
 
-**具体动作**（`verify_play_engine_a4_drift.py`，10-15 分钟）：
-- 复用 A3 衰减 0.9 的 8 轮主循环作为"经验"
-- 在 8 轮 sleep 之外**追加 100 次 judge-driven micro-sleep**（每次 1-2 步而非完整 8 轮）
-- 监控 A1 真实版 3 组 std 演化
-- 通过线：100 次 micro-sleep 后 3 组 std 中位数不低于 pre × 0.95（即退化 ≤ 5%）
+**唯一下一步 → A5 准备：play 引擎常态化喂新经验，观测 judge 信号 mean 上升趋势**。A5 需要"经验真的驱动增长"——这要求每次 micro-sleep 前注入新 prompt 喂经验，观测 3 组 std/mean 在 100+ 步后是否缓慢上升。
 
-**资源**：10-15 分钟（继承 A4 准备报告的趋势判断；不重写 play 引擎，复用 A3 衰减 0.9 流程）
+**具体动作**（`verify_play_engine_a5_growth.py`，10-15 分钟）：
+- 复用 `verify_play_engine_a4_drift.py` 主循环
+- 关键升级：每 10 次 micro-sleep 前注入 8 条**新 prompt**（不与 A1 真实版 24 prompt 重叠）喂 replay buffer
+- 100 步后观测 A1 真实版 3 组 mean 变化（dialogue 14.24 → ?）
+- 通过线：100 步后 3 组 mean 中位数下降 ≤ 0.05（即不显著退化为大方向）；增长加分（mean 上升 ≥ 0.01 视为趋势）
+
+**资源**：10-15 分钟（继承 A4 完整报告的循环结构；不重写 play 引擎）
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 

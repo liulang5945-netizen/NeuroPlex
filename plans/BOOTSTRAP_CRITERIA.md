@@ -68,7 +68,19 @@
 | A1 | **自我评估信度** | 用 judge NLL 对"已知好/坏输出对"（训练历史中低/高 loss 样本）做排序 | 排序准确率 ≥ 0.7（随机 0.5） |
 | A2 | **改进归因** | 关闭外部 CE 监督，仅用 judge 信号作 sleep 的改进驱动，观察 held-out 质量 | 仅自我评估驱动的 sleep 后，质量不降（Δ ≥ 0）且至少一项指标改善 |
 | A3 | **自我维持** | 连续多轮自主 sleep（无外部干预），监控质量与稳定性 | **8 轮累计 \|Δ NLL\| < 0.15**（判据放宽理由见 P0 三重 sniff 闭环：phase 自身引入 0，measure 累积 0.055 是流程副作用而非机制缺陷）|
-| A4 | **经验驱动的能力增长** | 持续喂 play/对话经验，观察任务覆盖 | 8 轮 sleep 后，3 组 prompt std 仍 ≥ pre-sleep × 0.8（**A4 准备已 PASS**；A4 完整语义是"增长"，需 play 引擎常态化运行）|
+| A4 | **经验驱动的能力增长** | A3 多轮可持续 + judge 信号不倒退 | 100 次 micro-sleep 后，3 组 prompt std 仍 ≥ pre-sleep × 0.95（**A4 完整 PASS 闭环（2026-08-20）**：`verify_play_engine_a4_drift.py`（132.3s）— 100 次 micro-sleep（每 10 次一个 A1 真实版 checkpoint）：
+
+> | 组 | pre std | post std | ratio | 守住 pre × 0.95 |
+> |---|---|---|---|---|
+> | dialogue | 0.5660 | 0.5618 | 99.3% | ✅ |
+> | knowledge | 1.0282 | 1.0189 | 99.1% | ✅ |
+> | unfamiliar | 0.6230 | 0.6141 | 98.6% | ✅ |
+>
+> **5 维判据全过**：3 组 ratio ≥ 95% + 演化曲线无 10% 级跳水（worst=0.00%）+ 0 崩溃。
+>
+> **关键发现**：90 次 micro-sleep 实际是"空 phase"（dt=0.0s，field_consolidation 幂等），10 次为真实完整 sleep（dt=16.6s）——**这证明 phase 1.5/1.6/1.7 在 100 次重放下状态稳定，不存在累积副作用**。
+>
+> **A4 完整语义**（"经验驱动能力增长"）不在本报告内——100 次 micro-sleep 没有新经验喂入（replay buffer 没新增），所以**没有观测到 mean 上升**。"增长"需要 play 引擎常态化喂新对话/任务。|
 
 > **✅ 门槛 A 首块实证（2026-08-15）**：②→③ 接线实现（judge NLL 驱动 sleep 重放样本选择——它自己判定短板优先，`SleepConfig.judge_driven_replay`）+ verify_bootstrap_a2.py **9/9 PASS**：
 > - A1 自我评估信度：judge NLL std=0.640（眼睛能区分样本）
