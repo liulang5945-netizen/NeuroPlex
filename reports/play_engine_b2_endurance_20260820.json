@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-08-20 19:27:55",
+  "task": "B2 autonomous 续航：100 步无新经验 + 自反思 query",
+  "cortex": {
+    "n_neurons": 9,
+    "judge_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 100,
+    "decay": 0.9,
+    "self_recall_every": 10,
+    "self_recall_k": 6,
+    "new_experience_injected": false
+  },
+  "pre_groups": {
+    "dialogue": {
+      "std": 0.5660052486303611,
+      "mean": 14.24802815914154
+    },
+    "knowledge": {
+      "std": 1.0281596319891215,
+      "mean": 14.466376662254333
+    },
+    "unfamiliar": {
+      "std": 0.622965598417961,
+      "mean": 14.39274251461029
+    }
+  },
+  "post_groups": {
+    "dialogue": {
+      "std": 0.5467660274839092,
+      "mean": 14.258789658546448
+    },
+    "knowledge": {
+      "std": 1.0345963205009736,
+      "mean": 14.446284294128418
+    },
+    "unfamiliar": {
+      "std": 0.6294662629340462,
+      "mean": 14.41775119304657
+    }
+  },
+  "ratio_summary": {
+    "dialogue": 0.9660087584116799,
+    "knowledge": 1.0062603980078457,
+    "unfamiliar": 1.0104350296911961
+  },
+  "pre_lora_l2": 0.0,
+  "post_lora_l2": 14.492681187364855,
+  "crash_count": 0,
+  "nan_count": 0,
+  "self_recall_count": 10,
+  "passed": 5,
+  "failed": 0,
+  "verdict": "B2 PASS",
+  "next_step": "B2 通过。下一步：C1 协作形态自主 — 验证协作权重/结构随经验演化、撤掉外部协作设计后 EMERGE 不归零",
+  "elapsed_seconds": 232.14787578582764
+}

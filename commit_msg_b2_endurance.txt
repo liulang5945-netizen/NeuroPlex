@@ -1,0 +1,48 @@
+feat(play-engine): B2 autonomous 续航 5/5 PASS — 不喂新经验 100 步无遗忘
+
+[why]
+B1/B1-bis 测的是"play 引擎选主题方向"的探索能力,但每步都喂入"主题池"经验。
+B2 真正测的是**自举续航**:在没新经验时,play 引擎能不能仅靠记忆库自反思 +
+judge 驱动的 sleep 维持能力。这是"它能不能在没有外部喂食时自己活下去"。
+
+[how]
+B2 100 步 micro-sleep:
+- 完全关闭"喂新经验"通路:不调 A1 真实版 24 prompt,不注入主题池
+- 每 10 步从 24 条种子记忆库随机抽 6 条做**自反思 query** (模拟"它自己想")
+- sleep 阶段照常 phase 1.5/1.6/1.7;judge_driven_replay=True
+- pre/post 3 组 judge std/mean 测量 + 比对
+
+5 维判据 (B2):
+- B2.d dialogue 组 std >= pre × 0.95 (不遗忘)
+- B2.k knowledge 组 std >= pre × 0.95
+- B2.u unfamiliar 组 std >= pre × 0.95
+- B2.d 0 崩溃 / 0 NaN / 0 爆炸
+- B2.e 100 步 <= 30 min (不喂新经验应更快)
+
+[verify]
+100 步 micro-sleep (3.9 min ≪ 30 min),5 维全过:
+- B2.d dialogue std >= 95%: ratio 0.966 (0.566 → 0.547) ✓
+- B2.k knowledge std >= 95%: ratio 1.006 (1.028 → 1.035) ✓
+- B2.u unfamiliar std >= 95%: ratio 1.010 (0.623 → 0.629) ✓
+- B2.d 0 崩溃 / 0 NaN: 0/100 ✓
+- B2.e 100 步 <= 30 min: 3.9 min ✓
+
+[result]
+关键发现:
+- 3 组 std 全部维持 (dialogue -3.4% 微弱 / knowledge +0.6% 涨 / unfamiliar +1.0% 涨)
+  — 100 步无遗忘
+- mean 漂移极小: d 14.25→14.26 / k 14.47→14.45 / u 14.39→14.42 (±0.03 内)
+- LoRA L2 演化: 0 → 14.49 (4 个 compact dialogue 持续被训练)
+- 自反思 query 触发 10 次 (每 10 步"自问自答"维持活跃)
+- 资源 3.9 min ≪ 30 min 预算 (比 A5 完整 11 min 还快 3 倍)
+
+**自举续航成立** — play 引擎在没新经验时靠记忆库自问自答维持能力。
+
+[plan]
+- BOOTSTRAP_CRITERIA.md § 4 表格加 B2 行, § 8 改成 B2 PASS + 下一步 C1
+- BIO_INSPIRED_ARCHITECTURE_PLAN.md § 4.2/5/7 同步
+
+[next]
+C1 协作形态自主: 撤掉外部协作设计 — assemble_cortex(neuron_ids=...) 显式指定拓扑
+改随机选 4-5 个 neuron 子集初始化 → 100 步后协作连接/共激活权重仍能自然形成
+(EMERGE / CoactivationTracker 增长 ≥ baseline × 0.5)。
