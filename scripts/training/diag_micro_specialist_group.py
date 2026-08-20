@@ -1,4 +1,4 @@
-"""Temporary three-member 6.97M specialist group experiment.
+"""Temporary three-member micro specialist group experiment.
 
 The experiment trains three fresh 6.974593M members against different data
 roles (current-only, HF-only, and 90/10 mixed), while loading the frozen
@@ -43,17 +43,21 @@ from scripts.training.utils import load_domain_tokenizer, load_general_tokenizer
 
 
 SPECIALIST_ROLES = ("current_only", "hf_only", "current_plus_hf_10")
-MICRO_SPEC = "micro_2x128"
+DEFAULT_MICRO_SPEC = "micro_2x128"
+# Backward-compatible module contract used by the historical route audits.
+MICRO_SPEC = DEFAULT_MICRO_SPEC
 BASE_EMBED_DIM = 512
 ZH_VOCAB_SIZE = 50_000
 
 
-def _make_config(neuron_id: str) -> NeuronConfig:
+def _make_config(neuron_id: str, micro_spec: str = DEFAULT_MICRO_SPEC) -> NeuronConfig:
+    if micro_spec not in CANDIDATES:
+        raise ValueError(f"unknown micro spec: {micro_spec}")
     return NeuronConfig(
-        **dict(CANDIDATES[MICRO_SPEC]),
+        **dict(CANDIDATES[micro_spec]),
         vocab_size=ZH_VOCAB_SIZE,
         base_embed_dim=BASE_EMBED_DIM,
-        spec=MICRO_SPEC,
+        spec=micro_spec,
         neuron_id=neuron_id,
     )
 
@@ -110,7 +114,12 @@ def _population_canary_multi(neurons: dict[str, torch.nn.Module], shared) -> dic
     return report
 
 
-def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0) -> dict:
+def run(
+    steps: int = 800,
+    hf_ratio: float = DEFAULT_HF_RATIO,
+    eval_cap: int = 0,
+    micro_spec: str = DEFAULT_MICRO_SPEC,
+) -> dict:
     logging.disable(logging.CRITICAL)
     torch.set_num_threads(6)
     pools = _load_pools(eval_cap=eval_cap)
@@ -145,7 +154,7 @@ def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0)
             general_sp,
             steps,
             return_neuron=True,
-            neuron_config=_make_config(neuron_id),
+            neuron_config=_make_config(neuron_id, micro_spec),
         )
         results[role] = report
         neurons[neuron_id] = neuron
@@ -155,7 +164,7 @@ def run(steps: int = 800, hf_ratio: float = DEFAULT_HF_RATIO, eval_cap: int = 0)
     return {
         "contract": {
             "seed": SEED,
-            "micro_spec": MICRO_SPEC,
+            "micro_spec": micro_spec,
             "specialist_roles": list(SPECIALIST_ROLES),
             "steps_per_member": steps,
             "hf_ratio_requested": hf_ratio,
@@ -184,9 +193,20 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=800)
     parser.add_argument("--hf-ratio", type=float, default=DEFAULT_HF_RATIO)
     parser.add_argument("--eval-cap", type=int, default=0)
+    parser.add_argument(
+        "--micro-spec",
+        choices=tuple(CANDIDATES),
+        default=DEFAULT_MICRO_SPEC,
+        help="micro architecture candidate to train",
+    )
     parser.add_argument("--json-out", type=Path, default=None)
     args = parser.parse_args()
-    report = run(steps=args.steps, hf_ratio=args.hf_ratio, eval_cap=args.eval_cap)
+    report = run(
+        steps=args.steps,
+        hf_ratio=args.hf_ratio,
+        eval_cap=args.eval_cap,
+        micro_spec=args.micro_spec,
+    )
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     print(payload)
     if args.json_out is not None:

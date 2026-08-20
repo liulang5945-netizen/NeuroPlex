@@ -679,6 +679,16 @@ feature alignment 又引入更强的统一偏置。所有实验均未写生产 c
 9 成员路由不变，转回 7.58M micro 专家本体训练与更大独立 holdout 评估；先用主体能力和
 数据专长证据决定 micro 是否值得进入后续架构，而不是继续用未经验证的路由层消耗训练预算。
 
-*** Delete File: E:\taiji-neuron\reports\micro_shared_route_feature_smoke_20260820.json
+7.58M micro 专长组的正式验收已完成（2026-08-20）：将训练脚本参数化为可复用的小规格，
+在 `micro_4x128_field512`（实际 local params=7.581313M）上固定同一随机初始化、冻结
+shared embedding、每个成员 800 步，并使用完整独立 holdout（current=4,941、HF=2,400）。
+current-only 的 current/HF PPL 为 `1,737.48/3,906.83`，HF-only 为 `6,117.97/1,023.99`，
+90/10 mixed 为 `1,713.50/2,020.61`；三种数据角色均形成清晰专长，且 12 成员临时装配的
+forward 全部 finite。与同预算 6.97M 专长组的 `1,702.13/3,882.57`、`5,959.87/1,031.60`、
+`1,697.77/1,989.95` 相比，7.58M 没有能力优势，反而略高成本且指标略弱。固定生成中加入
+三个 specialist 后重复 bigram 从 `0.5714/0.6105` 升至 `0.5859/0.6667`，仍没有群体净增益；
+不写入生产。完整报告为 `reports/micro_specialist_group_758m_800_20260820.json`。
 
-*** Delete File: E:\taiji-neuron\reports\micro_token_route_head_smoke_20260820.json
+当前进入 micro 规格选择决策节点。唯一推荐下一步：冻结 7.58M 为已验证但不优先的对照，
+转向 6.97M 90/10 mixed 单体候选的正式 checkpoint 产出与加载验收；在该候选通过加载、
+单体 holdout 和不改变 9 成员生产配置的临时装配前，不再延长 7.58M，也不重启 route head 变体。
