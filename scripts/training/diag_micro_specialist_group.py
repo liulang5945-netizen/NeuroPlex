@@ -1,10 +1,12 @@
 """Temporary three-member micro specialist group experiment.
 
-The experiment trains three fresh 6.974593M members against different data
+The experiment trains three fresh micro members against different data
 roles (current-only, HF-only, and 90/10 mixed), while loading the frozen
-population shared embedding once.  The members are evaluated individually and
-then added together to the real 9-member population for a finite-forward and
-generation canary.  No checkpoint or production loader configuration changes.
+population shared embedding once.  The members are evaluated individually,
+tested as a standalone three-member ensemble, and then added together to the
+real 9-member population for both a three-member activation subset and a
+12-member finite-forward/generation canary.  No checkpoint or production
+loader configuration changes.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import torch
 
 from neuroplex.core.model_loader import DEFAULT_NEURON_IDS
-from neuroplex.resonance import NeuronConfig
+from neuroplex.resonance import NeuronConfig, ResonanceEnsemble, ResonanceField
 from neuroplex.loader import assemble_cortex
 from scripts.training.diag_micro_data_ab import (
     DEFAULT_HF_RATIO,
@@ -62,7 +64,53 @@ def _make_config(neuron_id: str, micro_spec: str = DEFAULT_MICRO_SPEC) -> Neuron
     )
 
 
-def _population_canary_multi(neurons: dict[str, torch.nn.Module], shared) -> dict:
+def _standalone_specialists_forward(
+    neurons: dict[str, torch.nn.Module], shared, general_sp
+) -> dict:
+    """Run only the three fresh specialists in an independent resonance field."""
+
+    specialist_ids = list(neurons)
+    field_dim = max(
+        getattr(neuron.config, "unified_field_dim", None)
+        or neuron.config.field_dim
+        for neuron in neurons.values()
+    )
+    ensemble = ResonanceEnsemble(
+        neurons=dict(neurons),
+        field=ResonanceField(dim=field_dim),
+        max_rounds=3,
+    )
+    prompt_ids = general_sp.encode(PROMPTS[0])
+    shared_embeddings = shared(torch.tensor([prompt_ids], dtype=torch.long))
+    with torch.no_grad(), contextlib.redirect_stdout(io.StringIO()):
+        result = ensemble.forward(
+            shared_embeddings=shared_embeddings,
+            active_nids=specialist_ids,
+            active_filter=False,
+            return_logits=False,
+        )
+    field_state = result["field_state"]
+    return {
+        "assembly": "standalone_three_specialists",
+        "specialist_ids": specialist_ids,
+        "member_count": len(specialist_ids),
+        "field_dim": field_dim,
+        "active_nids": specialist_ids,
+        "field_shape": list(field_state.shape),
+        "forward_finite": bool(torch.isfinite(field_state).all()),
+        "rounds": result["n_rounds"],
+        "n_active_history": result.get("n_active_history", []),
+        "final_scores": {
+            nid: round(float(score), 6)
+            for nid, score in result.get("final_scores", {}).items()
+        },
+    }
+
+
+def _population_canary_multi(
+    neurons: dict[str, torch.nn.Module], shared, general_sp
+) -> dict:
+    standalone_forward = _standalone_specialists_forward(neurons, shared, general_sp)
     with contextlib.redirect_stdout(io.StringIO()):
         cortex, _, _ = assemble_cortex(
             neurons_dir="data/neurons",
@@ -86,6 +134,7 @@ def _population_canary_multi(neurons: dict[str, torch.nn.Module], shared) -> dic
         embeddings[neuron_id] = shared
     cortex.set_neuron_shared_embeddings(embeddings)
     expanded_ids = base_ids + list(neurons)
+    specialist_ids = list(neurons)
     report = {
         "base_ids": base_ids,
         "expanded_ids": expanded_ids,
@@ -93,14 +142,21 @@ def _population_canary_multi(neurons: dict[str, torch.nn.Module], shared) -> dic
         "base_population": "5 dialogue + 4 general",
         "micro_added_via": "ResonanceEnsemble.add_neuron",
         "writes_checkpoint": False,
+        "standalone_forward": standalone_forward,
         "base_forward": _real_population_forward(cortex, base_ids),
         "mixed_forward": _real_population_forward(cortex, expanded_ids),
-        "generation": {"base_9": {}, "with_specialists_12": {}},
+        "specialists_only_forward": _real_population_forward(cortex, specialist_ids),
+        "generation": {
+            "base_9": {},
+            "with_specialists_12": {},
+            "specialists_only_3": {},
+        },
     }
     for index, prompt in enumerate(PROMPTS[:2]):
         seed = SEED + index
         base_text = _generate(cortex, base_ids, prompt, seed)
         mixed_text = _generate(cortex, expanded_ids, prompt, seed)
+        specialists_text = _generate(cortex, specialist_ids, prompt, seed)
         report["generation"]["base_9"][prompt] = {
             "text": base_text,
             "surface": _surface_metrics(base_text),
@@ -108,6 +164,10 @@ def _population_canary_multi(neurons: dict[str, torch.nn.Module], shared) -> dic
         report["generation"]["with_specialists_12"][prompt] = {
             "text": mixed_text,
             "surface": _surface_metrics(mixed_text),
+        }
+        report["generation"]["specialists_only_3"][prompt] = {
+            "text": specialists_text,
+            "surface": _surface_metrics(specialists_text),
         }
     del cortex
     gc.collect()
@@ -158,7 +218,7 @@ def run(
         )
         results[role] = report
         neurons[neuron_id] = neuron
-    group_canary = _population_canary_multi(neurons, shared)
+    group_canary = _population_canary_multi(neurons, shared, general_sp)
     del neurons, shared
     gc.collect()
     return {

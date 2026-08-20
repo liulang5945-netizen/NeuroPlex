@@ -1,0 +1,351 @@
+{
+  "contract": {
+    "seed": 20260819,
+    "micro_spec": "micro_2x128",
+    "specialist_roles": [
+      "current_only",
+      "hf_only",
+      "current_plus_hf_10"
+    ],
+    "steps_per_member": 800,
+    "hf_ratio_requested": 0.1,
+    "max_seq_len": 128,
+    "shared_embedding_frozen": true,
+    "shared_embedding_loaded_once": true,
+    "writes_checkpoint": false,
+    "production_population_untouched": true
+  },
+  "data": {
+    "current_train": 95059,
+    "current_eval": 32,
+    "hf_train": 45599,
+    "hf_train_used_for_mix": 10562,
+    "hf_eval": 32,
+    "eval_cap": 32,
+    "mix_train_samples": 105621
+  },
+  "members": {
+    "current_only": {
+      "condition": "current_only",
+      "train_samples": 95059,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 11.458564,
+          "corrected_ppl": 94708.9433,
+          "first_token_nll": 10.912185,
+          "median_rank_zero_based": 17899,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 11.473709,
+          "corrected_ppl": 96154.2878,
+          "first_token_nll": 11.649929,
+          "median_rank_zero_based": 33213,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 7.467524,
+          "corrected_ppl": 1750.267,
+          "first_token_nll": 7.972346,
+          "median_rank_zero_based": 300,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 8.177154,
+          "corrected_ppl": 3558.7125,
+          "first_token_nll": 8.334358,
+          "median_rank_zero_based": 226,
+          "first_token_top1": 0.0
+        }
+      },
+      "loss_trace": {
+        "first": 11.576007,
+        "last": 7.303414,
+        "min": 5.399383
+      }
+    },
+    "hf_only": {
+      "condition": "hf_only",
+      "train_samples": 45599,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 11.458564,
+          "corrected_ppl": 94708.9433,
+          "first_token_nll": 10.912185,
+          "median_rank_zero_based": 17899,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 11.473709,
+          "corrected_ppl": 96154.2878,
+          "first_token_nll": 11.649929,
+          "median_rank_zero_based": 33213,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 8.748741,
+          "corrected_ppl": 6302.7457,
+          "first_token_nll": 9.123047,
+          "median_rank_zero_based": 1381,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 6.730044,
+          "corrected_ppl": 837.1844,
+          "first_token_nll": 6.357809,
+          "median_rank_zero_based": 24,
+          "first_token_top1": 0.125
+        }
+      },
+      "loss_trace": {
+        "first": 11.337943,
+        "last": 6.450027,
+        "min": 6.000099
+      }
+    },
+    "current_plus_hf_10": {
+      "condition": "current_plus_hf_10",
+      "train_samples": 105621,
+      "steps": 800,
+      "architecture": {
+        "spec": "micro_2x128",
+        "local_params_m": 6.974593,
+        "hidden_size": 128,
+        "layers": 2,
+        "field_dim": 256,
+        "shared_embedding_frozen": true
+      },
+      "before": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 11.458564,
+          "corrected_ppl": 94708.9433,
+          "first_token_nll": 10.912185,
+          "median_rank_zero_based": 17899,
+          "first_token_top1": 0.0
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 11.473709,
+          "corrected_ppl": 96154.2878,
+          "first_token_nll": 11.649929,
+          "median_rank_zero_based": 33213,
+          "first_token_top1": 0.0
+        }
+      },
+      "after": {
+        "current_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 2363,
+          "answer_loss": 7.406849,
+          "corrected_ppl": 1647.2279,
+          "first_token_nll": 7.954499,
+          "median_rank_zero_based": 372,
+          "first_token_top1": 0.0312
+        },
+        "hf_eval": {
+          "samples": 32,
+          "effective_answer_tokens": 3220,
+          "answer_loss": 7.476419,
+          "corrected_ppl": 1765.9061,
+          "first_token_nll": 7.561584,
+          "median_rank_zero_based": 99,
+          "first_token_top1": 0.0
+        }
+      },
+      "loss_trace": {
+        "first": 11.427159,
+        "last": 8.031325,
+        "min": 5.869253
+      }
+    }
+  },
+  "population_canary": {
+    "base_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh"
+    ],
+    "expanded_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue",
+      "code",
+      "en",
+      "math",
+      "zh",
+      "zh_micro_specialist_current_only",
+      "zh_micro_specialist_hf_only",
+      "zh_micro_specialist_current_plus_hf_10"
+    ],
+    "specialist_ids": [
+      "zh_micro_specialist_current_only",
+      "zh_micro_specialist_hf_only",
+      "zh_micro_specialist_current_plus_hf_10"
+    ],
+    "base_population": "5 dialogue + 4 general",
+    "micro_added_via": "ResonanceEnsemble.add_neuron",
+    "writes_checkpoint": false,
+    "standalone_forward": {
+      "assembly": "standalone_three_specialists",
+      "specialist_ids": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_hf_only",
+        "zh_micro_specialist_current_plus_hf_10"
+      ],
+      "member_count": 3,
+      "field_dim": 256,
+      "active_nids": [
+        "zh_micro_specialist_current_only",
+        "zh_micro_specialist_hf_only",
+        "zh_micro_specialist_current_plus_hf_10"
+      ],
+      "field_shape": [
+        256
+      ],
+      "forward_finite": true,
+      "rounds": 3,
+      "n_active_history": [
+        3,
+        3,
+        3
+      ],
+      "final_scores": {
+        "zh_micro_specialist_current_only": 0.760525,
+        "zh_micro_specialist_hf_only": 0.42933,
+        "zh_micro_specialist_current_plus_hf_10": 0.976024
+      }
+    },
+    "base_forward": {
+      "field_shape": [
+        3072
+      ],
+      "finite": true,
+      "rounds": 3
+    },
+    "mixed_forward": {
+      "field_shape": [
+        3072
+      ],
+      "finite": true,
+      "rounds": 3
+    },
+    "specialists_only_forward": {
+      "field_shape": [
+        3072
+      ],
+      "finite": true,
+      "rounds": 3
+    },
+    "generation": {
+      "base_9": {
+        "问：你好，请介绍一下自己\n答：": {
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clustersare controls",
+          "surface": {
+            "chars": 98,
+            "unique_char_ratio": 0.2041,
+            "repeated_bigram_ratio": 0.567,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+          "surface": {
+            "chars": 96,
+            "unique_char_ratio": 0.1875,
+            "repeated_bigram_ratio": 0.6105,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "with_specialists_12": {
+        "问：你好，请介绍一下自己\n答：": {
+          "text": "有效的方法 decorate deadline clicking clusters clicking clusters clusters clusters clustersare促进",
+          "surface": {
+            "chars": 91,
+            "unique_char_ratio": 0.2418,
+            "repeated_bigram_ratio": 0.5778,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "text": "ated exercise outdoors clicking clusters clicking clicking clusters冲突 clusters clusters clusters",
+          "surface": {
+            "chars": 96,
+            "unique_char_ratio": 0.1875,
+            "repeated_bigram_ratio": 0.6105,
+            "has_decode_artifact": false
+          }
+        }
+      },
+      "specialists_only_3": {
+        "问：你好，请介绍一下自己\n答：": {
+          "text": "blo clusters outdoors clusters clusters clicking momentum\n colonial underway delegate decorate",
+          "surface": {
+            "chars": 94,
+            "unique_char_ratio": 0.2128,
+            "repeated_bigram_ratio": 0.3548,
+            "has_decode_artifact": false
+          }
+        },
+        "问：什么是人工智能？\n答：": {
+          "text": "perform decorate\n colonial out underway deadline clicking controls clusters clusters randomly",
+          "surface": {
+            "chars": 93,
+            "unique_char_ratio": 0.2258,
+            "repeated_bigram_ratio": 0.3152,
+            "has_decode_artifact": false
+          }
+        }
+      }
+    }
+  }
+}
