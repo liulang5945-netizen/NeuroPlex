@@ -1,0 +1,707 @@
+{
+  "contract": {
+    "seed": 20260820,
+    "questions": [
+      "你好，请介绍一下你自己",
+      "你是谁？",
+      "什么是神经网络？",
+      "什么是注意力机制？"
+    ],
+    "population_shape": "5 dialogue + 4 general",
+    "writes_checkpoint": false
+  },
+  "modes": {
+    "dialogue_5": {
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.3129860758781433,
+            "zh_aug1_dialogue": 0.4871211051940918,
+            "zh_aug2_dialogue": 0.7639163732528687,
+            "zh_aug3_dialogue": 0.29061785340309143,
+            "zh_std0_dialogue": 0.17528115212917328
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -3.7170650959014893,
+            "zh_aug1_dialogue": -3.437572479248047,
+            "zh_aug2_dialogue": -3.87488055229187,
+            "zh_aug3_dialogue": -4.194880485534668,
+            "zh_std0_dialogue": -3.7400295734405518
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.4324393144669116,
+            "zh_aug1_dialogue": 0.7648838719416253,
+            "zh_aug2_dialogue": 0.711274627091217,
+            "zh_aug3_dialogue": 0.0979695889193839,
+            "zh_std0_dialogue": 0.30030774025777773
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug1_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 537,
+              "piece": "好的",
+              "decoded": "好的"
+            }
+          },
+          "weighted_logits_vocab": 50000
+        },
+        {
+          "question": "你是谁？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.1965113878250122,
+            "zh_aug1_dialogue": 0.46254539489746094,
+            "zh_aug2_dialogue": 0.851617157459259,
+            "zh_aug3_dialogue": 0.1654931604862213,
+            "zh_std0_dialogue": 0.06274520605802536
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -2.268232583999634,
+            "zh_aug1_dialogue": -1.7894115447998047,
+            "zh_aug2_dialogue": -2.258711099624634,
+            "zh_aug3_dialogue": -2.438317060470581,
+            "zh_std0_dialogue": -2.0148379802703857
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.21583808888580502,
+            "zh_aug1_dialogue": 0.7533999263944489,
+            "zh_aug2_dialogue": 0.638391458007787,
+            "zh_aug3_dialogue": 0.0651233411491497,
+            "zh_std0_dialogue": 0.326302574083103
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug1_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 648,
+              "piece": "人工智能",
+              "decoded": "人工智能"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 37643,
+              "piece": "作为一个人工智能",
+              "decoded": "作为一个人工智能"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 6086,
+              "piece": "很抱歉",
+              "decoded": "很抱歉"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 4635,
+              "piece": "是的",
+              "decoded": "是的"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 6086,
+              "piece": "很抱歉",
+              "decoded": "很抱歉"
+            }
+          },
+          "weighted_logits_vocab": 50000
+        },
+        {
+          "question": "什么是神经网络？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.1603660136461258,
+            "zh_aug1_dialogue": 0.1598065048456192,
+            "zh_aug2_dialogue": 0.7763636708259583,
+            "zh_aug3_dialogue": 0.5745563507080078,
+            "zh_std0_dialogue": 0.0012569691753014922
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -2.025700807571411,
+            "zh_aug1_dialogue": -1.8452212810516357,
+            "zh_aug2_dialogue": -2.1193184852600098,
+            "zh_aug3_dialogue": -2.229419231414795,
+            "zh_std0_dialogue": -2.066479444503784
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.3677585607110227,
+            "zh_aug1_dialogue": 0.6022759417075564,
+            "zh_aug2_dialogue": 0.6432864829845052,
+            "zh_aug3_dialogue": 0.36981965212777523,
+            "zh_std0_dialogue": 0.21205186903911588
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            }
+          },
+          "weighted_logits_vocab": 50000
+        },
+        {
+          "question": "什么是注意力机制？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.12766419351100922,
+            "zh_aug1_dialogue": 0.08836377412080765,
+            "zh_aug2_dialogue": 0.9419100880622864,
+            "zh_aug3_dialogue": 0.311809778213501,
+            "zh_std0_dialogue": 0.06490209698677063
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -3.2593393325805664,
+            "zh_aug1_dialogue": -2.487760066986084,
+            "zh_aug2_dialogue": -2.957268238067627,
+            "zh_aug3_dialogue": -2.659924030303955,
+            "zh_std0_dialogue": -2.9999942779541016
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.03578194107859297,
+            "zh_aug1_dialogue": 0.5133759768284807,
+            "zh_aug2_dialogue": 0.6957485821500149,
+            "zh_aug3_dialogue": 0.5292011044608597,
+            "zh_std0_dialogue": 0.16806118709439788
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            }
+          },
+          "weighted_logits_vocab": 50000
+        }
+      ],
+      "predicted_continuous_leaders": [
+        "zh_aug1_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug2_dialogue"
+      ],
+      "leader_counts": {
+        "zh_aug1_dialogue": 2,
+        "zh_aug2_dialogue": 2
+      }
+    },
+    "full_9": {
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "zh"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.3053169548511505,
+            "zh_aug1_dialogue": 0.4605501592159271,
+            "zh_aug2_dialogue": 0.7139649987220764,
+            "zh_aug3_dialogue": 0.25970473885536194,
+            "zh_std0_dialogue": 0.16925939917564392,
+            "zh": 0.18230143189430237
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375,
+            "zh": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -3.7174785137176514,
+            "zh_aug1_dialogue": -3.437851905822754,
+            "zh_aug2_dialogue": -3.8757312297821045,
+            "zh_aug3_dialogue": -4.194870948791504,
+            "zh_std0_dialogue": -3.739994525909424,
+            "zh": -5.357639789581299
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.5520634347693207,
+            "zh_aug1_dialogue": 0.7673836658580675,
+            "zh_aug2_dialogue": 0.8859563268255256,
+            "zh_aug3_dialogue": 0.38586006545795304,
+            "zh_std0_dialogue": 0.42130833238327936,
+            "zh": 0.011971634521031485
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 12099,
+              "piece": "你好",
+              "decoded": "你好"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 537,
+              "piece": "好的",
+              "decoded": "好的"
+            },
+            "zh": {
+              "token_id": 14,
+              "piece": "<0x0A>",
+              "decoded": "\n"
+            }
+          },
+          "weighted_logits_vocab": 16000
+        },
+        {
+          "question": "你是谁？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "zh"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.19065937399864197,
+            "zh_aug1_dialogue": 0.4441291391849518,
+            "zh_aug2_dialogue": 0.7984843254089355,
+            "zh_aug3_dialogue": 0.1479734182357788,
+            "zh_std0_dialogue": 0.05951089411973953,
+            "zh": 0.1883794218301773
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375,
+            "zh": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -2.267364978790283,
+            "zh_aug1_dialogue": -1.7897491455078125,
+            "zh_aug2_dialogue": -2.258436441421509,
+            "zh_aug3_dialogue": -2.4382483959198,
+            "zh_std0_dialogue": -2.01481294631958,
+            "zh": -4.300875186920166
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.49363700617668255,
+            "zh_aug1_dialogue": 0.7602382093725726,
+            "zh_aug2_dialogue": 0.9066778632007478,
+            "zh_aug3_dialogue": 0.4307298207153123,
+            "zh_std0_dialogue": 0.45518667778914373,
+            "zh": 0.08719429025047404
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 648,
+              "piece": "人工智能",
+              "decoded": "人工智能"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 37643,
+              "piece": "作为一个人工智能",
+              "decoded": "作为一个人工智能"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 6086,
+              "piece": "很抱歉",
+              "decoded": "很抱歉"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 4635,
+              "piece": "是的",
+              "decoded": "是的"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 6086,
+              "piece": "很抱歉",
+              "decoded": "很抱歉"
+            },
+            "zh": {
+              "token_id": 14,
+              "piece": "<0x0A>",
+              "decoded": "\n"
+            }
+          },
+          "weighted_logits_vocab": 16000
+        },
+        {
+          "question": "什么是神经网络？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "zh"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.1537967175245285,
+            "zh_aug1_dialogue": 0.1596267968416214,
+            "zh_aug2_dialogue": 0.7343512773513794,
+            "zh_aug3_dialogue": 0.5458728671073914,
+            "zh_std0_dialogue": 0.0017471483442932367,
+            "zh": 0.16980254650115967
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375,
+            "zh": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -2.0256733894348145,
+            "zh_aug1_dialogue": -1.8457914590835571,
+            "zh_aug2_dialogue": -2.119063138961792,
+            "zh_aug3_dialogue": -2.230027914047241,
+            "zh_std0_dialogue": -2.0664947032928467,
+            "zh": -5.390688896179199
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.578401398551676,
+            "zh_aug1_dialogue": 0.6077523605492817,
+            "zh_aug2_dialogue": 0.9614556295735699,
+            "zh_aug3_dialogue": 0.8171683730689925,
+            "zh_std0_dialogue": 0.46887029200058983,
+            "zh": 0.11469727749462419
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 3210,
+              "piece": "神经网络",
+              "decoded": "神经网络"
+            },
+            "zh": {
+              "token_id": 14,
+              "piece": "<0x0A>",
+              "decoded": "\n"
+            }
+          },
+          "weighted_logits_vocab": 16000
+        },
+        {
+          "question": "什么是注意力机制？",
+          "active_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "code",
+            "en",
+            "math",
+            "zh"
+          ],
+          "candidate_nids": [
+            "zh_aug0_dialogue",
+            "zh_aug1_dialogue",
+            "zh_aug2_dialogue",
+            "zh_aug3_dialogue",
+            "zh_std0_dialogue",
+            "zh"
+          ],
+          "round1_scores": {
+            "zh_aug0_dialogue": 0.12668517231941223,
+            "zh_aug1_dialogue": 0.08280074596405029,
+            "zh_aug2_dialogue": 0.8588946461677551,
+            "zh_aug3_dialogue": 0.2787669003009796,
+            "zh_std0_dialogue": 0.06573102623224258,
+            "zh": 0.2690019905567169
+          },
+          "final_scores": {
+            "zh_aug0_dialogue": 0.375,
+            "zh_aug1_dialogue": 0.375,
+            "zh_aug2_dialogue": 0.375,
+            "zh_aug3_dialogue": 0.375,
+            "zh_std0_dialogue": 0.375,
+            "zh": 0.375
+          },
+          "nll_quality": {
+            "zh_aug0_dialogue": -3.259272575378418,
+            "zh_aug1_dialogue": -2.488124370574951,
+            "zh_aug2_dialogue": -2.957202672958374,
+            "zh_aug3_dialogue": -2.661057233810425,
+            "zh_std0_dialogue": -2.9999423027038574,
+            "zh": -5.852007865905762
+          },
+          "fused_leader_scores": {
+            "zh_aug0_dialogue": 0.42380298149626966,
+            "zh_aug1_dialogue": 0.5107605286619143,
+            "zh_aug2_dialogue": 0.9302772668800035,
+            "zh_aug3_dialogue": 0.6085906882903516,
+            "zh_std0_dialogue": 0.42392454541910746,
+            "zh": 0.12813936444853655
+          },
+          "raw_resonance_leader": "zh_aug2_dialogue",
+          "quality_leader": "zh_aug1_dialogue",
+          "predicted_continuous_leader": "zh_aug2_dialogue",
+          "top_tokens": {
+            "zh_aug0_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug1_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug2_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_aug3_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh_std0_dialogue": {
+              "token_id": 4240,
+              "piece": "注意力",
+              "decoded": "注意力"
+            },
+            "zh": {
+              "token_id": 14,
+              "piece": "<0x0A>",
+              "decoded": "\n"
+            }
+          },
+          "weighted_logits_vocab": 16000
+        }
+      ],
+      "predicted_continuous_leaders": [
+        "zh_aug2_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug2_dialogue"
+      ],
+      "leader_counts": {
+        "zh_aug2_dialogue": 4
+      }
+    }
+  },
+  "elapsed_seconds": 17.2
+}

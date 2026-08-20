@@ -727,3 +727,43 @@ loaded population=3、field_dim=256、3 轮 forward finite。第一次 reload �
 checkpoint 持久化；但尚未证明生成智能或群体净增益。当前停在架构路线决策节点。唯一推荐
 下一步：暂停三个 micro 成员的继续训练与生产接入，回到 9 成员生成契约和对齐链路，优先
 定位并修复现有生成碎片化；micro 仅保留为后续对照实验，不再继续消耗训练预算。
+
+容量归因复核已完成（2026-08-20）：当前生产 5 个 dialogue 并非 7.58M micro，而是 4 个
+`compact`（6 层、hidden=512、约 51.429M local params）和 1 个 `standard`（10 层、
+hidden=768、约 133.773M local params）；7.58M 只存在于旁路 micro 实验。既有单体基线中，
+这 5 个 checkpoint 的对齐 prompt NLL 均为 `2.3601–2.6909`，且都能生成可读片段；群体
+融合下才出现稳定的中英混杂与碎片化。因此“神经元规模过小”仍可解释 micro 的碎片化，
+但不足以解释当前生产 9 成员的主要退化，不能据此重启大规模训练。当前唯一推荐下一步：
+在相同 prompt、seed、解码参数下完成 compact dialogue 与 standard dialogue 的单体/群体
+容量对照解码，测量生成长度、中文字符占比、重复 n-gram 和首 token 选择；用该对照决定
+是容量瓶颈还是群体融合/解码瓶颈。
+
+容量/群体对照已完成（2026-08-20）：固定 4 条 prompt、seed=`20260820`、temperature=
+`0.55`、top-k=`15`、max_tokens=`8`，4 个 compact 单体平均有效长度=`16.63`、中文占比
+`0.8989`、重复 bigram=`0.0665`；133.77M standard 单体为 `13.75`、`0.8875`、`0.0980`；
+5-dialogue 群体为 `19.25`、`0.9327`、`0.0590`；完整 9 成员为 `18.00`、`0.8699`、
+`0.0590`。standard 没有呈现容量带来的稳定收益，群体增加长度也没有消除语义碎片，
+因此当前生产问题不应通过继续放大 dialogue checkpoint 处理。诊断脚本和报告分别为
+`scripts/training/diag_dialogue_capacity_ab.py` 与 `reports/production_dialogue_capacity_ab_20260820.json`。
+唯一推荐下一步：对 5-dialogue 与完整 9 成员逐 prompt 记录 continuous 路径的候选 leader、
+质量融合 leader 和最终首 token，确认 full route 是否把 `zh`/general 成员选入 dialogue
+输出通路。
+
+continuous leader 追踪已完成（2026-08-20）：固定同一 4 条 prompt 后，5-dialogue 群体的
+预测 leader 为 `zh_aug1_dialogue` 2 次、`zh_aug2_dialogue` 2 次；完整 9 成员则 4 次均为
+`zh_aug2_dialogue`。`zh` 没有直接成为最终 leader，但它被纳入同一 continuous 场，首 token
+均为换行，且 prompt NLL 质量明显低于 dialogue neuron；它改变了候选场和 leader 融合排序，
+与完整 9 成员中反复出现 `对不起（` 的输出具有一致性。该结果支持“群体路由污染/leader
+偏置”优先于“模型规模不足”的解释；诊断脚本和报告分别为
+`scripts/training/diag_dialogue_leader_trace.py` 与 `reports/production_dialogue_leader_trace_20260820.json`。
+唯一推荐下一步：执行完整 9 成员与“去掉 `zh`、保留其余 8 成员”的固定生成 A/B；若 leader
+与输出恢复，再将 `zh` 的 dialogue 场参与规则作为唯一候选修复点，而不改 checkpoint 容量。
+
+`zh` 基础成员 A/B 已完成（2026-08-20）：同一 seed 与解码参数下，完整 9 成员平均有效长度
+为 `14.5`、中文占比 `0.8278`、重复 bigram `0.0814`；去掉 `zh` 的其余 8 成员平均为
+`20.5`、`0.9308`、`0.1077`。去掉 `zh` 后“你好”由 `是的，你们。` 恢复为完整可读短句，
+“你是谁？”由 `对不起（` 恢复为可读但仍不完美的回答；技术问题两组仍共同出现“一种是一种”
+和“计算机计算机”，说明 `zh` 是真实污染源之一，但重复/碎片化还有独立的 decoder 稳定性
+问题。A/B 未修改生产配置，报告为 `reports/production_dialogue_zh_base_ab_20260820.json`。
+唯一推荐下一步：在不改变 checkpoint 和 active population 的前提下，对首 token 及后续 token
+增加“候选一致性 + 重复片段”诊断，定位是 leader 切换还是采样/重复惩罚导致技术回答继续退化。
