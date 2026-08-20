@@ -71,6 +71,7 @@
 | A4 | **经验驱动的能力增长** | A3 多轮可持续 + judge 信号不倒退 | 100 次 micro-sleep 后，3 组 prompt std 仍 ≥ pre-sleep × 0.95（**A4 完整已 PASS**：dialogue 99.3% / knowledge 99.1% / unfamiliar 98.6%；A4 完整语义"增长"需 play 引擎常态化喂新经验）|
 | A5 | **经验驱动增长观测** | 喂新经验后 judge mean 上升（经验有效），过顶后回落（自然饱和）| 100 步 micro-sleep × 喂 8 条新经验/批 × 10 批（216 条新）后 3 组 mean 全部上升：dialogue +0.194 / knowledge +0.212 / unfamiliar +0.225（**A5 完整已 PASS**：3 组上升 ≥ 0.01，曲线过顶后回落 — knowledge/unfamiliar 在步 50-60 达峰后回稳，dialogue 步 60-90 达峰后微回；新判据"上升 ≤ 0.30（不爆炸）+ plateau 漂移 ≤ 0.15（过顶回落）"下 5/5 全过）|
 | B1 | **探索自主性观测** | 它自己选主题方向 | 1000 步 × 20 次决策 × 6 主题池：它**100% 集中选 philosophy**（NLL 14.60→14.99→14.79 过顶回落；其他主题 NLL 13.2-14.5 始终低于哲学），**0 崩溃**，**26 min** | `reports/play_engine_b1_explore_20260820.json` |
+| B1-bis | **探索自主性（突破锁定）** | 它自己选主题方向 + 探索机制防止锁定 | 1000 步 × 20 次决策 × 6 主题池：20 次决策**覆盖全部 6 主题**（distinct=6/6），switch_count=11（远超 5 阈值），top 主题 philosophy 60.0%（≤ 70% 阈值），**0 崩溃**，**24.9 min ≤ 60 min**；机制：ε-greedy 10% + force_switch streak=5（触发 3 次）+ recency_bonus=0.5 | `reports/play_engine_b1_bis_explore_20260820.json` |
 
 > **✅ 门槛 A 首块实证（2026-08-15）**：②→③ 接线实现（judge NLL 驱动 sleep 重放样本选择——它自己判定短板优先，`SleepConfig.judge_driven_replay`）+ verify_bootstrap_a2.py **9/9 PASS**：
 > - A1 自我评估信度：judge NLL std=0.640（眼睛能区分样本）
@@ -251,22 +252,27 @@
 
 ## 8. 唯一下一步（2026-08-20）
 
-**B1 探索自主性 4/4 PASS（字面）**，但需语义反思：
+**B1-bis 探索自主性 4/4 PASS**：
 
-- **B1 字面 PASS**：`verify_play_engine_b1_explore.py` 1000 步 × 20 次自主决策 × 6 主题池（哲学/法律/医学/艺术/历史/工程，每池 24 条）；top 主题**100% 集中** philosophy，**0 崩溃**，**26 min ≤ 60 min**；4/4 判据全过。
+- **B1-bis 实证**：`verify_play_engine_b1_bis_explore.py` 1000 步 × 20 次自主决策 × 6 主题池（哲学/法律/医学/艺术/历史/工程，每池 24 条）；20 次决策**覆盖全部 6 主题**（distinct=6/6），switch_count=11，top 主题 philosophy 60.0%（≤ 70% 阈值），**0 崩溃**，**24.9 min ≤ 60 min**
+- **4/4 判据全过**：
+  - B1-bis.a distinct 主题数 ≥ 5：6/6 ✅
+  - B1-bis.b top 主题 ≤ 70%：philosophy 60.0% ✅
+  - B1-bis.c 0 崩溃 / 0 NaN：0/1000 ✅
+  - B1-bis.d 1000 步 ≤ 60 min：24.9 min ✅
 - **关键发现**：
-  - 哲学 NLL 演化：14.60 → 14.99（步 650 峰）→ 14.79（步 901 过顶回落）— **它选的方向 NLL 也在降**（系统自加固）
-  - 其他主题 NLL：law/medicine 14.1-14.5；art/history 13.8-13.9；engineering 13.2-13.3 — **始终低于哲学**
-  - 哲学 vs engineering 差距：1.32 → 1.65 → 1.57 — **差距扩大**（哲学 NLL 持续涨）
-  - top2 gap 演化：0.18 → 0.68 → 0.26 — **NLL 排序稳定**（哲学总在顶）
-- **B1 语义反思**：
-  - "≥ 30% 集中度" 测的是"它能集中方向" → 100% 远超阈值 → **形式通过**
-  - 但 "它能不能换方向" 才是 "探索" 的本质 — **1000 步它从不换** → 严格说是"方向锁定"不是"探索"
-  - 100% 集中度 = **单调收敛**（持续打补丁），不是"探索多种方向"
-- **判据建议（B1-bis）**：
-  - B1-bis.a switch_count ≥ 1（至少有 1 次切换才算"探索"，否则只是"锁定"）
-  - B1-bis.b 不同主题 NLL 差异 < 0.5 时强制随机选（避免单主题 NLL 永远最高）
-  - B1-bis.c 加入"近期未选惩罚"，鼓励方向轮换
+  - **对比 B1**：philosophy 100% → 60%（减半），distinct 1 → 6 — **3 个机制（ε-greedy + force_switch + recency_bonus）有效打破锁定**
+  - **机制贡献**：epsilon_used=0（10% 概率未触发），force_used=3（top1 streak=5 强制切走 3 次），recency_bonus 让 NLL 差异反转使 exploit 也能换方向
+  - **decision 演化**：
+    - decision 0-6: 7 个不同主题连击（recency_bonus 主导，自然轮换 6 主题）
+    - decision 7: philosophy 第 1 次 streak=5 → force_switch → history
+    - decision 12-13: 又 1 次 force_switch → art
+    - decision 18-19: 再 1 次 force_switch → law
+  - **它选的方向 NLL 演化（exploit 自加固）**：philosophy 14.60 → 14.99 (峰) → 14.79 (回落)；**锁定被打破后仍能正常收敛**
+  - **后测 3 组 NLL 正常**：d 14.32 / k 14.48 / u 14.42（无崩塌）
+- **B1 → B1-bis 改进**：
+  - B1：100% 集中 = 单调收敛（**不是"探索"是"锁定"**）
+  - B1-bis：3 机制协同让 exploit + 强制 + 轮换 共同生效；**形式 PASS + 语义 PASS 双过**
 - **A5 完整已 PASS**：100 步 × 10 批新经验（216 条）后 3 组 judge mean 上升 d+0.194 / k+0.212 / u+0.225，全部 ≤ 0.30 新阈值；worst step 跳水 18.0%；0 崩溃；LoRA L2 4.149→1.788（衰减机制工作）。
 
 **门槛 A 完整闭环**：A1 真实版 3/3 PASS + A2 接线 9/9 PASS + A3 衰减版 8/8 PASS + A4 完整 5/5 PASS + A5 完整 5/5 PASS
@@ -276,8 +282,8 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**唯一下一步 → B1-bis 探索**：`verify_play_engine_b1_bis_explore.py` 1000 步 + 加入 (1) 强制切换：当 top1 主题连续选中 ≥ 5 次后强制随机选 1 次；(2) 近期未选惩罚：距上次选中越久的主题 NLL 加权 +0.5 让它更容易被选；(3) ε-greedy：10% 概率随机选 1 个非 top1 主题。**通过线**：B1-bis.a switch_count ≥ 5（探索 ≥ 5 个不同主题），B1-bis.b top 主题 ≤ 70%（不锁定），B1-bis.c 0 崩溃，B1-bis.d 1000 步 ≤ 60 min。
+**唯一下一步 → B2 autonomous 续航**：play 引擎常态运行下，它能不能在不被喂新经验时仍维持 100 步无遗忘（自举续航验证）。复用 B1 主循环 + 关闭"喂新经验"通路，仅靠记忆库 + judge 驱动的自反思维持 judge 信号。**通过线**：B2.a 100 步无新经验时 3 组 judge std 维持 ≥ pre × 0.95；B2.b 0 崩溃；B2.c ≤ 30 min（不喂新经验 100 步应更快）。
 
-**资源**：30-60 min（继承 B1 主循环；不重写 judge/路由）。
+**资源**：15-30 min（无新经验注入、100 步短跑）。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。

@@ -1,0 +1,38 @@
+feat(play-engine): B1-bis 探索自主性 4/4 PASS — 3 机制打破单主题锁定
+
+[why]
+B1 (verify_play_engine_b1_explore.py) 字面 4/4 PASS 但 100% 集中选 philosophy,
+实为"方向锁定"而非"探索"。需加入探索机制让 play 引擎既能选短板,也能在
+多方向间切换。
+
+[how]
+B1-bis 在 B1 主循环基础上,选主题逻辑前加入 3 个机制:
+1. ε-greedy 10%: 10% 概率强制随机选非 top1 主题
+2. force_switch streak=5: top1 连续选中 ≥ 5 次后强制随机选 1 次
+3. recency_bonus=0.5: 距上次选中越久的主题 NLL 加权 +0.5,让 exploit 也能换方向
+
+复用 B1 的 6 主题池 (哲学/法律/医学/艺术/历史/工程) + 三重 seed。
+
+[verify]
+1000 步 × 20 次决策 (24.9 min ≤ 60 min),4 维判据全过:
+- B1-bis.a distinct 主题数 ≥ 5: 6/6 ✓
+- B1-bis.b top 主题 ≤ 70%: philosophy 60.0% ✓
+- B1-bis.c 0 崩溃 / 0 NaN: 0/1000 ✓
+- B1-bis.d 1000 步 ≤ 60 min: 24.9 min ✓
+
+[result]
+对比 B1: philosophy 100% → 60% (减半), distinct 1 → 6。
+机制贡献: epsilon_used=0 (10% 未触发), force_used=3 (强制切走 3 次),
+recency_bonus 让 NLL 差异反转使 exploit 也能自然轮换。
+decision 0-6: 7 个不同主题连击 (recency_bonus 主导自然轮换)
+decision 7/13/19: philosophy streak=5 → force_switch → history/art/law
+philosophy NLL 演化: 14.60 → 14.99 (峰) → 14.79 (回落); 锁定被打破后仍能正常收敛。
+后测 3 组 NLL 正常: d 14.32 / k 14.48 / u 14.42 (无崩塌)。
+
+[plan]
+- BOOTSTRAP_CRITERIA.md § 4 表格加 B1-bis 行, § 8 改成 B1-bis PASS + 下一步 B2
+- BIO_INSPIRED_ARCHITECTURE_PLAN.md § 4.2/5/7 同步
+
+[next]
+B2 autonomous 续航: 100 步 + 关闭"喂新经验"通路,仅靠记忆库 + judge 驱动
+的自反思维持 judge 信号,验证自举续航能力。

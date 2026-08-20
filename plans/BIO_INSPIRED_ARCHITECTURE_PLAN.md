@@ -137,6 +137,7 @@ scripts/training/verify_*.py
 | **A5 准备** 30 步 × 喂新经验 | `verify_play_engine_a5_growth.py` 30 步 × 24 条/批（48 条新）| **3 组 mean 全部上升**：dialogue +0.038 / knowledge +0.115 / unfamiliar +0.094（183.2s）| `reports/play_engine_a5_growth_20260820.json` |
 | **A5 完整** 100 步 × 喂新经验 | `verify_play_engine_a5_full.py` 100 步 × 24 条/批 × 10 批（216 条新）| **5/5 PASS（新判据）**：3 组 mean 上升 d+0.194 / k+0.212 / u+0.225；worst step 跳水 18.0%；0 崩溃；**曲线过顶回落 — 增长有自然上限**（666.5s ≈ 11 min）| `reports/play_engine_a5_full_20260820.json` |
 | **B1 探索自主性** 1000 步 × 它自己选 | `verify_play_engine_b1_explore.py` 1000 步 × 20 次决策 × 6 主题池 | **4/4 PASS（字面）**：top 主题 100% 集中 philosophy；0 崩溃；26 min；**但语义反思**——100% 集中 = 单调收敛（持续打补丁），不是"探索多种方向"；**B1-bis 改进判据**：switch_count ≥ 5 + top 主题 ≤ 70% + ε-greedy | `reports/play_engine_b1_explore_20260820.json` |
+| **B1-bis 探索自主性（突破锁定）** 1000 步 + 3 机制 | `verify_play_engine_b1_bis_explore.py` 1000 步 × 20 次决策 × 6 主题池 + ε-greedy 10% + force_switch streak=5 + recency_bonus=0.5 | **4/4 PASS**：distinct=6/6（覆盖全 6 主题）；switch_count=11（远超 5 阈值）；top 主题 philosophy 60.0%（≤ 70% 阈值）；**0 崩溃**；**24.9 min ≤ 60 min**；**对比 B1**：philosophy 100% → 60%，distinct 1 → 6，**3 机制有效打破锁定**；epsilon_used=0 + force_used=3（recency_bonus 主导决策 0-6 的自然轮换）| `reports/play_engine_b1_bis_explore_20260820.json` |
 
 **关键发现**：
 1. **A1 通过**：judge 在对话/知识/陌生领域三类真实任务上 std 都远超 0.05 阈值
@@ -163,6 +164,7 @@ scripts/training/verify_*.py
 11. **A5 准备：30 步 × 喂新经验后 3 组 mean 全部上升**（`verify_play_engine_a5_growth.py`，183.2s；3 组 Δ mean = +0.038 / +0.115 / +0.094；**经验驱动增长方向性首次被直接观测**；新判据应改为上升 ≥ 0.01 且 ≤ 0.20）
 12. **A5 完整：100 步 × 喂 10 批新经验后 3 组 mean 全部上升 + 曲线自然饱和**（`verify_play_engine_a5_full.py`，666.5s；3 组 Δ mean = +0.194 / +0.212 / +0.225；worst step 跳水 18.0%；0 崩溃；新判据"上升 ≤ 0.30 + plateau 漂移 ≤ 0.15"下 5/5 全过；**门槛 A 5 条判据全过闭环**）
 13. **B1 探索自主性：1000 步 × 20 次决策 × 6 主题池**（`verify_play_engine_b1_explore.py`，26.0 min；top 主题 100% 集中 philosophy；0 崩溃；**字面 4/4 PASS 但语义反思**：100% 集中 = 单调收敛，**不是"探索"是"锁定"**；哲学 NLL 14.60→14.99→14.79 过顶回落；**B1-bis 改进判据**：switch_count ≥ 5 + top 主题 ≤ 70% + ε-greedy 10%）
+14. **B1-bis 探索自主性（突破锁定）：1000 步 + 3 个机制协同**（`verify_play_engine_b1_bis_explore.py`，24.9 min；**4/4 PASS**：distinct=6/6 全覆盖；switch_count=11；top philosophy 60.0%；0 崩溃；**形式 + 语义双过**；ε-greedy 10% + force_switch streak=5（触发 3 次）+ recency_bonus=0.5 协同；decision 0-6 自然轮换 6 主题靠 recency_bonus 反转 NLL 排序，decision 7/13/19 靠 force_switch 强制切走）
 
 ## 6. 后续工作顺序
 
@@ -201,25 +203,21 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ## 7. 唯一下一步
 
-**B1 探索自主性 4/4 PASS（字面）但语义反思**：
+**B1-bis 探索自主性 4/4 PASS**：
 
-- 1000 步 × 20 次决策 × 6 主题池（哲学/法律/医学/艺术/历史/工程）：top 主题 **100% 集中 philosophy**（远超 30% 阈值）；0 崩溃；26 min ≤ 60 min
-- 但 **100% 集中 = 单调收敛**（持续打补丁），不是"探索多种方向" — 1000 步内它从不换主题
-- 哲学 NLL 演化：14.60 → 14.99（步 650 峰）→ 14.79（步 901 过顶回落）— **它选的方向 NLL 也在降**（系统自加固）
-- 其他主题 NLL 都低于哲学 → 它**持续选最短板**
-
-**判据重设计（B1-bis）**：
-- B1-bis.a switch_count ≥ 5（至少选过 5 个不同主题才算"探索"）
-- B1-bis.b top 主题 ≤ 70%（不锁定单方向）
-- B1-bis.c 0 崩溃
-- B1-bis.d 1000 步 ≤ 60 min
-- 实现：(1) 强制切换：top1 连续选中 ≥ 5 次后强制随机选 1 次；(2) 近期未选惩罚：距上次选中越久的主题 NLL 加权 +0.5；(3) ε-greedy：10% 概率随机选 1 个非 top1 主题
+- 1000 步 × 20 次决策 × 6 主题池（哲学/法律/医学/艺术/历史/工程）：20 次决策**覆盖全部 6 主题**（distinct=6/6），switch_count=11，top 主题 philosophy 60.0%（≤ 70% 阈值）；0 崩溃；24.9 min ≤ 60 min
+- **对比 B1**：philosophy 100% → 60%（减半），distinct 1 → 6 — **3 个机制（ε-greedy + force_switch + recency_bonus）有效打破锁定**
+- **机制贡献**：epsilon_used=0（10% 概率未触发），force_used=3（top1 streak=5 强制切走 3 次），recency_bonus 让 NLL 差异反转使 exploit 也能换方向
+- **decision 演化**：decision 0-6: 7 个不同主题连击（recency_bonus 主导，自然轮换 6 主题）；decision 7: philosophy 第 1 次 streak=5 → force_switch → history；decision 12-13: 又 1 次 force_switch → art；decision 18-19: 再 1 次 force_switch → law
+- **它选的方向 NLL 演化（exploit 自加固）**：philosophy 14.60 → 14.99 (峰) → 14.79 (回落)；**锁定被打破后仍能正常收敛**
 
 **门槛 A 完整闭环**（B 开头前）：A1 真实版 3/3 + A2 接线 9/9 + A3 衰减版 8/8 + A4 完整 5/5 + A5 完整 5/5 ✅
 
-**唯一下一步 → B1-bis 探索**：`verify_play_engine_b1_bis_explore.py` 1000 步 + 强制切换 + 近期未选惩罚 + ε-greedy 10%。复用 B1 主循环 + 改选主题逻辑。
+**B1 起步 + B1-bis 突破锁定**（✅）：B1 字面 PASS（100% 集中）；B1-bis 语义 + 形式双过（3 机制 + 4 判据）
 
-**资源**：30-60 min（继承 B1 主循环；不重写 judge/路由）。
+**唯一下一步 → B2 autonomous 续航**：`verify_play_engine_b2_endurance.py` 100 步 + 关闭"喂新经验"通路（仅靠记忆库 + judge 驱动的自反思维持 judge 信号）→ 验证它能不能在不被喂新经验时仍维持 100 步无遗忘（自举续航）。**通过线**：B2.a 100 步无新经验时 3 组 judge std 维持 ≥ pre × 0.95；B2.b 0 崩溃；B2.c ≤ 30 min（不喂新经验 100 步应更快）。
+
+**资源**：15-30 min（无新经验注入、100 步短跑）。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 

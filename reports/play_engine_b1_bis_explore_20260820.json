@@ -1,0 +1,545 @@
+{
+  "timestamp": "2026-08-20 19:18:55",
+  "task": "B1-bis 探索：1000 次 micro-sleep + 20 次决策 + 3 探索机制",
+  "cortex": {
+    "n_neurons": 9,
+    "judge_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 1000,
+    "decision_every": 50,
+    "decay": 0.9,
+    "n_decisions": 20,
+    "n_topic_pools": 6,
+    "epsilon": 0.1,
+    "force_switch_streak": 5,
+    "recency_bonus": 0.5
+  },
+  "selected_counts": {
+    "philosophy": 12,
+    "law": 2,
+    "medicine": 1,
+    "art": 2,
+    "history": 2,
+    "engineering": 1
+  },
+  "distinct_topics_selected": 6,
+  "switch_count": 11,
+  "top_topic": "philosophy",
+  "top_concentration": 0.6,
+  "epsilon_used": 0,
+  "force_used": 3,
+  "decision_log": [
+    {
+      "decision_idx": 0,
+      "step": 1,
+      "nll_per_pool": {
+        "philosophy": 14.598552227020264,
+        "law": 13.78633451461792,
+        "medicine": 14.538992881774902,
+        "art": 13.843135356903076,
+        "history": 13.86106824874878,
+        "engineering": 13.325334072113037
+      },
+      "nll_with_bonus": {
+        "philosophy": 10000014.598552227,
+        "law": 10000013.786334515,
+        "medicine": 10000014.538992882,
+        "art": 10000013.843135357,
+        "history": 10000013.861068249,
+        "engineering": 10000013.325334072
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 1
+    },
+    {
+      "decision_idx": 1,
+      "step": 51,
+      "nll_per_pool": {
+        "philosophy": 14.598552227020264,
+        "law": 13.78633451461792,
+        "medicine": 14.538992881774902,
+        "art": 13.843135356903076,
+        "history": 13.86106824874878,
+        "engineering": 13.325334072113037
+      },
+      "nll_with_bonus": {
+        "philosophy": 15.098552227020264,
+        "law": 10000014.286334515,
+        "medicine": 10000015.038992882,
+        "art": 10000014.343135357,
+        "history": 10000014.361068249,
+        "engineering": 10000013.825334072
+      },
+      "top1_topic": "medicine",
+      "chosen_topic": "medicine",
+      "mechanism": "exploit",
+      "current_streak": 2
+    },
+    {
+      "decision_idx": 2,
+      "step": 101,
+      "nll_per_pool": {
+        "philosophy": 14.630352020263672,
+        "law": 13.819421768188477,
+        "medicine": 14.496665477752686,
+        "art": 13.834452152252197,
+        "history": 13.838448524475098,
+        "engineering": 13.326053619384766
+      },
+      "nll_with_bonus": {
+        "philosophy": 15.630352020263672,
+        "law": 10000014.819421768,
+        "medicine": 15.496665477752686,
+        "art": 10000014.834452152,
+        "history": 10000014.838448524,
+        "engineering": 10000014.32605362
+      },
+      "top1_topic": "history",
+      "chosen_topic": "history",
+      "mechanism": "exploit",
+      "current_streak": 3
+    },
+    {
+      "decision_idx": 3,
+      "step": 151,
+      "nll_per_pool": {
+        "philosophy": 14.630352020263672,
+        "law": 13.819421768188477,
+        "medicine": 14.496665477752686,
+        "art": 13.834452152252197,
+        "history": 13.838448524475098,
+        "engineering": 13.326053619384766
+      },
+      "nll_with_bonus": {
+        "philosophy": 16.130352020263672,
+        "law": 10000015.319421768,
+        "medicine": 15.996665477752686,
+        "art": 10000015.334452152,
+        "history": 15.338448524475098,
+        "engineering": 10000014.82605362
+      },
+      "top1_topic": "art",
+      "chosen_topic": "art",
+      "mechanism": "exploit",
+      "current_streak": 4
+    },
+    {
+      "decision_idx": 4,
+      "step": 201,
+      "nll_per_pool": {
+        "philosophy": 14.718903064727783,
+        "law": 13.908607006072998,
+        "medicine": 14.369966506958008,
+        "art": 13.821614742279053,
+        "history": 13.779212951660156,
+        "engineering": 13.32711410522461
+      },
+      "nll_with_bonus": {
+        "philosophy": 16.718903064727783,
+        "law": 10000015.908607006,
+        "medicine": 16.369966506958008,
+        "art": 15.821614742279053,
+        "history": 15.779212951660156,
+        "engineering": 10000015.327114105
+      },
+      "top1_topic": "law",
+      "chosen_topic": "law",
+      "mechanism": "exploit",
+      "current_streak": 5
+    },
+    {
+      "decision_idx": 5,
+      "step": 251,
+      "nll_per_pool": {
+        "philosophy": 14.718903064727783,
+        "law": 13.908607006072998,
+        "medicine": 14.369966506958008,
+        "art": 13.821614742279053,
+        "history": 13.779212951660156,
+        "engineering": 13.32711410522461
+      },
+      "nll_with_bonus": {
+        "philosophy": 17.218903064727783,
+        "law": 16.408607006072998,
+        "medicine": 16.869966506958008,
+        "art": 16.321614742279053,
+        "history": 16.279212951660156,
+        "engineering": 10000015.827114105
+      },
+      "top1_topic": "engineering",
+      "chosen_topic": "engineering",
+      "mechanism": "exploit",
+      "current_streak": 6
+    },
+    {
+      "decision_idx": 6,
+      "step": 301,
+      "nll_per_pool": {
+        "philosophy": 14.876859664916992,
+        "law": 14.056149005889893,
+        "medicine": 14.213282108306885,
+        "art": 13.815930843353271,
+        "history": 13.712403297424316,
+        "engineering": 13.335933685302734
+      },
+      "nll_with_bonus": {
+        "philosophy": 17.876859664916992,
+        "law": 17.056149005889893,
+        "medicine": 17.213282108306885,
+        "art": 16.81593084335327,
+        "history": 16.712403297424316,
+        "engineering": 16.335933685302734
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 7
+    },
+    {
+      "decision_idx": 7,
+      "step": 351,
+      "nll_per_pool": {
+        "philosophy": 14.876859664916992,
+        "law": 14.056149005889893,
+        "medicine": 14.213282108306885,
+        "art": 13.815930843353271,
+        "history": 13.712403297424316,
+        "engineering": 13.335933685302734
+      },
+      "nll_with_bonus": {
+        "philosophy": 18.376859664916992,
+        "law": 17.556149005889893,
+        "medicine": 17.713282108306885,
+        "art": 17.31593084335327,
+        "history": 17.212403297424316,
+        "engineering": 16.835933685302734
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "history",
+      "mechanism": "force_switch",
+      "current_streak": 0
+    },
+    {
+      "decision_idx": 8,
+      "step": 401,
+      "nll_per_pool": {
+        "philosophy": 15.008427619934082,
+        "law": 14.17454481124878,
+        "medicine": 14.208057403564453,
+        "art": 13.825804710388184,
+        "history": 13.721390724182129,
+        "engineering": 13.35089111328125
+      },
+      "nll_with_bonus": {
+        "philosophy": 19.008427619934082,
+        "law": 18.17454481124878,
+        "medicine": 18.208057403564453,
+        "art": 17.825804710388184,
+        "history": 17.72139072418213,
+        "engineering": 17.35089111328125
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 1
+    },
+    {
+      "decision_idx": 9,
+      "step": 451,
+      "nll_per_pool": {
+        "philosophy": 15.008427619934082,
+        "law": 14.17454481124878,
+        "medicine": 14.208057403564453,
+        "art": 13.825804710388184,
+        "history": 13.721390724182129,
+        "engineering": 13.35089111328125
+      },
+      "nll_with_bonus": {
+        "philosophy": 19.508427619934082,
+        "law": 18.67454481124878,
+        "medicine": 18.708057403564453,
+        "art": 18.325804710388184,
+        "history": 18.22139072418213,
+        "engineering": 17.85089111328125
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 2
+    },
+    {
+      "decision_idx": 10,
+      "step": 501,
+      "nll_per_pool": {
+        "philosophy": 15.075366020202637,
+        "law": 14.231268882751465,
+        "medicine": 14.252026557922363,
+        "art": 13.845789909362793,
+        "history": 13.738869667053223,
+        "engineering": 13.350362300872803
+      },
+      "nll_with_bonus": {
+        "philosophy": 20.075366020202637,
+        "law": 19.231268882751465,
+        "medicine": 19.252026557922363,
+        "art": 18.845789909362793,
+        "history": 18.738869667053223,
+        "engineering": 18.350362300872803
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 3
+    },
+    {
+      "decision_idx": 11,
+      "step": 551,
+      "nll_per_pool": {
+        "philosophy": 15.075366020202637,
+        "law": 14.231268882751465,
+        "medicine": 14.252026557922363,
+        "art": 13.845789909362793,
+        "history": 13.738869667053223,
+        "engineering": 13.350362300872803
+      },
+      "nll_with_bonus": {
+        "philosophy": 20.575366020202637,
+        "law": 19.731268882751465,
+        "medicine": 19.752026557922363,
+        "art": 19.345789909362793,
+        "history": 19.238869667053223,
+        "engineering": 18.850362300872803
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 4
+    },
+    {
+      "decision_idx": 12,
+      "step": 601,
+      "nll_per_pool": {
+        "philosophy": 15.168087005615234,
+        "law": 14.295495986938477,
+        "medicine": 14.332339763641357,
+        "art": 13.856649398803711,
+        "history": 13.765159606933594,
+        "engineering": 13.360854625701904
+      },
+      "nll_with_bonus": {
+        "philosophy": 21.168087005615234,
+        "law": 20.295495986938477,
+        "medicine": 20.332339763641357,
+        "art": 19.85664939880371,
+        "history": 19.765159606933594,
+        "engineering": 19.360854625701904
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 5
+    },
+    {
+      "decision_idx": 13,
+      "step": 651,
+      "nll_per_pool": {
+        "philosophy": 15.168087005615234,
+        "law": 14.295495986938477,
+        "medicine": 14.332339763641357,
+        "art": 13.856649398803711,
+        "history": 13.765159606933594,
+        "engineering": 13.360854625701904
+      },
+      "nll_with_bonus": {
+        "philosophy": 21.668087005615234,
+        "law": 20.795495986938477,
+        "medicine": 20.832339763641357,
+        "art": 20.35664939880371,
+        "history": 20.265159606933594,
+        "engineering": 19.860854625701904
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "art",
+      "mechanism": "force_switch",
+      "current_streak": 0
+    },
+    {
+      "decision_idx": 14,
+      "step": 701,
+      "nll_per_pool": {
+        "philosophy": 15.231892585754395,
+        "law": 14.33894968032837,
+        "medicine": 14.387462139129639,
+        "art": 13.865058898925781,
+        "history": 13.800331115722656,
+        "engineering": 13.364765167236328
+      },
+      "nll_with_bonus": {
+        "philosophy": 22.231892585754395,
+        "law": 21.33894968032837,
+        "medicine": 21.38746213912964,
+        "art": 20.86505889892578,
+        "history": 20.800331115722656,
+        "engineering": 20.364765167236328
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 1
+    },
+    {
+      "decision_idx": 15,
+      "step": 751,
+      "nll_per_pool": {
+        "philosophy": 15.231892585754395,
+        "law": 14.33894968032837,
+        "medicine": 14.387462139129639,
+        "art": 13.865058898925781,
+        "history": 13.800331115722656,
+        "engineering": 13.364765167236328
+      },
+      "nll_with_bonus": {
+        "philosophy": 22.731892585754395,
+        "law": 21.83894968032837,
+        "medicine": 21.88746213912964,
+        "art": 21.36505889892578,
+        "history": 21.300331115722656,
+        "engineering": 20.864765167236328
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 2
+    },
+    {
+      "decision_idx": 16,
+      "step": 801,
+      "nll_per_pool": {
+        "philosophy": 15.318761825561523,
+        "law": 14.382977962493896,
+        "medicine": 14.44912576675415,
+        "art": 13.879078388214111,
+        "history": 13.827398300170898,
+        "engineering": 13.371645450592041
+      },
+      "nll_with_bonus": {
+        "philosophy": 23.318761825561523,
+        "law": 22.382977962493896,
+        "medicine": 22.44912576675415,
+        "art": 21.87907838821411,
+        "history": 21.8273983001709,
+        "engineering": 21.37164545059204
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 3
+    },
+    {
+      "decision_idx": 17,
+      "step": 851,
+      "nll_per_pool": {
+        "philosophy": 15.318761825561523,
+        "law": 14.382977962493896,
+        "medicine": 14.44912576675415,
+        "art": 13.879078388214111,
+        "history": 13.827398300170898,
+        "engineering": 13.371645450592041
+      },
+      "nll_with_bonus": {
+        "philosophy": 23.818761825561523,
+        "law": 22.882977962493896,
+        "medicine": 22.94912576675415,
+        "art": 22.37907838821411,
+        "history": 22.3273983001709,
+        "engineering": 21.87164545059204
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 4
+    },
+    {
+      "decision_idx": 18,
+      "step": 901,
+      "nll_per_pool": {
+        "philosophy": 15.28702163696289,
+        "law": 14.361895561218262,
+        "medicine": 14.407608032226562,
+        "art": 13.858734130859375,
+        "history": 13.803546905517578,
+        "engineering": 13.36137866973877
+      },
+      "nll_with_bonus": {
+        "philosophy": 24.28702163696289,
+        "law": 23.36189556121826,
+        "medicine": 23.407608032226562,
+        "art": 22.858734130859375,
+        "history": 22.803546905517578,
+        "engineering": 22.36137866973877
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "philosophy",
+      "mechanism": "exploit",
+      "current_streak": 5
+    },
+    {
+      "decision_idx": 19,
+      "step": 951,
+      "nll_per_pool": {
+        "philosophy": 15.28702163696289,
+        "law": 14.361895561218262,
+        "medicine": 14.407608032226562,
+        "art": 13.858734130859375,
+        "history": 13.803546905517578,
+        "engineering": 13.36137866973877
+      },
+      "nll_with_bonus": {
+        "philosophy": 24.78702163696289,
+        "law": 23.86189556121826,
+        "medicine": 23.907608032226562,
+        "art": 23.358734130859375,
+        "history": 23.303546905517578,
+        "engineering": 22.86137866973877
+      },
+      "top1_topic": "philosophy",
+      "chosen_topic": "law",
+      "mechanism": "force_switch",
+      "current_streak": 0
+    }
+  ],
+  "crash_count": 0,
+  "post_groups": {
+    "dialogue": {
+      "std": 0.5155203849288315,
+      "mean": 14.315958619117737,
+      "n_valid": 8
+    },
+    "knowledge": {
+      "std": 0.7728866262918996,
+      "mean": 14.475899577140808,
+      "n_valid": 8
+    },
+    "unfamiliar": {
+      "std": 0.5013308164550488,
+      "mean": 14.423070907592773,
+      "n_valid": 8
+    }
+  },
+  "passed": 4,
+  "failed": 0,
+  "verdict": "B1-bis PASS：20 次决策覆盖 6 主题，switch_count=11，top 主题 60.0% ≤ 70%，epsilon_used=0 + force_used=3，0 崩溃，24.9 min ≤ 60 min",
+  "next_step": "B1-bis 通过。下一步：B2 —— play 引擎常态运行下，它能不能在不被喂新经验时仍维持 100 步无遗忘（autonomous 续航）。",
+  "elapsed_seconds": 1492.8682639598846
+}
