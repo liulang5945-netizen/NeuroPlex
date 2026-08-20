@@ -1,8 +1,10 @@
 # NeuroPlex Active Architecture Plan
 
-> **状态**：当前活跃计划 · 2026-08-19
+> **状态**：当前活跃计划 · 2026-08-20
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
+>
+> **🆕 2026-08-20：自举 A1 真实版 3/3 PASS**。方向收敛：放弃继续堆叠临时 route head 变体与对话质量细节诊断，**主线转 A1→A3→A4（自举实证）**。完整判据与决策表见 [`plans/BOOTSTRAP_CRITERIA.md`](BOOTSTRAP_CRITERIA.md)。
 
 ## 1. 架构决策
 
