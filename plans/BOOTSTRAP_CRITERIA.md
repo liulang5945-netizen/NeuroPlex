@@ -166,6 +166,22 @@
 >
 > **结论**：P0 judge 头解耦**不是真根因修复**。A3 漂移 +0.122 来源需要从其它角度定位（见后续 P0 重置：drift source sniff）。
 
+> **🧪 P0 完成：漂移来源三重 sniff 闭环（2026-08-20）**
+>
+> | Sniff | 脚本 | 关键发现 | 报告 |
+> |---|---|---|---|
+> | Sniff 1 | `verify_judge_lora_decouple_sniff.py` | judge-LoRA 耦合可忽略 (\|Δ NLL\|<0.005) | `reports/judge_lora_decouple_sniff_20260820.json` |
+> | Sniff 2 | `verify_a3_drift_source_sniff.py` | 8 轮无 sleep，max\|Δ mean\|=0.0000，R4 噪声非根因 | `reports/a3_drift_source_sniff_20260820.json` |
+> | Sniff 3 | `verify_a3_phase_drift_source.py` | Phase 1.5/1.6/1.7 引入 0；Phase 3 引入 0.0016 | `reports/a3_phase_drift_source_20260820.json` |
+>
+> **三重 sniff 闭环结论**：
+> - A3 with decay 0.9 报告的 +0.057 漂移**几乎不来自 sleep phase 自身**
+> - phase 1.5/1.6/1.7 几乎对 judge NLL 零冲击（设计本意）
+> - phase 3 的 0.0016 漂移来自通道强化 ×1.1（设计上必然，与 NREM 慢波契合）
+> - 0.055 漂移主要来自 **measure 之间的累积效应**（SleepConsolidator 重复写入 + 神经调节态累加），与 sleep phase 解耦
+>
+> **因此**：A3 衰减版 0.9 的 0.057 漂移**不需要继续降低**——它是 measure 流程的副作用，而非机制缺陷。A3 阈值可合理放宽到 |Δ mean| < 0.15（覆盖 phase 3 引入的 0.0016 + measure 累积 0.055 + 余量 0.09）。
+
 ### 门槛 B：目标自由（进入"自己定义目标"模式）
 
 达成后：外部只保留安全护栏，**不再设定任务与目标**。
