@@ -50,3 +50,18 @@ def test_leader_quality_uses_general_to_domain_position_alignment():
     )
 
     assert quality["good"] > quality["bad"]
+
+
+def test_position_alignment_does_not_repeat_one_domain_piece():
+    general = spm.SentencePieceProcessor(
+        model_file="neuroplex/domains/general/sp_general.model",
+    )
+    zh = spm.SentencePieceProcessor(
+        model_file="neuroplex/domains/zh/sp_zh.model",
+    )
+    text = "神经网络是一种基于人工神经网络的机器学习方法"
+    _, aligned_targets = build_position_alignment(text, zh, general)
+
+    long_piece_id = zh.piece_to_id("是一种基于")
+    assert long_piece_id >= 0
+    assert int((aligned_targets == long_piece_id).sum()) == 1

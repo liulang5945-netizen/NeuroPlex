@@ -1,0 +1,221 @@
+{
+  "contract": {
+    "seed": 20260820,
+    "questions": [
+      "你好，请介绍一下你自己",
+      "你是谁？",
+      "什么是神经网络？",
+      "什么是注意力机制？"
+    ],
+    "max_generation_tokens": 8,
+    "temperature": 0.55,
+    "top_k": 15,
+    "repetition_penalty": 1.4,
+    "collab_mode": "continuous",
+    "fusion_mode": "soft",
+    "writes_checkpoint": false
+  },
+  "modes": {
+    "dialogue_5": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "text": "对不起，你告诉我您想要的内容。",
+          "char_len": 15,
+          "cjk_ratio": 0.8667,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        },
+        {
+          "question": "你是谁？",
+          "text": "抱歉是一种是一种基于，通常由一系列组成。",
+          "char_len": 20,
+          "cjk_ratio": 0.9,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1053
+        },
+        {
+          "question": "什么是神经网络？",
+          "text": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+          "char_len": 25,
+          "cjk_ratio": 0.96,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.125
+        },
+        {
+          "question": "什么是注意力机制？",
+          "text": "注意力机制是一种是一种基于：感知、记忆",
+          "char_len": 19,
+          "cjk_ratio": 0.8947,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1111
+        }
+      ],
+      "summary": {
+        "count": 4,
+        "mean_char_len": 19.75,
+        "mean_cjk_ratio": 0.9053,
+        "mean_repeat_bigram_rate": 0.0854
+      }
+    },
+    "dialogue_4_no_aug2": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "text": "好的，你告诉我要参加这个项目",
+          "char_len": 14,
+          "cjk_ratio": 0.9286,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        },
+        {
+          "question": "你是谁？",
+          "text": "抱歉是一种是一种基于，它它可以自动学习",
+          "char_len": 19,
+          "cjk_ratio": 0.9474,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1111
+        },
+        {
+          "question": "什么是神经网络？",
+          "text": "神经网络是一种是一种基于方法，旨在计算机能够能够",
+          "char_len": 24,
+          "cjk_ratio": 0.9583,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1304
+        },
+        {
+          "question": "什么是注意力机制？",
+          "text": "注意力机制是一种技术模型，它使用计算机",
+          "char_len": 19,
+          "cjk_ratio": 0.9474,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        }
+      ],
+      "summary": {
+        "count": 4,
+        "mean_char_len": 19.0,
+        "mean_cjk_ratio": 0.9454,
+        "mean_repeat_bigram_rate": 0.0604
+      }
+    },
+    "full_8_no_zh": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "text": "好的，你告诉我要参加这个项目",
+          "char_len": 14,
+          "cjk_ratio": 0.9286,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        },
+        {
+          "question": "你是谁？",
+          "text": "抱歉是一种是一种基于，通常由一系列组成。",
+          "char_len": 20,
+          "cjk_ratio": 0.9,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1053
+        },
+        {
+          "question": "什么是神经网络？",
+          "text": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+          "char_len": 25,
+          "cjk_ratio": 0.96,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.125
+        },
+        {
+          "question": "什么是注意力机制？",
+          "text": "注意力机制是一种是一种基于：感知、记忆",
+          "char_len": 19,
+          "cjk_ratio": 0.8947,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1111
+        }
+      ],
+      "summary": {
+        "count": 4,
+        "mean_char_len": 19.5,
+        "mean_cjk_ratio": 0.9208,
+        "mean_repeat_bigram_rate": 0.0854
+      }
+    },
+    "full_7_no_zh_no_aug2": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "text": "好的，你告诉我要参加这个项目",
+          "char_len": 14,
+          "cjk_ratio": 0.9286,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        },
+        {
+          "question": "你是谁？",
+          "text": "抱歉是一种是一种基于，它它可以自动学习",
+          "char_len": 19,
+          "cjk_ratio": 0.9474,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1111
+        },
+        {
+          "question": "什么是神经网络？",
+          "text": "神经网络是一种是一种基于方法，旨在计算机能够能够",
+          "char_len": 24,
+          "cjk_ratio": 0.9583,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.1304
+        },
+        {
+          "question": "什么是注意力机制？",
+          "text": "注意力机制是一种技术模型，它使用计算机",
+          "char_len": 19,
+          "cjk_ratio": 0.9474,
+          "latin_ratio": 0.0,
+          "repeat_bigram_rate": 0.0
+        }
+      ],
+      "summary": {
+        "count": 4,
+        "mean_char_len": 19.0,
+        "mean_cjk_ratio": 0.9454,
+        "mean_repeat_bigram_rate": 0.0604
+      }
+    }
+  },
+  "elapsed_seconds": 65.3
+}

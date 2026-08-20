@@ -767,3 +767,89 @@ continuous leader 追踪已完成（2026-08-20）：固定同一 4 条 prompt �
 问题。A/B 未修改生产配置，报告为 `reports/production_dialogue_zh_base_ab_20260820.json`。
 唯一推荐下一步：在不改变 checkpoint 和 active population 的前提下，对首 token 及后续 token
 增加“候选一致性 + 重复片段”诊断，定位是 leader 切换还是采样/重复惩罚导致技术回答继续退化。
+
+逐 token decoder 诊断已完成（2026-08-20）：full9 的 27 个实际采样步中，25 步 dialogue
+候选首选 token 不一致，但 exact token/bigram 重复为 `0/0`；3 处重复来自解码片段重叠，典型
+为 `是一种`→`是一种基于`、`它通过`→`通过`。去掉 `zh` 后为 32 步、23 步候选不一致、
+exact 重复仍为 `0/0`，但片段重叠仍有 4 处；技术问题的 leader 全程稳定为 `zh_aug2_dialogue`。
+这排除了“重复惩罚失效”作为首因，指向 domain tokenizer 的片段边界与 decoder 组合规则。
+诊断报告为 `reports/production_dialogue_decode_trace_20260820.json`，脚本为
+`scripts/training/diag_dialogue_decode_trace.py`。唯一推荐下一步：只在诊断路径临时加入
+“当前 domain piece 与上一 piece 的字符重叠≥2 时禁止候选”的最小 A/B，验证该规则能否消除
+技术回答碎片；通过前不修改生产 decoder。
+
+domain piece 重叠 guard A/B 已完成（2026-08-20）：临时禁止相邻 piece 字符重叠能够去掉
+部分 `是一种`→`是一种基于` 候选，但没有稳定提升语义；“神经网络”回答变成“神经网络是一种由
+计算机神经元的一种过程的过程”，重复 bigram 反而上升，且健康问候也会被误伤。结论是简单
+的相邻 piece guard 不是安全修复，不能接入默认 decoder；报告为
+`reports/production_dialogue_overlap_guard_ab_20260820.json`，脚本为
+`scripts/training/diag_dialogue_overlap_guard_ab.py`。结合此前单体基线中 `zh_aug2_dialogue`
+自身已出现相同重复片段，当前唯一推荐下一步：固定其余成员与解码参数，排除 `zh_aug2_dialogue`
+做单体/群体 A/B，确认技术回答退化是否由该成员的训练产物直接引入。
+
+`zh_aug2_dialogue` 排除 A/B 已完成（2026-08-20）：去掉 aug2 后，问候与 attention 输出有所
+改善，4 条 prompt 的重复 bigram 均值由 `0.0854` 降至 `0.0604`；但“神经网络”仍出现
+`是一种`→`是一种基于`，说明 aug2 会放大退化，却不是唯一来源。4-dialogue 与去掉 aug2
+的 7 成员 full route 输出一致，排除了“仅由跨域 general 成员造成”的解释。报告为
+`reports/production_dialogue_aug2_ab_20260820.json`，脚本为
+`scripts/training/diag_dialogue_aug2_ab.py`。唯一推荐下一步：对 5 个 dialogue 单体使用同一
+prompt、seed 和 decoder 记录 token continuation fingerprint，确认重复片段是否跨 checkpoint
+共同存在，从而把问题归因到共享训练数据/tokenizer 口径，而不是继续删成员。
+
+5 个 dialogue 单体 fingerprint 已完成（2026-08-20）：`神经网络`首 token 在 5/5 个
+checkpoint 中一致；其后片段重叠出现在 4/5 个 checkpoint，`注意力机制`相关重叠出现在
+3/5 个 checkpoint。重复模式跨成员共享，说明它不是 aug2 单独产物，也不是 9 成员融合新生，
+而更可能来自共享训练样本中的目标短语频率或同一 tokenizer 的续写偏置。报告为
+`reports/production_dialogue_single_fingerprint_20260820.json`，脚本为
+`scripts/training/diag_dialogue_single_fingerprint.py`。唯一推荐下一步：流式审计 dialogue
+训练数据中这些 answer target 片段的出现频率、来源和上下文，确认是否存在高频模板导致模型
+把重叠短语当作默认续写。
+
+canonical 数据与对齐因果审计已完成（2026-08-20）：实际 dialogue 训练只读取
+`alpaca_zh_sft_clean.jsonl` 与 `dialogue_extended_clean.jsonl`；前 10,000 条样本中，旧
+max-overlap 对齐会产生 `91,640` 个重复 domain target 位置，占 general 位置 `8.4662%`。
+示例 `神经网络是一种基于...` 中，domain piece `是一种基于` 同时绑定到 general pieces
+`是一种` 与 `基于`；原始数据里的 `是一种是一种基于` 为 0 次，证明生成重复不是简单复制脏数据。
+对齐函数已改为每个 domain token 只在第一次重叠位置监督，后续位置为 `-100`；示例重复绑定
+降为 0，生成契约 32/32 仍通过，全量回归为 `46 passed`。审计报告为
+`reports/production_dialogue_phrase_data_audit_20260820.json` 与
+`reports/production_dialogue_alignment_causality_20260820.json`。
+
+corrected-alignment `zh_aug0_dialogue` 160 步内存 pilot 已完成（2026-08-20）：不写 checkpoint，
+corrected PPL `69.5559→50.4859`，median 首 token rank `7→3`，但固定自由生成仍出现重复，
+说明旧权重需要更长时间适应新监督，不能据此否定修复。报告为
+`reports/production_dialogue_alignment_fix_pilot_20260820.json`。唯一推荐下一步：用生产一致的
+`SequentialSampler` 将同一 corrected-alignment pilot 延长到 800 步，仍只保留内存结果，
+再决定是否扩展到其余 4 个 dialogue checkpoint。
+
+corrected-alignment `zh_aug0_dialogue` 800 步内存 pilot 已完成（2026-08-20）：仍不写 checkpoint，
+并改用生产一致的 `SequentialSampler`。自由生成的技术回答从连续重复明显减少（神经网络：
+`神经网络是一种神经网络，它通常用于描述神经元`；注意力：`注意力机制是一种计算机程序系统算法。它`），
+但仍是短片段拼接，问候也未形成完整回答。更重要的是校正监督指标反向：corrected PPL
+`69.5559→71.9138`，首目标平均 rank `125.69→182.40`，top-1 `29.90%→25.77%`，median
+rank 仍为 `7`。因此“去除重复 domain target 绑定”是正确的因果修复方向，但当前学习率/步数/单体
+训练口径尚不足以迁移到生产；本轮不替换生产 checkpoint，也不把临时 overlap guard 接入 decoder。
+报告为 `reports/production_dialogue_alignment_fix_pilot_800_20260820.json`。唯一推荐下一步：
+先建立 corrected/legacy alignment 的同批次、同初始化、同训练步数对照 pilot，隔离监督目标变化
+与训练随机性，再决定是否继续长训或调整学习率。
+
+corrected/legacy 同初始化同批次配对 pilot 已完成（2026-08-20）：`zh_aug0_dialogue` 两分支均为
+320 步、batch 8、lr=`1e-4`、同一 `SequentialSampler`，且均不写 checkpoint。两分支训练后
+corrected 的自身 PPL 由 `69.5559` 升至 `73.7931`，legacy 由 `68.9989` 升至 `74.6418`；
+corrected 首目标平均 rank 由 `125.69` 升至 `137.16`，legacy 由 `195.12` 升至 `222.46`。
+因此 corrected alignment 相对 legacy 更稳定，但在当前学习率与短 pilot 下仍没有让 teacher-forced
+指标变好；自由生成只改善了问候，技术回答仍有重复/短片段拼接。结论是：对齐修复保留在代码中，
+暂不迁移生产 checkpoint，也不回退到 legacy；下一步应先在单体上降低学习率并加入梯度裁剪，验证
+训练稳定性是否是 corrected alignment 继续提升的前置条件。配对报告为
+`reports/production_dialogue_alignment_paired_pilot_20260820.json`，脚本为
+`scripts/training/diag_dialogue_alignment_paired_pilot.py`。
+
+corrected alignment 低学习率稳定性 pilot 已完成（2026-08-20）：`zh_aug0_dialogue` 仍为内存
+训练 320 步，但将 lr 从 `1e-4` 降为 `3e-5` 并加入 `max_grad_norm=1.0`。corrected PPL
+由 `69.5559` 小幅降至 `69.4225`，median 首 token rank `7→6`，top-1 保持 `29.90%`；
+自由生成中神经网络回答由重复片段恢复到“是一种用于处理”的连续前缀，注意力回答仍复现旧重复，
+问候仍未形成完整句。该结果支持“低学习率/梯度裁剪是 corrected alignment 的必要稳定条件”，
+但不支持立即改写生产 checkpoint。报告为 `reports/production_dialogue_alignment_stability_pilot_20260820.json`，
+脚本为 `scripts/training/diag_dialogue_alignment_stability_pilot.py`。唯一推荐下一步：保持
+corrected alignment、lr=`3e-5`、梯度裁剪 `1.0`，将单体内存 pilot 延长至 800 步，确认收益
+能否从首 token 延伸到完整回答，再决定是否扩展到 5 个 dialogue neuron。

@@ -1,0 +1,629 @@
+{
+  "contract": {
+    "data_files": [
+      "alpaca_zh_sft_clean.jsonl",
+      "dialogue_extended_clean.jsonl"
+    ],
+    "answer_region": "text after first 答：",
+    "min_text_chars": 20,
+    "continuation_width": 12
+  },
+  "data": {
+    "total_samples": 167429,
+    "total_answer_chars": 40851388,
+    "files": {
+      "alpaca_zh_sft_clean.jsonl": {
+        "samples": 44339,
+        "answer_chars": 9287508,
+        "invalid_json": 0
+      },
+      "dialogue_extended_clean.jsonl": {
+        "samples": 123090,
+        "answer_chars": 31563880,
+        "invalid_json": 0
+      }
+    }
+  },
+  "phrases": {
+    "神经网络": {
+      "occurrences": 7411,
+      "sample_count": 3104,
+      "sample_rate": 0.018539,
+      "occurrences_per_1000_samples": 44.2635,
+      "top_continuations": [
+        {
+          "text": "（Artificial ",
+          "count": 55
+        },
+        {
+          "text": "（Convolution",
+          "count": 35
+        },
+        {
+          "text": "（Neural Netw",
+          "count": 20
+        },
+        {
+          "text": "。",
+          "count": 18
+        },
+        {
+          "text": "（CNN）和循环神经网络",
+          "count": 18
+        },
+        {
+          "text": "（CNN）、循环神经网络",
+          "count": 18
+        },
+        {
+          "text": "、自然语言处理、计算机视",
+          "count": 16
+        },
+        {
+          "text": "（CNN）或循环神经网络",
+          "count": 14
+        },
+        {
+          "text": "（RNN）和卷积神经网络",
+          "count": 10
+        },
+        {
+          "text": "（Deep Neural",
+          "count": 9
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 256,
+          "context": "学习和决策的计算模型和算法。它通过模拟人类的大脑神经网络和不断学习数据来实现对信息的理解和分类。在人工智能领域中，常见的算法包括：机器学习算法、深度学习"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 265,
+          "context": "\n\n另一方面，基于深度学习的文本处理技术使用人工神经网络来学习文本的内在结构和模式。这种方法不需要预先定义的规则，而是通过从大量文本数据中学习来识别和处"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 287,
+          "context": "神经网络是一种模仿生物大脑结构和功能的人工智能算法，它由大量的节点（神经元）和连接（突触）组成。通过分析"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 354,
+          "context": "据的学习来总结规律和模式。深度学习算法则一般基于神经网络模型，通过多层非线性变换来建立从输入到输出的复杂映射关系。\n\n3. 应用上，机器学习技术广泛应用"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 574,
+          "context": "ning）是机器学习中的一种，是一种模仿人类大脑神经网络处理信息的方法。它使用了一种结构称为神经网络（Neural Network），该结构可以来识别各"
+        }
+      ]
+    },
+    "注意力机制": {
+      "occurrences": 158,
+      "sample_count": 72,
+      "sample_rate": 0.00043,
+      "occurrences_per_1000_samples": 0.9437,
+      "top_continuations": [
+        {
+          "text": "（self-attent",
+          "count": 3
+        },
+        {
+          "text": "：使用多头注意力机制捕捉",
+          "count": 2
+        },
+        {
+          "text": "捕捉输入序列中的关键信息",
+          "count": 2
+        },
+        {
+          "text": "的输出通过前馈神经网络进",
+          "count": 2
+        },
+        {
+          "text": "是一种使计算机模型更有效",
+          "count": 1
+        },
+        {
+          "text": "的引入使得计算机模型能够",
+          "count": 1
+        },
+        {
+          "text": "的实现方式有很多种，但其",
+          "count": 1
+        },
+        {
+          "text": "通过计算输入数据的不同部",
+          "count": 1
+        },
+        {
+          "text": "在自然语言处理、语音识别",
+          "count": 1
+        },
+        {
+          "text": "能够让模型更好地关注输入",
+          "count": 1
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 4690,
+          "context": "注意力机制是一种使计算机模型更有效地处理序列数据的方法，它的灵感来源于人类视觉注意力的能力，即人类可以集中"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 11877,
+          "context": "取文本的局部特征，用于文本分类和情感分析等任务。注意力机制能够让模型更好地关注输入文本中的关键信息，改善了机器翻译和阅读理解等任务的性能。\n\n最近几年，预"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 15286,
+          "context": "成新的文本。\n\nGPT-2模型的核心是一个多层自注意力机制，它能够捕捉文本中长距离的依赖关系。每一层都由多个自注意力头构成，每个头对输入序列进行不同的表示"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 16606,
+          "context": "适应新任务。\n\nGPT 模型在处理文本时利用了自注意力机制，这意味着它可以学习输入序列中各个元素之间的相关性，并据此加权组合不同部分的信息。这种机制使得模"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 19944,
+          "context": "ormer架构，可以有效处理长序列数据，并通过自注意力机制捕捉序列中任意两个位置之间的相关性，从而提高模型的性能。\n\n3. 多任务能力：GPT模型通过调整"
+        }
+      ]
+    },
+    "是一种": {
+      "occurrences": 28668,
+      "sample_count": 18416,
+      "sample_rate": 0.109993,
+      "occurrences_per_1000_samples": 171.2248,
+      "top_continuations": [
+        {
+          "text": "人工智能（AI）的分支，",
+          "count": 60
+        },
+        {
+          "text": "基于人工神经网络的机器学",
+          "count": 29
+        },
+        {
+          "text": "去中心化的分布式数据库技",
+          "count": 22
+        },
+        {
+          "text": "去中心化的分布式账本技术",
+          "count": 20
+        },
+        {
+          "text": "人工智能技术，它使计算机",
+          "count": 19
+        },
+        {
+          "text": "人工智能技术，它允许计算",
+          "count": 17
+        },
+        {
+          "text": "基于神经网络的机器学习技",
+          "count": 16
+        },
+        {
+          "text": "圆形或椭圆形的水果，通常",
+          "count": 16
+        },
+        {
+          "text": "人工智能（Artific",
+          "count": 16
+        },
+        {
+          "text": "人工智能领域的技术，它使",
+          "count": 15
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 15,
+          "context": "词嵌入是一种自然语言处理技术，用于表示文本数据。它把单词映射到一个高维的、连续的数值向量空间，并保留了单词之"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 18,
+          "context": "和组织应认识到，保护数据隐私不仅仅是法律责任，更是一种道德责任。这意味着他们应该以一种合乎道德的方式收集，使用和处理个人信息，尊重个人权利和自主权。\n"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 20,
+          "context": "xyribonucleic Acid)的缩写。它是一种生物大分子，负责编码遗传信息并传递遗产特征。 DNA分子由四种核苷酸：腺嘌呤（A），鸟嘌呤（G）"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 39,
+          "context": "称AI）是指用计算机程序来模拟人类智能的过程。它是一种能让计算机或程序在执行任务时表现出类似人类智能的技术。人工智能包括了机器学习、自然语言处理、语音"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 49,
+          "context": "1. 水：它是一种清澈无色无味的液体，是我们日常生活中必不可少的一种液体。\n\n2. 橙汁：是用新鲜橙子榨出来的汁液"
+        }
+      ]
+    },
+    "是一种基于": {
+      "occurrences": 901,
+      "sample_count": 795,
+      "sample_rate": 0.004748,
+      "occurrences_per_1000_samples": 5.3814,
+      "top_continuations": [
+        {
+          "text": "人工神经网络的机器学习方",
+          "count": 14
+        },
+        {
+          "text": "神经网络的机器学习技术，",
+          "count": 12
+        },
+        {
+          "text": "神经网络的机器学习方法，",
+          "count": 11
+        },
+        {
+          "text": "人工神经网络的机器学习技",
+          "count": 10
+        },
+        {
+          "text": "量子力学原理的计算机，它",
+          "count": 5
+        },
+        {
+          "text": "量子力学原理的计算模型，",
+          "count": 3
+        },
+        {
+          "text": "贝叶斯定理和特征条件独立",
+          "count": 3
+        },
+        {
+          "text": "贝叶斯定理的分类算法，它",
+          "count": 3
+        },
+        {
+          "text": "人工神经网络的机器学习算",
+          "count": 3
+        },
+        {
+          "text": "树形结构的分类算法，它通",
+          "count": 3
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 164,
+          "context": "应链管理、医疗保健以及政府等行业。例如，比特币就是一种基于区块链技术的加密货币。"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 305,
+          "context": "Pretrained Transformer) 是一种基于自然语言处理的语言模型。它能够利用大量的文本数据进行训练, 学习语言的潜在规律，以生成语法合理且"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 1604,
+          "context": "量子计算是一种基于量子力学原理的计算方法。它使用量子比特（qubit）来代替经典计算中使用的二进制位（bit）。与"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 2618,
+          "context": "来完成模型训练。\n\n深度学习，又叫深层神经网络，是一种基于人工神经网络的无监督算法。与传统的机器学习算法不同，深度学习算法能够通过自动学习数据中的特征层层"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 3392,
+          "context": "云计算是一种基于互联网的计算方式，它利用远程服务器来存储、管理和处理数据。以下是云计算的三个主要优势：\n\n1. "
+        }
+      ]
+    },
+    "它通过": {
+      "occurrences": 1176,
+      "sample_count": 1093,
+      "sample_rate": 0.006528,
+      "occurrences_per_1000_samples": 7.0239,
+      "top_continuations": [
+        {
+          "text": "构建深层神经网络来模拟人",
+          "count": 4
+        },
+        {
+          "text": "让计算机从数据中自动学习",
+          "count": 3
+        },
+        {
+          "text": "构建多颗决策树并对它们的",
+          "count": 2
+        },
+        {
+          "text": "分析和学习大量数据，建立",
+          "count": 2
+        },
+        {
+          "text": "将一个事物与另一个事物进",
+          "count": 2
+        },
+        {
+          "text": "光合作用吸收大量的二氧化",
+          "count": 2
+        },
+        {
+          "text": "对大量数据的分析和学习，",
+          "count": 2
+        },
+        {
+          "text": "卷积层、池化层和全连接层",
+          "count": 2
+        },
+        {
+          "text": "计算机程序和算法模拟人类",
+          "count": 2
+        },
+        {
+          "text": "识别文本中最重要的句子来",
+          "count": 2
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 222,
+          "context": "开放、安全、透明且去中心化的数据存储和交换平台。它通过使用密码学技术来保证数据的安全性，同时其分布式的结构能够确保数据不被任何个人或组织控制。这样，每"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 256,
+          "context": "于模拟人类智能和机器学习和决策的计算模型和算法。它通过模拟人类的大脑神经网络和不断学习数据来实现对信息的理解和分类。在人工智能领域中，常见的算法包括："
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 312,
+          "context": "病。常见的症状包括发热、咳嗽、乏力、呼吸困难等。它通过飞沫传播，可以通过保持社交距离、佩戴口罩、勤洗手等措施来防范。"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 315,
+          "context": "算法，它的前提是在一个有序的序列中查找目标元素。它通过每次比较中间元素与目标值的大小，来缩小搜索范围的一半，从而快速地定位目标元素。\n\n具体实现方式是"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 354,
+          "context": "\n\n1. 概念上，机器学习是人工智能的一个分支，它通过从数据中学习来提高系统的性能。深度学习则是机器学习的一个子类别，它利用一些稀疏高层次的抽象概念来"
+        }
+      ]
+    },
+    "通过": {
+      "occurrences": 61924,
+      "sample_count": 34787,
+      "sample_rate": 0.207772,
+      "occurrences_per_1000_samples": 369.8523,
+      "top_continuations": [
+        {
+          "text": "考试。",
+          "count": 52
+        },
+        {
+          "text": "机器学习、深度学习、自然",
+          "count": 18
+        },
+        {
+          "text": "机器学习和深度学习等技术",
+          "count": 17
+        },
+        {
+          "text": "语音识别和自然语言处理技",
+          "count": 13
+        },
+        {
+          "text": "机器学习，计算机可以自动",
+          "count": 12
+        },
+        {
+          "text": "机器学习和自然语言处理技",
+          "count": 10
+        },
+        {
+          "text": "语音识别、自然语言处理和",
+          "count": 9
+        },
+        {
+          "text": "",
+          "count": 9
+        },
+        {
+          "text": "机器学习、自然语言处理、",
+          "count": 9
+        },
+        {
+          "text": "自然语言处理和机器学习技",
+          "count": 8
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 2,
+          "context": "原色通常指的是红色、绿色和蓝色（RGB）。它们是通过加色混合原理创建色彩的三种基础颜色。在以发光为基础的显示设备中（如电视、计算机显示器、智能手机和"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 3,
+          "context": "中子）紧密结合在一起。电磁力的作用范围较大，主要通过核外的电子与原子核相互作用，发挥作用。\n\n这就是原子的基本结构。原子内部结构复杂多样，不同元素的"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 4,
+          "context": "方法来减少空气污染:\n\n1. 减少机动车排放: 通过支持可再生能源来驱动的交通工具，如电动汽车、混合动力汽车，使用公共交通工具，骑自行车或步行。\n2"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 6,
+          "context": "ram: 是一个即时通讯和社交媒体平台，用户可以通过文本、语音、图片和视频与其他用户即时交流。与 Twitter 和 Instagram 不同，Te"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 16,
+          "context": "了各种总线，包括数据总线、地址总线、控制总线等，通过这些总线，主板连接了中央处理器(CPU)、内存(RAM)、硬盘驱动器(HDD或SSD)、光驱、网"
+        }
+      ]
+    },
+    "能够": {
+      "occurrences": 42041,
+      "sample_count": 24450,
+      "sample_rate": 0.146032,
+      "occurrences_per_1000_samples": 251.0975,
+      "top_continuations": [
+        {
+          "text": "理解、解释和生成人类语言",
+          "count": 20
+        },
+        {
+          "text": "对您有所帮助。",
+          "count": 16
+        },
+        {
+          "text": "",
+          "count": 14
+        },
+        {
+          "text": "执行类似于人类智能的任务",
+          "count": 14
+        },
+        {
+          "text": "回答您的问题。",
+          "count": 13
+        },
+        {
+          "text": "理解、分析和生成自然语言",
+          "count": 13
+        },
+        {
+          "text": "理解、解释和生成自然语言",
+          "count": 10
+        },
+        {
+          "text": "理解、处理和生成自然语言",
+          "count": 9
+        },
+        {
+          "text": "取得成功。",
+          "count": 8
+        },
+        {
+          "text": "像人类一样思考、学习、理",
+          "count": 8
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 4,
+          "context": "使用节能电器、关闭不必要的电源开关、减少用电量，能够减少家庭用电量，从而减少空气污染。\n6. 垃圾分类和回收利用: 妥善处理垃圾，避免焚烧垃圾，对垃"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 5,
+          "context": "我的程序，但它确实需要我进行一定的判断，以确保我能够做出最好的决定。"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 12,
+          "context": "是野营必备的物品，可以提供庇护，避免风吹日晒，还能够防止野生动物的干扰。\n2. 睡袋: 睡袋能够为您提供一个温暖舒适的睡眠环境，确保您在野外可以拥有"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 15,
+          "context": "包括但不限于：\n\n1. 提取文本中的特征：词嵌入能够捕获文本数据中的词义和结构信息，帮助提取文本的关键特征。\n\n2. 降维：自然语言处理的任务通常会"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 38,
+          "context": "生能源，可再生能源来源广泛，取之不尽，用之不竭，能够为我们提供持续稳定的能源供应。此外，可再生能源的利用过程中不会释放大量温室气体和有害污染物，有利"
+        }
+      ]
+    },
+    "计算机": {
+      "occurrences": 26877,
+      "sample_count": 9554,
+      "sample_rate": 0.057063,
+      "occurrences_per_1000_samples": 160.5277,
+      "top_continuations": [
+        {
+          "text": "视觉、自然语言处理、语音",
+          "count": 111
+        },
+        {
+          "text": "视觉、语音识别、自然语言",
+          "count": 56
+        },
+        {
+          "text": "能够理解、解释和生成人类",
+          "count": 21
+        },
+        {
+          "text": "视觉、自然语言处理和语音",
+          "count": 21
+        },
+        {
+          "text": "视觉、自然语言处理等领域",
+          "count": 17
+        },
+        {
+          "text": "系统能够从数据中自动学习",
+          "count": 16
+        },
+        {
+          "text": "视觉、自然语言处理、机器",
+          "count": 15
+        },
+        {
+          "text": "科学和人工智能的一个子领",
+          "count": 15
+        },
+        {
+          "text": "科学、人工智能和计算语言",
+          "count": 15
+        },
+        {
+          "text": "科学、人工智能和语言学等",
+          "count": 15
+        }
+      ],
+      "examples": [
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 2,
+          "context": "种基础颜色。在以发光为基础的显示设备中（如电视、计算机显示器、智能手机和平板电脑显示屏）, 三原色可混合产生大量色彩。其中红色和绿色可以混合生成黄色，"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 16,
+          "context": "计算机主板，也称为主板、系统板或系统板，是计算机中心组件之一，承担着连接并控制计算机中各硬件部件之间的"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 39,
+          "context": "al Intelligence，简称AI）是指用计算机程序来模拟人类智能的过程。它是一种能让计算机或程序在执行任务时表现出类似人类智能的技术。人工智能"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 127,
+          "context": "一名数据分析顾问，你需要拥有扎实的统计学、数学和计算机科学的知识，以及良好的分析和解决问题的能力。此外，沟通技巧和团队合作精神也是不可或缺的。"
+        },
+        {
+          "source_file": "alpaca_zh_sft_clean.jsonl",
+          "line": 163,
+          "context": "附着在其他程序或文件上才能运行，而是能独立地通过计算机网络自动寻找散布漏洞并利用它们来感染其他计算机。蠕虫能快速传播并造成巨大的破坏。\n\n不过，二者都"
+        }
+      ]
+    }
+  }
+}

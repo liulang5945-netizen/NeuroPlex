@@ -1,0 +1,546 @@
+{
+  "contract": {
+    "seed": 20260820,
+    "questions": [
+      "你好，请介绍一下你自己",
+      "你是谁？",
+      "什么是神经网络？",
+      "什么是注意力机制？"
+    ],
+    "max_generation_tokens": 8,
+    "temperature": 0.55,
+    "top_k": 15,
+    "repetition_penalty": 1.4,
+    "guard_rule": "ban a domain piece when its decoded text overlaps the previous piece by >=2 chars",
+    "writes_checkpoint": false
+  },
+  "modes": {
+    "full_9": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "current": {
+            "text": "是的，你是吗？",
+            "char_len": 7,
+            "cjk_ratio": 0.7143,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "作为一个人工智能助手",
+            "char_len": 10,
+            "cjk_ratio": 1.0,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": true,
+            "guard_events": [],
+            "guard_event_count": 0
+          }
+        },
+        {
+          "question": "你是谁？",
+          "current": {
+            "text": "对不起（",
+            "char_len": 4,
+            "cjk_ratio": 0.75,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "对不起（",
+            "char_len": 4,
+            "cjk_ratio": 0.75,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": true,
+            "guard_events": [],
+            "guard_event_count": 0
+          }
+        },
+        {
+          "question": "什么是神经网络？",
+          "current": {
+            "text": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+            "char_len": 25,
+            "cjk_ratio": 0.96,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.125,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "神经网络是一种由计算机神经元的一种过程的过程",
+            "char_len": 22,
+            "cjk_ratio": 1.0,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.1429,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 5,
+                    "token_id": 3210,
+                    "previous": "神经网络",
+                    "current": "神经网络"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 655,
+                "selected_piece": "是一种"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 36281,
+                    "previous": "是一种",
+                    "current": "是一种基于"
+                  },
+                  {
+                    "position": 1,
+                    "token_id": 36063,
+                    "previous": "是一种",
+                    "current": "是一种用于"
+                  },
+                  {
+                    "position": 13,
+                    "token_id": 655,
+                    "previous": "是一种",
+                    "current": "是一种"
+                  }
+                ],
+                "selected_position": 2,
+                "selected_token_id": 38179,
+                "selected_piece": "由"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 11104,
+                    "previous": "计算机",
+                    "current": "计算机视觉"
+                  },
+                  {
+                    "position": 3,
+                    "token_id": 10794,
+                    "previous": "计算机",
+                    "current": "计算机程序"
+                  },
+                  {
+                    "position": 8,
+                    "token_id": 18617,
+                    "previous": "计算机",
+                    "current": "计算机系统"
+                  }
+                ],
+                "selected_position": 1,
+                "selected_token_id": 7187,
+                "selected_piece": "神经元"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 775,
+                    "previous": "的一种",
+                    "current": "一种"
+                  },
+                  {
+                    "position": 5,
+                    "token_id": 2504,
+                    "previous": "的一种",
+                    "current": "的一种"
+                  }
+                ],
+                "selected_position": 1,
+                "selected_token_id": 568,
+                "selected_piece": "过程"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 1,
+                    "token_id": 568,
+                    "previous": "过程",
+                    "current": "过程"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 3312,
+                "selected_piece": "的过程"
+              }
+            ],
+            "guard_event_count": 5
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "current": {
+            "text": "注意力机制是一种是一种基于：感知、记忆",
+            "char_len": 19,
+            "cjk_ratio": 0.8947,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.1111,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "注意力机制是一种利用神经技术，它可以",
+            "char_len": 18,
+            "cjk_ratio": 0.9444,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 4,
+                    "token_id": 36281,
+                    "previous": "是一种",
+                    "current": "是一种基于"
+                  }
+                ],
+                "selected_position": 5,
+                "selected_token_id": 589,
+                "selected_piece": "利用"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 7,
+                    "token_id": 3210,
+                    "previous": "神经",
+                    "current": "神经网络"
+                  }
+                ],
+                "selected_position": 3,
+                "selected_token_id": 357,
+                "selected_piece": "技术"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 7,
+                    "token_id": 11340,
+                    "previous": "技术",
+                    "current": "技术来"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 38065,
+                "selected_piece": "，"
+              }
+            ],
+            "guard_event_count": 3
+          }
+        }
+      ]
+    },
+    "full_8_no_zh": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math"
+      ],
+      "rows": [
+        {
+          "question": "你好，请介绍一下你自己",
+          "current": {
+            "text": "好的，你告诉我要参加什么。",
+            "char_len": 13,
+            "cjk_ratio": 0.8462,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "好的，你告诉我要参加什么。",
+            "char_len": 13,
+            "cjk_ratio": 0.8462,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 3,
+                    "token_id": 604,
+                    "previous": "什么",
+                    "current": "什么"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 38067,
+                "selected_piece": "。"
+              }
+            ],
+            "guard_event_count": 1
+          }
+        },
+        {
+          "question": "你是谁？",
+          "current": {
+            "text": "这个问题没有问题，无法是不是 ",
+            "char_len": 14,
+            "cjk_ratio": 0.9286,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0769,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "这个问题没有问题，无法是不是 ",
+            "char_len": 14,
+            "cjk_ratio": 0.9286,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0769,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 7,
+                    "token_id": 739,
+                    "previous": "无法",
+                    "current": "无法"
+                  }
+                ],
+                "selected_position": 3,
+                "selected_token_id": 38082,
+                "selected_piece": "是"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 11,
+                    "token_id": 654,
+                    "previous": "不是",
+                    "current": "不是"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 38064,
+                "selected_piece": ""
+              }
+            ],
+            "guard_event_count": 2
+          }
+        },
+        {
+          "question": "什么是神经网络？",
+          "current": {
+            "text": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+            "char_len": 25,
+            "cjk_ratio": 0.96,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.125,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "神经网络是一种由计算机神经元的一种过程的过程",
+            "char_len": 22,
+            "cjk_ratio": 1.0,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.1429,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 5,
+                    "token_id": 3210,
+                    "previous": "神经网络",
+                    "current": "神经网络"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 655,
+                "selected_piece": "是一种"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 36281,
+                    "previous": "是一种",
+                    "current": "是一种基于"
+                  },
+                  {
+                    "position": 1,
+                    "token_id": 36063,
+                    "previous": "是一种",
+                    "current": "是一种用于"
+                  },
+                  {
+                    "position": 13,
+                    "token_id": 655,
+                    "previous": "是一种",
+                    "current": "是一种"
+                  }
+                ],
+                "selected_position": 2,
+                "selected_token_id": 38179,
+                "selected_piece": "由"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 11104,
+                    "previous": "计算机",
+                    "current": "计算机视觉"
+                  },
+                  {
+                    "position": 3,
+                    "token_id": 10794,
+                    "previous": "计算机",
+                    "current": "计算机程序"
+                  },
+                  {
+                    "position": 8,
+                    "token_id": 18617,
+                    "previous": "计算机",
+                    "current": "计算机系统"
+                  }
+                ],
+                "selected_position": 1,
+                "selected_token_id": 7187,
+                "selected_piece": "神经元"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 0,
+                    "token_id": 775,
+                    "previous": "的一种",
+                    "current": "一种"
+                  },
+                  {
+                    "position": 5,
+                    "token_id": 2504,
+                    "previous": "的一种",
+                    "current": "的一种"
+                  }
+                ],
+                "selected_position": 1,
+                "selected_token_id": 568,
+                "selected_piece": "过程"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 1,
+                    "token_id": 568,
+                    "previous": "过程",
+                    "current": "过程"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 3312,
+                "selected_piece": "的过程"
+              }
+            ],
+            "guard_event_count": 5
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "current": {
+            "text": "注意力机制是一种是一种基于：感知、记忆",
+            "char_len": 19,
+            "cjk_ratio": 0.8947,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.1111,
+            "guard": false,
+            "guard_events": [],
+            "guard_event_count": 0
+          },
+          "guarded": {
+            "text": "注意力机制是一种利用神经技术，它可以",
+            "char_len": 18,
+            "cjk_ratio": 0.9444,
+            "latin_ratio": 0.0,
+            "repeat_bigram_rate": 0.0,
+            "guard": true,
+            "guard_events": [
+              {
+                "banned": [
+                  {
+                    "position": 4,
+                    "token_id": 36281,
+                    "previous": "是一种",
+                    "current": "是一种基于"
+                  }
+                ],
+                "selected_position": 5,
+                "selected_token_id": 589,
+                "selected_piece": "利用"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 7,
+                    "token_id": 3210,
+                    "previous": "神经",
+                    "current": "神经网络"
+                  }
+                ],
+                "selected_position": 3,
+                "selected_token_id": 357,
+                "selected_piece": "技术"
+              },
+              {
+                "banned": [
+                  {
+                    "position": 7,
+                    "token_id": 11340,
+                    "previous": "技术",
+                    "current": "技术来"
+                  }
+                ],
+                "selected_position": 0,
+                "selected_token_id": 38065,
+                "selected_piece": "，"
+              }
+            ],
+            "guard_event_count": 3
+          }
+        }
+      ]
+    }
+  },
+  "elapsed_seconds": 84.0
+}

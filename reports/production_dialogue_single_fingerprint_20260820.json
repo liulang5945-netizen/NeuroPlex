@@ -1,0 +1,2744 @@
+{
+  "contract": {
+    "seed": 20260820,
+    "questions": [
+      "什么是神经网络？",
+      "什么是注意力机制？",
+      "你是谁？"
+    ],
+    "max_generation_tokens": 8,
+    "temperature": 0.55,
+    "top_k": 15,
+    "repetition_penalty": 1.4,
+    "collab_mode": "continuous",
+    "fusion_mode": "soft",
+    "auto_memory": false,
+    "instance_routing": false,
+    "writes_checkpoint": false
+  },
+  "neurons": {
+    "zh_aug0_dialogue": {
+      "rows": [
+        {
+          "question": "什么是神经网络？",
+          "generated": "神经网络（NN）是一种使用线性化",
+          "pieces": [
+            "神经网络",
+            "（",
+            "NN",
+            "）",
+            "是一种",
+            "使用",
+            "线性",
+            "化"
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "什么是神经网络？",
+            "generated": "神经网络（NN）是一种使用线性化",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.03427,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.036263,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38085,
+                "piece": "（",
+                "decoded": "（"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.760784,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 11718,
+                "piece": "NN",
+                "decoded": "NN"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.177655,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38086,
+                "piece": "）",
+                "decoded": "）"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.462142,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 13,
+                "sample_entropy": 1.632349,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 272,
+                "piece": "使用",
+                "decoded": "使用"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 4,
+                "sample_entropy": 2.297975,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3478,
+                "piece": "线性",
+                "decoded": "线性"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 12,
+                "sample_entropy": 2.356287,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38188,
+                "piece": "化",
+                "decoded": "化"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 4.25
+            }
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "generated": "注意力机制是指是一个是一种基于，它它可以",
+          "pieces": [
+            "注意力",
+            "机制",
+            "是指",
+            "是一个",
+            "是一种基于",
+            "，",
+            "它",
+            "它可以"
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "什么是注意力机制？",
+            "generated": "注意力机制是指是一个是一种基于，它它可以",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.037873,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4240,
+                "piece": "注意力",
+                "decoded": "注意力"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.042502,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4435,
+                "piece": "机制",
+                "decoded": "机制"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.929848,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 1033,
+                "piece": "是指",
+                "decoded": "是指"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.290478,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 451,
+                "piece": "是一个",
+                "decoded": "是一个"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.323291,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 36281,
+                "piece": "是一种基于",
+                "decoded": "是一种基于"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.306043,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.318206,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38300,
+                "piece": "它",
+                "decoded": "它"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.280131,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3651,
+                "piece": "它可以",
+                "decoded": "它可以"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.75
+            }
+          }
+        },
+        {
+          "question": "你是谁？",
+          "generated": "作为一个人工智能助手，因为您没有足够的信息来确定是否 ",
+          "pieces": [
+            "作为一个人工智能助手",
+            "，",
+            "因为",
+            "您没有",
+            "足够的信息",
+            "来确定",
+            "是否",
+            ""
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "你是谁？",
+            "generated": "作为一个人工智能助手，因为您没有足够的信息来确定是否 ",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 8,
+                "sample_entropy": 1.899687,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 12064,
+                "piece": "作为一个人工智能助手",
+                "decoded": "作为一个人工智能助手"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.138194,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.526508,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 536,
+                "piece": "因为",
+                "decoded": "因为"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.469609,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 8801,
+                "piece": "您没有",
+                "decoded": "您没有"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.748407,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 32596,
+                "piece": "足够的信息",
+                "decoded": "足够的信息"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.40943,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 10134,
+                "piece": "来确定",
+                "decoded": "来确定"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.390146,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 754,
+                "piece": "是否",
+                "decoded": "是否"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.489708,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38064,
+                "piece": "▁",
+                "decoded": ""
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue",
+                "zh_aug0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.625
+            }
+          }
+        }
+      ]
+    },
+    "zh_aug1_dialogue": {
+      "rows": [
+        {
+          "question": "什么是神经网络？",
+          "generated": "神经网络是一种是一种基于方法，旨在计算机能够能够",
+          "pieces": [
+            "神经网络",
+            "是一种",
+            "是一种基于",
+            "方法",
+            "，",
+            "旨在",
+            "计算机能够",
+            "能够"
+          ],
+          "overlap_events": [
+            {
+              "step": 2,
+              "previous": "是一种",
+              "current": "是一种基于",
+              "overlap": 3
+            },
+            {
+              "step": 7,
+              "previous": "计算机能够",
+              "current": "能够",
+              "overlap": 2
+            }
+          ],
+          "trace": {
+            "question": "什么是神经网络？",
+            "generated": "神经网络是一种是一种基于方法，旨在计算机能够能够",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.040227,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.213499,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.270113,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 36281,
+                "piece": "是一种基于",
+                "decoded": "是一种基于"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.194937,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 413,
+                "piece": "方法",
+                "decoded": "方法"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.329853,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 4,
+                "sample_entropy": 2.103905,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 2456,
+                "piece": "旨在",
+                "decoded": "旨在"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.137605,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 19786,
+                "piece": "计算机能够",
+                "decoded": "计算机能够"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.13204,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 334,
+                "piece": "能够",
+                "decoded": "能够"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.125
+            }
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "generated": "注意力机制是指数据，也称为计算机计算机视觉",
+          "pieces": [
+            "注意力",
+            "机制",
+            "是指",
+            "数据",
+            "，",
+            "也称为",
+            "计算机",
+            "计算机视觉"
+          ],
+          "overlap_events": [
+            {
+              "step": 7,
+              "previous": "计算机",
+              "current": "计算机视觉",
+              "overlap": 3
+            }
+          ],
+          "trace": {
+            "question": "什么是注意力机制？",
+            "generated": "注意力机制是指数据，也称为计算机计算机视觉",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.161476,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4240,
+                "piece": "注意力",
+                "decoded": "注意力"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.010758,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4435,
+                "piece": "机制",
+                "decoded": "机制"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.015101,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 1033,
+                "piece": "是指",
+                "decoded": "是指"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.002249,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 300,
+                "piece": "数据",
+                "decoded": "数据"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.369364,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 4,
+                "sample_entropy": 1.71085,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 11575,
+                "piece": "也称为",
+                "decoded": "也称为"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.329843,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 728,
+                "piece": "计算机",
+                "decoded": "计算机"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.99459,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 11104,
+                "piece": "计算机视觉",
+                "decoded": "计算机视觉"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.125
+            }
+          }
+        },
+        {
+          "question": "你是谁？",
+          "generated": "抱歉是一种是一种基于，它它可以自动学习",
+          "pieces": [
+            "抱歉",
+            "是一种",
+            "是一种基于",
+            "，",
+            "它",
+            "它可以",
+            "自动",
+            "学习"
+          ],
+          "overlap_events": [
+            {
+              "step": 2,
+              "previous": "是一种",
+              "current": "是一种基于",
+              "overlap": 3
+            }
+          ],
+          "trace": {
+            "question": "你是谁？",
+            "generated": "抱歉是一种是一种基于，它它可以自动学习",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 8,
+                "sample_entropy": 2.389692,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3025,
+                "piece": "抱歉",
+                "decoded": "抱歉"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.606372,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.81637,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 36281,
+                "piece": "是一种基于",
+                "decoded": "是一种基于"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.02573,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.190389,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38300,
+                "piece": "它",
+                "decoded": "它"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.095289,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3651,
+                "piece": "它可以",
+                "decoded": "它可以"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.035167,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 1150,
+                "piece": "自动",
+                "decoded": "自动"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug1_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.252271,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 374,
+                "piece": "学习",
+                "decoded": "学习"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue",
+                "zh_aug1_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.125
+            }
+          }
+        }
+      ]
+    },
+    "zh_aug2_dialogue": {
+      "rows": [
+        {
+          "question": "什么是神经网络？",
+          "generated": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+          "pieces": [
+            "神经网络",
+            "是一种",
+            "是一种基于",
+            "，",
+            "它通过",
+            "通过",
+            "利用",
+            "大量的数据"
+          ],
+          "overlap_events": [
+            {
+              "step": 2,
+              "previous": "是一种",
+              "current": "是一种基于",
+              "overlap": 3
+            },
+            {
+              "step": 5,
+              "previous": "它通过",
+              "current": "通过",
+              "overlap": 2
+            }
+          ],
+          "trace": {
+            "question": "什么是神经网络？",
+            "generated": "神经网络是一种是一种基于，它通过通过利用大量的数据",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.023744,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.47019,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.31332,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 36281,
+                "piece": "是一种基于",
+                "decoded": "是一种基于"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.285091,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.185384,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 9746,
+                "piece": "它通过",
+                "decoded": "它通过"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.215514,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 297,
+                "piece": "通过",
+                "decoded": "通过"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.250052,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 589,
+                "piece": "利用",
+                "decoded": "利用"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 11,
+                "sample_entropy": 2.488899,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 32127,
+                "piece": "大量的数据",
+                "decoded": "大量的数据"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.5
+            }
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "generated": "注意力机制是一种是一种基于：感知、记忆",
+          "pieces": [
+            "注意力",
+            "机制",
+            "是一种",
+            "是一种基于",
+            "：",
+            "感知",
+            "、",
+            "记忆"
+          ],
+          "overlap_events": [
+            {
+              "step": 3,
+              "previous": "是一种",
+              "current": "是一种基于",
+              "overlap": 3
+            }
+          ],
+          "trace": {
+            "question": "什么是注意力机制？",
+            "generated": "注意力机制是一种是一种基于：感知、记忆",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.040436,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4240,
+                "piece": "注意力",
+                "decoded": "注意力"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.006894,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4435,
+                "piece": "机制",
+                "decoded": "机制"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.002152,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.286382,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 36281,
+                "piece": "是一种基于",
+                "decoded": "是一种基于"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 0.884029,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38079,
+                "piece": "：",
+                "decoded": "："
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.980937,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 7697,
+                "piece": "感知",
+                "decoded": "感知"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.908841,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38070,
+                "piece": "、",
+                "decoded": "、"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.733272,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3325,
+                "piece": "记忆",
+                "decoded": "记忆"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.75
+            }
+          }
+        },
+        {
+          "question": "你是谁？",
+          "generated": "对不起（",
+          "pieces": [
+            "对不起",
+            "（",
+            "Artificial",
+            "Intelligence",
+            ","
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "你是谁？",
+            "generated": "对不起（",
+            "think_calls": 5,
+            "topk_calls": 5,
+            "sample_calls": 5,
+            "aligned_steps": 5,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.071658,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 9299,
+                "piece": "对不起",
+                "decoded": "对不起"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.333248,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38085,
+                "piece": "（",
+                "decoded": "（"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.357993,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 35343,
+                "piece": "Artificial",
+                "decoded": "Artificial"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.127851,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 25500,
+                "piece": "▁Intelligence",
+                "decoded": "Intelligence"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug2_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.127617,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38170,
+                "piece": ",",
+                "decoded": ","
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue",
+                "zh_aug2_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.4
+            }
+          }
+        }
+      ]
+    },
+    "zh_aug3_dialogue": {
+      "rows": [
+        {
+          "question": "什么是神经网络？",
+          "generated": "神经网络是一种人工神经网络，它使用计算机计算机视觉视觉",
+          "pieces": [
+            "神经网络",
+            "是一种",
+            "人工神经网络",
+            "，",
+            "它使用",
+            "计算机",
+            "计算机视觉",
+            "视觉"
+          ],
+          "overlap_events": [
+            {
+              "step": 6,
+              "previous": "计算机",
+              "current": "计算机视觉",
+              "overlap": 3
+            },
+            {
+              "step": 7,
+              "previous": "计算机视觉",
+              "current": "视觉",
+              "overlap": 2
+            }
+          ],
+          "trace": {
+            "question": "什么是神经网络？",
+            "generated": "神经网络是一种人工神经网络，它使用计算机计算机视觉视觉",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.063459,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.580313,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.313308,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 14933,
+                "piece": "人工神经网络",
+                "decoded": "人工神经网络"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.297876,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.403117,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 21572,
+                "piece": "它使用",
+                "decoded": "它使用"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 4,
+                "sample_entropy": 2.402701,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 728,
+                "piece": "计算机",
+                "decoded": "计算机"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.217709,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 11104,
+                "piece": "计算机视觉",
+                "decoded": "计算机视觉"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.83341,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3079,
+                "piece": "视觉",
+                "decoded": "视觉"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.625
+            }
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "generated": "注意力机制是一种技术模型，它使用计算机",
+          "pieces": [
+            "注意力",
+            "机制",
+            "是一种",
+            "技术",
+            "模型",
+            "，",
+            "它使用",
+            "计算机"
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "什么是注意力机制？",
+            "generated": "注意力机制是一种技术模型，它使用计算机",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.028465,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4240,
+                "piece": "注意力",
+                "decoded": "注意力"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.048462,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4435,
+                "piece": "机制",
+                "decoded": "机制"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.299765,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 655,
+                "piece": "是一种",
+                "decoded": "是一种"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.364613,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 357,
+                "piece": "技术",
+                "decoded": "技术"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.152064,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 512,
+                "piece": "模型",
+                "decoded": "模型"
+              },
+              {
+                "step": 5,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.064564,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 6,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.318013,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 21572,
+                "piece": "它使用",
+                "decoded": "它使用"
+              },
+              {
+                "step": 7,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.055945,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 728,
+                "piece": "计算机",
+                "decoded": "计算机"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.75
+            }
+          }
+        },
+        {
+          "question": "你是谁？",
+          "generated": "很抱歉（",
+          "pieces": [
+            "很抱歉",
+            "（",
+            "P",
+            "el",
+            "of"
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "你是谁？",
+            "generated": "很抱歉（",
+            "think_calls": 5,
+            "topk_calls": 5,
+            "sample_calls": 5,
+            "aligned_steps": 5,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.724594,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 6086,
+                "piece": "很抱歉",
+                "decoded": "很抱歉"
+              },
+              {
+                "step": 1,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.890073,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38085,
+                "piece": "（",
+                "decoded": "（"
+              },
+              {
+                "step": 2,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.439271,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38256,
+                "piece": "P",
+                "decoded": "P"
+              },
+              {
+                "step": 3,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.435188,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 324,
+                "piece": "el",
+                "decoded": "el"
+              },
+              {
+                "step": 4,
+                "leader": "zh_aug3_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.982565,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 376,
+                "piece": "▁of",
+                "decoded": "of"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue",
+                "zh_aug3_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.2
+            }
+          }
+        }
+      ]
+    },
+    "zh_std0_dialogue": {
+      "rows": [
+        {
+          "question": "什么是神经网络？",
+          "generated": "神经网络神经网络神经元权重参数信号信号\n",
+          "pieces": [
+            "神经网络",
+            "神经网络",
+            "神经元",
+            "权重",
+            "参数",
+            "信号",
+            "信号",
+            "\n"
+          ],
+          "overlap_events": [
+            {
+              "step": 1,
+              "previous": "神经网络",
+              "current": "神经网络",
+              "overlap": 4
+            },
+            {
+              "step": 6,
+              "previous": "信号",
+              "current": "信号",
+              "overlap": 2
+            }
+          ],
+          "trace": {
+            "question": "什么是神经网络？",
+            "generated": "神经网络神经网络神经元权重参数信号信号\n",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.3345,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 1,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.805511,
+                "repeated_token": true,
+                "repeated_bigram": false,
+                "token_id": 3210,
+                "piece": "神经网络",
+                "decoded": "神经网络"
+              },
+              {
+                "step": 2,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.751079,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 7187,
+                "piece": "神经元",
+                "decoded": "神经元"
+              },
+              {
+                "step": 3,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 2.329774,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 13558,
+                "piece": "权重",
+                "decoded": "权重"
+              },
+              {
+                "step": 4,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.9229,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 2936,
+                "piece": "参数",
+                "decoded": "参数"
+              },
+              {
+                "step": 5,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 4,
+                "sample_entropy": 2.582509,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 2821,
+                "piece": "信号",
+                "decoded": "信号"
+              },
+              {
+                "step": 6,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 2.114412,
+                "repeated_token": true,
+                "repeated_bigram": false,
+                "token_id": 2821,
+                "piece": "信号",
+                "decoded": "信号"
+              },
+              {
+                "step": 7,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.023144,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 14,
+                "piece": "<0x0A>",
+                "decoded": "\n"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 2,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 2.125
+            }
+          }
+        },
+        {
+          "question": "什么是注意力机制？",
+          "generated": "注意力机制是指检测处理信息数据数据的",
+          "pieces": [
+            "注意力",
+            "机制",
+            "是指",
+            "检测",
+            "处理",
+            "信息",
+            "数据",
+            "数据的"
+          ],
+          "overlap_events": [
+            {
+              "step": 7,
+              "previous": "数据",
+              "current": "数据的",
+              "overlap": 2
+            }
+          ],
+          "trace": {
+            "question": "什么是注意力机制？",
+            "generated": "注意力机制是指检测处理信息数据数据的",
+            "think_calls": 8,
+            "topk_calls": 8,
+            "sample_calls": 8,
+            "aligned_steps": 8,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.036431,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4240,
+                "piece": "注意力",
+                "decoded": "注意力"
+              },
+              {
+                "step": 1,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.028179,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4435,
+                "piece": "机制",
+                "decoded": "机制"
+              },
+              {
+                "step": 2,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.541756,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 1033,
+                "piece": "是指",
+                "decoded": "是指"
+              },
+              {
+                "step": 3,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 1.999292,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 2903,
+                "piece": "检测",
+                "decoded": "检测"
+              },
+              {
+                "step": 4,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.394297,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 547,
+                "piece": "处理",
+                "decoded": "处理"
+              },
+              {
+                "step": 5,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.844198,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 360,
+                "piece": "信息",
+                "decoded": "信息"
+              },
+              {
+                "step": 6,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.257226,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 300,
+                "piece": "数据",
+                "decoded": "数据"
+              },
+              {
+                "step": 7,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 1.142131,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3052,
+                "piece": "数据的",
+                "decoded": "数据的"
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.75
+            }
+          }
+        },
+        {
+          "question": "你是谁？",
+          "generated": "是的，没有问题。 ",
+          "pieces": [
+            "是的",
+            "，",
+            "没有",
+            "问题",
+            "。",
+            "",
+            ""
+          ],
+          "overlap_events": [],
+          "trace": {
+            "question": "你是谁？",
+            "generated": "是的，没有问题。 ",
+            "think_calls": 7,
+            "topk_calls": 7,
+            "sample_calls": 7,
+            "aligned_steps": 7,
+            "steps": [
+              {
+                "step": 0,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.604034,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 4635,
+                "piece": "是的",
+                "decoded": "是的"
+              },
+              {
+                "step": 1,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.004444,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38065,
+                "piece": "，",
+                "decoded": "，"
+              },
+              {
+                "step": 2,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 2.373945,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 443,
+                "piece": "没有",
+                "decoded": "没有"
+              },
+              {
+                "step": 3,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 5,
+                "sample_entropy": 1.78207,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 338,
+                "piece": "问题",
+                "decoded": "问题"
+              },
+              {
+                "step": 4,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.146357,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38067,
+                "piece": "。",
+                "decoded": "。"
+              },
+              {
+                "step": 5,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 2,
+                "sample_entropy": 1.133468,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 38064,
+                "piece": "▁",
+                "decoded": ""
+              },
+              {
+                "step": 6,
+                "leader": "zh_std0_dialogue",
+                "leader_changed": false,
+                "candidate_top1_unique": 1,
+                "candidate_top1_agreement": true,
+                "sampled_rank_in_topk": 1,
+                "sample_entropy": 0.802398,
+                "repeated_token": false,
+                "repeated_bigram": false,
+                "token_id": 3,
+                "piece": "</s>",
+                "decoded": ""
+              }
+            ],
+            "summary": {
+              "leader_sequence": [
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue",
+                "zh_std0_dialogue"
+              ],
+              "leader_changes": 0,
+              "candidate_disagreement_steps": 0,
+              "repeated_token_steps": 0,
+              "repeated_bigram_steps": 0,
+              "mean_sampled_rank": 1.8571
+            }
+          }
+        }
+      ]
+    }
+  },
+  "cross_neuron": {
+    "什么是神经网络？": {
+      "common_step_pieces": [
+        {
+          "step": 0,
+          "values": [
+            "神经网络",
+            "神经网络",
+            "神经网络",
+            "神经网络",
+            "神经网络"
+          ],
+          "unique_values": [
+            "神经网络"
+          ],
+          "all_same": true
+        },
+        {
+          "step": 1,
+          "values": [
+            "（",
+            "是一种",
+            "是一种",
+            "是一种",
+            "神经网络"
+          ],
+          "unique_values": [
+            "是一种",
+            "神经网络",
+            "（"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 2,
+          "values": [
+            "NN",
+            "是一种基于",
+            "是一种基于",
+            "人工神经网络",
+            "神经元"
+          ],
+          "unique_values": [
+            "NN",
+            "人工神经网络",
+            "是一种基于",
+            "神经元"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 3,
+          "values": [
+            "）",
+            "方法",
+            "，",
+            "，",
+            "权重"
+          ],
+          "unique_values": [
+            "方法",
+            "权重",
+            "）",
+            "，"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 4,
+          "values": [
+            "是一种",
+            "，",
+            "它通过",
+            "它使用",
+            "参数"
+          ],
+          "unique_values": [
+            "参数",
+            "它使用",
+            "它通过",
+            "是一种",
+            "，"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 5,
+          "values": [
+            "使用",
+            "旨在",
+            "通过",
+            "计算机",
+            "信号"
+          ],
+          "unique_values": [
+            "使用",
+            "信号",
+            "旨在",
+            "计算机",
+            "通过"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 6,
+          "values": [
+            "线性",
+            "计算机能够",
+            "利用",
+            "计算机视觉",
+            "信号"
+          ],
+          "unique_values": [
+            "信号",
+            "利用",
+            "线性",
+            "计算机能够",
+            "计算机视觉"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 7,
+          "values": [
+            "化",
+            "能够",
+            "大量的数据",
+            "视觉",
+            "\n"
+          ],
+          "unique_values": [
+            "\n",
+            "化",
+            "大量的数据",
+            "能够",
+            "视觉"
+          ],
+          "all_same": false
+        }
+      ],
+      "neurons_with_overlap": [
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue"
+      ]
+    },
+    "什么是注意力机制？": {
+      "common_step_pieces": [
+        {
+          "step": 0,
+          "values": [
+            "注意力",
+            "注意力",
+            "注意力",
+            "注意力",
+            "注意力"
+          ],
+          "unique_values": [
+            "注意力"
+          ],
+          "all_same": true
+        },
+        {
+          "step": 1,
+          "values": [
+            "机制",
+            "机制",
+            "机制",
+            "机制",
+            "机制"
+          ],
+          "unique_values": [
+            "机制"
+          ],
+          "all_same": true
+        },
+        {
+          "step": 2,
+          "values": [
+            "是指",
+            "是指",
+            "是一种",
+            "是一种",
+            "是指"
+          ],
+          "unique_values": [
+            "是一种",
+            "是指"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 3,
+          "values": [
+            "是一个",
+            "数据",
+            "是一种基于",
+            "技术",
+            "检测"
+          ],
+          "unique_values": [
+            "技术",
+            "数据",
+            "是一个",
+            "是一种基于",
+            "检测"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 4,
+          "values": [
+            "是一种基于",
+            "，",
+            "：",
+            "模型",
+            "处理"
+          ],
+          "unique_values": [
+            "处理",
+            "是一种基于",
+            "模型",
+            "，",
+            "："
+          ],
+          "all_same": false
+        },
+        {
+          "step": 5,
+          "values": [
+            "，",
+            "也称为",
+            "感知",
+            "，",
+            "信息"
+          ],
+          "unique_values": [
+            "也称为",
+            "信息",
+            "感知",
+            "，"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 6,
+          "values": [
+            "它",
+            "计算机",
+            "、",
+            "它使用",
+            "数据"
+          ],
+          "unique_values": [
+            "、",
+            "它",
+            "它使用",
+            "数据",
+            "计算机"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 7,
+          "values": [
+            "它可以",
+            "计算机视觉",
+            "记忆",
+            "计算机",
+            "数据的"
+          ],
+          "unique_values": [
+            "它可以",
+            "数据的",
+            "计算机",
+            "计算机视觉",
+            "记忆"
+          ],
+          "all_same": false
+        }
+      ],
+      "neurons_with_overlap": [
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_std0_dialogue"
+      ]
+    },
+    "你是谁？": {
+      "common_step_pieces": [
+        {
+          "step": 0,
+          "values": [
+            "作为一个人工智能助手",
+            "抱歉",
+            "对不起",
+            "很抱歉",
+            "是的"
+          ],
+          "unique_values": [
+            "作为一个人工智能助手",
+            "对不起",
+            "很抱歉",
+            "抱歉",
+            "是的"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 1,
+          "values": [
+            "，",
+            "是一种",
+            "（",
+            "（",
+            "，"
+          ],
+          "unique_values": [
+            "是一种",
+            "（",
+            "，"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 2,
+          "values": [
+            "因为",
+            "是一种基于",
+            "Artificial",
+            "P",
+            "没有"
+          ],
+          "unique_values": [
+            "Artificial",
+            "P",
+            "因为",
+            "是一种基于",
+            "没有"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 3,
+          "values": [
+            "您没有",
+            "，",
+            "Intelligence",
+            "el",
+            "问题"
+          ],
+          "unique_values": [
+            "Intelligence",
+            "el",
+            "您没有",
+            "问题",
+            "，"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 4,
+          "values": [
+            "足够的信息",
+            "它",
+            ",",
+            "of",
+            "。"
+          ],
+          "unique_values": [
+            ",",
+            "of",
+            "。",
+            "它",
+            "足够的信息"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 5,
+          "values": [
+            "来确定",
+            "它可以",
+            ""
+          ],
+          "unique_values": [
+            "",
+            "它可以",
+            "来确定"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 6,
+          "values": [
+            "是否",
+            "自动",
+            ""
+          ],
+          "unique_values": [
+            "",
+            "是否",
+            "自动"
+          ],
+          "all_same": false
+        },
+        {
+          "step": 7,
+          "values": [
+            "",
+            "学习"
+          ],
+          "unique_values": [
+            "",
+            "学习"
+          ],
+          "all_same": false
+        }
+      ],
+      "neurons_with_overlap": [
+        "zh_aug1_dialogue"
+      ]
+    }
+  },
+  "elapsed_seconds": 22.9
+}

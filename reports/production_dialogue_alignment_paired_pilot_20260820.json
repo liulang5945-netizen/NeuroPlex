@@ -1,0 +1,88 @@
+{
+  "contract": {
+    "neuron_id": "zh_aug0_dialogue",
+    "steps": 320,
+    "batch_size": 8,
+    "lr": 0.0001,
+    "max_seq_len": 128,
+    "train_samples": 100000,
+    "eval_samples": 100,
+    "same_initial_checkpoint": true,
+    "same_sequential_batches": true,
+    "writes_checkpoint": false
+  },
+  "runs": [
+    {
+      "alignment": "legacy",
+      "before": {
+        "ppl": 68.9989,
+        "aligned_answer_tokens": 6734,
+        "mean_first_target_rank_zero_based": 195.12,
+        "median_first_target_rank_zero_based": 8,
+        "first_target_top1_rate": 0.29,
+        "rank_samples": 100,
+        "skipped_first_target_samples": 0
+      },
+      "after": {
+        "ppl": 74.6418,
+        "aligned_answer_tokens": 6734,
+        "mean_first_target_rank_zero_based": 222.46,
+        "median_first_target_rank_zero_based": 9,
+        "first_target_top1_rate": 0.24,
+        "rank_samples": 100,
+        "skipped_first_target_samples": 0
+      },
+      "generation_before": {
+        "你好，请介绍一下你自己": "好的，我的生活世界。但是，",
+        "什么是神经网络？": "神经网络（NN）是一种用于处理输入",
+        "什么是注意力机制？": "注意力机制是指是通过通过通过通过通过"
+      },
+      "generation_after": {
+        "你好，请介绍一下你自己": "好的，我不会问：",
+        "什么是神经网络？": "神经网络（也称为神经网络）是一种神经网络，",
+        "什么是注意力机制？": "注意力机制是指，，，，，"
+      },
+      "loss_trace": {
+        "first": 4.206163,
+        "last": 3.88313,
+        "min": 3.043289
+      }
+    },
+    {
+      "alignment": "corrected",
+      "before": {
+        "ppl": 69.5559,
+        "aligned_answer_tokens": 6224,
+        "mean_first_target_rank_zero_based": 125.69,
+        "median_first_target_rank_zero_based": 7,
+        "first_target_top1_rate": 0.299,
+        "rank_samples": 97,
+        "skipped_first_target_samples": 3
+      },
+      "after": {
+        "ppl": 73.7931,
+        "aligned_answer_tokens": 6224,
+        "mean_first_target_rank_zero_based": 137.16,
+        "median_first_target_rank_zero_based": 8,
+        "first_target_top1_rate": 0.2474,
+        "rank_samples": 97,
+        "skipped_first_target_samples": 3
+      },
+      "generation_before": {
+        "你好，请介绍一下你自己": "好的，我的生活世界。但是，",
+        "什么是神经网络？": "神经网络（NN）是一种用于处理输入",
+        "什么是注意力机制？": "注意力机制是指是通过通过通过通过通过"
+      },
+      "generation_after": {
+        "你好，请介绍一下你自己": "好的，有什么，但是我可以回答。",
+        "什么是神经网络？": "神经网络（也称为神经网络）是一种神经网络，",
+        "什么是注意力机制？": "注意力机制是指是一种是一种基于，，，"
+      },
+      "loss_trace": {
+        "first": 4.09485,
+        "last": 3.876408,
+        "min": 3.033025
+      }
+    }
+  ]
+}

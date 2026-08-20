@@ -754,7 +754,10 @@ def build_position_alignment(
 
     Alignment rule: for each general token at position j, find the domain
     token whose character span has the maximum overlap with the general
-    token's character span.
+    token's character span. A domain token is assigned only at its first
+    overlapping general position; later general positions inside the same
+    domain span are left unaligned. This preserves the causal contract when
+    one domain piece spans multiple general pieces (e.g. ``是一种基于``).
 
     Args:
         text: raw input text.
@@ -771,6 +774,7 @@ def build_position_alignment(
 
     L_g = len(general_ids)
     domain_targets = torch.full((L_g,), -100, dtype=torch.long)
+    assigned_domain_indices = set()
 
     for j, (g_start, g_end) in enumerate(general_spans):
         best_i = -1
@@ -783,8 +787,9 @@ def build_position_alignment(
                 best_overlap = overlap
                 best_i = i
 
-        if best_i >= 0:
+        if best_i >= 0 and best_i not in assigned_domain_indices:
             domain_targets[j] = domain_ids[best_i]
+            assigned_domain_indices.add(best_i)
 
     return torch.tensor(general_ids, dtype=torch.long), domain_targets
 
