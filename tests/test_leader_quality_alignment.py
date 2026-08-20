@@ -65,3 +65,24 @@ def test_position_alignment_does_not_repeat_one_domain_piece():
     long_piece_id = zh.piece_to_id("是一种基于")
     assert long_piece_id >= 0
     assert int((aligned_targets == long_piece_id).sum()) == 1
+
+
+def test_domain_generation_reencodes_complete_general_context():
+    general = spm.SentencePieceProcessor(
+        model_file="neuroplex/domains/general/sp_general.model",
+    )
+    zh = spm.SentencePieceProcessor(
+        model_file="neuroplex/domains/zh/sp_zh.model",
+    )
+    prefix = "问：什么是神经网络？\n答："
+    domain_id = zh.piece_to_id("是一种基于")
+    assert domain_id >= 0
+
+    cortex = object.__new__(Cortex)
+    cortex._general_sp = general
+    actual = cortex._reencode_domain_generation_context(prefix, [domain_id], zh)
+    expected = general.encode(prefix + zh.DecodeIds([domain_id]))
+    legacy = general.encode(prefix) + general.encode(zh.DecodeIds([domain_id]))
+
+    assert actual == expected
+    assert legacy != expected

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""corrected alignment 的低学习率/梯度裁剪稳定性 pilot（仅内存）。"""
+"""corrected alignment + full-context generation 的 800 步协同 pilot。"""
 from __future__ import annotations
 
 import gc
@@ -11,17 +11,17 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import torch
+import torch.nn.functional as F
 
-from scripts.training.diag_dialogue_alignment_fix_pilot import (
+from neuroplex.resonance.dialogue_format import build_dialogue_prompt
+from scripts.training.diag_dialogue_alignment_stability_pilot import (
     BATCH_SIZE,
     EVAL_CAP,
-    GENERATION_QUESTIONS,
     MAX_SEQ_LEN,
     MAX_TEXTS,
     NEURON_ID,
     SEED,
     _batch_loss,
-    _generate,
     _load_neuron,
     _metrics,
 )
@@ -35,14 +35,35 @@ from scripts.training.utils import (
 )
 
 
-STEPS = int(os.environ.get("TAIJI_ALIGNMENT_STEPS", "320"))
-LR = float(os.environ.get("TAIJI_ALIGNMENT_LR", "3e-5"))
-WARMUP_STEPS = int(os.environ.get("TAIJI_ALIGNMENT_WARMUP_STEPS", "20"))
-MAX_GRAD_NORM = float(os.environ.get("TAIJI_ALIGNMENT_MAX_GRAD_NORM", "1.0"))
-OUTPUT_PATH = os.environ.get(
-    "TAIJI_ALIGNMENT_OUTPUT",
-    "reports/production_dialogue_alignment_stability_pilot_20260820.json",
-)
+STEPS = 800
+LR = 3e-5
+WARMUP_STEPS = 20
+MAX_GRAD_NORM = 1.0
+GENERATION_QUESTIONS = ["你好，请介绍一下你自己", "什么是神经网络？", "什么是注意力机制？"]
+
+
+@torch.no_grad()
+def _generate(neuron, shared, domain_sp, general_sp, question: str) -> str:
+    prompt = build_dialogue_prompt(question)
+    general_ids = general_sp.encode(prompt) or [0]
+    prefix_text = general_sp.DecodeIds(general_ids)
+    generated_ids = []
+    neuron.eval()
+    shared.eval()
+    torch.manual_seed(SEED)
+    for _ in range(8):
+        ids = torch.tensor([general_ids], dtype=torch.long)
+        logits = neuron(shared(ids), return_logits=True)["logits"][:, -1, :]
+        top_values, top_indices = torch.topk(logits, min(15, logits.shape[-1]))
+        probs = F.softmax(top_values / 0.55, dim=-1)
+        sampled = torch.multinomial(probs, 1)
+        token_id = int(top_indices[0, sampled[0, 0]].item())
+        if token_id == domain_sp.eos_id():
+            break
+        generated_ids.append(token_id)
+        generated_text = domain_sp.DecodeIds(generated_ids)
+        general_ids = general_sp.encode(prefix_text + generated_text) or [0]
+    return domain_sp.DecodeIds(generated_ids)
 
 
 def main() -> None:
@@ -113,6 +134,7 @@ def main() -> None:
             "train_samples": len(full_texts),
             "eval_samples": len(eval_texts),
             "alignment": "deduplicated first-occurrence domain target",
+            "generation_context": "full_text_reencode_after_domain_piece",
             "writes_checkpoint": False,
         },
         "before": before,
@@ -127,7 +149,9 @@ def main() -> None:
             "mean_grad_norm": round(sum(grad_norms) / len(grad_norms), 6),
         },
     }
-    out_path = OUTPUT_PATH
+    out_path = os.path.join(
+        "reports", "production_dialogue_alignment_contextfix_pilot_800_20260820.json"
+    )
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=2)
     print(json.dumps(report, ensure_ascii=False, indent=2))

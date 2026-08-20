@@ -853,3 +853,54 @@ corrected alignment 低学习率稳定性 pilot 已完成（2026-08-20）：`zh_
 脚本为 `scripts/training/diag_dialogue_alignment_stability_pilot.py`。唯一推荐下一步：保持
 corrected alignment、lr=`3e-5`、梯度裁剪 `1.0`，将单体内存 pilot 延长至 800 步，确认收益
 能否从首 token 延伸到完整回答，再决定是否扩展到 5 个 dialogue neuron。
+
+corrected alignment 低学习率 800 步 pilot 已完成（2026-08-20）：corrected PPL
+`69.5559→68.4535`、median 首 token rank `7→6`，但平均 rank `125.69→149.22`、top-1
+`29.90%→28.87%`；自由生成仍有技术短语重复。因此长训确实改善 teacher-forced PPL，
+但不能单独解决自由生成碎片化。报告为 `reports/production_dialogue_alignment_stability_pilot_800_20260820.json`。
+
+生成上下文因果 A/B 已完成（2026-08-20）：general SentencePiece 对 `prompt + domain piece`
+整体编码，与“先编码 prompt、再逐 piece 追加”的结果在 3 条问题、每步 8 次生成中均不一致，
+匹配率为 `0%`。改为完整文本重编码后，同一 `zh_aug0_dialogue` 的问候从“我的生活世界”恢复为
+完整帮助句，注意力回答不再连续重复“通过”；该修复已写入 `Cortex._generate_p7`，并通过
+完整上下文回归测试。报告为 `reports/production_dialogue_generation_context_ab_20260820.json`，
+脚本为 `scripts/training/diag_dialogue_generation_context_ab.py`。
+
+真实 Cortex 入口回归已完成（2026-08-20）：5 个 dialogue 单体的技术回答普遍恢复为完整短句，
+例如 `zh_aug0_dialogue` 输出“神经网络是一种机器学习，它通过训练计算机学习”；但部分成员仍有
+“一种是一种”重复。5-dialogue 群体与 full9 A/B 中，full9 仍未改善技术重复，且问候受 general
+成员影响更明显，证明上下文重编码修复了碎片化首因，但共享训练产物/群体路由仍是独立问题。
+报告分别为 `reports/production_dialogue_context_generation_20260820.json` 与
+`reports/production_dialogue_context_group_ab_20260820.json`。唯一推荐下一步：固定 full9
+群体不变，做一次 `zh_aug2_dialogue` 排除后的修复版 group A/B，确认剩余“一种是一种”是否由
+aug2 放大，再决定是否调整群体激活规则。
+
+修复版 `full9`/`full9_no_aug2` A/B 已完成（2026-08-20）：排除 `zh_aug2_dialogue` 后，问候由
+“作为一个人工智能助手，并没有足够的信息...”恢复为“好的，请问您需要给我什么信息呢”，
+神经网络回答从“...数据学习和学习的方法”变为更长的“...非线性模型来进行学习和执行任务”；
+但“一种是一种”在神经网络与注意力问题中仍保留。因此 aug2 是群体污染/放大器，但不是共享
+重复模式的唯一来源，当前不能只靠删除 aug2 作为生产修复。报告已更新为
+`reports/production_dialogue_context_group_ab_20260820.json`，脚本为
+`scripts/training/diag_dialogue_production_context_group_ab.py`。唯一推荐下一步：把同一修复版
+full9 与 full9_no_aug2 扩展到 32 条 held-out dialogue 问题，统计长度、中文占比、重复 n-gram
+和语义片段重叠，再决定是否调整默认激活集合。
+
+32 条 held-out 修复版 group 评估已完成（2026-08-20）：full9 平均长度=`13.7812`、中文占比
+`0.7593`、重复 bigram=`0.0240`；full9_no_aug2 平均长度=`11.4375`、中文占比=`0.6638`、
+重复 bigram=`0.0167`，两组均无空输出。排除 aug2 能降低重复，但以显著缩短输出和降低中文
+覆盖为代价，因此不能作为默认生产激活修复。报告为
+`reports/production_dialogue_context_group_eval_20260820.json`，脚本为
+`scripts/training/diag_dialogue_production_context_group_eval.py`。唯一推荐下一步：在单体
+`zh_aug0_dialogue` 上联合使用 corrected alignment、lr=`3e-5`、梯度裁剪 `1.0` 与完整文本
+重编码生成，延长至 800 步，验证训练修复与生成修复是否产生协同收益。
+
+corrected alignment + full-text generation context 协同 pilot 已完成（2026-08-20）：`zh_aug0_dialogue`
+在同一 800 步、lr=`3e-5`、梯度裁剪 `1.0` 下，corrected PPL `69.5559→68.4535`，首 token
+median rank `7→6`；生成前后的完整文本上下文路径均已生效，注意力回答从重复片段变为
+“注意力机制是一种算法，通过数据训练”，神经网络回答仍保留一次共享短语重复。结论：完整文本
+重编码是确定性的生成契约修复，应保留并进入生产；corrected alignment 对训练有小幅收益，
+但当前 800 步不足以证明可批量重训 5 个 checkpoint，因此不迁移权重。报告为
+`reports/production_dialogue_alignment_contextfix_pilot_800_20260820.json`，脚本为
+`scripts/training/diag_dialogue_alignment_contextfix_pilot.py`。唯一推荐下一步：提交并固定
+生成上下文修复，暂不改默认 9 成员激活集合，下一轮只针对共享“一种是一种”模式设计数据/目标
+级抑制实验。

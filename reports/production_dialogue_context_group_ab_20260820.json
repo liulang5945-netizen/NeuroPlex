@@ -1,0 +1,95 @@
+{
+  "contract": {
+    "groups": {
+      "dialogue5": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue"
+      ],
+      "full9": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "full9_no_aug2": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ]
+    },
+    "context_update": "full_text_reencode_after_domain_piece",
+    "seed": 20260820,
+    "temperature": 0.55,
+    "top_k": 15,
+    "max_tokens": 8,
+    "production_checkpoints_written": false
+  },
+  "groups": {
+    "dialogue5": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue"
+      ],
+      "generations": {
+        "你好，请介绍一下你自己": "对不起，我是一个文本AI助手。提供",
+        "你是谁？": "抱歉，您没有提供任何信息。请提供您希望",
+        "什么是神经网络？": "神经网络是一种是一种基于数据学习和学习的方法，",
+        "什么是注意力机制？": "注意力机制是一种基于神经系统的模拟，"
+      }
+    },
+    "full9": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug2_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "generations": {
+        "你好，请介绍一下你自己": "作为一个人工智能助手，并没有足够的信息来确定这个人。我的",
+        "你是谁？": "对不起，您没有提供任何具体的回答。请提供",
+        "什么是神经网络？": "神经网络是一种是一种基于数据学习和学习的方法，",
+        "什么是注意力机制？": "注意力机制是一种基于神经系统的模拟，"
+      }
+    },
+    "full9_no_aug2": {
+      "active_nids": [
+        "zh_aug0_dialogue",
+        "zh_aug1_dialogue",
+        "zh_aug3_dialogue",
+        "zh_std0_dialogue",
+        "code",
+        "en",
+        "math",
+        "zh"
+      ],
+      "generations": {
+        "你好，请介绍一下你自己": "好的，请问您需要给我什么信息呢",
+        "你是谁？": "抱歉，您没有提供任何信息。请提供您希望",
+        "什么是神经网络？": "神经网络是一种是一种基于非线性模型来进行学习和执行任务",
+        "什么是注意力机制？": "注意力机制是一种是一种基于神经系统的系统，"
+      }
+    }
+  },
+  "elapsed_seconds": 63.3
+}

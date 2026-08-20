@@ -1,0 +1,50 @@
+{
+  "contract": {
+    "neuron_id": "zh_aug0_dialogue",
+    "steps": 800,
+    "batch_size": 8,
+    "lr": 3e-05,
+    "max_grad_norm": 1.0,
+    "max_seq_len": 128,
+    "train_samples": 100000,
+    "eval_samples": 100,
+    "alignment": "deduplicated first-occurrence domain target",
+    "generation_context": "full_text_reencode_after_domain_piece",
+    "writes_checkpoint": false
+  },
+  "before": {
+    "corrected_ppl": 69.5559,
+    "aligned_answer_tokens": 6224,
+    "mean_first_target_rank_zero_based": 125.69,
+    "median_first_target_rank_zero_based": 7,
+    "first_target_top1_rate": 0.299,
+    "rank_samples": 97,
+    "skipped_first_target_samples": 3
+  },
+  "after": {
+    "corrected_ppl": 68.4535,
+    "aligned_answer_tokens": 6224,
+    "mean_first_target_rank_zero_based": 149.22,
+    "median_first_target_rank_zero_based": 6,
+    "first_target_top1_rate": 0.2887,
+    "rank_samples": 97,
+    "skipped_first_target_samples": 3
+  },
+  "generation_before": {
+    "你好，请介绍一下你自己": "好的，我很高兴能够为您提供帮助。如果您",
+    "什么是神经网络？": "神经网络是一种神经网络，它使用神经网络（NN",
+    "什么是注意力机制？": "注意力机制是一种复杂的思维思维能力，它可以"
+  },
+  "generation_after": {
+    "你好，请介绍一下你自己": "你好，你怎么样？",
+    "什么是神经网络？": "神经网络是一种神经网络，通过连接多个神经元",
+    "什么是注意力机制？": "注意力机制是一种算法，通过数据训练"
+  },
+  "loss_trace": {
+    "first": 4.09485,
+    "last": 3.82399,
+    "min": 2.871895,
+    "max_grad_norm_observed": 35.199581,
+    "mean_grad_norm": 2.123846
+  }
+}

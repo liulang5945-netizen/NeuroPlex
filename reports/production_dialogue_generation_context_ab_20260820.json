@@ -1,0 +1,163 @@
+{
+  "contract": {
+    "neuron_id": "zh_aug0_dialogue",
+    "seed": 20260820,
+    "temperature": 0.55,
+    "top_k": 15,
+    "max_tokens": 8,
+    "same_checkpoint": true,
+    "production_checkpoint_written": false
+  },
+  "prompts": {
+    "你好，请介绍一下你自己": {
+      "incremental": {
+        "text": "好的，我的生活世界。但是，",
+        "generated_ids": [
+          537,
+          38065,
+          1207,
+          371,
+          293,
+          38067,
+          465,
+          38065
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      },
+      "full_reencode": {
+        "text": "好的，我很高兴能够为您提供帮助。如果您",
+        "generated_ids": [
+          537,
+          38065,
+          38259,
+          10677,
+          334,
+          11311,
+          38067,
+          1872
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      }
+    },
+    "什么是神经网络？": {
+      "incremental": {
+        "text": "神经网络（NN）是一种用于处理输入",
+        "generated_ids": [
+          3210,
+          38085,
+          11718,
+          38086,
+          655,
+          541,
+          547,
+          1004
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      },
+      "full_reencode": {
+        "text": "神经网络是一种神经网络，它使用神经网络（NN",
+        "generated_ids": [
+          3210,
+          655,
+          3210,
+          38065,
+          21572,
+          3210,
+          38085,
+          11718
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      }
+    },
+    "什么是注意力机制？": {
+      "incremental": {
+        "text": "注意力机制是指是通过通过通过通过通过",
+        "generated_ids": [
+          4240,
+          4435,
+          1033,
+          6427,
+          297,
+          297,
+          297,
+          297
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      },
+      "full_reencode": {
+        "text": "注意力机制是一种复杂的思维思维能力，它可以",
+        "generated_ids": [
+          4240,
+          4435,
+          655,
+          3625,
+          4220,
+          32325,
+          38065,
+          3651
+        ],
+        "context_equal_steps": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "context_equal_rate": 0.0
+      }
+    }
+  }
+}

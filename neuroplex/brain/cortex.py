@@ -1878,6 +1878,23 @@ class Cortex:
 
         return selected if selected else list(self.neurons.keys())
 
+    def _reencode_domain_generation_context(
+        self,
+        prefix_text: str,
+        generated_ids: List[int],
+        decode_sp,
+    ) -> List[int]:
+        """Re-encode the complete general context after a domain-token step.
+
+        SentencePiece tokenization is boundary-sensitive: encoding a generated
+        domain piece by itself and appending its general IDs is not equivalent
+        to encoding ``prefix + generated_text``.  Generation must preserve the
+        same text-level context that training used for alignment.
+        """
+        generated_text = decode_sp.DecodeIds(generated_ids) if generated_ids else ""
+        general_ids = self._general_sp.encode(prefix_text + generated_text)
+        return general_ids if general_ids else [0]
+
     def _get_domain_to_general_alignment(
         self, domain: str, domain_sp
     ) -> Dict[int, list]:
@@ -2391,6 +2408,12 @@ class Cortex:
             # 在 prompt 前插入轮次标记 token（第 2 轮及以后）
             general_ids = self._dialogue_state.prepend_round_token(general_ids)
 
+        # C21 generation invariant：domain piece 回填必须基于完整文本重编码。
+        # 对 ``prompt + piece`` 分段调用 general tokenizer 会丢失边界上下文，
+        # 例如 ``问：...答：`` 后追加 ``神经网络`` 时，分段 token 与完整文本
+        # token 不同；这会让下一步 forward 看到的 general context 偏离训练输入。
+        generation_prefix_text = self._general_sp.DecodeIds(general_ids)
+
         # 2.5 R1: 共振分数路由（三种模式）
         # - "keyword": 纯关键词路由，跳过 probe forward（最快）
         # - "hybrid"（默认）: keyword 路由 + 共振校验（50% 阈值硬切换 domain），向后兼容
@@ -2637,6 +2660,7 @@ class Cortex:
                     _nl_ids = self._general_sp.encode("\n")
                     if _nl_ids:
                         general_ids = general_ids + _nl_ids
+                        generation_prefix_text = self._general_sp.DecodeIds(general_ids)
                         continue  # 重新 forward（输入含换行分隔符）
                 if leader_nid in neuron_logits:
                     # C21（词库多词表）：leader 用 round1 独立 logits（无场条件化）——
@@ -2788,10 +2812,13 @@ class Cortex:
             else:
                 _piece = decode_sp.id_to_piece(next_token)
                 generated_pieces.append(_piece)
-                _text = decode_sp.decode([next_token])
-                _new_general = self._general_sp.encode(_text)
-                if _new_general:
-                    general_ids.extend(_new_general)
+                # 必须对 prefix + 已生成 domain 文本整体重编码；逐 piece
+                # encode 会因 SentencePiece 边界而产生不同的 general IDs。
+                general_ids = self._reencode_domain_generation_context(
+                    generation_prefix_text,
+                    generated_ids_ordered,
+                    decode_sp,
+                )
 
             # C27 增量一（2026-08-14）：实例级路由（SMCS 借鉴）——chunk 级
             # 混合后验双向域内演化。每 instance_chunk token，用滚动 NLL（对
