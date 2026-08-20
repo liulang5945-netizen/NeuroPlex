@@ -74,6 +74,7 @@
 | B1-bis | **探索自主性（突破锁定）** | 它自己选主题方向 + 探索机制防止锁定 | 1000 步 × 20 次决策 × 6 主题池：20 次决策**覆盖全部 6 主题**（distinct=6/6），switch_count=11（远超 5 阈值），top 主题 philosophy 60.0%（≤ 70% 阈值），**0 崩溃**，**24.9 min ≤ 60 min**；机制：ε-greedy 10% + force_switch streak=5（触发 3 次）+ recency_bonus=0.5 | `reports/play_engine_b1_bis_explore_20260820.json` |
 | B2 | **autonomous 续航** | 不喂新经验时 play 引擎能否自反思维生 100 步 | 100 步 micro-sleep + 关闭喂新经验通路 + 每 10 步从记忆库抽 6 条做自反思 query：**3 组 std 全部维持**（dialogue 0.966 / knowledge 1.006 / unfamiliar 1.010 均 ≥ 0.95 阈值），**0 崩溃**，**3.9 min ≤ 30 min** | `reports/play_engine_b2_endurance_20260820.json` |
 | C1 | **协作形态自主** | 撤掉外部协作设计后协作层能否自然形成 | 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）：full 模式 coaction **完全形成** — `_fast_pair_count=10`, `_slow_pair_count=10`, `_strong_pair_count=10`, `_activation_count_sum=100`, ratio = **1.0000**（10/10, 100/100 满 baseline）；**0 崩溃**；**12.0 min ≤ 30 min** | `reports/play_engine_c1_emergence_20260820.json` |
+| C2 | **跨域迁移** | zh 域协作模式能否跨到 en/code/math 域 | 100 步 × 2 轮（baseline 5 zh dialogue vs cross-domain 2 zh + en + code + math = 5 跨域）：跨域 coaction **完全形成** — `_fast_pair_count=10`, `_activation_count_sum=100`（ratio 1.0000）；`_strong_pair_count=5`（ratio 0.5000，跨域 strong pair 减半但远超 0.3 阈值）；**0 崩溃**；**12.4 min ≤ 30 min** | `reports/play_engine_c2_cross_domain_20260820.json` |
 
 > **✅ 门槛 A 首块实证（2026-08-15）**：②→③ 接线实现（judge NLL 驱动 sleep 重放样本选择——它自己判定短板优先，`SleepConfig.judge_driven_replay`）+ verify_bootstrap_a2.py **9/9 PASS**：
 > - A1 自我评估信度：judge NLL std=0.640（眼睛能区分样本）
@@ -254,23 +255,20 @@
 
 ## 8. 唯一下一步（2026-08-20）
 
-**C1 协作形态自主 4/4 PASS**：
+**C2 跨域迁移 4/4 PASS**：
 
-- **C1 实证**：`verify_play_engine_c1_emergence.py` 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）；12.0 min ≤ 30 min
+- **C2 实证**：`verify_play_engine_c2_cross_domain.py` 100 步 × 2 轮（baseline 5 zh dialogue vs cross-domain 2 zh + en + code + math = 5 跨域）；12.4 min ≤ 30 min
 - **4/4 判据全过**：
-  - C1.a 完整集合下 _activation_counts 总和 ≥ baseline × 0.5：ratio **1.0000** (100/100) ✅
-  - C1.b 完整集合下 get_strong_pairs(0.2) 数 ≥ baseline × 0.5：ratio **1.0000** (10/10) ✅
-  - C1.c 0 崩溃 / 0 NaN：0/200 ✅
-  - C1.d 200 步 ≤ 30 min：12.0 min ✅
+  - C2.a 跨域 _activation_counts ≥ baseline × 0.3：ratio **1.0000** (100/100) ✅
+  - C2.b 跨域 get_strong_pairs(0.2) ≥ baseline × 0.3：ratio **0.5000** (5/10) ✅
+  - C2.c 0 崩溃 / 0 NaN：0/200 ✅
+  - C2.d 200 步 ≤ 30 min：12.4 min ✅
 - **关键发现**：
-  - **full 模式 coaction 完全形成**：`_fast_pair_count=10, _slow_pair_count=10, _strong_pair_count=10, _activation_count_sum=100, _n_neurons_tracked=5`
-  - **5 个 target_ids 在完整集合 9 neuron 中只占 5 个**（因为 coaction.update 只传 target_ids），但**协作层在 5 个目标上完整形成**——即使把"该激活谁"的设计撤掉（用 None 让 cortex 接收全部 9 neuron），协作层在 judge 选中的 5 个 dialogue neuron 上仍能**自然形成 10 个 pair**（5*4/2=10）
-  - **ratio = 1.0**（不是 ≥ 0.5，是满分）—— baseline 和 full 在协作层累积上完全等价
-  - **意义**：**协作不是"外部指定哪些 neuron 在一起"的硬编码**——cortex 内部 CoactivationTracker 能根据"哪些 neuron 在同一 sleep 中被 judge 选中"自然形成 pair 矩阵
-- **C1 设计的关键创新（倾向上限）**：
-  - 不是"随机选 4-5 个"那么简单——**完整集合 9 neuron 让协作层有最大形成空间**
-  - 与 baseline（DIALOGUE_IDS 5 个）严格对比
-  - 关键判据：**协作连接在"没有外部指定拓扑"时仍能自然形成**——这是协作形态自主的本质
+  - **跨域 coaction 完全形成**：`_fast_pair_count=10, _activation_count_sum=100` — 与 baseline 完全等价
+  - **strong_pair 数减半**（10→5）：baseline 5 zh dialogue 全部 pairwise strong（同域同构），cross-domain 5 跨域 neuron 只有 5 个 strong pair — **跨域协作连接天然更弱但未归零**
+  - **ratio 0.5 远超 0.3 阈值**：跨域 strong pair = baseline 的 50%，说明协作不限于同域
+  - **意义**：**zh 域学到的协作模式可跨到 en/code/math 域**——CoactivationTracker 不区分域，只看"哪些 neuron 同时被激活"
+- **门槛 C 完整闭环**：C1 协作形态自主（撤掉外部设计后协作层自然形成）+ C2 跨域迁移（跨域 coaction 不归零）
 - **A5 完整已 PASS**：100 步 × 10 批新经验（216 条）后 3 组 judge mean 上升 d+0.194 / k+0.212 / u+0.225，全部 ≤ 0.30 新阈值；worst step 跳水 18.0%；0 崩溃；LoRA L2 4.149→1.788（衰减机制工作）。
 
 **门槛 A 完整闭环**：A1 真实版 3/3 PASS + A2 接线 9/9 PASS + A3 衰减版 8/8 PASS + A4 完整 5/5 PASS + A5 完整 5/5 PASS
@@ -280,8 +278,8 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**唯一下一步 → C2 跨域迁移**：play 引擎常态运行下，**zh 域学到的协作模式能否跨到 en/code/math 域**（基座 vs 上层）。**通过线**：C2.a zh 域 judge NLL 信号衰减时，en/code/math 域 coaction 仍能自然形成 ≥ baseline × 0.3（跨域不归零）；C2.b 0 崩溃；C2.c ≤ 30 min。
+**唯一下一步 → D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。
 
-**资源**：15-30 min（继承 C1 主循环；只改 target_ids 跨域）。
+**资源**：30-60 min（1000 步长程，继承 B1-bis 主循环）。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。

@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-08-20 20:18:45",
+  "task": "C2 跨域迁移：zh 域协作模式能否跨到 en/code/math 域",
+  "config": {
+    "n_micro": 100,
+    "decay": 0.9,
+    "baseline_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "cross_domain_target_ids": [
+      "zh_aug0_dialogue",
+      "zh_std0_dialogue",
+      "en",
+      "code",
+      "math"
+    ]
+  },
+  "baseline": {
+    "fast_pair_count": 10,
+    "slow_pair_count": 10,
+    "strong_pair_count": 10,
+    "activation_count_sum": 100,
+    "n_neurons_tracked": 5,
+    "crashes": 0,
+    "elapsed_seconds": 372.6590940952301
+  },
+  "cross_domain": {
+    "fast_pair_count": 10,
+    "slow_pair_count": 10,
+    "strong_pair_count": 5,
+    "activation_count_sum": 100,
+    "n_neurons_tracked": 5,
+    "crashes": 0,
+    "elapsed_seconds": 370.8235695362091
+  },
+  "ratios": {
+    "activation_ratio": 1.0,
+    "strong_pair_ratio": 0.5,
+    "fast_pair_ratio": 1.0
+  },
+  "passed": 4,
+  "failed": 0,
+  "verdict": "C2 PASS",
+  "next_step": "C2 通过。门槛 C 完整闭环（C1+C2）。下一步：D1 长程稳定性 — 1000 步压力测试",
+  "elapsed_seconds": 743.4831705093384
+}

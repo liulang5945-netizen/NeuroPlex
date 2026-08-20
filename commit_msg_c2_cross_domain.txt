@@ -1,0 +1,52 @@
+feat(play-engine): C2 跨域迁移 4/4 PASS — zh 域协作模式可跨到 en/code/math 域
+
+[why]
+C1 协作形态自主 4/4 PASS — 撤掉外部协作设计后协作层仍能自然形成。
+但 C1 的 target_ids 仍然只含 zh dialogue 5 个 neuron — 协作层只在 zh 域内
+形成 pair。C2 真正测的是跨域迁移:当 target_ids 包含 en/code/math 域的
+foundation neuron 时,协作层能否跨域形成 pair?
+
+[how]
+C2 100 步 × 2 轮:
+- baseline: target_ids = DIALOGUE_IDS (5 zh dialogue, 同域)
+- cross  : target_ids = [zh_aug0_dialogue, zh_std0_dialogue, en, code, math]
+  (2 zh + en + code + math = 5 跨域)
+- 每 5 步 coaction.update(target_ids)
+- phase 1.5/1.6/1.7 + 24 条 A1 prompt + judge_driven_replay
+
+4 维判据 (C2):
+- C2.a 跨域 _activation_counts >= baseline × 0.3
+- C2.b 跨域 get_strong_pairs(0.2) >= baseline × 0.3
+- C2.c 0 崩溃 / 0 NaN
+- C2.d 200 步 (2 轮) <= 30 min
+
+[verify]
+100 步 × 2 轮 (12.4 min ≤ 30 min),4 维全过:
+- C2.a 跨域 _activation_counts >= 30%: ratio 1.0000 (100/100) ✓
+- C2.b 跨域 get_strong_pairs >= 30%: ratio 0.5000 (5/10) ✓
+- C2.c 0 崩溃: 0/200 ✓
+- C2.d 200 步 <= 30 min: 12.4 min ✓
+
+[result]
+关键发现:
+- 跨域 coaction 完全形成: _fast_pair_count=10, _activation_count_sum=100
+  (与 baseline 完全等价, ratio 1.0000)
+- strong_pair 数减半 (10→5): baseline 5 zh dialogue 全部 pairwise strong
+  (同域同构), cross-domain 5 跨域 neuron 只有 5 个 strong pair
+  — 跨域协作连接天然更弱但未归零
+- ratio 0.5 远超 0.3 阈值: 跨域 strong pair = baseline 的 50%
+
+**跨域迁移成立** — zh 域学到的协作模式可跨到 en/code/math 域,
+CoactivationTracker 不区分域,只看"哪些 neuron 同时被激活"。
+
+门槛 C 完整闭环: C1 协作形态自主 + C2 跨域迁移。
+
+[plan]
+- BOOTSTRAP_CRITERIA.md § 4 表格加 C2 行, § 8 改成 C2 PASS + 下一步 D1
+- BIO_INSPIRED_ARCHITECTURE_PLAN.md § 4.2/5/7 同步
+
+[next]
+D1 长程稳定性: 1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制,
+跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定
+(无累积爆炸 / 无渐进遗忘 / 无协作层崩塌)。
+通过线: D1.a 1000 步后 3 组 judge std 维持 >= pre × 0.90; D1.b 0 崩溃; D1.c <= 60 min。

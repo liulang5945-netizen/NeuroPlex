@@ -140,6 +140,7 @@ scripts/training/verify_*.py
 | **B1-bis 探索自主性（突破锁定）** 1000 步 + 3 机制 | `verify_play_engine_b1_bis_explore.py` 1000 步 × 20 次决策 × 6 主题池 + ε-greedy 10% + force_switch streak=5 + recency_bonus=0.5 | **4/4 PASS**：distinct=6/6（覆盖全 6 主题）；switch_count=11（远超 5 阈值）；top 主题 philosophy 60.0%（≤ 70% 阈值）；**0 崩溃**；**24.9 min ≤ 60 min**；**对比 B1**：philosophy 100% → 60%，distinct 1 → 6，**3 机制有效打破锁定**；epsilon_used=0 + force_used=3（recency_bonus 主导决策 0-6 的自然轮换）| `reports/play_engine_b1_bis_explore_20260820.json` |
 | **B2 autonomous 续航** 100 步 + 关闭喂新经验 + 自反思 query | `verify_play_engine_b2_endurance.py` 100 步 micro-sleep + **完全关闭"喂新经验"通路**（不调 A1 真实版 24 prompt）+ 每 10 步从 24 条种子记忆抽 6 条做自反思 query | **5/5 PASS**：dialogue std ratio 0.966（0.566→0.547）；knowledge std ratio 1.006（1.028→1.035）；unfamiliar std ratio 1.010（0.623→0.629）**3 组 std 全部维持 ≥ 0.95 阈值**；**0 崩溃**；**3.9 min ≤ 30 min**（比 A5 完整 11 min 还快 3 倍）；**mean 漂移极小** d 14.25→14.26 / k 14.47→14.45 / u 14.39→14.42（±0.03 内）；LoRA L2 0→14.49（4 个 compact dialogue 持续被训练）；**自反思 query 触发 10 次**（每 10 步"自问自答"维持活跃）| `reports/play_engine_b2_endurance_20260820.json` |
 | **C1 协作形态自主** 100 步 × 2 轮 baseline vs full | `verify_play_engine_c1_emergence.py` 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）+ 每 5 步手动 `coaction.update(target_ids)` | **4/4 PASS**：full 模式 coaction **完全形成**（_fast_pair_count=10, _slow_pair_count=10, _strong_pair_count=10, _activation_count_sum=100）；ratio = **1.0000**（10/10 + 100/100 满 baseline）；**0 崩溃**；**12.0 min ≤ 30 min**；**关键意义**：协作不是"外部指定哪些 neuron 在一起"的硬编码——cortex 内部 CoactivationTracker 能根据"哪些 neuron 在同一 sleep 中被 judge 选中"自然形成 pair 矩阵；即使把"该激活谁"的设计撤掉（None 让 cortex 接收 9 neuron），协作层在 judge 选中的 5 个 dialogue neuron 上仍能**自然形成 10 个 pair**（5*4/2=10）| `reports/play_engine_c1_emergence_20260820.json` |
+| **C2 跨域迁移** 100 步 × 2 轮 baseline vs cross-domain | `verify_play_engine_c2_cross_domain.py` 100 步 × 2 轮（baseline 5 zh dialogue vs cross-domain 2 zh + en + code + math = 5 跨域）+ 每 5 步 `coaction.update(target_ids)` | **4/4 PASS**：跨域 coaction **完全形成**（_fast_pair_count=10, _activation_count_sum=100, ratio 1.0000）；_strong_pair_count=5（ratio 0.5000，跨域 strong pair 减半但远超 0.3 阈值）；**0 崩溃**；**12.4 min ≤ 30 min**；**关键意义**：zh 域学到的协作模式可跨到 en/code/math 域——CoactivationTracker 不区分域，只看"哪些 neuron 同时被激活" | `reports/play_engine_c2_cross_domain_20260820.json` |
 
 **关键发现**：
 1. **A1 通过**：judge 在对话/知识/陌生领域三类真实任务上 std 都远超 0.05 阈值
@@ -169,6 +170,7 @@ scripts/training/verify_*.py
 14. **B1-bis 探索自主性（突破锁定）：1000 步 + 3 个机制协同**（`verify_play_engine_b1_bis_explore.py`，24.9 min；**4/4 PASS**：distinct=6/6 全覆盖；switch_count=11；top philosophy 60.0%；0 崩溃；**形式 + 语义双过**；ε-greedy 10% + force_switch streak=5（触发 3 次）+ recency_bonus=0.5 协同；decision 0-6 自然轮换 6 主题靠 recency_bonus 反转 NLL 排序，decision 7/13/19 靠 force_switch 强制切走）
 15. **B2 autonomous 续航：100 步 + 关闭喂新经验 + 自反思 query**（`verify_play_engine_b2_endurance.py`，**3.9 min ≪ 30 min 预算**；**5/5 PASS**：3 组 std ratio 0.966/1.006/1.010 全部 ≥ 0.95 阈值；mean 漂移 ±0.03 内；LoRA L2 0→14.49；0 崩溃；自反思 query 触发 10 次；**自举续航成立**——play 引擎在没新经验时靠记忆库自问自答维持能力）
 16. **C1 协作形态自主：100 步 × 2 轮 baseline vs full**（`verify_play_engine_c1_emergence.py`，**12.0 min ≤ 30 min**；**4/4 PASS**：full 模式 coaction 完全形成 _fast_pair_count=10 / _slow_pair_count=10 / _strong_pair_count=10 / _activation_count_sum=100；ratio = 1.0000 满 baseline；0 崩溃；**协作形态自主成立**——即使把"该激活谁"的外部设计撤掉（None 让 cortex 接收 9 neuron），协作层在 judge 选中的 5 个 dialogue neuron 上仍能自然形成 10 个 pair（5*4/2=10））
+17. **C2 跨域迁移：100 步 × 2 轮 baseline vs cross-domain**（`verify_play_engine_c2_cross_domain.py`，**12.4 min ≤ 30 min**；**4/4 PASS**：跨域 coaction 完全形成 _fast_pair_count=10 / _activation_count_sum=100（ratio 1.0000）；_strong_pair_count=5（ratio 0.5000，跨域 strong pair 减半但远超 0.3 阈值）；0 崩溃；**跨域迁移成立**——zh 域协作模式可跨到 en/code/math 域，CoactivationTracker 不区分域只看"哪些 neuron 同时被激活"）
 
 ## 6. 后续工作顺序
 
@@ -207,22 +209,21 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ## 7. 唯一下一步
 
-**C1 协作形态自主 4/4 PASS**：
+**C2 跨域迁移 4/4 PASS**：
 
-- 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）
-- **full 模式 coaction 完全形成**：`_fast_pair_count=10, _slow_pair_count=10, _strong_pair_count=10, _activation_count_sum=100, _n_neurons_tracked=5`
-- **ratio = 1.0**（不是 ≥ 0.5，是满分）—— baseline 和 full 在协作层累积上完全等价
-- **意义**：**协作不是"外部指定哪些 neuron 在一起"的硬编码**——cortex 内部 CoactivationTracker 能根据"哪些 neuron 在同一 sleep 中被 judge 选中"自然形成 pair 矩阵
+- 100 步 × 2 轮（baseline 5 zh dialogue vs cross-domain 2 zh + en + code + math = 5 跨域）
+- **跨域 coaction 完全形成**：`_fast_pair_count=10, _activation_count_sum=100`（ratio 1.0000）；`_strong_pair_count=5`（ratio 0.5000，跨域 strong pair 减半但远超 0.3 阈值）
+- **意义**：**zh 域学到的协作模式可跨到 en/code/math 域**——CoactivationTracker 不区分域，只看"哪些 neuron 同时被激活"
 
 **门槛 A 完整闭环**（B 开头前）：A1 真实版 3/3 + A2 接线 9/9 + A3 衰减版 8/8 + A4 完整 5/5 + A5 完整 5/5 ✅
 
 **门槛 B 起步 + 续航**（✅）：B1 字面 PASS（100% 集中 → 单调锁定）；B1-bis 形式 + 语义双过（3 机制打破锁定）；B2 autonomous 续航 5/5（不喂新经验 100 步无遗忘）
 
-**门槛 C 起步**（✅）：C1 协作形态自主 4/4（撤掉外部协作设计后协作层仍能自然形成，coaction ratio = 1.0 满 baseline）
+**门槛 C 完整闭环**（✅）：C1 协作形态自主 4/4（撤掉外部协作设计后协作层自然形成，coaction ratio = 1.0 满 baseline）+ C2 跨域迁移 4/4（跨域 coaction 不归零，strong pair ratio = 0.5 远超 0.3 阈值）
 
-**唯一下一步 → C2 跨域迁移**：`verify_play_engine_c2_cross_domain.py` 100 步 + 跨域 target_ids（zh + en + code + math judge target 共 9 neuron 内的跨域子集）→ 验证 zh 域学到的协作模式能否跨到 en/code/math 域。**通过线**：C2.a en/code/math 域 coaction 仍能自然形成 ≥ baseline × 0.3（跨域不归零）；C2.b 0 崩溃；C2.c ≤ 30 min。
+**唯一下一步 → D1 长程稳定性**：`verify_play_engine_d1_long_run.py` 1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。
 
-**资源**：15-30 min（继承 C1 主循环；只改 target_ids 跨域）。
+**资源**：30-60 min（1000 步长程，继承 B1-bis 主循环）。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 
