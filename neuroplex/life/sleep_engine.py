@@ -120,6 +120,12 @@ class SleepConfig:
     auto_generation_transition: bool = False  # 代际迁移（需手动开启，默认关闭）
     judge_driven_replay: bool = False  # 自举门槛 A2（2026-08-15）：②→③ 接线——
     # 重放样本由 judge NLL 选择（它自己判定短板优先），而非随机；False=旧行为
+    lora_decay_per_sleep: float = 1.0  # C28 增量一（A3 多轮累积衰减，2026-08-20）：
+    # Phase 1.7 forward_replay 写回 LoRA 后对 lora_adapters 全体乘此系数。
+    # 1.0=不衰减（默认，向后兼容）；0.95 表示每轮 sleep 衰减 5%，
+    # 用于"自指→行动"多轮可持续——A3 快速版 3+ 轮漂移的根因是 LoRA 无衰减。
+    # 仅作用于 Phase 1.7 forward_replay（读路径相关 LoRA），不影响 Phase 1.6
+    # synaptic_consolidation（round1 条件化影响极小）。
 
 
 class SleepEngine:
@@ -1014,8 +1020,20 @@ class SleepEngine:
                         continue
             shadow.eval()
             n_copied = _copy_learned(live, shadow)
+            # C28 增量一（A3 多轮累积衰减）：每轮 sleep 后对读路径 LoRA
+            # 整体衰减——避免多轮累积挤占 judge 判定空间。
+            # 默认 1.0=不衰减（向后兼容）；≥0.99 几乎不衰减，0.9 强衰减。
+            decay = float(self.config.lora_decay_per_sleep)
+            if decay < 1.0:
+                try:
+                    with torch.no_grad():
+                        for p in live.lora_adapters.parameters():
+                            p.data.mul_(decay)
+                except Exception as e:
+                    logger.debug(f"  [重放] {nid} LoRA 衰减失败: {e}")
             replayed_nids += 1
-            logger.info(f"  [重放] {nid}: 读路径+LoRA 写回（{n_copied} 张量）")
+            logger.info(f"  [重放] {nid}: 读路径+LoRA 写回（{n_copied} 张量，"
+                        f"decay={decay}）")
             if steps >= max_steps:
                 break
 
