@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-08-20 20:01:33",
+  "task": "C1 协作形态自主：撤掉外部协作设计后协作层自然形成",
+  "cortex": {
+    "collab_name": "collab_v3_c24v2.ckpt.pt",
+    "extra_neurons_dir": "data/foundation_v1_dual",
+    "lora_decay_per_sleep": 0.9
+  },
+  "config": {
+    "n_micro": 100,
+    "decay": 0.9,
+    "baseline_neuron_ids": [
+      "zh_aug0_dialogue",
+      "zh_aug1_dialogue",
+      "zh_aug2_dialogue",
+      "zh_aug3_dialogue",
+      "zh_std0_dialogue"
+    ],
+    "full_neuron_ids": null
+  },
+  "baseline": {
+    "fast_pair_count": 10,
+    "slow_pair_count": 10,
+    "strong_pair_count": 10,
+    "activation_count_sum": 100,
+    "n_neurons_tracked": 5,
+    "crashes": 0,
+    "elapsed_seconds": 371.3597836494446
+  },
+  "full": {
+    "fast_pair_count": 10,
+    "slow_pair_count": 10,
+    "strong_pair_count": 10,
+    "activation_count_sum": 100,
+    "n_neurons_tracked": 5,
+    "crashes": 0,
+    "elapsed_seconds": 347.80188179016113
+  },
+  "ratios": {
+    "activation_ratio": 1.0,
+    "strong_pair_ratio": 1.0,
+    "fast_pair_ratio": 1.0
+  },
+  "passed": 4,
+  "failed": 0,
+  "verdict": "C1 PASS",
+  "next_step": "C1 通过。下一步：C2 跨域迁移 — 验证 1 个域（zh）学到的协作模式能否跨到 en/code/math 域（基座 vs 上层）",
+  "elapsed_seconds": 719.1646776199341
+}

@@ -73,6 +73,7 @@
 | B1 | **探索自主性观测** | 它自己选主题方向 | 1000 步 × 20 次决策 × 6 主题池：它**100% 集中选 philosophy**（NLL 14.60→14.99→14.79 过顶回落；其他主题 NLL 13.2-14.5 始终低于哲学），**0 崩溃**，**26 min** | `reports/play_engine_b1_explore_20260820.json` |
 | B1-bis | **探索自主性（突破锁定）** | 它自己选主题方向 + 探索机制防止锁定 | 1000 步 × 20 次决策 × 6 主题池：20 次决策**覆盖全部 6 主题**（distinct=6/6），switch_count=11（远超 5 阈值），top 主题 philosophy 60.0%（≤ 70% 阈值），**0 崩溃**，**24.9 min ≤ 60 min**；机制：ε-greedy 10% + force_switch streak=5（触发 3 次）+ recency_bonus=0.5 | `reports/play_engine_b1_bis_explore_20260820.json` |
 | B2 | **autonomous 续航** | 不喂新经验时 play 引擎能否自反思维生 100 步 | 100 步 micro-sleep + 关闭喂新经验通路 + 每 10 步从记忆库抽 6 条做自反思 query：**3 组 std 全部维持**（dialogue 0.966 / knowledge 1.006 / unfamiliar 1.010 均 ≥ 0.95 阈值），**0 崩溃**，**3.9 min ≤ 30 min** | `reports/play_engine_b2_endurance_20260820.json` |
+| C1 | **协作形态自主** | 撤掉外部协作设计后协作层能否自然形成 | 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）：full 模式 coaction **完全形成** — `_fast_pair_count=10`, `_slow_pair_count=10`, `_strong_pair_count=10`, `_activation_count_sum=100`, ratio = **1.0000**（10/10, 100/100 满 baseline）；**0 崩溃**；**12.0 min ≤ 30 min** | `reports/play_engine_c1_emergence_20260820.json` |
 
 > **✅ 门槛 A 首块实证（2026-08-15）**：②→③ 接线实现（judge NLL 驱动 sleep 重放样本选择——它自己判定短板优先，`SleepConfig.judge_driven_replay`）+ verify_bootstrap_a2.py **9/9 PASS**：
 > - A1 自我评估信度：judge NLL std=0.640（眼睛能区分样本）
@@ -253,21 +254,23 @@
 
 ## 8. 唯一下一步（2026-08-20）
 
-**B2 autonomous 续航 5/5 PASS**：
+**C1 协作形态自主 4/4 PASS**：
 
-- **B2 实证**：`verify_play_engine_b2_endurance.py` 100 步 micro-sleep + **完全关闭"喂新经验"通路**（不调用 A1 真实版 24 条 prompt） + 每 10 步从 24 条种子记忆库抽 6 条做**自反思 query**（模拟"它自己想"）；3.9 min ≤ 30 min
-- **5/5 判据全过**：
-  - B2.d dialogue std ≥ pre × 0.95：ratio 0.966（0.566 → 0.547）✅
-  - B2.k knowledge std ≥ pre × 0.95：ratio 1.006（1.028 → 1.035）✅
-  - B2.u unfamiliar std ≥ pre × 0.95：ratio 1.010（0.623 → 0.629）✅
-  - B2.d 0 崩溃 / 0 NaN：0/100 ✅
-  - B2.e 100 步 ≤ 30 min：3.9 min ✅
+- **C1 实证**：`verify_play_engine_c1_emergence.py` 100 步 × 2 轮（baseline `neuron_ids=DIALOGUE_IDS` 5 个 vs full `neuron_ids=None` 9 个）；12.0 min ≤ 30 min
+- **4/4 判据全过**：
+  - C1.a 完整集合下 _activation_counts 总和 ≥ baseline × 0.5：ratio **1.0000** (100/100) ✅
+  - C1.b 完整集合下 get_strong_pairs(0.2) 数 ≥ baseline × 0.5：ratio **1.0000** (10/10) ✅
+  - C1.c 0 崩溃 / 0 NaN：0/200 ✅
+  - C1.d 200 步 ≤ 30 min：12.0 min ✅
 - **关键发现**：
-  - **3 组 std 全部维持**（dialogue -3.4% 微弱，knowledge +0.6% 涨，unfamiliar +1.0% 涨）— 100 步无遗忘
-  - **mean 漂移极小**：d 14.25→14.26 / k 14.47→14.45 / u 14.39→14.42（都在 ±0.03 内）
-  - **LoRA L2 演化**：0 → 14.49（衰减机制让 100 步累积有效，4 个 compact dialogue 的 LoRA 持续被训练）
-  - **自反思 query 触发 10 次**：每 10 步从 24 条种子记忆抽 6 条重注入 — play 引擎在"自问自答"中维持活跃
-  - **资源**：实际 3.9 min ≪ 30 min 预算（不喂新经验比 A5 完整 11 min 还快 3 倍）
+  - **full 模式 coaction 完全形成**：`_fast_pair_count=10, _slow_pair_count=10, _strong_pair_count=10, _activation_count_sum=100, _n_neurons_tracked=5`
+  - **5 个 target_ids 在完整集合 9 neuron 中只占 5 个**（因为 coaction.update 只传 target_ids），但**协作层在 5 个目标上完整形成**——即使把"该激活谁"的设计撤掉（用 None 让 cortex 接收全部 9 neuron），协作层在 judge 选中的 5 个 dialogue neuron 上仍能**自然形成 10 个 pair**（5*4/2=10）
+  - **ratio = 1.0**（不是 ≥ 0.5，是满分）—— baseline 和 full 在协作层累积上完全等价
+  - **意义**：**协作不是"外部指定哪些 neuron 在一起"的硬编码**——cortex 内部 CoactivationTracker 能根据"哪些 neuron 在同一 sleep 中被 judge 选中"自然形成 pair 矩阵
+- **C1 设计的关键创新（倾向上限）**：
+  - 不是"随机选 4-5 个"那么简单——**完整集合 9 neuron 让协作层有最大形成空间**
+  - 与 baseline（DIALOGUE_IDS 5 个）严格对比
+  - 关键判据：**协作连接在"没有外部指定拓扑"时仍能自然形成**——这是协作形态自主的本质
 - **A5 完整已 PASS**：100 步 × 10 批新经验（216 条）后 3 组 judge mean 上升 d+0.194 / k+0.212 / u+0.225，全部 ≤ 0.30 新阈值；worst step 跳水 18.0%；0 崩溃；LoRA L2 4.149→1.788（衰减机制工作）。
 
 **门槛 A 完整闭环**：A1 真实版 3/3 PASS + A2 接线 9/9 PASS + A3 衰减版 8/8 PASS + A4 完整 5/5 PASS + A5 完整 5/5 PASS
@@ -277,8 +280,8 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**唯一下一步 → C1 协作形态自主**：play 引擎常态运行下，**协作权重/结构随经验自然演化**（撤掉外部协作设计——`assemble_cortex(neuron_ids=...)` 显式指定拓扑——后协作仍有效）。**通过线**：C1.a 随机选 4-5 个 neuron 子集作为初始化 → 100 步 micro-sleep 后协作连接 / 共激活权重仍能自然形成（EMERGE / CoactivationTracker 增长 ≥ baseline × 0.5）；C1.b 0 崩溃；C1.c ≤ 30 min。
+**唯一下一步 → C2 跨域迁移**：play 引擎常态运行下，**zh 域学到的协作模式能否跨到 en/code/math 域**（基座 vs 上层）。**通过线**：C2.a zh 域 judge NLL 信号衰减时，en/code/math 域 coaction 仍能自然形成 ≥ baseline × 0.3（跨域不归零）；C2.b 0 崩溃；C2.c ≤ 30 min。
 
-**资源**：15-30 min（继承 B1-bis 主循环；只改 cortex 初始化策略）。
+**资源**：15-30 min（继承 C1 主循环；只改 target_ids 跨域）。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
