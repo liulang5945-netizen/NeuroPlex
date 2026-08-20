@@ -4,7 +4,7 @@
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 >
-> **🆕 2026-08-21：D1-fix v5 落地（ceiling 1.6 + DECAY 0.85） — 3/5 PASS，dialogue 首次过门槛（0.9127 ✅），但 k/u 仍 FAIL（k 0.8388 接近 v3，u 0.7871 退步）**。v5 LoRA 轨迹 v3 18.76 → v4 14.81 → **v5 11.84**（最平）。**首次 D 系列单维度过门槛**：dialogue 0.9127 > 0.90。等用户决策 v6。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5。
+> **🆕 2026-08-21：D1-fix v5（3/5 PASS, dialogue 0.9127 首次过门槛）落地 + v6 方案 F 验证（2/5 PASS，退步）**。v5 dialogue 0.9127 仍为 D 系列最佳单维度；v6 (DECAY 0.85→0.88) 假设"DIA 更温和"反向证伪：DECAY 放松反而压低 dialogue/k/u 三组 std。**v5 是当前 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优)、D1-fix v6 2/5。
 
 ## 1. 架构决策
 
@@ -175,6 +175,7 @@ scripts/training/verify_*.py
 19. **D1-fix v3 方案 B：每次 sleep 周期自测 8-prompt baseline**（`verify_play_engine_d1_long_run.py` with `D1_JUDGE_DRIVEN_DECAY=1`，**37.0 min ≤ 60 min**；**3/5 PASS**：dialogue std ratio 0.8679 ❌ < 0.90（**反退 -0.0429**）；knowledge std ratio 0.8437 ✅（**+0.0920 vs 原 D1**）；unfamiliar std ratio 0.8803 ✅（**+0.0756 vs 原 D1**）；0 崩溃 ✅；37 min ✅。**v3 SKIP 路径确认工作**（轨迹 step 300→400 LoRA 15.04→16.17 ↑，说明 v3 触发了 SKIP）但**触发过于激进**（LoRA 16.84→18.76 ↑ 而非 ↓，说明 v3 SKIP 比训练累积还多 → dialogue std 反而被过度"训练累积"压低）。**v3 仍 FAIL 但对比 v2 显著改善**：v2 是"与上次 std 比"（冷启动失效 + 方向反），v3 改"本轮 baseline × ratio"——信号同 D1 pre/post 口径，knowledge/unfamiliar 大幅改善。代码：`neuroplex/life/sleep_engine.py` 新增 `judge_driven_decay` / `decay_min_judge_std` / `decay_judge_sample_n` / `decay_min_relative_ratio` / `decay_baseline_prompts` / `decay_baseline_sample_n` 配置 + `_judge_decay_measurement` 方法 + Phase 1.7 复合判定（相对 + 绝对）。报告：`reports/play_engine_d1_fix_judge_driven_decay_20260820.json`）
 20. **D1-fix v4 方案 D：hysteresis N=2 + LoRA ceiling 1.3 组合**（`verify_play_engine_d1_long_run.py` with `D1_JUDGE_DRIVEN_DECAY=1` + `D1_HYSTERESIS_N=2` + `D1_CEILING_RATIO=1.3`，**25.7 min ≤ 60 min**；**2/5 PASS**：dialogue std ratio 0.8744 ❌（**+0.006 vs v3**，缓解 v3 dialogue 反退）；knowledge std ratio 0.7937 ❌（**-0.050 vs v3**，回到原 D1 水平）；unfamiliar std ratio 0.8277 ❌（**-0.053 vs v3**）；0 崩溃 ✅；**LoRA 轨迹治本**：v3 16.84→18.76 ↑（爆炸）vs v4 16.84→14.81 ↓（天花板压住），step 800→900 LoRA 13.83→15.42 ↑（hysteresis 2 周期累计满足 N=2 → 真 SKIP → 训练累积），SKIP 路径确认工作。**v4 治本了 v3 的累积爆炸，但 hysteresis+ceiling 组合过严**（SKIP 概率 v3 ≈ 70% → v4 ≈ 10%）→ k/u 回到原 D1 水平。代码：`neuroplex/life/sleep_engine.py` 新增 `decay_hysteresis_n` / `decay_lora_ceiling_ratio` / `pre_lora_l2_baseline` 配置 + `_consecutive_skip_count` / `_lora_l2_baseline` 状态 + Phase 1.7 ceiling + hysteresis 复合判定。报告：`reports/play_engine_d1_fix_v4_hysteresis_ceiling_20260821.json`）
 21. **D1-fix v5 方案 D：ceiling 1.6 + DECAY 0.85**（`verify_play_engine_d1_long_run.py` with `D1_HYSTERESIS_N=2` + `D1_CEILING_RATIO=1.6` + `D1_DECAY=0.85`，**30.0 min ≤ 60 min**；**3/5 PASS**）：dialogue std ratio 0.9127 ✅（**v4 0.8744 → v5 0.9127 +0.038，唯一改善维度**）；knowledge 0.8388 ❌（v4 0.7937 → v5 0.8388 +0.045，回 v3 0.8437 还差 0.005）；unfamiliar 0.7871 ❌（**v4 0.8277 → v5 0.7871 -0.041，唯一退步维度**）；0 崩溃 ✅；**LoRA 轨迹进一步压平**：v3 18.76 / v4 14.81 / v5 11.84（v5 比 v4 还低 20%），step 800→900 LoRA 10.52→12.32 ↑（ceiling 1.6 让 SKIP 路径活 1 次反弹）。**v5 vs v4 关键发现**：① dialogue 单维度达 0.9127（首次 ≥ v3 0.8679 阈值附近且超过原 D1 0.9108 几乎追平）；② k/u 未达到 v3 水平（k 0.8388 vs v3 0.8437 差 0.005；u 0.7871 vs v3 0.8803 差 0.093）；③ DECAY 0.85 + ceiling 1.6 让"被允许的累积"被狠衰减（k 组衰减稍温和但 u 组更敏感——u pre 0.62 基数小易受影响）。**v6 方向（用户决策）**：方案 E（ceiling 1.8 + DECAY 0.85，进一步放宽天花板补 u 短板） / 方案 F（ceiling 1.6 + DECAY 0.88，回到 v3 衰减速率但保留 v5 ceiling 1.6） / 接受 v5。报告：`reports/play_engine_d1_fix_v5_ceiling16_decay85_20260821.json`）
+22. **D1-fix v6 方案 F：ceiling 1.6 + DECAY 0.88**（`verify_play_engine_d1_long_run.py` with `D1_HYSTERESIS_N=2` + `D1_CEILING_RATIO=1.6` + `D1_DECAY=0.88`，**27.6 min ≤ 60 min**；**2/5 PASS 退步**）：dialogue std ratio 0.8847 ❌（**v5 0.9127 → v6 0.8847 -0.028，反退**）；knowledge 0.8152 ❌（**v5 0.8388 → v6 0.8152 -0.024**）；unfamiliar 0.8104 ❌（v5 0.7871 → v6 0.8104 +0.023，唯一改善维度）；0 崩溃 ✅；**LoRA 轨迹**：v3 18.76 / v4 14.81 / v5 11.84 / **v6 13.49**（DECAY 0.88 比 v5 衰减弱，LoRA 反弹回 v4 水平），step 800→900 LoRA 12.37→14.03 ↑（ceiling 1.6 + 衰减变弱让 SKIP 路径更活跃）。**v6 反向证伪 F 假设**：F 假设"DECAY 0.85→0.88 对 u 温和"实际反向——DECAY 放松让 LoRA 累积更猛，dialogue/k/u 三组 std 都被"训练累积压低"反而收窄。**v5 仍是 D 系列最优**。报告：`reports/play_engine_d1_fix_v6_ceiling16_decay88_20260821.json`）
 
 ## 6. 后续工作顺序
 
@@ -253,7 +254,7 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 **门槛 C 完整闭环**（✅）：C1 协作形态自主 4/4 + C2 跨域迁移 4/4
 
-**门槛 D 阶段性**（⚠️ D1 首测 3/5 + D1-fix v3 3/5 + D1-fix v4 2/5 + D1-fix v5 3/5）：v3 让 k/u 大幅改善但 dialogue 反退（v3 SKIP 触发过激 → LoRA 累积过多）；v4 加 hysteresis + ceiling 抑制了 LoRA 爆炸（v3 18.76 → v4 14.81），但 k/u 反而比 v3 退步（hysteresis+ceiling 组合过严）；v5 把 ceiling 放宽 1.3→1.6 + DECAY 0.9→0.85，dialogue 单维度达 0.9127 ✅（首次超过原 D1 0.9108），knowledge 0.8388（接近 v3 0.8437），**unfamiliar 0.7871 退步最大**（v4 0.8277 → v5 0.7871 -0.041）。**D1 完整 PASS 仍差 2 维**（d 略过，k/u 仍 FAIL）。
+**门槛 D 阶段性**（⚠️ D1 首测 3/5 + D1-fix v3 3/5 + D1-fix v4 2/5 + D1-fix v5 3/5 (★最优) + D1-fix v6 2/5）：v3 让 k/u 大幅改善但 dialogue 反退（v3 SKIP 触发过激 → LoRA 累积过多）；v4 加 hysteresis + ceiling 抑制了 LoRA 爆炸（v3 18.76 → v4 14.81），但 k/u 反而比 v3 退步（hysteresis+ceiling 组合过严）；v5 把 ceiling 放宽 1.3→1.6 + DECAY 0.9→0.85，dialogue 单维度达 0.9127 ✅（首次超过原 D1 0.9108），knowledge 0.8388（接近 v3 0.8437），**unfamiliar 0.7871 退步最大**（v4 0.8277 → v5 0.7871 -0.041）。**v6 方案 F 反向证伪**（DECAY 0.85→0.88，27.6 min，2/5 PASS）：DECAY 放松让 LoRA 累积更猛（v5 11.84 → v6 13.49），dialogue 0.9127→0.8847 反退，knowledge 0.8388→0.8152 反退，**unfamiliar 0.7871→0.8104 唯一改善**。**D1 完整 PASS 仍差 2 维**。
 
 ---
 
@@ -273,22 +274,39 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ---
 
-D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per_sleep=0.9` 在长程下让衰减压过训练。D1-fix v5 在 v4 安全栏基础上把 dialogue 推到 0.9127（首次超过原 D1 0.9108），但 k/u 的 trade-off（衰减强 → 基数小组受影响大）仍存在。**v6 三选一**（等用户决策）：
+**D1-fix v6（方案 F 验证）：2/5 PASS — DECAY 放松假设反向证伪**
 
-| v6 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
+- **实现**：env 改 `D1_DECAY=0.85` → `0.88`（v6-F 假设"DECAY 放松对 u 组衰减更温和"）；hysteresis N=2 / ceiling 1.6 与 v5 一致
+- **1000 步**（2/5 PASS 退步，27.6 min）：dialogue 0.8847 ❌（**v5 0.9127 → v6 0.8847 -0.028，反退**）；knowledge 0.8152 ❌（**v5 0.8388 → v6 0.8152 -0.024，反退**）；unfamiliar 0.8104 ❌（v5 0.7871 → v6 0.8104 +0.023，**唯一改善维度**）；0 崩溃 ✅
+- **LoRA 轨迹**：v3 18.76 / v4 14.81 / v5 11.84 / **v6 13.49**（DECAY 0.88 让 LoRA 反弹回 v4 水平）；step 800→900 LoRA 12.37→14.03 ↑（SKIP 路径更活跃）
+- **v6 反向证伪 F 假设**：F 假设"DIA 0.85→0.88 对 u 温和"实际反向——DECAY 放松让 LoRA 累积更猛（v5 11.84 → v6 13.49），dialogue/knowledge 两组 std 都被"训练累积压低"反而收窄（d 0.9127→0.8847 / k 0.8388→0.8152）。**u 改善 +0.023 但 d/k 退步 -0.024/-0.024 抵消**。
+- **v5 vs v6 关键对比**：
+  - dialogue：v5 0.9127 → v6 0.8847 -0.028（**v6 反退**）
+  - knowledge：v5 0.8388 → v6 0.8152 -0.024（**v6 反退**）
+  - unfamiliar：v5 0.7871 → v6 0.8104 +0.023（**v6 唯一改善**）
+  - 主题分布：v6 主题分布更均匀（philosophy 10/20 = 50%，与 v5 一致但其他主题都有覆盖）
+- **诊断**：长程稳定性下"衰减更狠反而保护 std"——v5 DECAY 0.85 把 LoRA 压平到 11.84 反而让 3 组 std 维持高位；v6 DECAY 0.88 让 LoRA 反弹到 13.49（v4 水平）后 d/k 双退。**D1 的核心机制仍是"压平"——v5 治本，v6 反退**
+- 代码：`scripts/training/verify_play_engine_d1_long_run.py` 报告路径分支修复（v4 用 `CEILING_RATIO<1.5` 专属）+ v6 path（0.875≤DECAY<0.92） + v6 next_step 分支
+- 报告：`reports/play_engine_d1_fix_v6_ceiling16_decay88_20260821.json`
+
+---
+
+D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per_sleep=0.9` 在长程下让衰减压过训练。D1-fix v5 在 v4 安全栏基础上把 dialogue 推到 0.9127（首次超过原 D1 0.9108），但 k/u 的 trade-off（衰减强 → 基数小组受影响大）仍存在。**v6 反向证伪**了"DECAY 放松对 u 温和"假设——D1 的核心机制仍是"压平"（v5 11.84 < v6 13.49 = v4 14.81），v5 是当前 D 系列最优。**v7 方向（用户决策）**：
+
+| v7 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
 |---|---|---|---|---|---|
-| **E. ceiling 1.6→1.8 + DECAY 0.85 不变** | 进一步放宽天花板，**单独解 u 短板** | 中——u 组 pre std 0.62 基数小，再多 SKIP 累积可缓解衰减压 | 低——一个数字 | 中——v5 dialogue 0.9127 已过门槛，再多 ceiling 可能让 k 滑落 | ★ |
-| **F. ceiling 1.6 不变 + DECAY 0.85→0.88** | 回到 v3 衰减速率但保留 v5 ceiling 1.6 | 中——DECAY 0.88 对 u 组衰减更温和 | 中——DECAY 0.88 可能让 LoRA 反弹（参考 v3 0.9 → v5 0.85 LoRA 14→11） | 高——v5 dialogue 改善 + v3 k/u 改善双留 | **★★★** |
-| **G. 接受 v5** | dialogue 已过门槛（**首次 D 系列有维度 PASS**），u 短板作为长程问题留待 D2 | — | k/u 仍 FAIL | — | ★★ |
+| **H. ceiling 1.6→1.7 + DECAY 0.85 保留** | 微调天花板补 u 短板，不动 v5 衰减强度 | 中——ceiling 1.7 给 SKIP 累积略多空间 | 低——单一参数 +0.1 | 高——保留 v5 dialogue 改善 + 微补 u | **★★★** |
+| **I. ceiling 1.6 不变 + DECAY 0.85→0.83** | 比 v5 更狠衰减，看 k/u 是否被继续压平 | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★ |
+| **J. 接受 v5** | dialogue 已过门槛（**首次 D 系列有维度 PASS**），k/u 留 D2 长程 | — | k/u 仍 FAIL | — | ★★ |
 
-**当前推荐**：方案 **F（ceiling 1.6 + DECAY 0.88）**——保留 v5 ceiling 1.6 的 dialogue 改善，把 DECAY 0.85→0.88 拉回 v3 速率，对 u 组的衰减更温和。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
+**当前推荐**：方案 **H（ceiling 1.7 + DECAY 0.85）**——保留 v5 DECAY 0.85（核心机制是压平，v6 已证伪放松方向），仅 ceiling 1.6→1.7 微调给 SKIP 累积略多空间补 u 短板。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
 
 **v5 历史观察**：
 - **首次 D 系列维度过门槛**：v5 dialogue 0.9127 > 0.90（v1=0.9108、v2=?、v3=0.8679、v4=0.8744、v5=0.9127）——v5 是首次 dialogue PASS
 - **k 组接近 v3**：v5 0.8388 vs v3 0.8437 差 0.005
 - **u 组是长程稳定性最敏感的**：pre std 基数 0.62（vs dialogue 0.57、knowledge 1.03），同比例衰减下相对损失最大
 
-**v5 唯一下一步推荐**：方案 **F（ceiling 1.6 + DECAY 0.88）**——上限最高，v5 dialogue 改善 + v3 k/u 改善双留。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
+**v5 唯一下一步推荐**：方案 **H（ceiling 1.7 + DECAY 0.85）**——保留 v5 DECAY 0.85（核心机制是压平，v6 已证伪放松方向），仅 ceiling 1.6→1.7 微调给 SKIP 累积略多空间补 u 短板。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 

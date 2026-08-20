@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-08-21 01:13:51",
+  "timestamp": "2026-08-21 02:28:33",
   "task": "D1 长程稳定性：1000 步压力测试 + 轨迹采样",
   "config": {
     "n_micro": 1000,
-    "decay": 0.9,
+    "decay": 0.88,
     "judge_driven_decay": true,
     "decay_min_judge_std": 0.05,
     "decay_judge_sample_n": 8,
     "hysteresis_n": 2,
-    "ceiling_ratio": 1.3,
+    "ceiling_ratio": 1.6,
     "epsilon": 0.1,
     "force_switch_streak": 5,
     "recency_bonus": 0.5,
@@ -31,25 +31,25 @@
   },
   "post_groups": {
     "dialogue": {
-      "std": 0.49488731259202157,
-      "mean": 14.317382574081421
+      "std": 0.5007634272049345,
+      "mean": 14.310148119926453
     },
     "knowledge": {
-      "std": 0.8160116120689432,
-      "mean": 14.514866828918457
+      "std": 0.8381118219670561,
+      "mean": 14.518003940582275
     },
     "unfamiliar": {
-      "std": 0.5156030416554349,
-      "mean": 14.463926315307617
+      "std": 0.5048213768473954,
+      "mean": 14.44009530544281
     }
   },
   "ratio_summary": {
-    "dialogue": 0.8743511014952015,
-    "knowledge": 0.7936623717566623,
-    "unfamiliar": 0.8276589316726697
+    "dialogue": 0.8847328331613515,
+    "knowledge": 0.8151572925943505,
+    "unfamiliar": 0.8103519329629176
   },
   "pre_lora_l2": 0.0,
-  "post_lora_l2": 14.810748179990684,
+  "post_lora_l2": 13.489074768392346,
   "trajectory": [
     {
       "nlls": {
@@ -67,11 +67,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.323478698730469,
-        "knowledge": 13.724323749542236,
-        "unfamiliar": 13.97672700881958
+        "dialogue": 14.325339794158936,
+        "knowledge": 13.724749088287354,
+        "unfamiliar": 13.976282119750977
       },
-      "lora_l2": 16.83607620784974,
+      "lora_l2": 16.46194108619661,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -81,11 +81,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.250592231750488,
-        "knowledge": 13.703582763671875,
-        "unfamiliar": 14.008084297180176
+        "dialogue": 14.253658294677734,
+        "knowledge": 13.70555305480957,
+        "unfamiliar": 14.005541801452637
       },
-      "lora_l2": 15.737970174217333,
+      "lora_l2": 15.064552948609856,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -95,11 +95,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.299591064453125,
-        "knowledge": 13.699169635772705,
-        "unfamiliar": 14.059875965118408
+        "dialogue": 14.280671119689941,
+        "knowledge": 13.699412822723389,
+        "unfamiliar": 14.043083190917969
       },
-      "lora_l2": 15.035185689679555,
+      "lora_l2": 14.121670602819645,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -109,11 +109,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.361196517944336,
-        "knowledge": 13.70917272567749,
-        "unfamiliar": 14.09798002243042
+        "dialogue": 14.328319072723389,
+        "knowledge": 13.698200225830078,
+        "unfamiliar": 14.071428775787354
       },
-      "lora_l2": 14.5503121903774,
+      "lora_l2": 13.454445113330488,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -123,11 +123,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.394017696380615,
-        "knowledge": 13.715951442718506,
-        "unfamiliar": 14.108043670654297
+        "dialogue": 14.36032485961914,
+        "knowledge": 13.71427583694458,
+        "unfamiliar": 14.082024574279785
       },
-      "lora_l2": 14.247349891507726,
+      "lora_l2": 13.010682591860338,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -137,11 +137,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.427987098693848,
-        "knowledge": 13.761775970458984,
-        "unfamiliar": 14.135536670684814
+        "dialogue": 14.382815837860107,
+        "knowledge": 13.75898790359497,
+        "unfamiliar": 14.105713367462158
       },
-      "lora_l2": 14.083146193397646,
+      "lora_l2": 12.727566371386079,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -151,11 +151,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.478539943695068,
-        "knowledge": 13.827808380126953,
-        "unfamiliar": 14.197594165802002
+        "dialogue": 14.400579929351807,
+        "knowledge": 13.821039199829102,
+        "unfamiliar": 14.145471096038818
       },
-      "lora_l2": 13.912907760376415,
+      "lora_l2": 12.402893644600312,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -165,11 +165,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.445639610290527,
-        "knowledge": 13.832754611968994,
-        "unfamiliar": 14.180863380432129
+        "dialogue": 14.409035205841064,
+        "knowledge": 13.86175012588501,
+        "unfamiliar": 14.161446571350098
       },
-      "lora_l2": 13.82524857033442,
+      "lora_l2": 12.365745759289481,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -179,11 +179,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.41805362701416,
-        "knowledge": 13.861313819885254,
-        "unfamiliar": 14.168102264404297
+        "dialogue": 14.388063907623291,
+        "knowledge": 13.856308937072754,
+        "unfamiliar": 14.140660762786865
       },
-      "lora_l2": 15.418608062068058,
+      "lora_l2": 14.0292934871451,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -193,11 +193,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.309318542480469,
-        "knowledge": 13.781704902648926,
-        "unfamiliar": 14.116270542144775
+        "dialogue": 14.32131290435791,
+        "knowledge": 13.773531913757324,
+        "unfamiliar": 14.09511661529541
       },
-      "lora_l2": 14.810748179990684,
+      "lora_l2": 13.489074768392346,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -222,6 +222,6 @@
   "passed": 2,
   "failed": 3,
   "verdict": "D1 FAIL (3 维不过)",
-  "next_step": "D1-fix v4 (hysteresis N=2 + ceiling 1.3) 仍 FAIL——考虑：a) 调高 HYSTERESIS_N (2→3) 进一步抗噪声；b) 收紧 CEILING_RATIO (1.3→1.15) 抑制 SKIP 累积；c) 上调 decay_min_rel_ratio (0.95→0.98) 让 SKIP 触发更难",
-  "elapsed_seconds": 1543.6069350242615
+  "next_step": "D1-fix v4 (hysteresis N=2 + ceiling 1.6) 仍 FAIL——考虑：a) 调高 HYSTERESIS_N (2→3) 进一步抗噪声；b) 收紧 CEILING_RATIO (1.3→1.15) 抑制 SKIP 累积；c) 上调 decay_min_rel_ratio (0.95→0.98) 让 SKIP 触发更难",
+  "elapsed_seconds": 1653.5626118183136
 }
