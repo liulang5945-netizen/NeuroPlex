@@ -1,0 +1,198 @@
+{
+  "benchmark": "taiji_n8_delayed_trace",
+  "checks": {
+    "beats_first_order_by_20pp": true,
+    "full_delayed_accuracy": true,
+    "trace_is_necessary_by_20pp": true,
+    "trace_only_beats_all_state_lesion_by_20pp": true,
+    "trace_only_is_sufficient": true
+  },
+  "cue_to_probe_distractors": "1234",
+  "epochs": 200,
+  "metrics": {
+    "all_state_lesion_accuracy": 0.5,
+    "first_order_accuracy": 0.5,
+    "full_accuracy": 1.0,
+    "no_trace_accuracy": 0.5,
+    "post_probe_motor_context_centroid_cosine": 0.9877109527587891,
+    "pre_probe_fast_centroid_cosine": 0.9797650575637817,
+    "pre_probe_trace_centroid_cosine": 0.9019739627838135,
+    "trace_necessity_gap": 0.5,
+    "trace_only_accuracy": 1.0,
+    "trace_sufficiency_gap": 0.5
+  },
+  "predictions": {
+    "all_state_lesion": [
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      }
+    ],
+    "full": [
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      }
+    ],
+    "no_trace": [
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 0,
+        "prediction": 98,
+        "target": 100
+      }
+    ],
+    "trace_only": [
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      },
+      {
+        "hit": 1,
+        "prediction": 98,
+        "target": 98
+      },
+      {
+        "hit": 1,
+        "prediction": 100,
+        "target": 100
+      }
+    ]
+  },
+  "probe": "x",
+  "seed": 7,
+  "status": "pass",
+  "stream": "a1234xbc1234xda1234xbc1234xda1234xbc1234xda1234xbc1234xd"
+}
