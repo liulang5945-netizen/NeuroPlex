@@ -66,9 +66,10 @@ class TaijiConfig:
     memory_reward_gain: float = 0.30
 
     replay_seed_gain: float = 0.65
-    replay_noise_scale: float = 0.25
+    replay_noise_scale: float = 0.75
     replay_value_weight: float = 0.60
     replay_priority_threshold: float = 0.05
+    replay_fatigue_gain: float = 1.20
     replay_learning_scale: float = 0.45
     replay_burst_repeats: int = 8
     replay_write_repeats: int = 8
@@ -153,6 +154,8 @@ class TaijiConfig:
             raise ValueError("at least one episodic write gate must be active")
         if self.replay_noise_scale < 0.0:
             raise ValueError("replay_noise_scale cannot be negative")
+        if self.replay_fatigue_gain < 0.0:
+            raise ValueError("replay_fatigue_gain cannot be negative")
         if not 0.0 <= self.replay_value_weight <= 1.0:
             raise ValueError("replay_value_weight must be in [0, 1]")
         if not 0.0 <= self.replay_priority_threshold < 1.0:

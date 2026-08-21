@@ -113,9 +113,9 @@ Native v5 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 - 已有 reward action、provenance 与内生 replay/巩固，但尚无内生想象生成、多感官器官；
 - 现有 5 个 dialogue + 4 个 general Transformer 成员只作为冻结离线基线，不进入 Taiji forward。
 
-## 6. 当前唯一下一步
+## 6. M6 replay 选择覆盖失衡（已修复，2026-08-21）
 
-修复 **replay 选择覆盖不均**。
+### 6.1 症状（修复前基线）
 
 已用 `_diag_m6_coverage.py` 在真实 `consolidate` 路径上（同一 RNG 流、同一 6-epoch 预训练、同一被验证器打分的 `full` arm）把每次 accepted replay 实际排练的 pair 与同一次运行的 per-pair margin 对齐，5 seed × 384 cycle：
 
@@ -127,9 +127,56 @@ Native v5 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 | 43 | 20.9 / 14.5 / **63.1** / 1.5 | 1.5% | 0.50 | `1` `3` |
 | 61 | **0.3** / 63.9 / 12.7 / 23.2 | 0.3% | 0.50 | `0` `3` |
 
-结论是定量的、不是轶事：**份额低于 4% 的 5 个 pair 全部读不出；高于 4% 的 15 个 pair 里 13 个读得出**；唯一拿到 4/4 的 seed 17 也正是唯一最低份额超过 10% 的 seed。`mis-rehearsed = 0`（381/382/375/325/332 次全部排练的是真 pair），所以问题不是重激活错、而是重激活的**分配**错：`priority = familiarity_confidence * resonance * selection * recency` 里每一项都随熟悉度单调上升，形成正反馈——越巩固越被抽中，越被抽中越巩固，被冷落的那条永远追不上。生物睡眠不是这样：已巩固的痕迹会退出重放竞争。
+结论是定量的、不是轶事：**份额低于 4% 的 5 个 pair 全部读不出；高于 4% 的 15 个 pair 里 13 个读得出**；唯一拿到 4/4 的 seed 17 也正是唯一最低份额超过 10% 的 seed。`mis-rehearsed = 0`（381/382/375/325/332 次全部排练的是真 pair），所以问题不是重激活错、而是重激活的**分配**错。
 
-需要让场自己的信号包含"这条已经巩固够了"的抑制项（例如把已下降的局部预测误差反馈进 `priority`，使 error 低的 engram 自然让位），让覆盖自发均衡。禁止外部 replay 列表、外部配额/轮询、per-engram 计数器等不属于场自身状态的簿记。判据：5 seed 的最低排练份额都进入 ≥ 8%，`full` 的 4 对 true-cell 全部战胜竞争者，且 5 seed 的 gain 中位数高于当前 +0.50。
+### 6.2 被证伪的原方向：`priority` 不是杠杆
+
+原计划设想把已下降的局部预测误差反馈进 `priority`，让 error 低的 engram 让位。落地前用两个已有测量否掉了：
+
+- `reports/taiji_m6_endogenous_replay_20260821.json`：`accepted 95 / cycles 96`、`mean_priority 0.148` vs `replay_priority_threshold 0.05`。**接受门槛几乎从不生效**，垄断不是"门槛把饥饿的 engram 拒了"；
+- `model.py:355-365`：`endorsement = min(1.0, priority / threshold)`，在 `0.148/0.05 ≈ 3.0` 处**已饱和于 1.0**。任何加在 `priority` 上的抑制项要削掉 3× 才开始影响接受，而这 3× 的削减会先全部落到 `learn_scale` 上——即先削弱可塑性，再谈覆盖。
+
+### 6.3 真实成因与修复
+
+垄断来自 §6 原诊断漏掉的**第二条正反馈**：`replay()` 的 `seed_drive` 里含 `+ (1 - memory_trace_decay) * previous.trace`，也就是把刚排练完那条 engram 的残留痕迹**正向**喂回种子。场被吸引到它刚被吸引过的地方，这正好作用在诊断所测量的补全盆地上。
+
+修复是一次由机制含义决定的符号翻转，落在 `taiji/memory.py:625-627`：
+
+```python
+adapted = previous.threshold + replay_fatigue_gain * (previous.trace - previous.trace.mean())
+```
+
+- **为什么清醒时该加、睡眠时该减**：清醒时是外部 cue 决定回忆什么，痕迹只负责把相继的 cue 绑起来，所以它属于 drive（`recall()` 至今仍这样做）；睡眠时没有 cue，痕迹成了唯一决定"重生成什么"的量，此时它必须表达"这条刚排练过"——即真实皮层的 spike-frequency adaptation，实现为一个抬高刚放电单元阈值的瞬态偏置；
+- **为什么必须零均值**：`resonance`/`familiarity` 都从重生成 pattern 的**幅度**读出。单向压低会把整场活动一起压暗，使 `priority` 因"与哪条 engram 胜出无关的理由"跌破门槛（实测 accepted 325→98）。皮层稳态守恒的是群体总活动，适应只重分配由哪些单元承担这份活动；零均值化后疲劳只动选择、不动表达；
+- **同时抬高内生噪声** `replay_noise_scale 0.25 → 0.75`：疲劳只覆盖约 2–3 个 bout（`memory_trace_decay=0.72`），它打断"连续重复"，但决定默认落入哪个盆地的是 `seed_drive` 里每个 bout 完全相同的 `reward_code` 项（权重 0.60）。真实重放由内生随机性（sharp-wave ripple 的随机内容）点燃，而不是恒定驱动；
+- **走过的弯路（勿重走）**：曾尝试在疲劳竞争后用未疲劳阈值再 settle 一次，以"把选择与表达解耦"。接受数恢复但覆盖增益全丢（最低份额回落到 1.7/11.5/3.9/2.1/1.1）——未疲劳的最后一步会直接吸回主导 engram。**疲劳必须在 pattern 被表达时仍在场，而不只在它竞争时在场。**
+
+新增 `replay_fatigue_gain: float = 1.20`（非负校验在 `config.py:157`）。无新增持久状态、无 `STATE_VERSION` 变更、无 checkpoint 格式变更——`adapted` 是瞬态局部量，写回 `MemoryState` 的仍是 `previous.threshold` 原值。gain 试过 0.60/1.20/2.00，2.00 反而更差（最低份额 4.2%）。
+
+### 6.4 验收结果
+
+`python scripts/training/_diag_m6_coverage.py 384 11 17 29 43 61`：
+
+| seed | 排练份额 0/1/2/3 | 最低份额 | accuracy | accepted |
+|---|---|---:|---:|---:|
+| 11 | 27.4 / 29.3 / 10.0 / 33.3 | **10.0%** | 0.75 | 351 |
+| 17 | 30.5 / 28.4 / 23.3 / 17.8 | **17.8%** | **1.00** | 331 |
+| 29 | 13.0 / 39.0 / 30.8 / 17.2 | **13.0%** | 0.75 | 354 |
+| 43 | 24.1 / 34.1 / 27.8 / 14.1 | **14.1%** | **1.00** | 320 |
+| 61 | 8.2 / 56.6 / 15.1 / 20.1 | **8.2%** | 0.75 | 279 |
+
+- 5 seed 最低排练份额全部 ≥ 8%（判据达成），最差 0.3% → 8.2%；
+- `covered 4/4` 在全部 5 个 seed 成立（修复前仅 seed 17）；
+- accuracy 均值 0.65 → **0.85**，两个 seed 达到 1.00（修复前仅一个）；
+- `mis-rehearsed = 0` 保持；accepted 回到 279–354（基线 325–382 量级），未牺牲写入 burst 数量；
+- 未使用外部 replay 列表、外部配额/轮询或 per-engram 计数器，覆盖均衡完全出自场自身动力学。
+
+回归：`verify_taiji_m6_endogenous_replay.py` `status: pass`（10/10 check），`verify_taiji_m5_episodic_field.py` `pass`，`pytest tests/taiji_native -q` 27 passed，`pytest tests/ -q` 74 passed。
+
+### 6.5 当前唯一下一步
+
+`full` arm 的 4 对 true-cell 尚未全部战胜竞争者（seed 11 的 `2`、29 的 `0`、61 的 `3` 仍 WRONG，且它们的 margin 已逼近 0：-0.0021 / -0.0009 / -0.0012）。份额已不再是瓶颈——这三条的份额分别是 10.0% / 13.0% / 20.1%，都不低。下一步是查清**在份额充足的前提下 margin 仍为负**的原因，先做定量归因（写入剂量 vs 竞争者被同一 burst 顺带抬高），再改机制。
+
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

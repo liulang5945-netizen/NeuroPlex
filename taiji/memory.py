@@ -580,16 +580,39 @@ class EpisodicField:
 
         No stored event list is consulted.  The seed is built only from field
         internal quantities: the fixed value axis, the field's own multi-scale
-        clock, its residual trace and endogenous noise.  Recurrent completion
-        then pulls that seed onto whichever engram its own edges support, and
-        every selection signal is measured on the regenerated pattern.  The
-        association matrix is deliberately left untouched, so a self generated
-        pattern can never reinforce itself into a false memory.
+        clock and endogenous noise.  Recurrent completion then pulls that seed
+        onto whichever engram its own edges support, and every selection signal
+        is measured on the regenerated pattern.  The association matrix is
+        deliberately left untouched, so a self generated pattern can never
+        reinforce itself into a false memory.
+
+        The residual trace enters as fatigue rather than as drive.  Awake, an
+        external cue decides what is recalled and the trace merely binds
+        successive cues, so it belongs in the drive.  Asleep there is no cue, so
+        the trace becomes the only thing deciding what regenerates, and adding it
+        to the drive makes the field return to whatever it just rehearsed until
+        one engram monopolises the bout.  Subtracting it instead -- by raising
+        the activation threshold on the units that just fired -- is the spike
+        frequency adaptation real cortex shows, and it lets a consolidated trace
+        withdraw from the competition so its neighbours get their turn.
+
+        The offset is deliberately zero mean across the population: units that
+        just fired are held back by exactly as much as the silent ones are
+        released.  Cortical homeostasis conserves total population activity and
+        adaptation only redistributes which cells carry it, so a one sided
+        suppression would be the wrong mechanism as well as the wrong result --
+        it dims the whole bout, and since resonance and familiarity are read off
+        the magnitude of the regenerated pattern, it would drag priority under
+        the acceptance gate for a reason unrelated to which engram won.  Made
+        conservative, fatigue moves selection without touching expression, and
+        coverage equalises out of the field's own dynamics, with no replay list,
+        no quota and no per engram counter.
 
         Two homeostatic invariants keep sleep from corrupting waking.  The
         excitability threshold is carried through unchanged, because a set point
         earned by real experience must not be recalibrated against self
-        generated activity.  And the byte readouts are decoded at their native
+        generated activity; fatigue is a transient offset read on top of it and
+        is never written back.  And the byte readouts are decoded at their native
         scale: confidence gates how much a dream is allowed to teach, never what
         was dreamt, so a hesitant reactivation stays a sharp guess rather than
         degenerating into a uniform one.
@@ -607,21 +630,18 @@ class EpisodicField:
         value_weight = float(self.config.replay_value_weight)
         seed_drive = (
             float(self.config.replay_seed_gain)
-            * (
-                value_weight * self.reward_code
-                + (1.0 - value_weight) * time_drive
-            )
-            + (1.0 - self.config.memory_trace_decay) * previous.trace
-            + float(self.config.replay_noise_scale)
-            * self._normalize_drive(noise)
+            * (value_weight * self.reward_code + (1.0 - value_weight) * time_drive)
+            + float(self.config.replay_noise_scale) * self._normalize_drive(noise)
         )
-
-        activity, inhibition = self._activate(seed_drive, previous.threshold)
+        adapted = previous.threshold + float(self.config.replay_fatigue_gain) * (
+            previous.trace - previous.trace.mean()
+        )
+        activity, inhibition = self._activate(seed_drive, adapted)
         for _ in range(self.config.memory_iterations):
             recurrent = self.association.forward(activity)
             activity, inhibition = self._activate(
                 seed_drive + self.config.memory_recurrent_gain * recurrent,
-                previous.threshold,
+                adapted,
             )
 
         recurrent_support = self.association.forward(activity)
