@@ -29,7 +29,7 @@ ByteSensor
 | `taiji/fabric.py` | 分层预测误差、递归状态、抑制、稳态、场 feedback 与区域局部学习 | ✅ |
 | `taiji/model.py` | observe、act、settle_action、learn/score/generate、Native v5 checkpoint | ✅ |
 | `taiji/environment.py` | action-dependent sensation/reward 环境协议 | ✅ |
-| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5–N11/M5 | ✅ 19 passed |
+| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5–N11/M5–M6 | ✅ 23 passed |
 | `verify_taiji_native_v5.py` | 独立端到端、主动/情景状态与压缩存储基准 | ✅ PASS |
 | `verify_taiji_n7_context.py` | 二阶歧义与因果切除基准 | ✅ PASS |
 | `verify_taiji_n8_delayed_trace.py` | 共同干扰后的 slow-trace 必要性/充分性 | ✅ PASS |

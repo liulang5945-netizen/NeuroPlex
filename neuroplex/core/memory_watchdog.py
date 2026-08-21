@@ -1,7 +1,7 @@
 """Memory watchdog stub — not yet implemented.
 
 This is a minimal stub that allows imports to succeed. It is imported
-at module top-level by ``taiji.tools.rag``, so the symbols below must
+at module top-level by ``neuroplex.tools.rag``, so the symbols below must
 be importable without side effects AND the call signatures must match
 rag.py's actual usage so runtime degrades gracefully.
 

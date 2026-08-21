@@ -4,7 +4,7 @@
 > 态极三大核心原则、与人脑机制的对应关系、以及 Phase 1-8 实施历史（大部分已完成或废弃）。
 > 当前项目状态、路线图与接口梳理以主 plan 为准。
 >
-> **2026-08-21 解释边界**：本文是 Legacy NeuroPlex 的设计历史，不是 Taiji 新底座实现合同。部分早期描述（例如抑制向量直接取反、外部触发新生、Transformer 树突扩展）已被后续代码或新决策取代。正式 Taiji 是顶层 TPF；新代码服从 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 的确定状态方程、局部学习和 N0–N10 反证门槛。
+> **2026-08-21 解释边界**：本文是 Legacy NeuroPlex 的设计历史，不是 Taiji 新底座实现合同。文中“态极”一律指 **Legacy NeuroPlex**，与替代 Transformer 的新基底 Taiji 无关（词表见 [ARCHITECTURE_DIRECTION_2026_08.md](ARCHITECTURE_DIRECTION_2026_08.md) §0）。部分早期描述（例如抑制向量直接取反、外部触发新生、Transformer 树突扩展）已被后续代码或新决策取代。正式 Taiji 是顶层 TPF；新代码服从 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 的确定状态方程、局部学习和 N0–N11/M0–M6 反证门槛。
 
 **内容**：
 - 设计原则（三大核心原则 + 人脑对应）

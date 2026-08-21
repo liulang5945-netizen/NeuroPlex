@@ -1,6 +1,6 @@
 # Taiji Code Wiki
 
-This page maps the executable Native v5 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
+This page maps the executable Native v5 algorithm to source code. **Scope: the top-level `taiji/` substrate only** — the frozen Legacy NeuroPlex Transformer baseline in `neuroplex/` is documented in [INTERFACE_REFERENCE.md](INTERFACE_REFERENCE.md). The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
 ## Runtime path
 

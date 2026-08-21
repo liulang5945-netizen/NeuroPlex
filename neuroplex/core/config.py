@@ -75,13 +75,13 @@ def get_internal_path(relative_path: str) -> str:
 class TrainingConfig:
     """训练/推理配置（API 层与硬件自适应共用）。
 
-    字段集合来自 api/routes_settings.py、taiji/core/hardware.py、
+    字段集合来自 api/routes_settings.py、neuroplex/core/hardware.py、
     api/training/common.py 的实际引用。
     """
 
     device: str = "auto"            # auto / cuda / mps / cpu
     model_name: str = ""            # 模型名称或路径
-    model_type: str = "self"        # self（原生态极单一模型类型）
+    model_type: str = "self"        # self（Legacy NeuroPlex 原生单一模型类型）
     cache_dir: str = ""             # 缓存目录
     resume_from_checkpoint: str = ""  # checkpoint 路径
     load_in_4bit: bool = False

@@ -1,8 +1,8 @@
 """
-TaijiCore 生命系统线程安全API接口 (ThreadSafeLifeInterface)
+Legacy NeuroPlex 生命系统线程安全API接口 (ThreadSafeLifeInterface)
 ============================================================
 
-为 taiji.life 生命系统提供线程安全的并发访问接口，支持：
+为 neuroplex.life 生命系统提供线程安全的并发访问接口，支持：
 - 异步/同步双接口
 - 多线程安全的状态管理
 - 生命周期事件的原子性操作

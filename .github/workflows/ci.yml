@@ -36,6 +36,9 @@ jobs:
       - name: Verify native Taiji end to end
         run: python -X utf8 -u scripts/training/verify_taiji_native_v5.py
 
+      - name: Verify second-order context causality
+        run: python -X utf8 -u scripts/training/verify_taiji_n7_context.py
+
       - name: Verify delayed trace causality
         run: python -X utf8 -u scripts/training/verify_taiji_n8_delayed_trace.py
 
@@ -50,6 +53,9 @@ jobs:
 
       - name: Verify native episodic field
         run: python -X utf8 -u scripts/training/verify_taiji_m5_episodic_field.py
+
+      - name: Verify endogenous replay consolidation
+        run: python -X utf8 -u scripts/training/verify_taiji_m6_endogenous_replay.py
 
       - name: Run native architecture contracts
         run: python -m pytest tests/taiji_native -q

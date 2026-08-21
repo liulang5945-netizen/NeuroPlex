@@ -1,11 +1,20 @@
-# Taiji — Native Persistent Predictive Computing
+# NeuroPlex — Taiji Native Persistent Predictive Computing
 
-Taiji is an experimental non-Transformer substrate with its own input representation, persistent state transition, distributed episodic field, local learning rules, motor output, active-environment loop, free-running generation, and checkpoint format.
+NeuroPlex is the project. **Taiji** is its new substrate, built to replace the Transformer bottom layer outright: it defines its own input representation, persistent state transition, distributed episodic field, local learning rules, motor output, active-environment loop, free-running generation, and checkpoint format.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
 > Current status: executable research prototype, not an AGI claim and not a language-quality replacement yet.
+
+## Naming
+
+| Name | Meaning |
+|---|---|
+| **NeuroPlex** | the project (the distribution name `taiji-neuron` in `pyproject.toml` is historical) |
+| **Taiji** / Taiji Predictive Fabric (TPF) | the new substrate replacing the Transformer; package `taiji/`, reference implementation Native v5 |
+| **Legacy NeuroPlex** | the frozen Transformer baseline in `neuroplex/`; the replaced bottom layer is `neuroplex/layers.py::TransformerBlock` |
+| `taiji.*` in `scripts/archive/` | a historical import alias for `neuroplex`, not this substrate |
 
 ## What Taiji replaces
 

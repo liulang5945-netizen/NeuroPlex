@@ -1,12 +1,26 @@
-# Taiji 架构方向决策
+# NeuroPlex 架构方向决策：Taiji 替代 Transformer 底层
 
-> 决策日期：2026-08-21
+> 决策日期：2026-08-21（命名收敛 2026-08-21）
 >
-> 决策：Taiji 全面替代 Transformer 的计算职责，不作为 NeuroPlex 的成员插件。
+> 决策：项目是 **NeuroPlex**；**Taiji 是 NeuroPlex 的新底层基底，全面替代 Transformer 的计算职责**，不作为 Legacy NeuroPlex 的成员插件。
+
+## 0. 规范词表（唯一口径）
+
+“Taiji / 太极 / 态极”在历史文档里被用于五种不同含义。此后只允许下表左列的写法：
+
+| 规范名 | 指代 | 代码/文件事实 |
+|---|---|---|
+| **NeuroPlex** | 整个项目 | 仓库本身；`pyproject.toml` 的分发名仍是历史遗留 `taiji-neuron`，不改（会破坏已装环境与 CI） |
+| **Taiji / Taiji Predictive Fabric（TPF）** | NeuroPlex 的**新底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；`Native v5` 是当前参考实现；不导入 `neuroplex` 或 `transformers` |
+| **Legacy NeuroPlex** | 冻结的 Transformer 基线（9 个成员） | `neuroplex/` 包；底层 Transformer 就是 `neuroplex/layers.py::TransformerBlock`，唯一消费点 `neuroplex/resonance/neuron.py:25` |
+| **`taiji.*`（历史 import 别名）** | `neuroplex/` 的旧包名 | 只在历史 pickle 与 `scripts/archive/` 中出现；由 `neuroplex/legacy_checkpoint.py` 在受控作用域内临时映射 |
+| ~~态极~~ | Legacy NeuroPlex 的旧中文称呼，**不指新基底** | 冻结代码内仍有 196 处（日志与用户文案），不改名；**新文档与新代码禁止使用**，需要指代时写 “Legacy NeuroPlex” |
+
+被替代的边界是明确的单点：Taiji 顶掉 `neuroplex/layers.py::TransformerBlock` 承担的计算职责，而不是顶掉 `api/`、`neuroplex/life/` 等外围工程层。
 
 ## 1. 不可回退边界
 
-1. `Taiji` 指完整原生架构，不指 cell、adapter、router 或 memory plugin。
+1. `Taiji` 指完整原生底层基底，不指 cell、adapter、router 或 memory plugin。
 2. 正式代码位于顶层 `taiji/`；`neuroplex/` 是冻结 Legacy 基线。
 3. Taiji 自己定义输入表示、时间状态、上下文计算、学习、输出、生成和 checkpoint。
 4. Taiji forward 不调用 tokenizer、Transformer、attention、KV cache、Cortex、ResonanceEnsemble 或 Legacy LM head。
@@ -45,10 +59,12 @@
 
 旧 `neuroplex/taiji/` 已删除。历史代码可从 Git 提交恢复，不在当前包中暴露。
 
+`scripts/archive/` 里 98 个文件的 301 处 `from taiji.<legacy>` 属于历史别名（含义＝`neuroplex`），在当前包布局下会误解析到新基底 `taiji/`。处置口径：**不重写、不改名**，因为其依赖的 Legacy 符号与数据路径本身已不存在（`scripts/archive/architecture_verification.py:8-10` 已自证），重写只会产出可导入但不可运行的假活代码。风险已被界定：`scripts/archive/` 无 `test_*.py`，pytest 不收集；CI 只跑 `tests/taiji_native` 与 `tests/`；无任何在用代码引用该目录。判定依据写在 `scripts/archive/README.md`。
+
 ## 5. 能力声明边界
 
 Native v5 是完整可运行的非 Transformer 感知—状态—情景—行动参考架构，已通过在线学习、128 步自由回灌、二阶上下文、固定延迟 trace、真实按边执行、主动环境和八条 one-shot 跨 episode 情景反证。它尚未证明大容量记忆、巩固、语言能力、组合推理或 AGI。后续仍由可反证门槛决定，不由“类脑”命名、参数规模或单个 demo 决定。
 
 ## 6. 当前唯一下一步
 
-进入 M6 内生 replay/巩固：由场内信号选择 engram，通过同一 fabric 与局部学习规则重激活并迁移结构；切除 episodic readout 后仍需保留行为。禁止外部 replay list、teacher target 或权重复制。
+M6 内生 replay/巩固已落地并 5/5 seed 通过（提交 `52162c0`）。当前唯一下一步见 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) §6：修复 replay 选择覆盖不均。本文件只维护决策与命名边界，不再复制下一步内容。
