@@ -152,6 +152,8 @@ class CellProposal:
     field_write: FieldWrite
     axon: torch.Tensor
     mode: EventMode
+    memory_recall: torch.Tensor
+    memory_confidence: float
 
 
 @dataclass
@@ -223,4 +225,13 @@ class TaijiStepResult:
     output: torch.Tensor
     field: TaijiFieldState
     emitted_events: Tuple[TaijiEvent, ...]
+    memory_confidences: Dict[str, float]
 
+
+@dataclass(frozen=True)
+class AssociationLearningResult:
+    cue_tick: int
+    outcome_tick: int
+    active_cell_ids: Tuple[str, ...]
+    written_slots: Dict[str, int]
+    reward: float

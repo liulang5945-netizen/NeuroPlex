@@ -43,6 +43,11 @@ class TaijiConfig:
     priority_error_gain: float = 0.35
     priority_field_gain: float = 0.15
     priority_goal_gain: float = 0.75
+    priority_memory_gain: float = 0.50
+
+    memory_recall_threshold: float = 0.60
+    memory_temperature: float = 12.0
+    memory_merge_threshold: float = 0.95
 
     energy_capacity: float = 1.0
     energy_recovery: float = 0.08
@@ -100,6 +105,12 @@ class TaijiConfig:
             raise ValueError("minimum_firing_energy must fit within energy_capacity")
         if self.refractory_ticks < 0:
             raise ValueError("refractory_ticks cannot be negative")
+        for name in ("memory_recall_threshold", "memory_merge_threshold"):
+            value = float(getattr(self, name))
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0, 1]")
+        if self.memory_temperature <= 0:
+            raise ValueError("memory_temperature must be positive")
         for name in ("max_state_norm", "max_field_norm", "max_output_norm"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -114,4 +125,3 @@ class TaijiConfig:
         values = dict(payload)
         values["cell_ids"] = tuple(values.get("cell_ids", cls.cell_ids))
         return cls(**values)
-

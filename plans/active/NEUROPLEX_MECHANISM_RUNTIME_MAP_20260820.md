@@ -467,4 +467,4 @@ TypeError: 'dict_values' object is not an iterator
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
 
-该建议仍然有效但不再是项目当前执行入口。Taiji-0 持久状态动力学合同已实现并通过；当前唯一下一步是 T4 活动细胞 fast-memory 一次性局部关联。PlayEngine、D1 和现有场记忆修复作为 Legacy 基线暂停，现有工作区改动保留。
+该建议仍然有效但不再是项目当前执行入口。Taiji-0 状态合同与 T4 一次性局部关联已通过；当前唯一下一步是 T5 的 20 关联顺序保留实验。PlayEngine、D1 和现有场记忆修复作为 Legacy 基线暂停，现有工作区改动保留。

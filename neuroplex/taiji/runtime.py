@@ -12,7 +12,12 @@ from .cell import TaijiCell
 from .config import TaijiConfig
 from .events import EventKind, EventMode, TaijiEvent, dominant_mode
 from .field import TaijiField
-from .state import TaijiState, TaijiStepResult, bound_vector
+from .state import (
+    AssociationLearningResult,
+    TaijiState,
+    TaijiStepResult,
+    bound_vector,
+)
 
 
 class TaijiRuntime(nn.Module):
@@ -75,6 +80,25 @@ class TaijiRuntime(nn.Module):
         """Explicitly reset all transient and contextual runtime state."""
 
         self._state = self._initial_state(episode_id=episode_id)
+
+    def reset_dynamics(
+        self,
+        *,
+        preserve_fast_memory: bool = True,
+        episode_id: Optional[str] = None,
+    ) -> None:
+        """Start a clean episode while optionally retaining learned associations."""
+
+        previous = self._state
+        fresh = self._initial_state(episode_id=episode_id or previous.episode_id)
+        if preserve_fast_memory:
+            for cell_id in sorted(self.cells.keys()):
+                old = previous.cells[cell_id]
+                new = fresh.cells[cell_id]
+                new.memory_keys = old.memory_keys.detach().clone()
+                new.memory_values = old.memory_values.detach().clone()
+                new.memory_usage = old.memory_usage.detach().clone()
+        self._state = fresh
 
     def make_event(
         self,
@@ -265,6 +289,58 @@ class TaijiRuntime(nn.Module):
             output=output.detach().clone(),
             field=next_field.clone(),
             emitted_events=tuple(emitted),
+            memory_confidences={
+                cell_id: float(proposals[cell_id].memory_confidence)
+                for cell_id in sorted(proposals)
+            },
+        )
+
+    @torch.no_grad()
+    def learn_association(
+        self,
+        cue: TaijiEvent,
+        observed_outcome: TaijiEvent,
+        *,
+        reward: float = 1.0,
+    ) -> AssociationLearningResult:
+        """Learn one real cue/outcome pair in cue-active cells only.
+
+        The cue and outcome both pass through normal ticks.  The outcome acts as
+        a broadcast third factor, while the eligibility set is the cells that
+        fired for the cue.  Model parameters are never touched.
+        """
+
+        if not 0.0 < reward <= 1.0:
+            raise ValueError("reward must be in (0, 1] for positive association")
+        self._validate_event(cue)
+        self._validate_event(observed_outcome)
+        if cue.tick != self.tick:
+            raise ValueError("cue must be presented at the current runtime tick")
+        if observed_outcome.tick != cue.tick + 1:
+            raise ValueError("observed outcome must immediately follow the cue")
+        if observed_outcome.mode is not EventMode.REAL:
+            raise ValueError("an imagined or replayed event cannot be a real outcome")
+
+        cue_result = self.step([cue])
+        outcome_result = self.step([observed_outcome])
+        slots: Dict[str, int] = {}
+        next_cells = dict(self._state.cells)
+        for cell_id in cue_result.active_cell_ids:
+            updated, slot = self.cells[cell_id].store_fast_association(
+                self._state.cells[cell_id],
+                cue.value.to(self.device),
+                observed_outcome.value.to(self.device),
+                strength=float(reward),
+            )
+            next_cells[cell_id] = updated
+            slots[cell_id] = slot
+        self._state.cells = next_cells
+        return AssociationLearningResult(
+            cue_tick=cue_result.tick,
+            outcome_tick=outcome_result.tick,
+            active_cell_ids=cue_result.active_cell_ids,
+            written_slots=slots,
+            reward=float(reward),
         )
 
     def readout(self) -> torch.Tensor:
@@ -320,4 +396,3 @@ class TaijiRuntime(nn.Module):
         runtime = cls(config, device=device)
         runtime.restore(checkpoint)
         return runtime
-

@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from .config import TaijiConfig
 from .events import EventMode
+from .plasticity import recall_association, store_association
 from .state import CellProposal, FieldWrite, TaijiCellState, bound_vector
 
 
@@ -73,7 +74,7 @@ class TaijiCell(nn.Module):
             refractory=0,
             eligibility=torch.zeros(cfg.state_dim, cfg.event_dim, device=dev),
             memory_keys=torch.zeros(cfg.fast_memory_slots, cfg.event_dim, device=dev),
-            memory_values=torch.zeros(cfg.fast_memory_slots, cfg.state_dim, device=dev),
+            memory_values=torch.zeros(cfg.fast_memory_slots, cfg.event_dim, device=dev),
             memory_usage=torch.zeros(cfg.fast_memory_slots, device=dev),
         )
 
@@ -126,8 +127,17 @@ class TaijiCell(nn.Module):
             raise ValueError(f"field_input must have shape ({cfg.field_dim},)")
 
         idle = self._idle_state(state)
+        memory = recall_association(
+            event_input,
+            idle.memory_keys,
+            idle.memory_values,
+            idle.memory_usage,
+            threshold=cfg.memory_recall_threshold,
+            temperature=cfg.memory_temperature,
+        )
         branch_drive = (
             self.event_to_dendrites(event_input)
+            + 0.50 * memory.confidence * self.event_to_dendrites(memory.value)
             + 0.25 * self.field_to_dendrites(field_input)
         ).view(cfg.dendritic_branches, cfg.state_dim)
         dendrites = (
@@ -156,13 +166,25 @@ class TaijiCell(nn.Module):
             (1.0 - cfg.soma_alpha) * idle.soma + cfg.soma_alpha * candidate,
             cfg.max_state_norm,
         )
-        predicted_event = torch.tanh(self.event_prediction(soma))
-        prediction = (
+        predicted_event_base = torch.tanh(self.event_prediction(soma))
+        predicted_event = (
+            (1.0 - memory.confidence) * predicted_event_base
+            + memory.confidence * memory.value
+        )
+        prediction_base = (
             (1.0 - cfg.prediction_decay) * idle.prediction
             + cfg.prediction_decay * predicted_event
         )
+        prediction = bound_vector(
+            (1.0 - memory.confidence) * prediction_base
+            + memory.confidence * memory.value,
+            cfg.max_output_norm,
+        )
+        axon_base = torch.tanh(self.axon_projection(soma))
         axon = bound_vector(
-            torch.tanh(self.axon_projection(soma)), cfg.max_output_norm
+            (1.0 - memory.confidence) * axon_base
+            + memory.confidence * memory.value,
+            cfg.max_output_norm,
         )
         field_vector = bound_vector(
             torch.tanh(self.field_projection(soma)), cfg.max_field_norm
@@ -177,6 +199,7 @@ class TaijiCell(nn.Module):
             + cfg.priority_error_gain * error_strength
             + cfg.priority_field_gain * field_strength
             + cfg.priority_goal_gain * float(goal_signal)
+            + cfg.priority_memory_gain * memory.confidence
             - idle.threshold
         )
         priority = float(priority_tensor.item()) * phase_gate
@@ -213,5 +236,39 @@ class TaijiCell(nn.Module):
             field_write=field_write,
             axon=axon,
             mode=mode,
+            memory_recall=memory.value,
+            memory_confidence=memory.confidence,
         )
 
+    @torch.no_grad()
+    def store_fast_association(
+        self,
+        state: TaijiCellState,
+        cue: torch.Tensor,
+        target: torch.Tensor,
+        *,
+        strength: float,
+    ) -> tuple[TaijiCellState, int]:
+        """Apply a local three-factor-gated write to this cell's fast memory."""
+
+        write = store_association(
+            cue,
+            target,
+            state.memory_keys,
+            state.memory_values,
+            state.memory_usage,
+            strength=strength,
+            merge_threshold=self.config.memory_merge_threshold,
+            max_value_norm=self.config.max_output_norm,
+        )
+        updated = state.clone()
+        updated.memory_keys = write.keys
+        updated.memory_values = write.values
+        updated.memory_usage = write.usage
+        cue_unit = cue / cue.norm().clamp_min(1e-8)
+        local_trace = torch.outer(updated.soma, cue_unit)
+        updated.eligibility = bound_vector(
+            0.95 * updated.eligibility + strength * local_trace,
+            self.config.max_state_norm,
+        )
+        return updated, write.slot

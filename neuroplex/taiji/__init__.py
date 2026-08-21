@@ -9,11 +9,18 @@ from .config import TaijiConfig
 from .events import EventKind, EventMode, TaijiEvent
 from .field import TaijiField
 from .runtime import TaijiRuntime
-from .state import TaijiCellState, TaijiFieldState, TaijiState, TaijiStepResult
+from .state import (
+    AssociationLearningResult,
+    TaijiCellState,
+    TaijiFieldState,
+    TaijiState,
+    TaijiStepResult,
+)
 
 __all__ = [
     "EventKind",
     "EventMode",
+    "AssociationLearningResult",
     "TaijiCell",
     "TaijiCellState",
     "TaijiConfig",
@@ -24,4 +31,3 @@ __all__ = [
     "TaijiState",
     "TaijiStepResult",
 ]
-

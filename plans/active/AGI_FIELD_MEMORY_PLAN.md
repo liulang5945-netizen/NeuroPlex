@@ -106,4 +106,4 @@ causal_parent_ids, replay_count, consolidation_state
 
 ## 8. 当前唯一下一步
 
-Taiji-0 的持久 field、cell state、two-phase tick 和 `TaijiState` round-trip 已通过。下一步实现 M1/T4：一次 `cue → observed outcome` 只写活动细胞的 fast associative memory，再次 cue 的预测误差至少下降 30%；不使用全局 optimizer，不改变慢权重。旧 PlayEngine replay 修复继续暂停。
+Taiji-0 的 M1/T4 已通过：一次真实关联只写 cue-active cells，精确 cue 的 MSE 下降 100%，慢权重和无关细胞不变。下一步执行 M4/T5：顺序学习 20 个关联，验证最早 5 个保留率 ≥ 70%，同时报告槽占用、键干扰和 memory lesion；先区分规则遗忘与容量淘汰。旧 PlayEngine replay 修复继续暂停。

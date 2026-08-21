@@ -65,4 +65,4 @@ The working hypothesis is that persistent state, native memory, local plasticity
 
 ## Current implementation slice
 
-Taiji-0 Phase A is implemented in `neuroplex/taiji`: the six targeted state contracts pass and the full suite is 53/53 passing. The next slice is T4 one-shot local association in per-cell fast memory, with a strict no-optimizer/no-slow-weight/no-unrelated-cell-update contract. No production integration or language training is authorized. Existing PlayEngine and D1 work are paused baseline work, not deleted.
+Taiji-0 Phase A and T4 are implemented in `neuroplex/taiji`: state contracts pass, one-shot association reduces exact-cue MSE from 0.489072 to 0.0, slow weights and unrelated cells remain unchanged, and the full suite is 56/56 passing. The next slice is T5 sequential retention across 20 one-shot associations, including slot occupancy and interference evidence. No production integration or language training is authorized. Existing PlayEngine and D1 work are paused baseline work, not deleted.

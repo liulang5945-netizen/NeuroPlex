@@ -466,6 +466,19 @@ tests/taiji/test_state_contract.py
 
 当前实现仍不具备局部写入快记忆、episode、三因子权重更新、motor/environment 或语言能力；Phase A 通过不能解释为已经产生智能。
 
-## 15. 当前唯一下一步
+## 15. T4 实现结果（2026-08-21）
 
-实现 **T4 一次性局部关联学习**：活动细胞在一次 `cue → observed outcome` 后写入自己的 fast associative memory；再次看到 cue 时，目标事件预测误差至少下降 30%。更新不得调用全局 optimizer，不得改变未活动细胞的 memory，也不得改变任何慢权重。增加 `tests/taiji/test_local_learning.py` 并保持全部 Phase A 回归通过。
+一次性局部关联已经接入 `neuroplex/taiji/plasticity.py`、`TaijiCell` 和 `TaijiRuntime.learn_association()`：
+
+- cue 和真实 observed outcome 都经过正常 tick；imagined outcome 被硬拒绝；
+- 只有 cue 时活动的细胞写一个本地 fast-memory slot，并更新本地 eligibility；
+- 未活动细胞的 keys/values/usage 逐张量不变；全部慢参数逐张量不变；
+- 相同 cue 的实测 MSE `0.489072 → 0.0`，下降 100%，超过 T4 的 30% 门槛；
+- fast memory 随统一 checkpoint 精确恢复，显式 full reset 会清除它；
+- 定向 Taiji 测试 `9 passed`，全测试集 `56 passed, 1 warning`。
+
+该结果是“精确 cue 的一次性联想存取”，不是概念泛化、组合推理或长期记忆证明。零误差来自命中本地键值记忆后直接召回 observed outcome，必须继续用多关联干扰和容量实验防止把 lookup 误称为智能。
+
+## 16. 当前唯一下一步
+
+执行 **T5 顺序持续学习**：顺序呈现至少 20 个不同 `cue → outcome`，每对只学习一次；随后在不改慢权重的条件下重测全部关联，首四分位（最早 5 个）保留率必须 ≥ 70%，并报告总保留率、每细胞槽占用、键相似干扰和 memory lesion 对照。先用足够槽位区分“学习规则遗忘”和“物理容量淘汰”，通过后再做固定小容量压力测试。
