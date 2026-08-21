@@ -441,9 +441,9 @@ runtime               CPU、确定性 two-phase tick
 
 停止条件：若 T1/T4/T6 在三轮结构性修改后仍不能优于无状态 RNN/单细胞对照，应暂停“Taiji 可形成新底座”的结论，回到状态方程和学习规则，而不是继续堆外围仿生模块。
 
-## 14. 当前唯一下一步
+## 14. Phase A 实现结果（2026-08-21）
 
-实现 **Phase A 的 Taiji-0 动力学合同**：
+Taiji-0 动力学合同已经落地：
 
 ```text
 neuroplex/taiji/__init__.py
@@ -456,4 +456,16 @@ neuroplex/taiji/runtime.py
 tests/taiji/test_state_contract.py
 ```
 
-本切片只做 T0/T1/T2/T3/T7/T9 的最小实现与测试，不训练、不接生产、不修改现有 9 个成员或 D1 工作区。通过后唯一下一步才是 T4 的一次性局部关联学习。
+实测结果：
+
+- 默认 3-cell 内核共有 `258,060` 个参数，远低于现有 micro Transformer，但此数值只表示实验内核成本；
+- 定向合同 `6 passed`：T0 无旧序列层依赖、T1 状态因果、T2 field 持续衰减、T3 two-phase 顺序无关、T7 稀疏预算/能量/有界状态、T9 参数+认知状态+待投递事件 round-trip；
+- 全测试集 `53 passed, 1 warning`；warning 来自 FastAPI/Starlette 的既有弃用提示；
+- 256 tick 稳定性已作为快速守卫通过，T8 的正式 10,000 tick 尚未验收；
+- 没有接入 loader/Cortex/旧 field，没有训练，也没有修改 9 个 Legacy 成员。
+
+当前实现仍不具备局部写入快记忆、episode、三因子权重更新、motor/environment 或语言能力；Phase A 通过不能解释为已经产生智能。
+
+## 15. 当前唯一下一步
+
+实现 **T4 一次性局部关联学习**：活动细胞在一次 `cue → observed outcome` 后写入自己的 fast associative memory；再次看到 cue 时，目标事件预测误差至少下降 30%。更新不得调用全局 optimizer，不得改变未活动细胞的 memory，也不得改变任何慢权重。增加 `tests/taiji/test_local_learning.py` 并保持全部 Phase A 回归通过。

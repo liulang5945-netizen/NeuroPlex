@@ -55,6 +55,7 @@ TaijiField：跨 tick 的多时间尺度共享状态
 
 | 平面 | 代码 | 当前状态 |
 |---|---|---|
+| Taiji-0 隔离底座 | `neuroplex/taiji/`、`tests/taiji/test_state_contract.py` | ✅ Phase A：6 个状态合同通过；未接生产 |
 | 感知对齐 | `neuroplex/resonance/translator.py`、`domains/` | ✅ 域 tokenizer、共享输入对齐 |
 | 神经元 | `neuroplex/resonance/neuron.py` | ✅ 独立 Transformer、field read/write、域输出头 |
 | 共振编排 | `neuroplex/resonance/ensemble.py` | ✅ 多轮、质量/置信度门控、连续共振、融合 |
@@ -210,9 +211,9 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 唯一下一步改为：
 
-**按 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) Phase A 实现 `neuroplex.taiji` 的 Taiji-0 内核，并先锁住 T0/T1/T2/T3/T7/T9：无 Transformer、状态因果、场持续、two-phase 顺序无关、稀疏能量预算和完整状态恢复。**
+**Taiji-0 Phase A 已实现并通过 6 个定向合同及全套 53 个测试。现在实现 T4 一次性局部关联：一次 `cue → observed outcome` 后，再次 cue 的目标事件误差至少下降 30%；只允许活动细胞 fast memory 改变，禁止全局 optimizer、慢权重变化和生产接线。**
 
-边界：不接 `loader/Cortex`，不训练语言，不写生产 checkpoint，不修改现有 9 个成员；当前 D1 工作区改动原样保留。
+边界：不接 `loader/Cortex`，不训练语言，不写生产 checkpoint，不修改现有 9 个成员；当前 D1 工作区改动原样保留。Phase A 默认 3-cell 参数量为 258,060；这只是内核成本，不是新固定尺寸。
 
 ### 7.1 Legacy D1-fix 状态（暂停，仅作基线证据）
 

@@ -29,7 +29,7 @@ Transformer 计算底座；`NeuroPlex` 是当前产品、群体装配和迁移�
 3. 用 [NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md](active/NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md) 核对迁移前代码事实。
 4. 完成一个步骤后，回写底座规范与主计划，再进入下一步。
 
-当前唯一下一步：实现隔离的 Taiji-0 动力学内核和状态合同测试；不接生产、不训练、不修改现有 9 个成员或 D1 工作区。
+当前唯一下一步：在已通过状态合同的 Taiji-0 上实现 T4 一次性局部关联学习；只更新活动细胞 fast memory，不使用全局 optimizer、不改慢权重、不接生产。
 
 ## 历史归档
 

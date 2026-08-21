@@ -65,4 +65,4 @@ The working hypothesis is that persistent state, native memory, local plasticity
 
 ## Current implementation slice
 
-Implement Taiji-0 as an isolated deterministic kernel and test state causality, field persistence, two-phase order independence, sparse energy budgets and complete state round-trip. No production integration or language training is authorized in this slice. Existing PlayEngine and D1 work are paused baseline work, not deleted.
+Taiji-0 Phase A is implemented in `neuroplex/taiji`: the six targeted state contracts pass and the full suite is 53/53 passing. The next slice is T4 one-shot local association in per-cell fast memory, with a strict no-optimizer/no-slow-weight/no-unrelated-cell-update contract. No production integration or language training is authorized. Existing PlayEngine and D1 work are paused baseline work, not deleted.
