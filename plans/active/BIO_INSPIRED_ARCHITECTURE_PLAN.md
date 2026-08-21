@@ -55,7 +55,7 @@ TaijiField：跨 tick 的多时间尺度共享状态
 
 | 平面 | 代码 | 当前状态 |
 |---|---|---|
-| Taiji-0 隔离底座 | `neuroplex/taiji/`、`tests/taiji/` | ✅ Phase A + T4：状态合同与一次性局部联想通过；未接生产 |
+| Taiji-0 隔离底座 | `neuroplex/taiji/`、`tests/taiji/` | 🟡 Phase A + T4 + T5 留存通过；T5 暴露固定赢家/重复记忆，未接生产 |
 | 感知对齐 | `neuroplex/resonance/translator.py`、`domains/` | ✅ 域 tokenizer、共享输入对齐 |
 | 神经元 | `neuroplex/resonance/neuron.py` | ✅ 独立 Transformer、field read/write、域输出头 |
 | 共振编排 | `neuroplex/resonance/ensemble.py` | ✅ 多轮、质量/置信度门控、连续共振、融合 |
@@ -211,9 +211,9 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 唯一下一步改为：
 
-**Taiji-0 Phase A 与 T4 已实现：一次关联后精确 cue 的 MSE 从 0.489072 降到 0，慢权重及未活动细胞不变，全套 56 个测试通过。现在执行 T5：顺序学习 20 个不同关联，最早 5 个保留率必须 ≥ 70%，并报告总保留率、槽占用、键干扰和 memory lesion。**
+**Taiji-0 Phase A、T4 与 T5 的留存门槛已通过：20 个一次性关联的首四分位/总体保留率均为 100%，memory lesion 后为 0%，慢参数不变，全套 57 个测试通过。但 cell_0/cell_2 各写入全部 20 份相同记忆，cell_1 从未活动，说明当前调度发生固定赢家坍缩。唯一下一步建议是在每个 cell 内加入跨 episode 持久的活动稳态痕迹，以局部疲劳修正 priority，再运行 T5-bis；此状态寿命是当前待确认的架构决策。**
 
-边界：不接 `loader/Cortex`，不训练语言，不写生产 checkpoint，不修改现有 9 个成员；当前 D1 工作区改动原样保留。默认 3-cell 参数量仍为 258,060；快记忆写入不增加或改动慢参数。
+边界：不接 `loader/Cortex`，不训练语言，不写生产 checkpoint，不修改现有 9 个成员；当前 D1 工作区改动原样保留。默认 3-cell 参数量仍为 258,060；快记忆写入不增加或改动慢参数。中央学习路由器和随机/轮询分配均不进入本轮方案，因为前者破坏局部控制，后者只伪造均匀计数。
 
 ### 7.1 Legacy D1-fix 状态（暂停，仅作基线证据）
 

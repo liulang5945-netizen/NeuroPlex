@@ -287,7 +287,7 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定：Taiji-0 状态合同和 T4 一次性局部关联已经通过，现进入 T5 顺序持续学习；之后再把本文件中的自举门槛迁移为 Taiji 原生指标。
+**当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定：Taiji-0 状态合同、T4 和 T5 留存门槛已经通过；T5 同时暴露两个固定赢家重复保存全部记忆、第三个 cell 不参与。当前停在“跨 episode 的细胞本地活动稳态”架构决策，确认后执行 T5-bis，再迁移本文件中的自举门槛。
 
 **D1-fix v4 阶段性（已落 plan，等用户决策 v5）**：方案 D（hysteresis N=2 + ceiling 1.3）已实现并跑 1000 步（**2/5 PASS**——dialogue 0.8744 < 0.90 / knowledge 0.7937 < 0.90 / unfamiliar 0.8277 < 0.90 均 FAIL；但**LoRA 累积爆炸已解决**：v3 16.84→18.76 ↑ → v4 16.84→14.81 ↓）。v4 把 SKIP 路径压得过严，**k/u 反而比 v3 退步**。**v5 候选**（用户决策）：a) ceiling 拉到 1.5-1.8 给 SKIP 累积留空间；b) 略降 DECAY 0.9→0.85 让衰减更温和；c) hysteresis N=3 进一步抗噪声；d) 接受 v4 k/u 略改善，承认 LoRA 爆炸是优先修复项。
 

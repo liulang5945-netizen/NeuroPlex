@@ -106,4 +106,4 @@ causal_parent_ids, replay_count, consolidation_state
 
 ## 8. 当前唯一下一步
 
-Taiji-0 的 M1/T4 已通过：一次真实关联只写 cue-active cells，精确 cue 的 MSE 下降 100%，慢权重和无关细胞不变。下一步执行 M4/T5：顺序学习 20 个关联，验证最早 5 个保留率 ≥ 70%，同时报告槽占用、键干扰和 memory lesion；先区分规则遗忘与容量淘汰。旧 PlayEngine replay 修复继续暂停。
+M4/T5 的窄命题已通过：20 个顺序一次性关联的首四分位和总体保留率均为 100%，memory lesion 后为 0%，慢权重不变。但 `cell_0/cell_2` 各保存全部 20 份相同记忆，`cell_1` 完全未参与；这证明了快记忆留存，不证明群体分布式记忆。唯一下一步建议是在 cell 本地 priority 中加入跨 episode 持久的活动稳态痕迹，并执行 T5-bis，要求保留率不退过原门槛且三个细胞形成非重复参与；旧 PlayEngine replay 修复继续暂停。

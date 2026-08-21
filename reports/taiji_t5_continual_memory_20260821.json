@@ -1,0 +1,105 @@
+{
+  "association_count": 20,
+  "benchmark": "taiji_t5_continual_memory",
+  "checks": {
+    "first_quarter_retention": true,
+    "memory_lesion_causal": true,
+    "no_slot_overflow": true,
+    "overall_retention": true,
+    "slow_parameters_unchanged": true
+  },
+  "config": {
+    "activation_threshold": 0.0,
+    "active_budget": 2,
+    "apical_alpha": 0.2,
+    "axon_event_threshold": 0.01,
+    "cell_ids": [
+      "cell_0",
+      "cell_1",
+      "cell_2"
+    ],
+    "dendrite_alpha": 0.4,
+    "dendritic_branches": 4,
+    "energy_capacity": 1.0,
+    "energy_recovery": 0.08,
+    "error_decay": 0.3,
+    "event_dim": 32,
+    "fast_memory_slots": 32,
+    "field_context_decay": 0.985,
+    "field_context_write": 0.08,
+    "field_dim": 64,
+    "field_fast_decay": 0.55,
+    "field_inhibit_decay": 0.85,
+    "field_working_decay": 0.9,
+    "field_working_write": 0.45,
+    "field_write_scale": 0.5,
+    "firing_cost": 0.3,
+    "idle_state_decay": 0.08,
+    "max_field_norm": 8.0,
+    "max_output_norm": 2.0,
+    "max_state_norm": 4.0,
+    "memory_merge_threshold": 0.95,
+    "memory_recall_threshold": 0.6,
+    "memory_temperature": 12.0,
+    "minimum_firing_energy": 0.25,
+    "peer_event_scale": 0.35,
+    "phase_velocity": 0.35,
+    "prediction_decay": 0.2,
+    "priority_error_gain": 0.35,
+    "priority_event_gain": 1.0,
+    "priority_field_gain": 0.15,
+    "priority_goal_gain": 0.75,
+    "priority_memory_gain": 0.5,
+    "refractory_ticks": 1,
+    "seed": 20260821,
+    "soma_alpha": 0.35,
+    "state_dim": 48,
+    "threshold_adaptation": 0.08,
+    "threshold_base": 0.05,
+    "threshold_decay": 0.15
+  },
+  "diagnostics": {
+    "all_cells_participated": false,
+    "inactive_cell_ids": [
+      "cell_1"
+    ],
+    "population_specialization_observed": false
+  },
+  "first_quarter_count": 5,
+  "metrics": {
+    "activation_counts": {
+      "cell_0": 20,
+      "cell_1": 0,
+      "cell_2": 20
+    },
+    "first_quarter_retention": 1.0,
+    "identical_memory_pairs": [
+      [
+        "cell_0",
+        "cell_2"
+      ]
+    ],
+    "max_offdiag_cosine": {
+      "cell_0": 0.39452123641967773,
+      "cell_1": 0.0,
+      "cell_2": 0.39452123641967773
+    },
+    "mean_baseline_mse": 0.07030425108969211,
+    "mean_lesion_mse": 0.07030425108969211,
+    "mean_offdiag_cosine": {
+      "cell_0": -0.017918018624186516,
+      "cell_1": 0.0,
+      "cell_2": -0.017918018624186516
+    },
+    "mean_retained_mse": 4.84194229988244e-08,
+    "memory_lesion_retention": 0.0,
+    "occupancy": {
+      "cell_0": 20,
+      "cell_1": 0,
+      "cell_2": 20
+    },
+    "overall_retention": 1.0
+  },
+  "seed": 20260821,
+  "status": "pass"
+}
