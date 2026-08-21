@@ -1,9 +1,9 @@
 {
   "architecture": {
-    "active_learned_parameters": 62529,
-    "actual_learned_scalar_storage": 62529,
-    "avoided_dense_weight_scalars": 49712,
-    "checkpoint_format": "taiji-native-v5",
+    "active_learned_parameters": 64321,
+    "actual_learned_scalar_storage": 64321,
+    "avoided_dense_weight_scalars": 54320,
+    "checkpoint_format": "taiji-native-v6",
     "cortical_context_dim": 224,
     "default_config_storage_projection": {
       "dense_equivalent_edges": 183984,
@@ -11,8 +11,8 @@
       "learned_synapse_edges": 90696,
       "sparse_to_dense_synapse_byte_ratio": 0.985911818418993
     },
-    "dense_equivalent_learned_scalars": 112241,
-    "dense_synapse_weight_bytes": 447936,
+    "dense_equivalent_learned_scalars": 118641,
+    "dense_synapse_weight_bytes": 473536,
     "edge_weight_bytes": 249088,
     "episodic_write_count_in_passive_benchmark": 0,
     "fixed_receptor_edges": 224,
@@ -30,8 +30,8 @@
     "sensor": "raw-byte-one-hot",
     "sequence_window": null,
     "sparse_synapse_storage_bytes": 498176,
-    "sparse_to_dense_synapse_byte_ratio": 1.112158879839977,
-    "state_version": 4,
+    "sparse_to_dense_synapse_byte_ratio": 1.0520340586565753,
+    "state_version": 5,
     "synapse_storage": "fixed-fan-in-v1",
     "topology_index_bytes": 249088,
     "topology_index_scalars": 62272
@@ -58,24 +58,24 @@
   "metrics": {
     "after": {
       "accuracy": 0.9411764705882353,
-      "mean_surprise": 0.1090237167216644,
+      "mean_surprise": 0.10688665130637831,
       "observations": 17.0
     },
     "before": {
       "accuracy": 0.0,
-      "mean_surprise": 5.404065357862115,
+      "mean_surprise": 5.404138636898535,
       "observations": 17.0
     },
-    "changed_parameter_tensors": 6,
+    "changed_parameter_tensors": 8,
     "generated_hex": "6263646162636461",
     "generated_text": "bcdabcda",
-    "surprise_reduction": 0.9798256109980145,
+    "surprise_reduction": 0.9802213343350271,
     "training": {
-      "mean_surprise": 0.22649241880452722,
+      "mean_surprise": 0.22575558677060134,
       "observations": 3400.0,
       "online_accuracy": 0.9370588235294117
     },
-    "training_seconds": 2.9894925999979023
+    "training_seconds": 3.725191100005759
   },
   "seed": 7,
   "status": "pass"

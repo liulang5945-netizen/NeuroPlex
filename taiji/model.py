@@ -29,8 +29,8 @@ class Taiji:
     The class intentionally exposes no loss.backward() or optimizer contract.
     """
 
-    CHECKPOINT_FORMAT = "taiji-native-v5"
-    STATE_VERSION = 4
+    CHECKPOINT_FORMAT = "taiji-native-v6"
+    STATE_VERSION = 5
 
     def __init__(
         self,

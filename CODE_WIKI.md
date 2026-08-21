@@ -119,7 +119,7 @@ They never contain a NeuroPlex neuron, tokenizer, Transformer block, LM head, Lo
 - `scripts/training/verify_taiji_n8_delayed_trace.py` measures full, no-trace, trace-only and all-state delayed behavior.
 - `scripts/training/verify_taiji_n9_long_free_run.py` records every free-running tick and all state bounds.
 - `tests/taiji_native/test_sparse_kernel.py` compares fixed-fan-in forward, reciprocal projection and local update against a dense reference.
-- `scripts/training/verify_taiji_n10_sparse_migration.py` reruns N5–N9 and compares behavior with committed v2 evidence.
+- `scripts/training/verify_taiji_n10_sparse_migration.py` checks sparse operators against a dense reference and reruns N5–N9 as a behavior regression.
 - `tests/taiji_native/test_active_environment.py` checks pending-action atomicity and reward-learning causality.
 - `scripts/training/verify_taiji_n11_active_environment.py` compares learned, random and action-lesioned policies.
 - `tests/taiji_native/test_episodic_field.py` checks transactional writes, one-shot cross-episode recall, recurrent/read lesions, metadata and cortical feedback.

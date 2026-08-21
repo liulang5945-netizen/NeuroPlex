@@ -25,6 +25,9 @@ OUTCOMES = tuple(ord(value) for value in "+-!?")
 FILLER = ord(".")
 PROVENANCE = ("experienced", "imagined", "replayed", "external")
 
+# Mechanism-level decisions must be read off a seed panel, never one seed.
+SEED_PANEL = (11, 17, 23, 29, 37, 43, 53, 61, 71, 79, 89, 97)
+
 
 def _config(seed: int) -> TaijiConfig:
     return TaijiConfig(
@@ -413,13 +416,81 @@ def run_benchmark(*, seed: int = 29, cycles: int = 96) -> Dict[str, object]:
     }
 
 
+def run_panel(
+    *, seeds: Sequence[int] = SEED_PANEL, cycles: int = 96
+) -> Dict[str, object]:
+    """Aggregate the benchmark over a seed panel.
+
+    A single seed cannot separate a mechanism change from seed-specific
+    idiosyncrasy, so mechanism-level decisions must read this aggregate.
+    """
+
+    per_seed = []
+    for seed in seeds:
+        report = run_benchmark(seed=seed, cycles=cycles)
+        metrics = report["metrics"]
+        per_seed.append(
+            {
+                "seed": seed,
+                "status": report["status"],
+                "failed_checks": sorted(
+                    name for name, ok in report["checks"].items() if not ok
+                ),
+                "accuracy_gain_over_control": metrics[
+                    "accuracy_gain_over_control"
+                ],
+                "margin_gain_over_control": metrics["margin_gain_over_control"],
+                "full_replay_accuracy": metrics["full_replay"][
+                    "contingency_accuracy"
+                ],
+                "no_replay_control_accuracy": metrics["no_replay_control"][
+                    "contingency_accuracy"
+                ],
+            }
+        )
+
+    passing = sum(1 for row in per_seed if row["status"] == "pass")
+    mean_gain = sum(
+        float(row["accuracy_gain_over_control"]) for row in per_seed
+    ) / max(1, len(per_seed))
+    checks = {
+        "majority_of_seeds_pass": passing * 2 > len(per_seed),
+        "mean_accuracy_gain_is_positive": mean_gain > 0.0,
+        "no_seed_is_harmed_by_replay": all(
+            float(row["accuracy_gain_over_control"]) >= 0.0 for row in per_seed
+        ),
+    }
+    return {
+        "benchmark": "taiji-m6-endogenous-replay-panel",
+        "cycles": cycles,
+        "seeds": list(seeds),
+        "per_seed": per_seed,
+        "summary": {
+            "passing_seeds": passing,
+            "seed_count": len(per_seed),
+            "mean_accuracy_gain_over_control": mean_gain,
+        },
+        "checks": checks,
+        "status": "pass" if all(checks.values()) else "fail",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=29)
     parser.add_argument("--cycles", type=int, default=96)
+    parser.add_argument(
+        "--panel",
+        action="store_true",
+        help="aggregate over the seed panel instead of a single seed",
+    )
+    parser.add_argument("--seeds", type=int, nargs="*", default=list(SEED_PANEL))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    report = run_benchmark(seed=args.seed, cycles=args.cycles)
+    if args.panel:
+        report = run_panel(seeds=tuple(args.seeds), cycles=args.cycles)
+    else:
+        report = run_benchmark(seed=args.seed, cycles=args.cycles)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.output is not None:

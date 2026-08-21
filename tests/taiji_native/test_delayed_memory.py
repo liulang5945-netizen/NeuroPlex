@@ -18,7 +18,7 @@ def _intervene(model: Taiji, mode: str, index: int) -> None:
             region.prediction.zero_()
             region.error.zero_()
             region.threshold.fill_(model.config.threshold_base)
-            region.inhibition = 0.0
+            region.inhibition.zero_()
     model._state.motor_context.zero_()
 
 

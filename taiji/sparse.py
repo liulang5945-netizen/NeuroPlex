@@ -148,6 +148,40 @@ class SparseSynapses:
         self._bound_rows()
 
     @torch.no_grad()
+    def anti_hebbian_update(
+        self,
+        postsynaptic_activity: torch.Tensor,
+        *,
+        learning_rate: float,
+        baseline: float,
+    ) -> None:
+        """Decorrelate a recurrent bank from its own co-activation statistics.
+
+        Unlike ``local_update`` this carries no error signal: the target is not
+        a value to predict but a statistic to remove.  ``a_i * a_j - baseline``
+        is positive exactly for pairs that fire together more often than two
+        independent units of the same mean rate would, so those contacts grow
+        and mutually suppress; pairs below the baseline relax toward silence.
+        Weights are clamped non-negative because an inhibitory contact that
+        turned negative would become excitatory and invert the competition.
+        """
+
+        if postsynaptic_activity.shape != (self.out_features,):
+            raise ValueError("postsynaptic activity dimension mismatch")
+        if self.out_features != self.in_features:
+            raise ValueError("anti-Hebbian competition requires a recurrent bank")
+        activity = postsynaptic_activity.to(self.device)
+        self.edge_weight.add_(
+            float(learning_rate)
+            * (
+                activity.unsqueeze(1) * activity[self.pre_index]
+                - float(baseline)
+            )
+        )
+        self.edge_weight.clamp_(min=0.0)
+        self._bound_rows()
+
+    @torch.no_grad()
     def structural_update(
         self,
         postsynaptic_error: torch.Tensor,

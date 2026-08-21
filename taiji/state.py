@@ -16,7 +16,7 @@ class RegionState:
     prediction: torch.Tensor
     error: torch.Tensor
     threshold: torch.Tensor
-    inhibition: float
+    inhibition: torch.Tensor
 
     def clone(self) -> "RegionState":
         return RegionState(
@@ -26,7 +26,7 @@ class RegionState:
             prediction=self.prediction.detach().clone(),
             error=self.error.detach().clone(),
             threshold=self.threshold.detach().clone(),
-            inhibition=float(self.inhibition),
+            inhibition=self.inhibition.detach().clone(),
         )
 
     def to_payload(self) -> Dict[str, Any]:
@@ -38,7 +38,7 @@ class RegionState:
             "prediction": cloned.prediction.cpu(),
             "error": cloned.error.cpu(),
             "threshold": cloned.threshold.cpu(),
-            "inhibition": cloned.inhibition,
+            "inhibition": cloned.inhibition.cpu(),
         }
 
     @classmethod
@@ -52,7 +52,7 @@ class RegionState:
             prediction=payload["prediction"].detach().to(device).clone(),
             error=payload["error"].detach().to(device).clone(),
             threshold=payload["threshold"].detach().to(device).clone(),
-            inhibition=float(payload["inhibition"]),
+            inhibition=payload["inhibition"].detach().to(device).clone(),
         )
 
 

@@ -447,13 +447,15 @@ taiji/
 
 tests/taiji_native/
 ├── test_architecture_contract.py
+├── test_naming_boundary_contract.py
 ├── test_sequence_learning.py
 ├── test_context_memory.py
 ├── test_delayed_memory.py
 ├── test_long_free_run.py
 ├── test_sparse_kernel.py
 ├── test_active_environment.py
-└── test_episodic_field.py
+├── test_episodic_field.py
+└── test_endogenous_replay.py
 
 scripts/training/verify_taiji_native_v5.py
 scripts/training/verify_taiji_n7_context.py
@@ -462,6 +464,7 @@ scripts/training/verify_taiji_n9_long_free_run.py
 scripts/training/verify_taiji_n10_sparse_migration.py
 scripts/training/verify_taiji_n11_active_environment.py
 scripts/training/verify_taiji_m5_episodic_field.py
+scripts/training/verify_taiji_m6_endogenous_replay.py
 reports/taiji_native_v5_20260821.json
 reports/taiji_n7_context_20260821.json
 reports/taiji_n8_delayed_trace_20260821.json
@@ -469,6 +472,8 @@ reports/taiji_n9_long_free_run_20260821.json
 reports/taiji_n10_sparse_migration_20260821.json
 reports/taiji_n11_active_environment_20260821.json
 reports/taiji_m5_episodic_field_20260821.json
+reports/taiji_m6_endogenous_replay_20260821.json
+reports/taiji_m6_seed_panel_20260821.json
 ```
 
 顶层 `taiji` 不导入 `neuroplex`、`transformers` 或旧序列层。PyTorch 只承担 tensor 运算。
@@ -505,7 +510,7 @@ reports/taiji_m5_episodic_field_20260821.json
 | N7 | 相同当前 byte、不同历史能稳定预测不同后继 | PASS：完整状态 `100%`，一阶基线/全状态切除均 `50%` |
 | N8 | 跨干扰延迟后，慢 trace 对正确动作具有独立因果贡献 | PASS：完整/trace-only `100%`，no-trace/全状态切除/一阶基线 `50%` |
 | N9 | 长程自由生成不塌缩、不漂移 | PASS：无终点循环 128/128 正确、无非法动作、全部状态有界 |
-| N10 | masked dense 区域改为真实 sparse/event kernel 后仍保持结果 | PASS：算子误差 ≤ `2.98e-8`，N5–N9 与 v2 参考一致 |
+| N10 | masked dense 区域改为真实 sparse/event kernel 后仍保持结果 | PASS：算子误差 ≤ `2.98e-8`，dense 算子参考一致且 N5–N9 全部回归通过 |
 | N11 | 在动作会改变后续感觉的环境中在线学习 | PASS：末 40 次 `100%`，随机 `50%`，action-lesion `57.5%` |
 | M5 | 跨 episode 分布式情景回忆优于同宽 trace，并通过循环/读取切除 | PASS：action `87.5%` vs trace/recurrent lesion `25%`；outcome/provenance `100%` |
 

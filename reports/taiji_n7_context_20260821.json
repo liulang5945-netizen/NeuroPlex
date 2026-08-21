@@ -50,15 +50,15 @@
   },
   "epochs": 200,
   "metrics": {
-    "fast_activity_centroid_cosine": 0.909030556678772,
+    "fast_activity_centroid_cosine": 0.9044016003608704,
     "first_order_accuracy": 0.5,
     "full_accuracy": 1.0,
     "gain_over_strongest_causal_control": 0.5,
-    "motor_context_centroid_cosine": 0.9371854662895203,
-    "slow_trace_centroid_cosine": 0.9549409747123718,
+    "motor_context_centroid_cosine": 0.9366028904914856,
+    "slow_trace_centroid_cosine": 0.9537512063980103,
     "state_lesion_accuracy": 0.5,
     "trace_lesion_accuracy": 1.0,
-    "trace_lesion_motor_context_centroid_cosine": 0.9657292366027832
+    "trace_lesion_motor_context_centroid_cosine": 0.9672263264656067
   },
   "seed": 7,
   "status": "pass",

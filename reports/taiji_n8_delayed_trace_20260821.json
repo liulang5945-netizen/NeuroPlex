@@ -14,9 +14,9 @@
     "first_order_accuracy": 0.5,
     "full_accuracy": 1.0,
     "no_trace_accuracy": 0.5,
-    "post_probe_motor_context_centroid_cosine": 0.9877109527587891,
-    "pre_probe_fast_centroid_cosine": 0.9797650575637817,
-    "pre_probe_trace_centroid_cosine": 0.9019739627838135,
+    "post_probe_motor_context_centroid_cosine": 0.9876034259796143,
+    "pre_probe_fast_centroid_cosine": 0.9792912006378174,
+    "pre_probe_trace_centroid_cosine": 0.9020682573318481,
     "trace_necessity_gap": 0.5,
     "trace_only_accuracy": 1.0,
     "trace_sufficiency_gap": 0.5

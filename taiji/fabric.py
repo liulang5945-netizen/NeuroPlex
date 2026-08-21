@@ -56,6 +56,38 @@ class TaijiFabric:
             )
             for region_size in config.region_sizes
         )
+        # Lateral competition, one bank per region.  Its topology must not be
+        # drawn from the shared generator: every downstream organ (motor, and
+        # the forked memory stream) consumes the same sequence, so borrowing
+        # draws here would silently shift their initial wiring.  A dedicated
+        # offset stream keeps the lateral bank independent and reproducible.
+        lateral_rng = torch.Generator(device="cpu")
+        lateral_rng.manual_seed(config.seed + config.lateral_seed_offset)
+        self.laterals = tuple(
+            SparseSynapses(
+                region_size,
+                region_size,
+                config.lateral_fan_in,
+                generator=lateral_rng,
+                init_scale=config.weight_init_scale,
+                # A row of ones -- the uniform baseline below -- already has
+                # norm sqrt(fan_in), so the bound is scaled with it.  The
+                # headroom is what lets a single pair grow past the baseline.
+                max_weight_norm=config.max_weight_norm
+                * float(min(config.lateral_fan_in, region_size)) ** 0.5,
+                device=self.device,
+                allow_self=False,
+            )
+            for region_size in config.region_sizes
+        )
+        for lateral in self.laterals:
+            # The old global law is not a second path that coexists with this
+            # one; it is this bank's degenerate solution.  At W = 1 the mean
+            # over a uniformly sampled neighbourhood is an unbiased estimate of
+            # ``positive_drive.mean()``, so starting from ones reproduces the
+            # tuned scalar dynamics and lets learning depart from it, rather
+            # than throwing the working set point away for a random one.
+            lateral.edge_weight.fill_(1.0)
         # Audit counter only: how many contacts the substrate has rewired.  It
         # describes the run, not the network, so it stays out of the payload.
         self.structural_events = 0
@@ -74,7 +106,7 @@ class TaijiFabric:
                 threshold=torch.full(
                     (region_size,), self.config.threshold_base, device=self.device
                 ),
-                inhibition=0.0,
+                inhibition=zero.clone(),
             ))
         return tuple(states)
 
@@ -148,14 +180,37 @@ class TaijiFabric:
                 self.config.max_membrane_norm,
             )
             positive_drive = torch.relu(membrane - old.threshold)
+            # Per-unit competition, not a master volume knob.  The old law
+            # subtracted ``inhibition_gain * positive_drive.mean()`` from every
+            # unit equally: it sharpens the threshold globally but by
+            # construction cannot single out a unit for responding to
+            # *everything*, and that promiscuity is precisely what carries the
+            # rank-1 common mode -- measured at 28.5-35.0% of write energy
+            # against the 1/k = 25% orthogonal floor for four actions.
+            #
+            # A learned lateral bank can.  ``lateral.forward`` divided by the
+            # neighbourhood size is a per-unit weighted mean of the drive
+            # reaching that unit's competitors, so with all weights at 1.0 it is
+            # an unbiased estimate of the global mean and this expression
+            # reduces to the tuned law above; anti-Hebbian learning then departs
+            # from it, growing exactly the contacts between units that fire
+            # together across actions.  Judging "co-active with the others"
+            # requires *storing* that statistic, which is why no parameter-free
+            # per-tick rule (kWTA, subtract-the-runner-up, local normalization)
+            # can do it: while writing one action they cannot see the other
+            # three, and a promiscuous unit ranks top-k under every one of them.
+            lateral = self.laterals[index]
+            competition = lateral.forward(positive_drive) / float(
+                max(1, lateral.row_fan_in)
+            )
             inhibition = (
                 self.config.inhibition_decay * old.inhibition
                 + (1.0 - self.config.inhibition_decay)
                 * self.config.inhibition_gain
-                * float(positive_drive.mean().item())
+                * competition
             )
             activity = torch.tanh(torch.relu(
-                membrane - old.threshold - float(inhibition)
+                membrane - old.threshold - inhibition
             ))
             active_indicator = (activity > 1e-6).to(activity.dtype)
             # Homeostasis is an integrator over the input a region actually
@@ -248,6 +303,20 @@ class TaijiFabric:
                     * learn_scale,
                     weight_decay=decay,
                 )
+                # The competition is calibrated on the activity it produced, so
+                # the baseline is this tick's own mean rate squared: that is the
+                # co-activation two independent units of this rate would show,
+                # and subtracting it is what makes the rule sensitive to
+                # *correlation* rather than to overall firing.  Without it every
+                # contact in an active region would grow and the bank would
+                # collapse back into a global gain -- the very thing it
+                # replaces.  The zero-mean form mirrors the replay fatigue term.
+                mean_rate = float(activity.mean().item())
+                lateral.anti_hebbian_update(
+                    activity,
+                    learning_rate=self.config.lateral_learning_rate * learn_scale,
+                    baseline=mean_rate * mean_rate,
+                )
 
             next_states.append(RegionState(
                 membrane=membrane,
@@ -256,7 +325,7 @@ class TaijiFabric:
                 prediction=lower_prediction,
                 error=lower_error,
                 threshold=threshold,
-                inhibition=float(inhibition),
+                inhibition=inhibition,
             ))
             activity_rates.append(float(active_indicator.mean().item()))
             error_norms.append(float(lower_error.norm().item()))
@@ -285,7 +354,7 @@ class TaijiFabric:
                 prediction=torch.zeros_like(region.prediction),
                 error=torch.zeros_like(region.error),
                 threshold=region.threshold.detach().clone(),
-                inhibition=0.0,
+                inhibition=torch.zeros_like(region.inhibition),
             )
             for region in regions
         )
@@ -302,6 +371,7 @@ class TaijiFabric:
         return {
             "decoders": [decoder.to_payload() for decoder in self.decoders],
             "transitions": [transition.to_payload() for transition in self.transitions],
+            "laterals": [lateral.to_payload() for lateral in self.laterals],
         }
 
     def load_payload(self, payload: Mapping[str, Any]) -> None:
@@ -309,25 +379,29 @@ class TaijiFabric:
             raise ValueError("decoder count does not match architecture")
         if len(payload["transitions"]) != len(self.transitions):
             raise ValueError("transition count does not match architecture")
+        if len(payload["laterals"]) != len(self.laterals):
+            raise ValueError("lateral count does not match architecture")
         for synapses, state in zip(self.decoders, payload["decoders"]):
             synapses.load_payload(state)
         for synapses, state in zip(self.transitions, payload["transitions"]):
+            synapses.load_payload(state)
+        for synapses, state in zip(self.laterals, payload["laterals"]):
             synapses.load_payload(state)
 
     def parameter_tensors(self) -> Tuple[torch.Tensor, ...]:
         return tuple(
             synapses.edge_weight
-            for synapses in (*self.decoders, *self.transitions)
+            for synapses in (*self.decoders, *self.transitions, *self.laterals)
         )
 
     def active_edge_count(self) -> int:
         return sum(
             synapses.edge_count
-            for synapses in (*self.decoders, *self.transitions)
+            for synapses in (*self.decoders, *self.transitions, *self.laterals)
         )
 
     def dense_equivalent_edge_count(self) -> int:
         return sum(
             synapses.dense_equivalent_count
-            for synapses in (*self.decoders, *self.transitions)
+            for synapses in (*self.decoders, *self.transitions, *self.laterals)
         )

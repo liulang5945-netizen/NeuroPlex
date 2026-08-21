@@ -31,6 +31,9 @@ class TaijiConfig:
     trace_decay: float = 0.82
     inhibition_decay: float = 0.80
     inhibition_gain: float = 0.55
+    lateral_fan_in: int = 16
+    lateral_learning_rate: float = 0.02
+    lateral_seed_offset: int = 977
     bottom_up_gain: float = 1.00
     recurrent_gain: float = 0.55
     top_down_gain: float = 0.30
@@ -89,8 +92,14 @@ class TaijiConfig:
             self.synapse_fan_in <= 0
             or self.motor_fan_in <= 0
             or self.memory_fan_in <= 0
+            or self.lateral_fan_in <= 0
         ):
             raise ValueError("fan-in values must be positive")
+        if self.lateral_seed_offset <= 0:
+            raise ValueError(
+                "lateral_seed_offset must be positive so the lateral bank draws "
+                "from a stream distinct from the feedforward projections"
+            )
         if self.motor_fan_in > 2 * sum(self.region_sizes):
             raise ValueError(
                 "motor_fan_in cannot exceed the available cortical state"
@@ -119,8 +128,10 @@ class TaijiConfig:
             raise ValueError("threshold_min must be smaller than threshold_max")
         for name in (
             "homeostasis_rate",
+            "inhibition_gain",
             "predictive_learning_rate",
             "transition_learning_rate",
+            "lateral_learning_rate",
             "motor_learning_rate",
             "bias_learning_rate",
             "episodic_learning_rate",

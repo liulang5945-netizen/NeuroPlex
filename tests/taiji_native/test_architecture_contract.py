@@ -91,6 +91,7 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
     synapses = (
         *model.fabric.decoders,
         *model.fabric.transitions,
+        *model.fabric.laterals,
         model.motor.synapses,
         model.memory.cue_encoder,
         model.memory.action_encoder,

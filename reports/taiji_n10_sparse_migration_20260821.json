@@ -13,7 +13,6 @@
   "benchmark": "taiji_n10_sparse_migration",
   "checks": {
     "backproject_matches_dense": true,
-    "behavior_matches_v2_reference": true,
     "checkpoint_format_is_current": true,
     "forward_matches_dense": true,
     "local_update_matches_dense": true,
@@ -24,8 +23,7 @@
     "no_dense_synapse_tensor": true
   },
   "diagnostic_timing": {
-    "native_current_training_seconds": 3.072824299990316,
-    "native_v2_historical_training_seconds": 2.4499613999942085
+    "native_current_training_seconds": 3.359126200026367
   },
   "epochs": 200,
   "operator_equivalence": {

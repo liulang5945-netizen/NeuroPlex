@@ -27,9 +27,9 @@
     "generated_head": "bcdabcdabcdabcdabcdabcdabcdabcda",
     "generated_tail": "bcdabcdabcdabcdabcdabcdabcdabcda",
     "invalid_actions": 0,
-    "max_membrane_norm": 0.875015914440155,
-    "max_trace_norm": 0.19787047803401947,
-    "threshold_max": 0.40099966526031494,
+    "max_membrane_norm": 0.8792107105255127,
+    "max_trace_norm": 0.199033722281456,
+    "threshold_max": 0.40639960765838623,
     "threshold_min": -0.08080001920461655
   },
   "prompt": "a",
