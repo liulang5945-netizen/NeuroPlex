@@ -417,7 +417,15 @@ def main():
                 f"b) 进一步收紧 DECAY (0.85→0.80) 让被允许累积衰减更快；"
                 f"c) hysteresis N 2→1（既然 v5 ceiling 已经够宽，不再需要抗噪）"
             )
-        elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO <= 1.7 and 0.875 <= DECAY < 0.92:
+        elif HYSTERESIS_N >= 2 and 1.69 <= CEILING_RATIO <= 1.71 and DECAY < 0.88:
+            next_msg = (
+                f"D1-fix v7-H (hysteresis N={HYSTERESIS_N} + ceiling "
+                f"{CEILING_RATIO} + DECAY={DECAY}) 仍 FAIL——"
+                f"考虑：a) ceiling 1.7→1.8 进一步放宽；"
+                f"b) 接受 v5 (3/5 PASS, dialogue 0.9127);"
+                f"c) 重置到 v3 + 加 ceiling 1.5 (k=0.84/u=0.79 基准)"
+            )
+        elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7 and 0.875 <= DECAY < 0.92:
             next_msg = (
                 f"D1-fix v6-F (hysteresis N={HYSTERESIS_N} + ceiling "
                 f"{CEILING_RATIO} + DECAY={DECAY}) 仍 FAIL——"
@@ -476,11 +484,17 @@ def main():
     if HYSTERESIS_N >= 2 and CEILING_RATIO < 1.5 and DECAY >= 0.88:
         out_path = (f"reports/play_engine_d1_fix_v4_hysteresis_ceiling_"
                     f"{today}.json")
-    elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO <= 1.7 and DECAY < 0.88:
+    # v5 path - 1.5<=CEILING<1.7, DECAY<0.88 (tightened: exclude v7 ceiling 1.7)
+    elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7 and DECAY < 0.88:
         out_path = (f"reports/play_engine_d1_fix_v5_ceiling16_decay85_"
                     f"{today}.json")
-    elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO <= 1.7 and 0.875 <= DECAY < 0.92:
+    # v6 path - 1.5<=CEILING<1.7, 0.875<=DECAY<0.92 (tightened: exclude v7 ceiling 1.7)
+    elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7 and 0.875 <= DECAY < 0.92:
         out_path = (f"reports/play_engine_d1_fix_v6_ceiling16_decay88_"
+                    f"{today}.json")
+    # v7 path - CEILING==1.7, DECAY<0.88 (H plan: ceiling 1.7 + DECAY 0.85)
+    elif HYSTERESIS_N >= 2 and 1.69 <= CEILING_RATIO <= 1.71 and DECAY < 0.88:
+        out_path = (f"reports/play_engine_d1_fix_v7_ceiling17_decay85_"
                     f"{today}.json")
     elif JUDGE_DRIVEN_DECAY:
         out_path = (f"reports/play_engine_d1_fix_judge_driven_decay_"

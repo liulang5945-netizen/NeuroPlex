@@ -4,7 +4,7 @@
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 >
-> **🆕 2026-08-21：D1-fix v5（3/5 PASS, dialogue 0.9127 首次过门槛）落地 + v6 方案 F 验证（2/5 PASS，退步）**。v5 dialogue 0.9127 仍为 D 系列最佳单维度；v6 (DECAY 0.85→0.88) 假设"DIA 更温和"反向证伪：DECAY 放松反而压低 dialogue/k/u 三组 std。**v5 是当前 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优)、D1-fix v6 2/5。
+> **🆕 2026-08-21：D1-fix v7 方案 H（ceiling 1.7 + DECAY 0.85）跑完 1000 步（2/5 PASS，24.6 min）**。v7 三组 std ratio 与 v5 **完全相同**（0.9127/0.8388/0.7871）、LoRA 终值同为 11.84、0 崩溃——**H 假设"ceiling 放宽补 u 短板"反向证伪**：当前 1000 步 LoRA 峰值 15.90 / baseline 0，ceiling 1.6/1.7 在 1000 步内**均未触发**（绝对 LoRA 值远低于"baseline×ratio"门）。v5 与 v7 数值等价；**v5 仍是 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优) / D1-fix v6 2/5 / D1-fix v7 2/5（与 v5 等价）。
 
 ## 1. 架构决策
 
@@ -291,22 +291,48 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ---
 
+**D1-fix v7（方案 H 验证）：2/5 PASS — ceiling 1.6→1.7 在 1000 步内未触发，与 v5 数值完全等价**
+
+- **实现**：env 改 `D1_CEILING_RATIO=1.6` → `1.7`（v7-H 假设"ceiling 放宽补 u 短板"）；`D1_DECAY=0.85` / `D1_HYSTERESIS_N=2` 与 v5 完全一致
+- **1000 步**（2/5 PASS = v5，**24.6 min** ✅）：dialogue 0.9127 ✅ = v5；knowledge 0.8388 ❌ = v5；unfamiliar 0.7871 ❌ = v5；0 崩溃 ✅ = v5
+- **LoRA 轨迹**：v5 11.84 / v6 13.49 / **v7 11.84**（v7 终值与 v5 字面相同），peak LoRA 15.90（step 100）→ 终值 11.84
+- **v7 与 v5 关键对比**：
+  - dialogue：v7 0.9127 = v5 0.9127（**字面一致**）
+  - knowledge：v7 0.8388 = v5 0.8388（**字面一致**）
+  - unfamiliar：v7 0.7871 = v5 0.7871（**字面一致**）
+  - 终值 LoRA：v7 11.84 = v5 11.84（**字面一致**）
+  - 耗时：v7 24.6 min < v5 30.0 min（**更快**——随机种子或分页缓存微差）
+- **H 假设反向证伪**："ceiling 1.6→1.7 给 u 短板"假设未生效——`baseline=0`（pre_lora_l2=0.0）时 ceiling 表达"LoRA / baseline"倍率无意义，ceiling 1.6 与 1.7 在 1000 步内**均未被 SKIP 触发**。v7 与 v5 数值完全等价。
+- **诊断**：长程稳定性上限被 baseline=0 拉低（ceiling 这条路在 1000 步内不可触发）；k/u 的 trade-off 是"v5 DECAY 0.85 衰减强度"决定的，与 ceiling 无关。**核心机制仍是"压平"——v5 与 v7 等价**
+- 代码：`scripts/training/verify_play_engine_d1_long_run.py` 报告路径分支：v5/v6 收紧为 `CEILING_RATIO<1.7`（排除 v7），新增 v7 path（1.69≤CEILING_RATIO≤1.71 + DECAY<0.88）+ v7 next_step
+- 报告：`reports/play_engine_d1_fix_v7_ceiling17_decay85_20260821.json`（elapsed=1476.7s, switches=13, epsilon_used=3, force_used=2, crash=0）
+
+---
+
 D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per_sleep=0.9` 在长程下让衰减压过训练。D1-fix v5 在 v4 安全栏基础上把 dialogue 推到 0.9127（首次超过原 D1 0.9108），但 k/u 的 trade-off（衰减强 → 基数小组受影响大）仍存在。**v6 反向证伪**了"DECAY 放松对 u 温和"假设——D1 的核心机制仍是"压平"（v5 11.84 < v6 13.49 = v4 14.81），v5 是当前 D 系列最优。**v7 方向（用户决策）**：
 
 | v7 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
 |---|---|---|---|---|---|
-| **H. ceiling 1.6→1.7 + DECAY 0.85 保留** | 微调天花板补 u 短板，不动 v5 衰减强度 | 中——ceiling 1.7 给 SKIP 累积略多空间 | 低——单一参数 +0.1 | 高——保留 v5 dialogue 改善 + 微补 u | **★★★** |
+| **H. ceiling 1.6→1.7 + DECAY 0.85 保留** | 微调天花板补 u 短板，不动 v5 衰减强度 | 中——ceiling 1.7 给 SKIP 累积略多空间 | 低——单一参数 +0.1 | 高——保留 v5 dialogue 改善 + 微补 u | **★★★（已被 v7 跑反证伪）** |
 | **I. ceiling 1.6 不变 + DECAY 0.85→0.83** | 比 v5 更狠衰减，看 k/u 是否被继续压平 | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★ |
 | **J. 接受 v5** | dialogue 已过门槛（**首次 D 系列有维度 PASS**），k/u 留 D2 长程 | — | k/u 仍 FAIL | — | ★★ |
 
-**当前推荐**：方案 **H（ceiling 1.7 + DECAY 0.85）**——保留 v5 DECAY 0.85（核心机制是压平，v6 已证伪放松方向），仅 ceiling 1.6→1.7 微调给 SKIP 累积略多空间补 u 短板。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
+**v7 实际结果反向证伪 H**：ceiling 1.6→1.7 与 v5 数值字面完全等价（0.9127/0.8388/0.7871 + LoRA 11.84）——H 假设不成立。**v8 方向（用户决策）**：
+
+| v8 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
+|---|---|---|---|---|---|
+| **K. ceiling 1.6→2.0 + DECAY 0.85 保留** | 拉大 ceiling 到 2.0 越过 SKIP 触发门槛，验证"绝对 LoRA 值是否被 ceiling 截断" | 强——若 peak LoRA 15.9 触发，u 改善应明显 | 中——放宽天花板 risk | 高——真正测试 ceiling 机制 | **★★★**（验证 ceiling 是否有效） |
+| **L. ceiling 1.6 不变 + DECAY 0.85→0.83** | 沿 v7 跑前 I 方案（更狠衰减） | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★★ |
+| **M. 接受 v5** | dialogue 已过门槛（**首次 D 系列有维度 PASS**），k/u 留 D2 长程 | — | k/u 仍 FAIL | — | ★★ |
+
+**当前推荐**：方案 **K（ceiling 2.0 + DECAY 0.85 保留）**——v7 已证伪"ceiling 1.7 微调"路径，需要把 ceiling 拉到 2.0 越过 SKIP 触发门槛才能真正测试 ceiling 机制（v7 1000 步 peak LoRA 15.90 = baseline×1.0，ceiling 1.6/1.7 都未触发；ceiling 2.0 才可能接住 15.90 上方累积）。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 25 min ≈ 30 min。
 
 **v5 历史观察**：
 - **首次 D 系列维度过门槛**：v5 dialogue 0.9127 > 0.90（v1=0.9108、v2=?、v3=0.8679、v4=0.8744、v5=0.9127）——v5 是首次 dialogue PASS
 - **k 组接近 v3**：v5 0.8388 vs v3 0.8437 差 0.005
 - **u 组是长程稳定性最敏感的**：pre std 基数 0.62（vs dialogue 0.57、knowledge 1.03），同比例衰减下相对损失最大
 
-**v5 唯一下一步推荐**：方案 **H（ceiling 1.7 + DECAY 0.85）**——保留 v5 DECAY 0.85（核心机制是压平，v6 已证伪放松方向），仅 ceiling 1.6→1.7 微调给 SKIP 累积略多空间补 u 短板。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 30 min ≈ 35 min。
+**v7 唯一下一步推荐**：方案 **K（ceiling 2.0 + DECAY 0.85）**——v7 已证伪"ceiling 1.7 微调"路径，ceiling 必须拉到 2.0 越过 peak LoRA 15.90 才会触发 SKIP 真正起作用。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 25 min ≈ 30 min。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 
