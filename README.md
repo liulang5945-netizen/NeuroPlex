@@ -85,6 +85,7 @@ The complete tensor shapes, update order, state contract, complexity, and code m
 python -m pip install -e ".[dev]"
 python scripts/training/verify_taiji_native_v2.py
 python scripts/training/verify_taiji_n7_context.py
+python scripts/training/verify_taiji_n8_delayed_trace.py
 python -m pytest tests/taiji_native -q
 ```
 
@@ -119,9 +120,11 @@ The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 | free generation | `a → bcdabcda` (all eight steps correct) |
 | checkpoint exact-next-step | pass |
 
-On the N7 ambiguous stream, full Taiji predicts all eight history-dependent `x → b/d` successors correctly. A first-order model and a full dynamic-state lesion both score 50%. A trace-only lesion remains at 100%, so N7 proves short persistent context but does not yet prove slow-trace or long-term field memory.
+On the N7 ambiguous stream, full Taiji predicts all eight history-dependent `x → b/d` successors correctly. A first-order model and a full dynamic-state lesion both score 50%. N7's trace-only lesion remains at 100%, showing that its immediate history can live in fast state.
 
-Reports: [Native v2](reports/taiji_native_v2_20260821.json) and [N7 context](reports/taiji_n7_context_20260821.json).
+N8 inserts the shared distractors `1234` between cue and probe. Full and trace-only states score 100%; removing trace or all dynamic state scores 50%. This establishes that slow trace is necessary and sufficient for this fixed-delay behavior, but it is not yet evidence of episodic or autobiographical memory.
+
+Reports: [Native v2](reports/taiji_native_v2_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), and [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json).
 
 ## Source layout
 
@@ -137,6 +140,7 @@ taiji/
 tests/taiji_native/                 native architecture contracts
 scripts/training/verify_taiji_native_v2.py
 scripts/training/verify_taiji_n7_context.py
+scripts/training/verify_taiji_n8_delayed_trace.py
 plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md
 ```
 
@@ -154,7 +158,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The next gate is N8: a cue must still control the correct action after a shared distractor sequence, and clearing the slow trace must remove that advantage. The project does not add episodic memory, scale parameters, or download larger text data until the slow-state contribution is demonstrated causally.
+The next gate is N9: after one prompt, the motor must feed back its own actions for 128 steps without teacher forcing, sequence drift, or a state-bound violation. Training epochs and architecture size remain fixed.
 
 ## License
 

@@ -26,9 +26,10 @@ ByteSensor
 | `taiji/organs.py` | raw-byte 感觉器官、全坐标覆盖的稀疏感受器组、唯一 byte 运动器官 | ✅ |
 | `taiji/fabric.py` | 分层预测误差、递归状态、抑制、稳态与区域局部学习 | ✅ |
 | `taiji/model.py` | observe、learn、score、generate、Native v2 checkpoint | ✅ |
-| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5/N6/N7 | ✅ 9 passed |
+| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5/N6/N7/N8 | ✅ 10 passed |
 | `verify_taiji_native_v2.py` | 独立端到端基准 | ✅ PASS |
 | `verify_taiji_n7_context.py` | 二阶歧义与因果切除基准 | ✅ PASS |
+| `verify_taiji_n8_delayed_trace.py` | 共同干扰后的 slow-trace 必要性/充分性 | ✅ PASS |
 
 ## 3. Native v2 实测
 
@@ -56,9 +57,11 @@ N7 流 `axbcxd × 4` 中，当前符号同为 `x`，历史分别要求后继 `b`
 | 每 tick 清空全部动态状态 | 50% |
 | 只清空 slow trace | 100% |
 
-结论只到这里：持久动态状态已具有二阶上下文能力，但 N7 的短间隔主要由 membrane/activity 承担，尚未证明 slow trace 或长期场记忆的独立因果作用。
+N7 单独能成立的结论是：持久动态状态已具有二阶上下文能力，但短间隔主要由 membrane/activity 承担，N7 本身没有证明 slow trace。
 
-报告：`reports/taiji_native_v2_20260821.json`、`reports/taiji_n7_context_20260821.json`。
+N8 在线索与 probe 之间加入共同干扰 `1234`：完整状态与 trace-only 均为 100%，在 probe 前清零 trace 或清零全部动态状态均为 50%。这证明 slow trace 对该固定延迟任务既必要又足够；它仍不是可检索情景记忆。
+
+报告：`reports/taiji_native_v2_20260821.json`、`reports/taiji_n7_context_20260821.json`、`reports/taiji_n8_delayed_trace_20260821.json`。
 
 ## 4. 本轮删除的错误机制
 
@@ -69,14 +72,14 @@ Native v2 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 ## 5. 当前限制
 
 - 当前只证明小型 byte 流学习和短程二阶上下文，不代表语言理解；
-- slow trace 尚无独立因果实证，更没有可检索情景/自传记忆；
+- slow trace 已在固定四字符干扰任务取得因果实证，但没有可检索情景/自传记忆；
 - PyTorch 区域矩阵仍以 masked dense tensor 执行，active edge 数不等于真实 FLOPs；
 - 尚无内部想象、奖励调制、睡眠巩固、多感官器官和真实环境行动学习；
 - 现有 5 个 dialogue + 4 个 general Transformer 成员只作为冻结离线基线，不进入 Taiji forward。
 
 ## 6. 当前唯一下一步
 
-执行 **N8 延迟上下文/trace 因果反证**：在线索与共同 probe 之间插入相同干扰序列，预先固定 delay 与通过线；比较完整状态、trace-only lesion、全状态 lesion 和一阶基线。目标不是再提高 N5，而是判断 slow trace 是否在快 activity 被干扰后仍承担可用历史。如果失败，只根据状态轨迹修正时间尺度或局部信用分配，不扩大区域、epoch 或数据。
+执行 **N9 长程自由运行稳定性反证**：沿用 Native v2 固定配置与 N5 数据，只输入一次 prompt，随后生成 128 步并逐位置比较期望循环；同时断言所有 membrane/trace 仍在架构上界内。预先固定通过线，不增加训练轮数或规模。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

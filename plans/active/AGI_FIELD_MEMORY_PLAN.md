@@ -18,15 +18,16 @@
 
 `TaijiState` 原子保存所有快状态；Native v2 checkpoint 同时保存慢突触、结构 mask、感受器 channel/polarity、motor context、概率和 RNG。当前没有单独的“场记忆控制器”：区域膜状态、activity 与 trace 组成分布式工作场。
 
-## 2. N7 已证明和未证明的边界
+## 2. N7/N8 已证明和未证明的边界
 
 二阶流 `axbcxd × 4` 中，相同 `x` 必须按历史产生 `b` 或 `d`。完整系统为 100%，全动态状态逐 tick 切除后为 50%，一阶基线也是 50%。这证明**有限持久状态参与了上下文条件化**。
 
-但只清空 `trace` 后仍为 100%。因此 N7 没有证明慢 trace 是因果载体；短间隔线索仍可停留在 membrane/activity。不能把 N7 结果扩大解释为长期场记忆、情景记忆或人脑式工作空间。
+N7 只清空 `trace` 后仍为 100%，说明短间隔线索可停留在 membrane/activity。N8 将线索与 probe 隔开共同干扰 `1234`：完整状态 100%，清零 trace 50%，只保留 trace 100%，全状态切除 50%。因此 slow trace 对这一固定延迟行为既必要又足够。
+
+这个结论仍不能扩大为长期场记忆、情景记忆或人脑式工作空间：N8 没有跨 episode 检索、容量竞争、来源标记或巩固。
 
 ## 3. 明确未实现
 
-- 跨干扰延迟仍可读出的慢状态；
 - 可检索情景记忆与 autobiographical timeline；
 - imagined/replay provenance；
 - 睡眠巩固；
@@ -43,10 +44,10 @@
 | M1 | 慢突触在线局部变化，无 optimizer | PASS |
 | M2 | checkpoint 保持下一 tick 与下一次学习完全一致 | PASS |
 | M3 | 相同当前输入可因不同完整动态状态产生不同正确后继 | PASS（N7：100% vs 50%） |
-| M4 | 快状态被共同干扰后，trace lesion 显著破坏延迟任务 | 未验收（N7 trace lesion 无影响） |
+| M4 | 快状态被共同干扰后，trace lesion 显著破坏延迟任务 | PASS（N8：100% vs 50%；trace-only 100%） |
 | M5 | 情景记忆优于等容量 trace-only 对照 | 未实现 |
 | M6 | replay 巩固后清除情景缓存仍保留能力 | 未实现 |
 
 ## 5. 当前唯一下一步
 
-执行 N8/M4 延迟上下文任务，明确分离 activity/membrane 与 trace 的因果贡献。只有 M4 通过后，才设计可检索情景记忆；否则先修当前状态时间尺度或局部信用分配。
+M4 已闭合当前工作场的最小因果链。项目当前先执行 N9 长程自由运行稳定性，确认该状态—动作闭环不会随自反馈迅速漂移；随后才进入 M5 原生情景记忆设计，避免把不稳定的短程动力学封装进新记忆层。

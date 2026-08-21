@@ -341,12 +341,15 @@ taiji/
 tests/taiji_native/
 ├── test_architecture_contract.py
 ├── test_sequence_learning.py
-└── test_context_memory.py
+├── test_context_memory.py
+└── test_delayed_memory.py
 
 scripts/training/verify_taiji_native_v2.py
 scripts/training/verify_taiji_n7_context.py
+scripts/training/verify_taiji_n8_delayed_trace.py
 reports/taiji_native_v2_20260821.json
 reports/taiji_n7_context_20260821.json
+reports/taiji_n8_delayed_trace_20260821.json
 ```
 
 顶层 `taiji` 不导入 `neuroplex`、`transformers` 或旧序列层。PyTorch 只承担 tensor 运算。
@@ -380,13 +383,13 @@ reports/taiji_n7_context_20260821.json
 | N5 | 19,521 active parameters 在线学习 byte cycle | PASS：accuracy `0 → 94.12%`，surprise 下降 `97.98%` |
 | N6 | 自由生成真正回灌自身动作 | PASS：`a → bcdabcda`，8 步全部正确 |
 | N7 | 相同当前 byte、不同历史能稳定预测不同后继 | PASS：完整状态 `100%`，一阶基线/全状态切除均 `50%` |
-| N8 | 跨干扰延迟后，慢 trace 对正确动作具有独立因果贡献 | 未验收；N7 的 trace-only lesion 仍为 `100%` |
+| N8 | 跨干扰延迟后，慢 trace 对正确动作具有独立因果贡献 | PASS：完整/trace-only `100%`，no-trace/全状态切除/一阶基线 `50%` |
 | N9 | 长程自由生成不塌缩、不漂移 | 未验收 |
 | N10 | masked dense 区域改为真实 sparse/event kernel 后仍保持结果 | 未实现 |
 | N11 | 在动作会改变后续感觉的环境中在线学习 | 未实现 |
 
-N7 的结论必须精确：当前动态状态确实解决了二阶歧义，但该任务的即时上下文主要保存在 membrane/activity；单独清零 slow trace 不会破坏结果。因此 N7 不能作为长期场记忆证据。
+N7 的结论必须精确：该任务的即时上下文主要保存在 membrane/activity；单独清零 slow trace 不会破坏结果。N8 在线索与 probe 间加入共同干扰 `1234` 后，在 probe 前清零 trace 会使准确率从 `100%` 降至 `50%`；反向只保留 trace、清空 membrane/activity/threshold/inhibition 仍为 `100%`。因此当前 slow trace 对这个固定延迟任务既必要又足够，但仍不等于可检索情景记忆。
 
 ## 13. 当前唯一下一步
 
-实现并执行 **N8 延迟上下文/trace 因果反证任务**：提示线索之后插入足以覆盖即时 activity 的共同干扰序列，再要求相同 probe 产生不同后继；比较完整状态、只清零 trace、只保留一阶统计三组。通过线必须预先固定，失败时先定位状态时间尺度或信用分配，不扩大区域、数据或 epoch。
+执行 **N9 长程自由运行稳定性反证**：训练后只给一次 prompt，此后完全回灌自身动作；预先固定 128 步精确循环率、首错位置和状态有界门槛。该实验不再 teacher-force，也不调 epoch/区域大小，用来确认当前吸引子能否在误差累积下保持稳定。
