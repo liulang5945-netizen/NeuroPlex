@@ -4,7 +4,7 @@
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 >
-> **🆕 2026-08-21：D1-fix v7 方案 H（ceiling 1.7 + DECAY 0.85）跑完 1000 步（2/5 PASS，24.6 min）**。v7 三组 std ratio 与 v5 **完全相同**（0.9127/0.8388/0.7871）、LoRA 终值同为 11.84、0 崩溃——**H 假设"ceiling 放宽补 u 短板"反向证伪**：当前 1000 步 LoRA 峰值 15.90 / baseline 0，ceiling 1.6/1.7 在 1000 步内**均未触发**（绝对 LoRA 值远低于"baseline×ratio"门）。v5 与 v7 数值等价；**v5 仍是 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优) / D1-fix v6 2/5 / D1-fix v7 2/5（与 v5 等价）。
+> **🆕 2026-08-21：D1-fix v8 方案 K（ceiling 2.0 + DECAY 0.85）跑完 1000 步（2/5 PASS，27.2 min）**。v8 三组 std ratio 与 v5/v7 **完全相同**（0.9127/0.8388/0.7871）、LoRA 终值同为 11.84、peak LoRA 15.90、0 崩溃——**K 假设"ceiling 2.0 越过 SKIP 触发门槛"反向证伪**：`pre_lora_l2=0.0` 的 baseline=0 让 ceiling 表达"LoRA/baseline"倍率**数学上不可触发**（除 0 无意义），ceiling 1.6/1.7/2.0 在 1000 步内**均未触发**。v5 / v7 / v8 数值完全等价；**v5 仍是 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优) / D1-fix v6 2/5 / D1-fix v7 2/5 / D1-fix v8 2/5（三者等价）。
 
 ## 1. 架构决策
 
@@ -309,6 +309,25 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ---
 
+**D1-fix v8（方案 K 验证）：2/5 PASS — ceiling 1.6/1.7/2.0 在 baseline=0 模型下数学上不可触发**
+
+- **实现**：env 改 `D1_CEILING_RATIO=1.6` → `2.0`（v8-K 假设"ceiling 拉到 2.0 越过 peak LoRA 触发 SKIP 真正起作用"）；`D1_DECAY=0.85` / `D1_HYSTERESIS_N=2` 与 v5/v7 完全一致
+- **1000 步**（2/5 PASS = v5 = v7 字面一致，**27.2 min**）：dialogue 0.9127 ✅ = v5 = v7；knowledge 0.8388 ❌ = v5 = v7；unfamiliar 0.7871 ❌ = v5 = v7；0 崩溃 ✅ = v5 = v7
+- **LoRA 轨迹**：v5 11.84 / v6 13.49 / v7 11.84 / **v8 11.84**（v8 终值与 v5/v7 字面完全相同），peak LoRA **15.90**（step 100）→ 11.84（step 1000）
+- **v8 与 v5/v7 关键对比**：
+  - dialogue：v8 0.9127 = v7 0.9127 = v5 0.9127（**字面完全一致**）
+  - knowledge：v8 0.8388 = v7 0.8388 = v5 0.8388（**字面完全一致**）
+  - unfamiliar：v8 0.7871 = v7 0.7871 = v5 0.7871（**字面完全一致**）
+  - 终值 LoRA：v8 11.84 = v7 11.84 = v5 11.84（**字面完全一致**）
+  - 耗时：v8 27.2 min = v7 24.6 min ≈ v5 30.0 min（**几乎一致**）
+- **K 假设反向证伪**："ceiling 1.6→2.0 越过 SKIP 触发门槛"假设**数学上不成立**——`pre_lora_l2=0.0`，ceiling 用"LoRA / baseline"倍率触发 SKIP，但 baseline=0 时 `LoRA / 0` 无意义，SKIP 路径**永远不进入触发条件**。v5 / v7 / v8 三个 ceiling 值（1.6/1.7/2.0）跑出来**字面完全等价**。
+- **诊断**：ceiling 机制在 **D1 baseline=0 模型下完全失效**——它原本设计是"LoRA 已累积→压回"，但 D1 起步 LoRA 全新（pre_lora_l2=0），SKIP 触发条件 baseline=0 永远不可能被越过。k/u trade-off 是 **DECAY 0.85 衰减强度**决定（v6 DECAY 0.88 退步证伪），与 ceiling 无关。**v5 仍是 D 系列最优**
+- **核心结论**：D1 长程稳定性真正的可调变量只剩 DECAY（已用 v5/v6 双向探过：DECAY 0.85 最佳，0.88 退步）；ceiling/hysteresis 在 1000 步量级、baseline=0 条件下**机制上不可触发**。k/u trade-off 是 v5 DECAY 0.85 必然代价，**D1 长程里 k/u 不能同时过门槛 0.90**
+- 代码：`scripts/training/verify_play_engine_d1_long_run.py` 报告路径分支：新增 v8 path（CEILING_RATIO≥1.95 + DECAY<0.88）+ v8 next_step
+- 报告：`reports/play_engine_d1_fix_v8_ceiling20_decay85_20260821.json`（elapsed=1633.8s, switches=13, epsilon_used=3, force_used=2, crash=0）
+
+---
+
 D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per_sleep=0.9` 在长程下让衰减压过训练。D1-fix v5 在 v4 安全栏基础上把 dialogue 推到 0.9127（首次超过原 D1 0.9108），但 k/u 的 trade-off（衰减强 → 基数小组受影响大）仍存在。**v6 反向证伪**了"DECAY 放松对 u 温和"假设——D1 的核心机制仍是"压平"（v5 11.84 < v6 13.49 = v4 14.81），v5 是当前 D 系列最优。**v7 方向（用户决策）**：
 
 | v7 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
@@ -321,18 +340,26 @@ D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per
 
 | v8 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
 |---|---|---|---|---|---|
-| **K. ceiling 1.6→2.0 + DECAY 0.85 保留** | 拉大 ceiling 到 2.0 越过 SKIP 触发门槛，验证"绝对 LoRA 值是否被 ceiling 截断" | 强——若 peak LoRA 15.9 触发，u 改善应明显 | 中——放宽天花板 risk | 高——真正测试 ceiling 机制 | **★★★**（验证 ceiling 是否有效） |
+| **K. ceiling 1.6→2.0 + DECAY 0.85 保留** | 拉大 ceiling 到 2.0 越过 SKIP 触发门槛，验证"绝对 LoRA 值是否被 ceiling 截断" | 强——若 peak LoRA 15.9 触发，u 改善应明显 | 中——放宽天花板 risk | 高——真正测试 ceiling 机制 | **★★★（已被 v8 跑反证伪）** |
 | **L. ceiling 1.6 不变 + DECAY 0.85→0.83** | 沿 v7 跑前 I 方案（更狠衰减） | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★★ |
 | **M. 接受 v5** | dialogue 已过门槛（**首次 D 系列有维度 PASS**），k/u 留 D2 长程 | — | k/u 仍 FAIL | — | ★★ |
 
-**当前推荐**：方案 **K（ceiling 2.0 + DECAY 0.85 保留）**——v7 已证伪"ceiling 1.7 微调"路径，需要把 ceiling 拉到 2.0 越过 SKIP 触发门槛才能真正测试 ceiling 机制（v7 1000 步 peak LoRA 15.90 = baseline×1.0，ceiling 1.6/1.7 都未触发；ceiling 2.0 才可能接住 15.90 上方累积）。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 25 min ≈ 30 min。
+**v8 实际结果反向证伪 K**：v5/v7/v8 三者数值字面完全一致（0.9127/0.8388/0.7871 + LoRA 11.84）——`pre_lora_l2=0.0` 的 baseline=0 让 ceiling 机制**数学上不可触发**（SKIP 路径走不到），ceiling 1.6/1.7/2.0 等价。**v9 方向（用户决策）**：
+
+| v9 方案 | 做法 | 治本 | 副作用 | 与自举愿景对齐 | 推荐度 |
+|---|---|---|---|---|---|
+| **N. 修复 baseline=0 让 ceiling 可触发 + DECAY 0.85** | 改 `pre_lora_l2_baseline` 初始化（用前 50 步 LoRA 均值作 baseline 而非 0），让 ceiling 真正生效 | 强——治 ceiling 不可触发的根因 | 中——改 baseline 初始化会改变 v3-v8 全部报告 | 高——唯一能真正测 ceiling 机制的路径 | **★★★**（根因修复） |
+| **O. DECAY 0.85→0.83 不动 ceiling** | 沿 v7 跑前 L 方案（更狠衰减） | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★★ |
+| **P. 接受 v5 跳到 D2** | dialogue 0.9127 已过门槛，k/u 0.84/0.79 留 D2 长程；修复 baseline 留 D3 重测 | — | k/u 仍 FAIL | 高——不再死磕 D1，进阶 | ★★ |
+
+**当前推荐**：方案 **N（修复 baseline=0 让 ceiling 可触发 + DECAY 0.85 保留）**——v5/v7/v8 三个 ceiling 值已证伪等价（数学不可触发）；必须**修复 `pre_lora_l2_baseline` 初始化**（用前 50 步 LoRA 均值作 baseline 而非 0），让 ceiling 真正能接住 SKIP 触发条件。这是 ceiling 机制在 D1 baseline=0 模型下失效的**唯一根因**。**资源**：改 sleep_engine.py baseline 初始化 ~10 min + 写新的 verify 路径分支 ~10 min + 重跑 1000 步 25 min ≈ 45 min。
 
 **v5 历史观察**：
 - **首次 D 系列维度过门槛**：v5 dialogue 0.9127 > 0.90（v1=0.9108、v2=?、v3=0.8679、v4=0.8744、v5=0.9127）——v5 是首次 dialogue PASS
 - **k 组接近 v3**：v5 0.8388 vs v3 0.8437 差 0.005
 - **u 组是长程稳定性最敏感的**：pre std 基数 0.62（vs dialogue 0.57、knowledge 1.03），同比例衰减下相对损失最大
 
-**v7 唯一下一步推荐**：方案 **K（ceiling 2.0 + DECAY 0.85）**——v7 已证伪"ceiling 1.7 微调"路径，ceiling 必须拉到 2.0 越过 peak LoRA 15.90 才会触发 SKIP 真正起作用。**资源**：实现 ~5 min（仅 env）+ 重跑 1000 步 25 min ≈ 30 min。
+**v8 唯一下一步推荐**：方案 **N（修复 baseline=0 让 ceiling 可触发 + DECAY 0.85 保留）**——v5/v7/v8 三者等价已证伪"调 ceiling 值"路径，必须修 `pre_lora_l2_baseline` 初始化（用前 50 步 LoRA 均值作 baseline 而非 0），让 ceiling 真正生效。**资源**：改 sleep_engine.py baseline 初始化 ~10 min + 写新的 verify 路径分支 ~10 min + 重跑 1000 步 25 min ≈ 45 min。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 

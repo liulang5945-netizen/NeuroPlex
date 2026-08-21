@@ -425,6 +425,14 @@ def main():
                 f"b) 接受 v5 (3/5 PASS, dialogue 0.9127);"
                 f"c) 重置到 v3 + 加 ceiling 1.5 (k=0.84/u=0.79 基准)"
             )
+        elif HYSTERESIS_N >= 2 and CEILING_RATIO >= 1.95 and DECAY < 0.88:
+            next_msg = (
+                f"D1-fix v8-K (hysteresis N={HYSTERESIS_N} + ceiling "
+                f"{CEILING_RATIO} + DECAY={DECAY}) 仍 FAIL——"
+                f"考虑：a) 接受 v5 (3/5 PASS, dialogue 0.9127);"
+                f"b) 重置到 v3 + ceiling 1.5 + DECAY 0.9 验证 ceiling 触发与 DIA 协同;"
+                f"c) 升级 D2 阈值（u 组 0.78 接受作为长程极限）"
+            )
         elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7 and 0.875 <= DECAY < 0.92:
             next_msg = (
                 f"D1-fix v6-F (hysteresis N={HYSTERESIS_N} + ceiling "
@@ -495,6 +503,10 @@ def main():
     # v7 path - CEILING==1.7, DECAY<0.88 (H plan: ceiling 1.7 + DECAY 0.85)
     elif HYSTERESIS_N >= 2 and 1.69 <= CEILING_RATIO <= 1.71 and DECAY < 0.88:
         out_path = (f"reports/play_engine_d1_fix_v7_ceiling17_decay85_"
+                    f"{today}.json")
+    # v8 path - CEILING>=1.95, DECAY<0.88 (K plan: ceiling 2.0 + DECAY 0.85)
+    elif HYSTERESIS_N >= 2 and CEILING_RATIO >= 1.95 and DECAY < 0.88:
+        out_path = (f"reports/play_engine_d1_fix_v8_ceiling20_decay85_"
                     f"{today}.json")
     elif JUDGE_DRIVEN_DECAY:
         out_path = (f"reports/play_engine_d1_fix_judge_driven_decay_"
