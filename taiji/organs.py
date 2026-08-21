@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Mapping
 
 import torch
@@ -147,12 +148,23 @@ class ByteMotor:
             device=self.device,
         )
         self.bias = torch.zeros(config.alphabet_size, device=self.device)
+        self.reward_baseline = 0.0
+        self.reward_updates = 0
 
     def encode_context(self, cortical_state: torch.Tensor) -> torch.Tensor:
         return self.receptors.forward(cortical_state)
 
-    def probabilities(self, context: torch.Tensor) -> torch.Tensor:
+    def probabilities(
+        self,
+        context: torch.Tensor,
+        *,
+        episodic_evidence: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         evidence = self.synapses.forward(context) + self.bias
+        if episodic_evidence is not None:
+            if episodic_evidence.shape != (self.config.alphabet_size,):
+                raise ValueError("episodic evidence dimension mismatch")
+            evidence = evidence + episodic_evidence.to(self.device)
         evidence = evidence / float(self.config.motor_temperature)
         return torch.softmax(evidence, dim=0)
 
@@ -166,6 +178,43 @@ class ByteMotor:
         target = torch.zeros(self.config.alphabet_size, device=self.device)
         target[int(observed_symbol)] = 1.0
         error = target - predicted.to(self.device)
+        self._apply_error(context, error)
+        return error
+
+    @torch.no_grad()
+    def learn_reward(
+        self,
+        context: torch.Tensor,
+        policy_probabilities: torch.Tensor,
+        action_symbol: int,
+        reward: float,
+    ) -> tuple[torch.Tensor, float]:
+        """Apply a local three-factor action × eligibility × reward update."""
+
+        reward = float(reward)
+        if not math.isfinite(reward):
+            raise ValueError("reward must be finite")
+        if policy_probabilities.shape != (self.config.alphabet_size,):
+            raise ValueError("policy probability dimension mismatch")
+        if not 0 <= int(action_symbol) < self.config.alphabet_size:
+            raise ValueError("action is outside the motor alphabet")
+        modulation = reward - self.reward_baseline
+        target = torch.zeros(self.config.alphabet_size, device=self.device)
+        target[int(action_symbol)] = 1.0
+        error = modulation * (
+            target - policy_probabilities.to(self.device)
+        )
+        self._apply_error(context, error)
+        self.reward_baseline += self.config.reward_baseline_rate * modulation
+        self.reward_updates += 1
+        return error, modulation
+
+    @torch.no_grad()
+    def _apply_error(
+        self,
+        context: torch.Tensor,
+        error: torch.Tensor,
+    ) -> None:
         self.synapses.local_update(
             error,
             context,
@@ -175,13 +224,14 @@ class ByteMotor:
         self.bias.add_(self.config.bias_learning_rate * error)
         self.bias.sub_(self.bias.mean())
         self.bias.clamp_(-self.config.max_weight_norm, self.config.max_weight_norm)
-        return error
 
     def to_payload(self) -> Dict[str, Any]:
         return {
             "receptors": self.receptors.to_payload(),
             "synapses": self.synapses.to_payload(),
             "bias": self.bias.detach().cpu().clone(),
+            "reward_baseline": self.reward_baseline,
+            "reward_updates": self.reward_updates,
         }
 
     def load_payload(self, payload: Mapping[str, Any]) -> None:
@@ -191,3 +241,5 @@ class ByteMotor:
         if bias.shape != (self.config.alphabet_size,):
             raise ValueError("motor bias shape does not match architecture")
         self.bias = bias
+        self.reward_baseline = float(payload["reward_baseline"])
+        self.reward_updates = int(payload["reward_updates"])

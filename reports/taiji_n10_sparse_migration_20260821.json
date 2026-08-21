@@ -8,24 +8,24 @@
     "n8_trace_only_accuracy": 1.0,
     "n9_accuracy": 1.0,
     "n9_first_error_index": null,
-    "native_v3_status": "pass"
+    "native_current_status": "pass"
   },
   "benchmark": "taiji_n10_sparse_migration",
   "checks": {
     "backproject_matches_dense": true,
     "behavior_matches_v2_reference": true,
-    "checkpoint_format_upgraded": true,
+    "checkpoint_format_is_current": true,
     "forward_matches_dense": true,
     "local_update_matches_dense": true,
     "n7_passes_after_migration": true,
     "n8_passes_after_migration": true,
     "n9_passes_after_migration": true,
-    "native_v3_passes": true,
+    "native_current_passes": true,
     "no_dense_synapse_tensor": true
   },
   "diagnostic_timing": {
-    "native_v2_historical_training_seconds": 2.4499613999942085,
-    "native_v3_training_seconds": 2.3835817000071984
+    "native_current_training_seconds": 3.072824299990316,
+    "native_v2_historical_training_seconds": 2.4499613999942085
   },
   "epochs": 200,
   "operator_equivalence": {
@@ -37,17 +37,17 @@
   "status": "pass",
   "storage": {
     "default_config_storage_projection": {
-      "dense_equivalent_edges": 93360,
-      "edge_density": 0.32982005141388177,
-      "learned_synapse_edges": 30792,
-      "sparse_to_dense_synapse_byte_ratio": 0.6596401028277635
+      "dense_equivalent_edges": 183984,
+      "edge_density": 0.4929559092094965,
+      "learned_synapse_edges": 90696,
+      "sparse_to_dense_synapse_byte_ratio": 0.985911818418993
     },
-    "dense_equivalent_learned_scalars": 38513,
-    "dense_synapse_weight_bytes": 153024,
-    "edge_weight_bytes": 77056,
-    "learned_synapse_edges": 19264,
-    "sparse_synapse_storage_bytes": 154112,
-    "sparse_to_dense_synapse_byte_ratio": 1.0071099958176495,
-    "topology_index_bytes": 77056
+    "dense_equivalent_learned_scalars": 112241,
+    "dense_synapse_weight_bytes": 447936,
+    "edge_weight_bytes": 249088,
+    "learned_synapse_edges": 62272,
+    "sparse_synapse_storage_bytes": 498176,
+    "sparse_to_dense_synapse_byte_ratio": 1.112158879839977,
+    "topology_index_bytes": 249088
   }
 }

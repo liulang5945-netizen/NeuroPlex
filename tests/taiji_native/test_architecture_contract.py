@@ -43,7 +43,12 @@ def test_native_core_has_no_legacy_or_sequence_model_dependency() -> None:
         module.startswith(("neuroplex", "transformers"))
         for module in imported
     ), imported
-    assert not {"backward", "MultiheadAttention", "TransformerEncoder"} & forbidden_calls
+    assert not {
+        "backward",
+        "topk",
+        "MultiheadAttention",
+        "TransformerEncoder",
+    } & forbidden_calls
 
 
 def test_raw_bytes_are_receptors_not_tokenizer_ids() -> None:
@@ -87,6 +92,21 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
         *model.fabric.decoders,
         *model.fabric.transitions,
         model.motor.synapses,
+        model.memory.cue_encoder,
+        model.memory.action_encoder,
+        model.memory.outcome_encoder,
+        model.memory.time_encoder,
+        model.memory.episode_encoder,
+        model.memory.provenance_encoder,
+        model.memory.association,
+        model.memory.action_readout,
+        model.memory.outcome_readout,
+        model.memory.reward_readout,
+        model.memory.familiarity_readout,
+        model.memory.cortical_readout,
+        model.memory.time_readout,
+        model.memory.episode_readout,
+        model.memory.provenance_readout,
     )
     for projection in synapses:
         posts = torch.arange(projection.out_features).unsqueeze(1).expand_as(

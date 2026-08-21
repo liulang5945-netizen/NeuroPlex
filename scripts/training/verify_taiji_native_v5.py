@@ -1,4 +1,4 @@
-"""Verify Native v3 Taiji with edge-indexed sparse synapse execution."""
+"""Verify Native v5 Taiji with active action and episodic field state."""
 
 from __future__ import annotations
 
@@ -35,15 +35,41 @@ def _native_import_contract() -> bool:
                 attributes.add(node.attr)
     return (
         not any(module.startswith(("neuroplex", "transformers")) for module in imported)
-        and not {"backward", "MultiheadAttention", "TransformerEncoder"} & attributes
+        and not {
+            "backward",
+            "topk",
+            "MultiheadAttention",
+            "TransformerEncoder",
+        } & attributes
     )
 
 
-def _synapses(model: Taiji) -> tuple[object, ...]:
+def _learned_synapses(model: Taiji) -> tuple[object, ...]:
     return (
         *model.fabric.decoders,
         *model.fabric.transitions,
         model.motor.synapses,
+        model.memory.association,
+        model.memory.action_readout,
+        model.memory.outcome_readout,
+        model.memory.reward_readout,
+        model.memory.familiarity_readout,
+        model.memory.cortical_readout,
+        model.memory.time_readout,
+        model.memory.episode_readout,
+        model.memory.provenance_readout,
+    )
+
+
+def _stored_synapses(model: Taiji) -> tuple[object, ...]:
+    return (
+        *_learned_synapses(model),
+        model.memory.cue_encoder,
+        model.memory.action_encoder,
+        model.memory.outcome_encoder,
+        model.memory.time_encoder,
+        model.memory.episode_encoder,
+        model.memory.provenance_encoder,
     )
 
 
@@ -55,7 +81,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         seed=seed,
     )
     data = b"abcdabcdabcdabcd"
-    model = Taiji(config, episode_id="native-v3")
+    model = Taiji(config, episode_id="native-v5")
     initial_parameters = [tensor.clone() for tensor in model.parameter_tensors()]
     before = model.score_bytes(data)
 
@@ -86,7 +112,8 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         )
     )
 
-    synapses = _synapses(model)
+    synapses = _learned_synapses(model)
+    stored_synapses = _stored_synapses(model)
     receptor_counts = torch.bincount(
         model.motor.receptors.channel.cpu(),
         minlength=config.motor_context_dim,
@@ -106,8 +133,8 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
     active_parameters = model.parameter_count(active_only=True)
     actual_learned_storage = model.parameter_count(active_only=False)
     dense_equivalent = model.dense_equivalent_parameter_count()
-    default_model = Taiji(TaijiConfig(), episode_id="v3-storage-projection")
-    default_synapses = _synapses(default_model)
+    default_model = Taiji(TaijiConfig(), episode_id="v5-storage-projection")
+    default_synapses = _learned_synapses(default_model)
     default_edges = sum(synapse.edge_count for synapse in default_synapses)
     default_dense_edges = sum(
         synapse.dense_equivalent_count for synapse in default_synapses
@@ -119,7 +146,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
             and value.shape == (synapse.out_features, synapse.in_features)
             for value in vars(synapse).values()
         )
-        for synapse in synapses
+        for synapse in stored_synapses
     )
     checks = {
         "native_namespace": Path(taiji.__file__).resolve().parent.name == "taiji",
@@ -148,19 +175,37 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         "free_generation_cycle": generated == b"bcdabcda",
         "local_parameters_changed": changed_tensors >= 3,
         "checkpoint_exact_next_step": exact_next_step,
+        "active_action_api": all(
+            hasattr(model, name) for name in ("act", "settle_action")
+        ),
+        "native_episodic_field_api": all(
+            hasattr(model.memory, name)
+            for name in ("recall", "write", "association", "cortical_readout")
+        ),
+        "no_event_key_value_slots": not {
+            "events",
+            "keys",
+            "values",
+            "slots",
+        } & set(vars(model.memory)),
     }
     return {
-        "benchmark": "taiji_native_v3_fixed_fan_in",
+        "benchmark": "taiji_native_v5_episodic_field",
         "seed": seed,
         "epochs": epochs,
         "architecture": {
             "checkpoint_format": model.CHECKPOINT_FORMAT,
             "state_version": model.STATE_VERSION,
+            "reward_baseline_rate": config.reward_baseline_rate,
             "synapse_storage": "fixed-fan-in-v1",
             "sensor": "raw-byte-one-hot",
             "regions": list(config.region_sizes),
             "cortical_context_dim": config.cortical_context_dim,
             "motor_receptor_channels": config.motor_context_dim,
+            "memory_units": config.memory_units,
+            "memory_context_dim": config.memory_context_dim,
+            "memory_iterations": config.memory_iterations,
+            "episodic_write_count_in_passive_benchmark": model.memory.write_count,
             "fixed_receptor_edges": config.cortical_context_dim,
             "learned_synapse_edges": edge_count,
             "active_learned_parameters": active_parameters,

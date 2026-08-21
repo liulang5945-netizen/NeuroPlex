@@ -467,4 +467,4 @@ TypeError: 'dict_values' object is not an iterator
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
 
-该建议仍然有效但不再是项目当前执行入口。旧 `neuroplex.taiji` 补丁原型已删除；正式顶层 Taiji Native v3 已实现独立感知、预测状态、全皮层覆盖运动感受器、局部学习、动作、生成和压缩按边执行，并通过 N7–N10。当前唯一下一步是 N11 环境行动学习。PlayEngine/D1 继续作为独立 Legacy 档案，不进入 Taiji forward。
+该建议仍然有效但不再是项目当前执行入口。旧 `neuroplex.taiji` 补丁原型已删除；正式顶层 Taiji Native v5 已实现独立感知、预测状态、分布式情景场、运动感受器、局部学习、主动 reward action、生成和压缩按边执行，并通过 N7–N11/M5。当前唯一下一步是 M6 内生 replay/巩固。PlayEngine/D1 继续作为独立 Legacy 档案，不进入 Taiji forward。

@@ -1,0 +1,82 @@
+{
+  "architecture": {
+    "active_learned_parameters": 62529,
+    "actual_learned_scalar_storage": 62529,
+    "avoided_dense_weight_scalars": 49712,
+    "checkpoint_format": "taiji-native-v5",
+    "cortical_context_dim": 224,
+    "default_config_storage_projection": {
+      "dense_equivalent_edges": 183984,
+      "edge_density": 0.4929559092094965,
+      "learned_synapse_edges": 90696,
+      "sparse_to_dense_synapse_byte_ratio": 0.985911818418993
+    },
+    "dense_equivalent_learned_scalars": 112241,
+    "dense_synapse_weight_bytes": 447936,
+    "edge_weight_bytes": 249088,
+    "episodic_write_count_in_passive_benchmark": 0,
+    "fixed_receptor_edges": 224,
+    "learned_synapse_edges": 62272,
+    "learning": "edge-local-predictive-and-motor-delta",
+    "memory_context_dim": 48,
+    "memory_iterations": 3,
+    "memory_units": 192,
+    "motor_receptor_channels": 48,
+    "regions": [
+      64,
+      48
+    ],
+    "reward_baseline_rate": 0.05,
+    "sensor": "raw-byte-one-hot",
+    "sequence_window": null,
+    "sparse_synapse_storage_bytes": 498176,
+    "sparse_to_dense_synapse_byte_ratio": 1.112158879839977,
+    "state_version": 4,
+    "synapse_storage": "fixed-fan-in-v1",
+    "topology_index_bytes": 249088,
+    "topology_index_scalars": 62272
+  },
+  "benchmark": "taiji_native_v5_episodic_field",
+  "checks": {
+    "active_action_api": true,
+    "all_cortical_coordinates_reach_motor": true,
+    "checkpoint_exact_next_step": true,
+    "compressed_fixed_fan_in_storage": true,
+    "free_generation_cycle": true,
+    "local_parameters_changed": true,
+    "native_episodic_field_api": true,
+    "native_namespace": true,
+    "no_autograd_parameters": true,
+    "no_dense_synapse_tensor": true,
+    "no_event_key_value_slots": true,
+    "no_legacy_or_transformer_dependency": true,
+    "online_learning_reduces_surprise": true,
+    "shared_action_evidence_space": true,
+    "teacher_forced_accuracy": true
+  },
+  "epochs": 200,
+  "metrics": {
+    "after": {
+      "accuracy": 0.9411764705882353,
+      "mean_surprise": 0.1090237167216644,
+      "observations": 17.0
+    },
+    "before": {
+      "accuracy": 0.0,
+      "mean_surprise": 5.404065357862115,
+      "observations": 17.0
+    },
+    "changed_parameter_tensors": 6,
+    "generated_hex": "6263646162636461",
+    "generated_text": "bcdabcda",
+    "surprise_reduction": 0.9798256109980145,
+    "training": {
+      "mean_surprise": 0.22649241880452722,
+      "observations": 3400.0,
+      "online_accuracy": 0.9370588235294117
+    },
+    "training_seconds": 2.9894925999979023
+  },
+  "seed": 7,
+  "status": "pass"
+}

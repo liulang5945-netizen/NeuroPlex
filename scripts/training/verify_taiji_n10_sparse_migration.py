@@ -18,7 +18,7 @@ from taiji import SparseSynapses
 from verify_taiji_n7_context import run_benchmark as run_n7
 from verify_taiji_n8_delayed_trace import run_benchmark as run_n8
 from verify_taiji_n9_long_free_run import run_benchmark as run_n9
-from verify_taiji_native_v3 import run_benchmark as run_native_v3
+from verify_taiji_native_v5 import run_benchmark as run_native
 
 
 def _dense_view(synapses: SparseSynapses) -> torch.Tensor:
@@ -95,7 +95,7 @@ def _load_report(name: str) -> Dict[str, object]:
 
 def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
     operators = _operator_equivalence()
-    native = run_native_v3(epochs=epochs, seed=seed)
+    native = run_native(epochs=epochs, seed=seed)
     n7 = run_n7(epochs=epochs, seed=seed)
     n8 = run_n8(epochs=epochs, seed=seed)
     n9 = run_n9(epochs=epochs, seed=seed)
@@ -126,13 +126,13 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
     )
     checks = {
         **operators["checks"],
-        "native_v3_passes": native["status"] == "pass",
+        "native_current_passes": native["status"] == "pass",
         "n7_passes_after_migration": n7["status"] == "pass",
         "n8_passes_after_migration": n8["status"] == "pass",
         "n9_passes_after_migration": n9["status"] == "pass",
         "behavior_matches_v2_reference": behavior_matches_v2,
-        "checkpoint_format_upgraded": (
-            native["architecture"]["checkpoint_format"] == "taiji-native-v3"
+        "checkpoint_format_is_current": (
+            native["architecture"]["checkpoint_format"] == "taiji-native-v5"
         ),
         "no_dense_synapse_tensor": native["checks"]["no_dense_synapse_tensor"],
     }
@@ -155,7 +155,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
             )
         },
         "behavior": {
-            "native_v3_status": native["status"],
+            "native_current_status": native["status"],
             "n5_accuracy": native["metrics"]["after"]["accuracy"],
             "n5_generated": native["metrics"]["generated_text"],
             "n7_full_accuracy": n7["metrics"]["full_accuracy"],
@@ -169,7 +169,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
             "native_v2_historical_training_seconds": (
                 reference_v2["metrics"]["training_seconds"]
             ),
-            "native_v3_training_seconds": native["metrics"]["training_seconds"],
+            "native_current_training_seconds": native["metrics"]["training_seconds"],
         },
         "checks": checks,
         "status": "pass" if all(checks.values()) else "fail",

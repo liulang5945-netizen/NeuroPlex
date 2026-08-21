@@ -1,6 +1,6 @@
 # Taiji — Native Persistent Predictive Computing
 
-Taiji is an experimental non-Transformer sequence architecture with its own input representation, persistent state transition, local learning rule, motor output, free-running generation loop, and checkpoint format.
+Taiji is an experimental non-Transformer substrate with its own input representation, persistent state transition, distributed episodic field, local learning rules, motor output, active-environment loop, free-running generation, and checkpoint format.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -15,19 +15,20 @@ Taiji does not wrap a Transformer in neuron terminology. The native path is:
 raw byte receptors
   → hierarchical reciprocal prediction errors
   → persistent recurrent region states
+  ↔ distributed episodic field and cortical readback
   → balanced sparse cortical receptor bank
   → one byte motor organ
   → emitted action returns as the next sensation
 ```
 
-| Transformer responsibility | Taiji Native v3 |
+| Transformer responsibility | Taiji Native v5 |
 |---|---|
 | tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
 | positional encoding | causal ticks and persistent state |
 | self-attention | sparse reciprocal prediction and recurrent transitions |
 | residual/FFN state | membrane integration, inhibition, adaptive thresholds, traces |
-| KV cache | bounded dynamic state and learned transition synapses |
-| global backpropagation | masked local prediction/state/motor deltas |
+| KV cache / external retrieval | bounded dynamic state plus distributed associative engrams; no event K/V slots |
+| global backpropagation | existing-edge local prediction/state/motor/memory deltas |
 | LM head | all-state sparse receptor bank + one motor population |
 | autoregressive decode | motor byte fed back through the same sensor |
 
@@ -75,6 +76,16 @@ c_t=\gamma_c\frac{\tilde c_t}{\lVert\tilde c_t\rVert_2+\epsilon}
 
 Every cortical coordinate reaches exactly one receptor, and every action competes on the same `K` channels.
 
+An active transition is stored only after the full causal tuple is available. A cortical cue `s`, executed action `a`, reward `r`, resulting sensation `o`, causal tick, episode signature and provenance excite one overlapping engram population `h`. Existing recurrent edges learn cue-to-event completion:
+
+```math
+h^{event}=\phi(Qs+\gamma_e(Aa+Oo+r\rho+Tt+Ee+Pp)),
+\qquad
+\Delta W^{mem}=\eta_m g(h^{event}-W^{mem}h^{cue})(h^{cue})^T
+```
+
+`g` is a novelty/reward write gate. Recurrent resonance gates all recalled action, outcome, value, time, episode and provenance evidence; recalled cortical state is injected into the next fabric tick. Events share the same fixed population and edge topology—writing an event does not append a row, key or value.
+
 Every update is restricted to stored fixed-fan-in edges. There is no dense structural mask, attention matrix, context window, optimizer, `backward()`, teacher model, or distillation path.
 
 The complete tensor shapes, update order, state contract, complexity, and code mapping are in [the architecture specification](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
@@ -83,11 +94,13 @@ The complete tensor shapes, update order, state contract, complexity, and code m
 
 ```bash
 python -m pip install -e ".[dev]"
-python scripts/training/verify_taiji_native_v3.py
+python scripts/training/verify_taiji_native_v5.py
 python scripts/training/verify_taiji_n7_context.py
 python scripts/training/verify_taiji_n8_delayed_trace.py
 python scripts/training/verify_taiji_n9_long_free_run.py
 python scripts/training/verify_taiji_n10_sparse_migration.py
+python scripts/training/verify_taiji_n11_active_environment.py
+python scripts/training/verify_taiji_m5_episodic_field.py
 python -m pytest tests/taiji_native -q
 ```
 
@@ -106,17 +119,17 @@ checkpoint = model.checkpoint()
 restored = Taiji.from_checkpoint(checkpoint)
 ```
 
-## Reproducible Native v3 results
+## Reproducible Native v5 results
 
 The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
 | Metric | Result |
 |---|---:|
-| active learned parameters | 19,521 |
-| fixed receptor edges | 224 (one per cortical coordinate) |
-| actual learned scalar storage | 19,521 |
-| dense-equivalent learned scalars | 38,513 |
-| compressed topology | 19,264 int32 pre-indices |
+| active learned parameters | 62,529 |
+| fixed motor receptor edges | 224 (one per cortical coordinate) |
+| actual learned scalar storage | 62,529 |
+| dense-equivalent learned scalars | 112,241 |
+| learned compressed topology | 62,272 int32 pre-indices |
 | byte-cycle accuracy | 0% → 94.12% |
 | mean surprise | 5.4041 → 0.1090 |
 | surprise reduction | 97.98% |
@@ -129,9 +142,13 @@ N8 inserts the shared distractors `1234` between cue and probe. Full and trace-o
 
 N9 trains the same 16-byte cycle under an explicit non-terminal stream contract, then feeds back 128 motor actions with no teacher forcing. All 128 positions are exact, all four actions remain present, and membrane/trace/threshold bounds hold at every tick. A terminal boundary is deliberately excluded from this benchmark because teaching “stop after the fourth cycle” would contradict an infinite-cycle target.
 
-N10 replaces masked-dense synapses with compressed fixed-fan-in rows. Against a dense reference, forward differs by at most `2.98e-8`; backprojection and local update are exact. N5–N9 behavior matches the committed v2 evidence. In the small benchmark, edge weights plus int32 topology use 100.71% of dense weight bytes because edge density is 50.36%; the default configuration projects to 65.96% at 32.98% density. This validates real edge execution, not a universal speedup claim.
+N10 replaces masked-dense synapses with compressed fixed-fan-in rows. Against a dense reference, forward differs by at most `2.98e-8`; backprojection and local update are exact. N5–N9 behavior still matches the committed v2 evidence. Including the new field, the small v5 benchmark uses 111.22% of dense learned-weight bytes after int32 indices, while the default projects to 98.59%. This validates real edge execution, not a universal speedup claim; sparse indexing only wins storage at lower edge density.
 
-Reports: [Native v3](reports/taiji_native_v3_20260821.json), [N10 sparse migration](reports/taiji_n10_sparse_migration_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json). The [Native v2 report](reports/taiji_native_v2_20260821.json) remains as the migration reference.
+N11 separates external sensation from action credit. On a two-cue environment where action changes both reward and the next `+/-` sensation, the last 40 online interactions reach 100% success versus 50% random and 57.5% with action learning disabled. Taiji receives only scalar reward and outcome sensation—never the correct action label. A pending action and its eligibility are atomically checkpointed until outcome settlement.
+
+M5 stores eight one-shot active episodes in one shared 128-unit field. Writing uses a singleton demonstrated affordance with fabric/motor learning disabled; querying opens two actions, so this isolates associative recall rather than action discovery. Cross-episode action recall is 87.5%, versus 25% for equal-width trace-only execution and 25% after recurrent-association lesion. Outcome and provenance recall are 100%, episode identity is 75%, mean time-code cosine is 0.519, and recalled cortical state measurably changes the next fabric tick. The field allocates zero per-event slots.
+
+Reports: [Native v5](reports/taiji_native_v5_20260821.json), [M5 episodic field](reports/taiji_m5_episodic_field_20260821.json), [N11 active environment](reports/taiji_n11_active_environment_20260821.json), [N10 sparse migration](reports/taiji_n10_sparse_migration_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json). Native v2–v4 reports remain migration references.
 
 ## Source layout
 
@@ -140,13 +157,17 @@ taiji/
 ├── config.py    architecture and dynamics contract
 ├── sparse.py    fixed fan-in synapses and local updates
 ├── state.py     persistent region and whole-system state
-├── organs.py    raw-byte sensor, sparse receptor bank, and byte motor
+├── memory.py    distributed episodic encoding, completion, and readback
+├── organs.py    raw-byte sensor, sparse receptor bank, and reward-aware motor
+├── environment.py active environment protocol and outcome
 ├── fabric.py    predictive recurrent tick
 └── model.py     observe, learn, score, generate, checkpoint
 
 tests/taiji_native/                 native architecture contracts
-scripts/training/verify_taiji_native_v3.py
+scripts/training/verify_taiji_native_v5.py
+scripts/training/verify_taiji_m5_episodic_field.py
 scripts/training/verify_taiji_n10_sparse_migration.py
+scripts/training/verify_taiji_n11_active_environment.py
 scripts/training/verify_taiji_n7_context.py
 scripts/training/verify_taiji_n8_delayed_trace.py
 scripts/training/verify_taiji_n9_long_free_run.py
@@ -167,7 +188,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The next gate is N11: place Taiji in a minimal environment where its selected action changes the next sensation, then learn the successful action online from local outcome/reward signals. This is the first gate that is not next-byte imitation.
+The unique next architecture step is M6 endogenous replay and consolidation. Taiji must select real high-novelty/high-value engrams without an external replay list, reactivate the same fabric locally, transfer useful structure into cortical predictive/transition synapses, and retain the behavior when episodic readout is subsequently lesioned. Until that causal transfer passes, Native v5 is a complete executable reference substrate—not an AGI claim.
 
 ## License
 

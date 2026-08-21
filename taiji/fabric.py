@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Sequence, Tuple
+import math
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import torch
 
@@ -55,6 +56,9 @@ class TaijiFabric:
             )
             for region_size in config.region_sizes
         )
+        # Audit counter only: how many contacts the substrate has rewired.  It
+        # describes the run, not the network, so it stays out of the payload.
+        self.structural_events = 0
 
     def initial_state(self) -> Tuple[RegionState, ...]:
         lower_sizes = (self.config.alphabet_size, *self.config.region_sizes[:-1])
@@ -81,16 +85,32 @@ class TaijiFabric:
         previous: Sequence[RegionState],
         *,
         learn: bool,
+        episodic_feedback: Optional[torch.Tensor] = None,
+        learn_scale: float = 1.0,
+        restructure: bool = False,
+        adapt_homeostasis: bool = True,
     ) -> Tuple[Tuple[RegionState, ...], Tuple[float, ...], Tuple[float, ...]]:
         if sensory_activity.shape != (self.config.alphabet_size,):
             raise ValueError("sensory activity does not match the receptor population")
         if len(previous) != len(self.config.region_sizes):
             raise ValueError("region state count does not match the architecture")
+        if not math.isfinite(learn_scale) or learn_scale < 0.0:
+            raise ValueError("learn_scale must be a finite non-negative number")
+        if episodic_feedback is None:
+            episodic_feedback = torch.zeros(
+                self.config.cortical_context_dim, device=self.device
+            )
+        elif episodic_feedback.shape != (self.config.cortical_context_dim,):
+            raise ValueError("episodic feedback does not match cortical context")
+        else:
+            episodic_feedback = episodic_feedback.to(self.device)
 
         lower_activity = sensory_activity.to(self.device)
         next_states = []
         activity_rates = []
         error_norms = []
+        feedback_offset = 0
+        feedback_trace_offset = sum(self.config.region_sizes)
 
         for index, (region_size, decoder, transition) in enumerate(zip(
             self.config.region_sizes, self.decoders, self.transitions
@@ -110,6 +130,18 @@ class TaijiFabric:
                 self.config.bottom_up_gain * bottom_up
                 + self.config.recurrent_gain * recurrent_prediction
                 + self.config.top_down_gain * top_down
+                + self.config.memory_feedback_gain
+                * (
+                    episodic_feedback[
+                        feedback_offset:feedback_offset + region_size
+                    ]
+                    + episodic_feedback[
+                        feedback_trace_offset
+                        + feedback_offset:feedback_trace_offset
+                        + feedback_offset
+                        + region_size
+                    ]
+                )
             )
             membrane = bound_norm(
                 self.config.membrane_decay * old.membrane + drive,
@@ -126,13 +158,38 @@ class TaijiFabric:
                 membrane - old.threshold - float(inhibition)
             ))
             active_indicator = (activity > 1e-6).to(activity.dtype)
-            threshold = torch.clamp(
-                old.threshold
-                + self.config.homeostasis_rate
-                * (active_indicator - self.config.target_activity),
-                min=self.config.threshold_min,
-                max=self.config.threshold_max,
-            )
+            # Homeostasis is an integrator over the input a region actually
+            # receives, and it can only find a useful set point if that input is
+            # varied.  Replay is not: one symbol is driven for sixteen ticks with
+            # no waking traffic to balance it, so a unit the engram drives gains
+            # ``rate * (1 - target)`` every tick while a silent one sheds only
+            # ``rate * target`` -- a 7:1 ratchet on exactly the units carrying
+            # the memory.  Measured, that pushed the peak set point to 0.43,
+            # twenty-one times ``threshold_base``, and since ``activity``
+            # subtracts the threshold directly from the drive it collapsed the
+            # write basis to 1/22 of the basis the probe reproduces.  ``local_update``
+            # is linear in |trace|, so the write all but vanished, ``captured``
+            # became arbitrary on a near-null trace, and one decoder row churned
+            # through 118 rewires without ever terminating.
+            #
+            # Freezing the set point during replay -- rather than resetting it --
+            # keeps whatever waking adaptation learned, and only denies a
+            # degenerate burst the right to overwrite it.  Measured against the
+            # reset alternative it wins on every behavioural column (true-cell
+            # movement 3/4 either way, but mean |delta| 0.0088 vs 0.0073 and a
+            # larger margin on three of four pairs) while leaving waking
+            # homeostasis untouched.  Biological homeostatic plasticity is
+            # hours-scale and population-driven for the same reason.
+            if adapt_homeostasis:
+                threshold = torch.clamp(
+                    old.threshold
+                    + self.config.homeostasis_rate
+                    * (active_indicator - self.config.target_activity),
+                    min=self.config.threshold_min,
+                    max=self.config.threshold_max,
+                )
+            else:
+                threshold = old.threshold
             trace = bound_norm(
                 self.config.trace_decay * old.trace
                 + (1.0 - self.config.trace_decay) * activity,
@@ -141,17 +198,55 @@ class TaijiFabric:
             state_error = activity - recurrent_prediction
 
             if learn:
+                # Structure moves before weights so a contact opened this tick
+                # receives its first error × eligibility write immediately,
+                # rather than idling at zero until the pattern recurs.  A swap
+                # is discrete and cannot be scaled by learn_scale the way a
+                # weight change can; the error gate is what limits it instead,
+                # so only a row that is genuinely mispredicting rewires.
+                #
+                # Rewiring is confined to consolidation, and that boundary is
+                # empirical, not conservative.  The silent-partner gate keeps a
+                # row stable while one pattern is held, but waking input moves
+                # on every tick: a partner recruited for this symbol falls
+                # silent on the next and is retired again, so the support
+                # churns.  Enabling it during a free run cost the learned byte
+                # cycle its exactness after 66 steps.  The lottery it repairs is
+                # a replay-time pathology to begin with -- waking learning has
+                # thousands of writes and already reaches the cycle -- and
+                # sleep-gated spine turnover is how brains do it.
+                if restructure:
+                    self.structural_events += decoder.structural_update(
+                        lower_error,
+                        old.trace,
+                        turnover_ratio=self.config.structural_turnover_ratio,
+                        capture_target=self.config.structural_capture_target,
+                        error_threshold=self.config.structural_error_threshold,
+                    )
+                    self.structural_events += transition.structural_update(
+                        state_error,
+                        old.trace,
+                        turnover_ratio=self.config.structural_turnover_ratio,
+                        capture_target=self.config.structural_capture_target,
+                        error_threshold=self.config.structural_error_threshold,
+                    )
+                # Decay belongs to the same plasticity event as potentiation, so it
+                # must pass through the identical gate.  Ungated decay would make a
+                # weakly gated replay a net forgetting operation.
+                decay = self.config.synapse_decay * learn_scale
                 decoder.local_update(
                     lower_error,
                     old.trace,
-                    learning_rate=self.config.predictive_learning_rate,
-                    weight_decay=self.config.synapse_decay,
+                    learning_rate=self.config.predictive_learning_rate
+                    * learn_scale,
+                    weight_decay=decay,
                 )
                 transition.local_update(
                     state_error,
                     old.trace,
-                    learning_rate=self.config.transition_learning_rate,
-                    weight_decay=self.config.synapse_decay,
+                    learning_rate=self.config.transition_learning_rate
+                    * learn_scale,
+                    weight_decay=decay,
                 )
 
             next_states.append(RegionState(
@@ -166,8 +261,34 @@ class TaijiFabric:
             activity_rates.append(float(active_indicator.mean().item()))
             error_norms.append(float(lower_error.norm().item()))
             lower_activity = activity
+            feedback_offset += region_size
 
         return tuple(next_states), tuple(activity_rates), tuple(error_norms)
+
+    def clear_dynamics(
+        self, regions: Sequence[RegionState]
+    ) -> Tuple[RegionState, ...]:
+        """Silence activity while keeping every homeostatic set point.
+
+        Unlike ``initial_state`` this preserves each region's adapted threshold and
+        so can be used to segment one continuous stream into independent episodes
+        without leaking a fresh set point back into waking behaviour.
+        """
+
+        if len(regions) != len(self.config.region_sizes):
+            raise ValueError("region state count does not match the architecture")
+        return tuple(
+            RegionState(
+                membrane=torch.zeros_like(region.membrane),
+                activity=torch.zeros_like(region.activity),
+                trace=torch.zeros_like(region.trace),
+                prediction=torch.zeros_like(region.prediction),
+                error=torch.zeros_like(region.error),
+                threshold=region.threshold.detach().clone(),
+                inhibition=0.0,
+            )
+            for region in regions
+        )
 
     def cortical_context(self, regions: Sequence[RegionState]) -> torch.Tensor:
         """Expose time-separated fast activity and slow trace to an organ."""

@@ -1,0 +1,325 @@
+{
+  "architecture": {
+    "checkpoint_format": "taiji-native-v5",
+    "event_slots_allocated": 0,
+    "memory_association_edges": 4096,
+    "memory_units": 128,
+    "replay_learning_scale": 0.45,
+    "replay_noise_scale": 0.25,
+    "replay_priority_threshold": 0.05,
+    "replay_seed_gain": 0.65,
+    "replay_value_weight": 0.6,
+    "state_version": 4,
+    "stored_event_count_metadata": 8
+  },
+  "benchmark": "taiji_m6_endogenous_replay",
+  "checks": {
+    "consolidation_beats_chance": true,
+    "consolidation_beats_no_replay_control": true,
+    "engram_content_is_causally_necessary": true,
+    "evaluation_has_no_episodic_readback": true,
+    "fixed_topology_no_event_slots": true,
+    "no_replay_control_writes_nothing": true,
+    "recurrent_completion_is_causally_necessary": true,
+    "sleep_only_touches_cortex": true,
+    "sleep_reactivates_own_engrams": true,
+    "sleep_requires_settled_state_and_written_field": true
+  },
+  "consolidation": {
+    "engram_content_lesion": {
+      "acceptance_rate": 0.8463541666666666,
+      "accepted": 325,
+      "cycles": 384,
+      "mean_confidence": 0.32722489502335356,
+      "mean_error_norm": 0.5437576414787999,
+      "mean_novelty": 0.8682606985482076,
+      "mean_priority": 0.08581788882141288,
+      "mean_value": 0.3055285606762319,
+      "replayed_probability": 0.060141958524278984,
+      "structural_events": 11
+    },
+    "full_replay": {
+      "acceptance_rate": 0.8463541666666666,
+      "accepted": 325,
+      "cycles": 384,
+      "mean_confidence": 0.32722489502335356,
+      "mean_error_norm": 0.6507779003214091,
+      "mean_novelty": 0.8682606985482076,
+      "mean_priority": 0.08581788882141288,
+      "mean_value": 0.3055285606762319,
+      "replayed_probability": 0.060141958524278984,
+      "structural_events": 80
+    },
+    "no_replay_control": {
+      "acceptance_rate": 0.8463541666666666,
+      "accepted": 325,
+      "cycles": 384,
+      "mean_confidence": 0.32722489502335356,
+      "mean_error_norm": 0.6621661333338572,
+      "mean_novelty": 0.8682606985482076,
+      "mean_priority": 0.08581788882141288,
+      "mean_value": 0.3055285606762319,
+      "replayed_probability": 0.060141958524278984,
+      "structural_events": 0
+    },
+    "recurrent_association_lesion": {
+      "acceptance_rate": 0.0,
+      "accepted": 0,
+      "cycles": 384,
+      "mean_confidence": 0.0,
+      "mean_error_norm": 0.0,
+      "mean_novelty": 1.0,
+      "mean_priority": 0.0,
+      "mean_value": 0.2869892289554498,
+      "replayed_probability": 0.1105230802592511,
+      "structural_events": 0
+    }
+  },
+  "contingency_pairs": 4,
+  "episodes": 8,
+  "metrics": {
+    "accuracy_gain_over_control": 0.5,
+    "before_sleep": {
+      "contingency_accuracy": 0.0,
+      "mean_margin": -0.003129608929157257,
+      "mean_surprise": 1.3888333461942772,
+      "mean_true_probability": 0.24937787652015686,
+      "rows": [
+        {
+          "action": "0",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "+",
+          "margin": -0.001761406660079956,
+          "predicted_outcome": "!",
+          "true_probability": 0.25122809410095215
+        },
+        {
+          "action": "1",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "-",
+          "margin": -0.0003978312015533447,
+          "predicted_outcome": "?",
+          "true_probability": 0.25107428431510925
+        },
+        {
+          "action": "2",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "!",
+          "margin": -0.009406223893165588,
+          "predicted_outcome": "?",
+          "true_probability": 0.2452775090932846
+        },
+        {
+          "action": "3",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "?",
+          "margin": -0.0009529739618301392,
+          "predicted_outcome": "-",
+          "true_probability": 0.24993161857128143
+        }
+      ]
+    },
+    "engram_content_lesion": {
+      "contingency_accuracy": 0.25,
+      "mean_margin": -0.0029760077595710754,
+      "mean_surprise": 1.3882401820376018,
+      "mean_true_probability": 0.24952678382396698,
+      "rows": [
+        {
+          "action": "0",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "+",
+          "margin": -0.0016908347606658936,
+          "predicted_outcome": "!",
+          "true_probability": 0.2512592375278473
+        },
+        {
+          "action": "1",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "-",
+          "margin": 3.6150217056274414e-05,
+          "predicted_outcome": "-",
+          "true_probability": 0.2516075372695923
+        },
+        {
+          "action": "2",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "!",
+          "margin": -0.009314119815826416,
+          "predicted_outcome": "?",
+          "true_probability": 0.24530526995658875
+        },
+        {
+          "action": "3",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "?",
+          "margin": -0.0009352266788482666,
+          "predicted_outcome": "-",
+          "true_probability": 0.2499350905418396
+        }
+      ]
+    },
+    "full_replay": {
+      "contingency_accuracy": 0.5,
+      "mean_margin": 0.00610978901386261,
+      "mean_surprise": 1.3566701725809773,
+      "mean_true_probability": 0.25757455825805664,
+      "rows": [
+        {
+          "action": "0",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "+",
+          "margin": 0.013321071863174438,
+          "predicted_outcome": "+",
+          "true_probability": 0.2619667649269104
+        },
+        {
+          "action": "1",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "-",
+          "margin": -0.00461152195930481,
+          "predicted_outcome": "!",
+          "true_probability": 0.25486281514167786
+        },
+        {
+          "action": "2",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "!",
+          "margin": 0.016447991132736206,
+          "predicted_outcome": "!",
+          "true_probability": 0.26345863938331604
+        },
+        {
+          "action": "3",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "?",
+          "margin": -0.0007183849811553955,
+          "predicted_outcome": "-",
+          "true_probability": 0.25001001358032227
+        }
+      ]
+    },
+    "margin_gain_over_control": 0.009239397943019867,
+    "no_replay_control": {
+      "contingency_accuracy": 0.0,
+      "mean_margin": -0.003129608929157257,
+      "mean_surprise": 1.3888333461942772,
+      "mean_true_probability": 0.24937787652015686,
+      "rows": [
+        {
+          "action": "0",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "+",
+          "margin": -0.001761406660079956,
+          "predicted_outcome": "!",
+          "true_probability": 0.25122809410095215
+        },
+        {
+          "action": "1",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "-",
+          "margin": -0.0003978312015533447,
+          "predicted_outcome": "?",
+          "true_probability": 0.25107428431510925
+        },
+        {
+          "action": "2",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "!",
+          "margin": -0.009406223893165588,
+          "predicted_outcome": "?",
+          "true_probability": 0.2452775090932846
+        },
+        {
+          "action": "3",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "?",
+          "margin": -0.0009529739618301392,
+          "predicted_outcome": "-",
+          "true_probability": 0.24993161857128143
+        }
+      ]
+    },
+    "recurrent_association_lesion": {
+      "contingency_accuracy": 0.0,
+      "mean_margin": -0.003129608929157257,
+      "mean_surprise": 1.3888333461942772,
+      "mean_true_probability": 0.24937787652015686,
+      "rows": [
+        {
+          "action": "0",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "+",
+          "margin": -0.001761406660079956,
+          "predicted_outcome": "!",
+          "true_probability": 0.25122809410095215
+        },
+        {
+          "action": "1",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "-",
+          "margin": -0.0003978312015533447,
+          "predicted_outcome": "?",
+          "true_probability": 0.25107428431510925
+        },
+        {
+          "action": "2",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "!",
+          "margin": -0.009406223893165588,
+          "predicted_outcome": "?",
+          "true_probability": 0.2452775090932846
+        },
+        {
+          "action": "3",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_outcome": "?",
+          "margin": -0.0009529739618301392,
+          "predicted_outcome": "-",
+          "true_probability": 0.24993161857128143
+        }
+      ]
+    },
+    "surprise_drop_over_control": 0.0321631736132999
+  },
+  "protocol": {
+    "claim_boundary": "action-outcome contingency transfer, not cue-conditioned policy transfer: the replayed sequence carries no cue byte",
+    "consolidation_cycles": 384,
+    "cortex_learning_during_storage": false,
+    "external_replay_list": false,
+    "memory_to_fabric_weight_copy": false,
+    "motor_learning_during_sleep": false,
+    "motor_learning_during_storage": false,
+    "pretrain_corpus_bytes": 511,
+    "pretrain_epochs": 6,
+    "pretrain_mean_surprise": 1.7606712909218987,
+    "pretrain_online_accuracy": 0.6204427083333334,
+    "pretrain_pairing_is_uniform": true,
+    "probe_chance_accuracy": 0.25,
+    "reward_per_write": 1.0,
+    "teacher_target": false,
+    "write_exposures_per_episode": 1
+  },
+  "seed": 43,
+  "status": "pass"
+}

@@ -1,0 +1,242 @@
+{
+  "benchmark": "taiji_n11_active_environment",
+  "checks": {
+    "all_pending_actions_are_settled": true,
+    "beats_action_learning_lesion_by_25pp": true,
+    "beats_random_by_35pp": true,
+    "deterministic_policy_solves_both_cues": true,
+    "environment_transition_depends_on_action": true,
+    "final_success_at_least_90pct": true,
+    "reward_updates_are_local_and_counted": true
+  },
+  "environment": {
+    "actions": [
+      "0",
+      "1"
+    ],
+    "cues": [
+      "L",
+      "R"
+    ],
+    "episodic_memory_learning_enabled": false,
+    "failure_sensation": "-",
+    "reason": "N11 isolates motor reward causality; M5 tests memory separately",
+    "reward": {
+      "failure": -1.0,
+      "success": 1.0
+    },
+    "success_sensation": "+",
+    "teacher_action_label_exposed_to_taiji": false
+  },
+  "interactions": 200,
+  "metrics": {
+    "action_learning_lesion": {
+      "decision_samples": [
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 0
+        },
+        {
+          "action": "0",
+          "cue": "R",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 1
+        },
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 2
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 3
+        },
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 4
+        },
+        {
+          "action": "0",
+          "cue": "R",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 195
+        },
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 196
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 197
+        },
+        {
+          "action": "0",
+          "cue": "L",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 198
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 199
+        }
+      ],
+      "final_reward_baseline": 0.0,
+      "final_window_accuracy": 0.575,
+      "first_window_accuracy": 0.55,
+      "mean_abs_reward_prediction_error": 1.0,
+      "mean_reward": 0.13,
+      "motor_changed": false,
+      "overall_accuracy": 0.565,
+      "pending_action_cleared": true,
+      "pending_experience_cleared": true,
+      "reward_updates": 0
+    },
+    "deterministic_accuracy": 1.0,
+    "deterministic_decisions": [
+      {
+        "action": "0",
+        "cue": "L",
+        "reward": 1.0,
+        "success": true
+      },
+      {
+        "action": "1",
+        "cue": "R",
+        "reward": 1.0,
+        "success": true
+      }
+    ],
+    "gain_over_action_lesion": 0.42500000000000004,
+    "gain_over_random": 0.5,
+    "learned": {
+      "decision_samples": [
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 0
+        },
+        {
+          "action": "0",
+          "cue": "R",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 1
+        },
+        {
+          "action": "1",
+          "cue": "L",
+          "reward": -1.0,
+          "sensation": "-",
+          "success": false,
+          "trial": 2
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 3
+        },
+        {
+          "action": "0",
+          "cue": "L",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 4
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 195
+        },
+        {
+          "action": "0",
+          "cue": "L",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 196
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 197
+        },
+        {
+          "action": "0",
+          "cue": "L",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 198
+        },
+        {
+          "action": "1",
+          "cue": "R",
+          "reward": 1.0,
+          "sensation": "+",
+          "success": true,
+          "trial": 199
+        }
+      ],
+      "final_reward_baseline": 0.9818249045727537,
+      "final_window_accuracy": 1.0,
+      "first_window_accuracy": 0.85,
+      "mean_abs_reward_prediction_error": 0.2347100767347303,
+      "mean_reward": 0.9,
+      "motor_changed": true,
+      "overall_accuracy": 0.95,
+      "pending_action_cleared": true,
+      "pending_experience_cleared": true,
+      "reward_updates": 200
+    },
+    "random_policy_accuracy": 0.5
+  },
+  "seed": 7,
+  "status": "pass"
+}

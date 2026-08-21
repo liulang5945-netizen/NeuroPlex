@@ -46,15 +46,16 @@ class SparseSynapses:
         self.fan_in = min(int(fan_in), self.in_features)
         self.max_weight_norm = float(max_weight_norm)
         self.device = torch.device(device)
+        self.excludes_self = bool(
+            not allow_self
+            and self.out_features == self.in_features
+            and self.in_features > 1
+        )
 
         selected_by_post = []
         for post in range(self.out_features):
             candidates = torch.arange(self.in_features)
-            if (
-                not allow_self
-                and self.out_features == self.in_features
-                and self.in_features > 1
-            ):
+            if self.excludes_self:
                 candidates = candidates[candidates != post]
             count = min(self.fan_in, int(candidates.numel()))
             order = torch.randperm(
@@ -147,6 +148,166 @@ class SparseSynapses:
         self._bound_rows()
 
     @torch.no_grad()
+    def structural_update(
+        self,
+        postsynaptic_error: torch.Tensor,
+        presynaptic_trace: torch.Tensor,
+        *,
+        turnover_ratio: float,
+        capture_target: float,
+        error_threshold: float,
+    ) -> int:
+        """Regrow weightless edges onto active partners; return contacts moved.
+
+        A fixed fan-in drawn once at initialization is a lottery. Region codes
+        are only nominally dense -- a settled trace lights 21-34 of 64 units
+        but concentrates 60-98% of its energy in two or three of them -- so
+        whether a row's 16 sampled contacts happen to touch the informative
+        units decides, by geometry alone, whether that row can be taught at
+        all. Measured across four contingencies the energy a row captured
+        spanned three orders of magnitude, and the worst row needed millions
+        of updates to move. That is not a dose problem, and no rescaling of
+        the code fixes it: divisive normalization leaves the captured fraction
+        bit-identical, because it changes the scale and not the shape.
+
+        So the topology itself has to move. A row retires its presynaptically
+        silent contacts, weakest first, and grows that many replacements onto
+        the most active units it is not already touching. Silence is the whole
+        admission test: a partner that is not firing on the pattern being
+        written contributes exactly zero to this update, whatever its weight
+        says. Weight enters only as the order of retirement, which is the right
+        place for it -- a silent edge may still be carrying some *other*
+        pattern, and going weakest-first spends the row's least committed
+        contacts before its most committed ones. It cannot be an admission test
+        as well, because a silent edge is often a strong one: measured on the
+        four outcome rows, 5 to 11 of 16 contacts were silent, yet demanding
+        they also fall under 5% of the row maximum admitted only 3, 1, 0 and 0
+        of them, which stalled two rows outright.
+
+        ``turnover_ratio`` caps how much of a row may move in any single update.
+        Rewiring the 4 weakest of 16 contacts raised captured energy from 0.029
+        to 0.971 on one row and from 0.0001 to 0.781 on the worst; pushing to 8
+        sent a fourth row *backwards*, 0.962 down to 0.625, because by then
+        retirement had reached contacts that were doing real work under other
+        patterns. The ceiling is therefore a measured turnover rate rather than
+        a safety margin -- but it is a rate, and a rate alone cannot terminate
+        anything, which is what ``capture_target`` is for.
+
+        The remaining gate is that the row must currently be mispredicting, and
+        it is the gate that supplies selectivity. Rewiring on its own only
+        supplies capacity -- pointing every row at the same active units raises
+        what all of them capture, which discriminates nothing. But at a
+        consolidation write the error is nearly one-hot: the row for the outcome
+        actually being replayed carries an error near one while the rest of the
+        alphabet sits two orders of magnitude below it. Thresholding on error
+        therefore restructures exactly the row that needs the capacity and
+        leaves the others alone, which is why error is used as a gate and never
+        as a way to rank candidates -- within a row it is a single scalar and
+        could not rank anything.
+
+        Requiring the retired partner to be silent keeps a single held pattern
+        from thrashing. A new contact opens at zero weight, so it is instantly
+        among the weakest edges in its row, and a purely magnitude-based
+        criterion would retire it again on the very next tick and never let it
+        accumulate anything. A fresh donor is by construction one of the most
+        active absent units, so silence excludes it from the retirement pool for
+        exactly as long as it stays active. That protection lasts only while the
+        pattern is held, though, which is why it does not by itself make the rule
+        stable across a whole bout and why ``capture_target`` is the gate that
+        does.
+
+        Opening at zero weight also means the swap is behaviourally neutral at
+        the instant it happens -- every edge it replaces contributed nothing to
+        this pattern, being silent on it -- and the ordinary error x eligibility
+        update grows it from there. Row fan-in never changes, so every stored
+        shape is invariant and the payload format is untouched.
+        """
+
+        if postsynaptic_error.shape != (self.out_features,):
+            raise ValueError("postsynaptic error dimension mismatch")
+        if presynaptic_trace.shape != (self.in_features,):
+            raise ValueError("presynaptic trace dimension mismatch")
+        if self.row_fan_in >= self.in_features:
+            return 0
+
+        postsynaptic_error = postsynaptic_error.to(self.device)
+        presynaptic_trace = presynaptic_trace.to(self.device)
+        activity = presynaptic_trace.abs()
+        contacts = self.pre_index.long()
+
+        # How much of the pattern's energy the row already reaches is its own
+        # stopping signal, and without it the rule destroys what it repairs.
+        # Silence cannot terminate anything: a settled trace occupies 21-34 of
+        # 64 units, so every row keeps some silent contacts forever and keeps
+        # trading them away forever.  Measured over a 96-cycle bout the swaps
+        # never saturated -- 4, 16, 45, 83, 128 -- and rows ended with 3 of 16
+        # original contacts and 2% of their accumulated weight, because each
+        # donor opens at zero and the next bout retires the one before it had
+        # time to grow.  The bout therefore had two phases: for the first ~16
+        # cycles aiming dominated and all four rows improved together, then
+        # capture saturated near 1.0 with nothing left to gain and continued
+        # rewiring simply cannibalized the weight the writes had just built,
+        # collapsing one row's logit from 6.9e-3 to 5.1e-4.  A row that already
+        # sees the pattern needs writes, not new wiring, so aiming stops when
+        # it is aimed.  This is measured from the trace and the topology in
+        # hand, so it costs no counter, no synapse age, and no stored state.
+        energy = presynaptic_trace * presynaptic_trace
+        total_energy = float(energy.sum())
+        if total_energy <= 0.0:
+            return 0
+        captured = energy[contacts].sum(dim=1) / total_energy
+        unaimed = captured < float(capture_target)
+
+        magnitude = self.edge_weight.abs()
+        retirable = activity[contacts] == 0.0
+        mispredicting = postsynaptic_error.abs() >= float(error_threshold)
+        budget = int(float(turnover_ratio) * self.row_fan_in)
+        if budget <= 0:
+            return 0
+        demand = retirable.sum(dim=1).clamp(max=budget) * mispredicting * unaimed
+        if not bool((demand > 0).any()):
+            return 0
+
+        # Candidate donors are the units the row does not touch, ranked by
+        # activity.  Marking taken columns below zero sorts them behind every
+        # absent unit, so the leading entries of each row's ordering are its
+        # absent partners from most to least active.  A recurrent projection
+        # built to exclude self-contacts must keep excluding them, so such rows
+        # count their own column as taken.
+        taken = torch.zeros(
+            (self.out_features, self.in_features),
+            dtype=torch.bool,
+            device=self.device,
+        )
+        taken.scatter_(1, contacts, True)
+        if self.excludes_self:
+            diagonal = torch.arange(self.out_features, device=self.device)
+            taken[diagonal, diagonal] = True
+        available = (~taken) & (activity > 0.0).unsqueeze(0)
+        ranking = activity.expand(self.out_features, -1).masked_fill(taken, -1.0)
+        donor_order = ranking.argsort(dim=1, descending=True)
+
+        # Each row moves as many contacts as it has dead ones, limited by how
+        # many active partners are actually left to grow onto.
+        moves = torch.minimum(demand, available.sum(dim=1))
+        if not bool((moves > 0).any()):
+            return 0
+
+        # Retire the feeblest silent contact first, and pair the j-th
+        # retirement with the j-th best donor.  Both orderings are per row and
+        # the first ``moves`` entries of each are valid by construction, so one
+        # mask selects the whole set of swaps at once.
+        retire_order = magnitude.masked_fill(~retirable, float("inf")).argsort(dim=1)
+        width = self.row_fan_in
+        chosen = torch.arange(width, device=self.device).unsqueeze(0) < moves.unsqueeze(1)
+        rows = torch.arange(self.out_features, device=self.device).unsqueeze(1).expand(-1, width)
+        self.pre_index[rows[chosen], retire_order[chosen]] = (
+            donor_order[:, :width][chosen].to(torch.int32)
+        )
+        self.edge_weight[rows[chosen], retire_order[chosen]] = 0.0
+        return int(chosen.sum().item())
+
+    @torch.no_grad()
     def _bound_rows(self) -> None:
         norms = self.edge_weight.norm(dim=1, keepdim=True).clamp_min(1e-8)
         scales = torch.clamp(self.max_weight_norm / norms, max=1.0)
@@ -165,6 +326,18 @@ class SparseSynapses:
         }
 
     def load_payload(self, payload: Mapping[str, Any]) -> None:
+        """Restore weights and topology, validating the invariants that matter.
+
+        Topology is learned, not derived, so a checkpoint's `pre_index` will not
+        equal the one this instance drew from its seed.  Demanding equality
+        would make every structurally plastic run unloadable.  What must still
+        hold are the properties the kernel's correctness actually rests on: the
+        stored shape, indices inside the presynaptic population, no duplicate
+        contact within a row -- `backproject` scatter-adds over `pre_index`, so
+        a repeated index would silently double-count that partner's error -- and
+        no self-contact on a projection that was built to exclude it.
+        """
+
         if payload.get("storage") != self.STORAGE_FORMAT:
             raise ValueError("unsupported synapse storage format")
         expected = (
@@ -187,9 +360,19 @@ class SparseSynapses:
         edge_weight = payload["edge_weight"].detach().to(
             device=self.device, dtype=torch.float32
         )
-        if not torch.equal(pre_index, self.pre_index):
+        if pre_index.shape != self.pre_index.shape:
             raise ValueError("synapse presynaptic topology does not match architecture")
         if edge_weight.shape != self.edge_weight.shape:
             raise ValueError("synapse edge weights do not match architecture")
+        if bool(((pre_index < 0) | (pre_index >= self.in_features)).any()):
+            raise ValueError("synapse presynaptic index outside the population")
+        rows = pre_index.long()
+        if bool((rows.sort(dim=1).values.diff(dim=1) == 0).any()):
+            raise ValueError("synapse presynaptic topology repeats a contact")
+        if self.excludes_self:
+            own = torch.arange(self.out_features, device=self.device).unsqueeze(1)
+            if bool((rows == own).any()):
+                raise ValueError("recurrent synapse topology contains a self-contact")
+        self.pre_index = pre_index.clone()
         self.edge_weight = edge_weight.clone()
         self._bound_rows()
