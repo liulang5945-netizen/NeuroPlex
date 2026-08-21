@@ -279,8 +279,16 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
 
 **结论**：`f → 25%`、"非对角项趋零"这两条判据无效，予以退役——f 是饱和的重叠度代理量，25% 是恒等式而非可逼近下界。唯一仍然有效的判据是端到端的 **4 对 true-cell 全部转正**。下一步不应再在"压低共模能量"这个方向上投入。
 
-**遗留的真问题**：读出通路是"非负 basis × 单层稀疏解码器"，四个探测共享同一非负锥，任何一对的写入都会沿锥内夹角泄漏到其它对。要打破这一点必须让读出侧拿到**带符号**的对比量（例如解码器行之间的差分/归一化竞争），而不是继续在前端压制活动。
+**遗留的真问题**：读出通路是"非负 basis × 单层稀疏解码器"，四个探测共享同一非负锥，任何一对的写入都会沿锥内夹角泄漏到其它对。要打破这一点必须让读出侧拿到**带符号**的对比量，而不是继续在前端压制活动。
 
+**⚠️ 2026-08-22 订正：上面这句原本举的例子（"解码器行之间的差分/归一化竞争"）是错的，且落点必须是 fabric、不是 motor。** 两条都在实现过程中被否掉，代码已整体回退（HEAD 仍为 `3fdd34a`，74 passed）。留档是因为这两个坑都不便宜：
+
+1. **行间竞争在数学上是空操作。** 令证据为 $e_i$、总和 $S=\sum_j e_j$，"每行减去竞争行的加权均值"展开是
+   $$\tilde e_i = e_i - \frac{\lambda}{n-1}\sum_{j\neq i} e_j = \Big(1+\frac{\lambda}{n-1}\Big) e_i - \frac{\lambda S}{n-1}$$
+   减掉的那一项**与 $i$ 无关、对每行相同**，而 softmax 对全体 logit 平移不变，故 $\mathrm{softmax}(\tilde e/T) = \mathrm{softmax}(e/T')$，$T' = T/(1+\lambda/(n-1))$ —— **只等价于换温度**，排序与相对证据分毫不动。任何"能写成行间线性组合、且以行共享方式相减"的竞争都塌缩成这个恒等式。**在 `evidence` 上做行间竞争是死路。**
+2. **对比量必须作用在 basis 上、在解码之前，且那个 basis 是 `regions[0].trace`，不是 `motor_context`。** 因为非负性，每个探测的 basis ≈ $\alpha_p u + \delta_p$（共模 $u$ 与探测无关的标量 $\alpha_p$，只有 $\delta_p$ 携带身份）；解码后得 $\alpha_p(Wu) + W\delta_p$，其中 $Wu$ 是一个**行间不均匀**的固定模式，正是 §6.5 测到的 rank-1 串扰，softmax 消不掉。曾误把机制装进 `ByteMotor.encode_context`，实测 `gain=0.0` 与 `0.75` 的四个 margin **逐位相同**（`-0.00089 / +0.00644 / +0.00170 / -0.00256`）——因为 `_evaluate_contingency` 读的是 `fabric.decoders[0].forward(regions[0].trace)`，而 motor 是另一个器官，其输出只流向 `motor.probabilities` / `motor.learn`，从不回流 fabric。该脚本自己的注释早已写明这一点：巩固只触碰 `fabric.decoders` 与 `fabric.transitions`，**motor 出睡眠时逐位不变**，所以 motor 读出面在设计上就与巩固无关。
+
+**下一步的正确落点**：在 `fabric.step` 里给每个区域一个自适应共模基线向量，`trace` 写入前扣除，使只搭共模便车的坐标变成**负驱动**。这同时改造读出与写入——`local_update` 对突触前痕迹线性，而 §6.5 那条 $\mathrm{margin}_i \approx \sum_j n_j d_{ij}$ 律里的 $d_{ij}<0$ 正是排练**写入**时的附带损伤，只治读出治不到它。代价是 `RegionState` 需加槽位、`STATE_VERSION` 5 → 6。动手前先做一次离线落点验证：冻结睡前四个探测 basis，离线扣除共模后重算 `decoders[0]` 的四个 margin，若 4 对 true-cell 全部转正（§6.6 唯一仍然有效的判据）再改 fabric，避免第二次装错层。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 
