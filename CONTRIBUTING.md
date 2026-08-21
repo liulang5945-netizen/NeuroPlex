@@ -1,69 +1,45 @@
-# Contributing to NeuroPlex
+# Contributing to Taiji
 
-Thank you for your interest in NeuroPlex! This document describes how to contribute.
+Taiji is an experimental architecture project. Contributions should strengthen or falsify the native algorithm, not add biological names around a Transformer component.
 
-## Getting Started
+## Setup
 
-1. **Fork & Clone**
-   ```bash
-   git clone https://github.com/<your-username>/NeuroPlex.git
-   cd NeuroPlex
-   ```
+```bash
+git clone https://github.com/<your-username>/taiji-neuron.git
+cd taiji-neuron
+python -m pip install -e ".[dev]"
+python scripts/training/verify_taiji_native_v1.py
+python -m pytest tests/taiji_native -q
+```
 
-2. **Install (development mode)**
-   ```bash
-   pip install -e ".[dev]"
-   ```
+Run the complete regression suite before submitting:
 
-3. **Verify the core**
-   ```bash
-   python -m pytest tests/ -q
-   # Expected: 32 passed
-   ```
+```bash
+python -m pytest tests -q
+```
 
-4. **Run the bootstrap demo**
-   ```bash
-   python scripts/bootstrap_population_demo.py
-   ```
+## Native-core rules
 
-## Development Workflow
+- `taiji/` must not import `neuroplex`, `transformers`, attention implementations, tokenizers, or legacy checkpoints.
+- Normal learning must not call `backward()` or a global optimizer.
+- New synaptic updates must state which presynaptic trace, postsynaptic error, and broadcast signal are locally available.
+- Every persistent state must define its update, decay, reset, checkpoint, and lesion behavior.
+- Parameter-count claims must distinguish active masked edges from dense tensor storage and measured FLOPs.
+- Capability claims need a deterministic benchmark and a causal lesion/control.
+- Increasing model size or epochs is not an accepted response to a failed mechanism gate.
 
-1. **Create a branch**
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
+## Pull requests
 
-2. **Make your changes**
-   - Code follows PEP 8 (enforced by `ruff`)
-   - Functions use type hints
-   - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+1. Create a branch, normally `feat/<name>` or `fix/<name>`.
+2. Add the smallest failing test or falsification benchmark first.
+3. Implement one architecture change with matching equations and code documentation.
+4. Run native tests, the benchmark, and the full regression suite.
+5. Update `plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md` and the active implementation plan.
 
-3. **Run tests**
-   ```bash
-   python -m pytest tests/ -q
-   ```
+## Legacy boundary
 
-4. **Submit a Pull Request**
-   - Describe what changed and why
-   - Link to relevant issue(s)
-
-## Areas for Contribution
-
-- **New domain neurons** (e.g., science, legal, medical) — train and submit the checkpoint
-- **Training improvements** — domain interleaving, LR scheduling, multi-epoch
-- **Multi-language support** — add new tokenizers (Korean, Japanese, etc.)
-- **Hardware acceleration** — CUDA/MPS support
-- **Benchmark suite** — standard tasks for evaluating resonance benefits
-- **Documentation** — tutorials, architecture deep-dives
-
-## Architecture Notes
-
-- **The population is the product**: Each domain or role neuron is an independently trainable Transformer. New capability should normally be added by specializing or adding neurons, not by growing a central backbone.
-- **Resonance field is a communication medium**: Neurons write/read `field_vector`s, peer channels provide local coordination, and routing selects the active subset for each task.
-- **Relay neurons are optional**: An expert neuron can provide cross-domain anchoring, but it remains one member of the population and must not become a hidden central controller.
-- **Production assembly has a fixed default contract**: five dialogue neurons plus four general domain neurons form the nine-member Cortex path; changes to these IDs require an explicit contract update and regression test.
-- **Lifecycle is part of the architecture**: memory replay, synaptic updates, maturation, neurogenesis, and apoptosis are first-class population mechanisms.
+The previous NeuroPlex Transformer runtime remains under `neuroplex/` for reproducibility. Changes there must be labeled Legacy and must not become a dependency of native Taiji. Historical `taiji.*` pickle paths use the scoped compatibility loader rather than a global module alias.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
+Contributions are licensed under Apache License 2.0.

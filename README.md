@@ -1,191 +1,147 @@
-# NeuroPlex — Population Neural Network with Resonance
+# Taiji — Native Persistent Predictive Computing
 
-> **A population of specialized neurons, coordinated through resonance.**
->
-> NeuroPlex is a population neural network made of domain-specific neurons (24M–134M each). Neurons coordinate through a shared resonance field, peer connections, routing, memory, and lifecycle control. Capability grows by specializing and composing the population, not by replacing it with one larger model.
+Taiji is an experimental non-Transformer sequence architecture with its own input representation, persistent state transition, local learning rule, motor output, free-running generation loop, and checkpoint format.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
----
+> Current status: executable research prototype, not an AGI claim and not a language-quality replacement yet.
 
-## Why NeuroPlex?
+## What Taiji replaces
 
-| Single-model scaling assumption | NeuroPlex population design |
+Taiji does not wrap a Transformer in neuron terminology. The native path is:
+
+```text
+raw byte receptors
+  → hierarchical reciprocal prediction errors
+  → persistent recurrent region states
+  → one byte motor organ
+  → emitted action returns as the next sensation
+```
+
+| Transformer responsibility | Taiji Native v1 |
 |---|---|
-| One model must absorb every domain | Hot-swap one new neuron (24M), keep the rest stable |
-| A single representation serves every task | Domain-specific neurons specialize (zh/en/code/math) |
-| New knowledge risks global interference | Per-neuron protection, peer coordination, and local consolidation |
-| Routing is hidden inside one forward pass | Resonance rounds expose field vectors, gates, quality, and active neurons |
+| tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
+| positional encoding | causal ticks and persistent state |
+| self-attention | sparse reciprocal prediction and recurrent transitions |
+| residual/FFN state | membrane integration, inhibition, adaptive thresholds, traces |
+| KV cache | bounded dynamic state and learned transition synapses |
+| global backpropagation | masked local prediction/state/motor deltas |
+| LM head | one motor population |
+| autoregressive decode | motor byte fed back through the same sensor |
 
-## Core Idea
+The implementation imports neither `transformers` nor the legacy `neuroplex` runtime. PyTorch is used only as a tensor execution engine.
 
-Four cooperating planes, each replaceable:
+## Algorithm
 
+For region `r`, the previous local trace predicts both the current lower-level activity and the region's own next activity:
+
+```math
+\hat y_t^{r-1}=D^r q_{t-1}^r, \qquad e_t^{r-1}=y_t^{r-1}-\hat y_t^{r-1}
 ```
-Level 0: Shared sensory alignment              ← I/O protocol layer
-    ↓
-Level 1: Neuron population (24M–134M each)   ← Independent Transformers
-    ↓  field_write / field_read
-Level 2: Resonance field (3072–4096 dim)     ← Shared communication medium
-    ↓  routing / memory / lifecycle
-Level 3: Population control plane             ← topology, plasticity, growth, pruning
+
+```math
+\hat a_t^r=T^r q_{t-1}^r
 ```
 
-**Round 1**: Each neuron reads the input independently, writes its `field_vector` to the shared field.
-**Round 2–N**: Neurons read the updated field state, re-condition, and write again — until logits converge or confidence gate fires.
-**Routing and aggregation**: Confidence, quality, topology, and instance-level signals select an active subset. The selected neurons exchange field state and peer signals, then aggregate domain logits into the next token.
+The region integrates bottom-up error, recurrent prediction, and delayed top-down context:
 
-## Quick Start
+```math
+u_t^r=Bound(\lambda_u u_{t-1}^r+\alpha_g(D^r)^Te_t^{r-1}+\alpha_T\hat a_t^r+\alpha_c c_t^r)
+```
 
-### Install
+Activity is formed through an adaptive threshold and a local inhibitory pool. Learning is online and local:
+
+```math
+\Delta D^r=\eta_D e_t^{r-1}(q_{t-1}^r)^T
+```
+
+```math
+\Delta T^r=\eta_T(a_t^r-T^rq_{t-1}^r)(q_{t-1}^r)^T
+```
+
+```math
+\Delta M=\eta_M(onehot(b_t)-p_{t-1})c_{t-1}^T
+```
+
+Every update is restricted by a fixed fan-in mask. There is no attention matrix, context window, optimizer, `backward()`, teacher model, or distillation path.
+
+The complete tensor shapes, update order, state contract, complexity, and code mapping are in [the architecture specification](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
+
+## Quick start
 
 ```bash
-# From the repository root
 python -m pip install -e ".[dev]"
+python scripts/training/verify_taiji_native_v1.py
+python -m pytest tests/taiji_native -q
 ```
 
-### Verify the core (35 tests)
-
-```bash
-python -m pytest tests/ -q
-# Expected: 32 passed
-```
-
-### Run the bootstrap demo
-
-```bash
-python scripts/bootstrap_population_demo.py
-```
-
-This is the recommended first run for a fresh checkout. It needs no private
-checkpoint and downloads no model artifact: a fixed tiny population exercises
-the resonance field, sparse routing, and state round-trip in a few seconds.
-The output is explicitly `synthetic_probe_only`; it demonstrates the runtime
-contract, not trained language quality.
-
-### Run the reproducible population baseline
-
-```bash
-python scripts/verify_population_baseline.py --output reports/population_baseline.json
-```
-
-This uses a fixed seed and a tiny synthetic population to compare individual,
-dense, and sparse resonance, then checks route observability, checkpoint
-serialization, Cortex assembly, and the API health endpoint. Its metrics are
-marked `synthetic_probe_only`; they validate the population runtime path, not
-trained language quality.
-
-### Run the API
-
-```bash
-python -m uvicorn api.app:app --host 127.0.0.1 --port 8000
-```
-
-Then open `http://127.0.0.1:8000/docs` or check `http://127.0.0.1:8000/api/health`.
-
-### Train your first domain neuron
-
-```bash
-# Domain SFT fine-tune (dialogue neuron)
-python scripts/training/finetune_neuron_dialogue.py
-
-# Cross-domain collaboration layer
-python scripts/training/train_cross_domain_collab.py
-
-# Hub neuron (EXPERT spec, general 256K vocab, from scratch)
-python scripts/training/train_hub_neuron.py
-```
-
-### Use Cortex (the orchestrator)
+Minimal API:
 
 ```python
-from neuroplex.loader import assemble_cortex
+from taiji import Taiji
 
-cortex, tokenizer, modules = assemble_cortex(
-    neurons_dir="data/neurons",
-    device="cpu",
-    max_rounds=2,
-)
-result = cortex.generate("今天天气怎么样？")
-print(result)
+model = Taiji()
+model.learn_bytes(b"abcdabcdabcdabcd", epochs=200)
+
+print(model.score_bytes(b"abcdabcdabcdabcd"))
+print(model.generate(b"a", length=8))
+
+checkpoint = model.checkpoint()
+restored = Taiji.from_checkpoint(checkpoint)
 ```
 
-If `data/neurons` is empty, NeuroPlex starts with a limited random fallback
-neuron. Add trained domain checkpoints for useful generation quality.
+## Reproducible Native v1 result
 
-The default production assembly is a 9-member population: five dialogue neurons
-(`zh_aug0_dialogue` through `zh_aug3_dialogue` plus `zh_std0_dialogue`) and four
-general neurons (`code`, `en`, `math`, `zh`) from the optional general checkpoint
-directory. The dialogue members are the primary conversation path; the general
-members extend domain routing and shared-space composition.
+The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
-## Neuron Specifications
+| Metric | Result |
+|---|---:|
+| active sparse parameters | 19,521 |
+| dense tensor storage | 54,961 |
+| structural sparsity | 64.48% |
+| byte-cycle accuracy | 0% → 76.47% |
+| mean surprise | 5.5622 → 1.0484 |
+| surprise reduction | 81.15% |
+| short free generation | `a → bcdaccbd` (first four steps correct) |
+| checkpoint exact-next-step | pass |
 
-| Spec | Hidden | Layers | Params | Role |
-|------|--------|--------|--------|------|
-| `compact` | 512 | 6 | ~24M | Auxiliary / domain-specific |
-| `standard` | 768 | 10 | ~59M | Main executor |
-| `expert` | 1024 | 14 | ~134M | Decision-maker / hub |
+This is evidence that the algorithm can learn a tiny stream. It is not evidence of language understanding: generation currently drifts after four steps, and second-order context has not yet passed its lesion test.
 
-## Project Structure
+Report: [reports/taiji_native_v1_20260821.json](reports/taiji_native_v1_20260821.json).
 
-```
-NeuroPlex/
-├── neuroplex/
-│   ├── resonance/          # ★ Resonance field engine (core)
-│   │   ├── neuron.py       #   ResonanceNeuron (per-neuron forward + field I/O)
-│   │   ├── ensemble.py      #   Multi-round orchestration
-│   │   ├── field.py        #   Resonance field (shared communication medium)
-│   │   ├── translator.py   #   Cross-vocab translator
-│   │   └── config.py       #   Neuron spec config
-│   ├── brain/cortex.py     #   Cortex (top-level orchestrator)
-│   ├── domains/            #   Per-domain tokenizers (zh/en/code/math/general)
-│   ├── life/               #   Bio-inspired lifecycle (sleep consolidation, etc.)
-│   ├── safety/             #   Output safety + sandbox
-│   ├── tools/              #   Tool-use system
-│   └── loader.py           #   Assembly + checkpoint loading
-├── api/                    #   FastAPI server
-├── frontend/               #   Vue 3 web UI
-├── desktop/                #   PyQt6 desktop app
-├── docs/                   #   Supplementary design and history materials
-├── data/                   #   Runtime datasets and model checkpoints (local, ignored)
-├── reports/                #   Validation reports referenced by plans
-├── logs/                   #   Runtime and historical experiment logs (local, ignored)
-├── plans/                  #   Active plans and categorized historical archive
-├── scripts/training/       #   Training scripts + verify_*.py tests
-├── tests/                  #   pytest regression suite
-└── plans/                  #   Architecture documentation
+## Source layout
+
+```text
+taiji/
+├── config.py    architecture and dynamics contract
+├── sparse.py    fixed fan-in synapses and local updates
+├── state.py     persistent region and whole-system state
+├── organs.py    raw-byte sensor and byte motor
+├── fabric.py    predictive recurrent tick
+└── model.py     observe, learn, score, generate, checkpoint
+
+tests/taiji_native/                 native architecture contracts
+scripts/training/verify_taiji_native_v1.py
+plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md
 ```
 
-## Key Findings
+## Legacy NeuroPlex
 
-- **1+1 > 2 is conditional**: Resonance helps only when neurons are uncertain. A `ConfidenceGate` skips resonance when max_prob > 0.9 (avoiding field noise on confident predictions).
-- **Weak neurons dilute strong ones**: `QualityFilter` excludes PPL > 100 neurons from resonance. Scale-layering outperforms equal-weight consensus by 2.6× on code domain.
-- **Optional relay anchoring**: An expert neuron can serve as a cross-domain relay, while `cross_spec_projectors` align field vectors into a unified space. The relay is a population member, not a central controller.
-- **Global anchoring > single-domain anchoring**: Computing anchor loss on ALL non-hub domains every batch (not just the current batch's domain) yielded ×2.3 mean cosine improvement.
+`neuroplex/` contains the previous nine-member Transformer population, including all five dialogue members. It is retained only for reproducibility and future same-budget comparisons. It is not imported by Taiji.
 
-## Architecture Documentation
+Historical checkpoints that serialized `taiji.*` names are loaded through the scoped `neuroplex.legacy_checkpoint` compatibility utility; importing NeuroPlex no longer shadows the native `taiji` package.
 
-- [plans/README.md](plans/README.md) — Plan index and active/archive navigation
-- [BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md) — Full active architecture plan
-- [ARCHITECTURE_DIRECTION_2026_08.md](plans/active/ARCHITECTURE_DIRECTION_2026_08.md) — Architecture comparison and current decision
-- [DESIGN_PRINCIPLES.md](plans/active/DESIGN_PRINCIPLES.md) — Design principles
-- [CODE_WIKI.md](CODE_WIKI.md) — Code wiki
+Install legacy application dependencies only when reproducing that baseline:
 
-## Contributing
+```bash
+python -m pip install -e ".[legacy]"
+```
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## Current falsification target
+
+The next gate is N7: the same current byte must lead to different correct successors under different histories, and clearing the temporal trace must remove that advantage. The project does not scale parameters or download larger text data until that context mechanism is demonstrated.
 
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-
-## Acknowledgments
-
-NeuroPlex draws inspiration from:
-- **MoCo** (momentum contrast) — dynamic logit fusion
-- **SMCS** (subspace clustering) — instance-level routing
-- **KoPE** (Kronecker-position encoding) — field vector phase encoding
-- **BioOSS** (biologically-inspired OSS) — p/o dual neuron models
-- **Hub-and-spoke** neuroscience — associative cortex topology

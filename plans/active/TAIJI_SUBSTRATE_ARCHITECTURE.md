@@ -1,518 +1,346 @@
-# Taiji 非 Transformer 计算底座架构规范
+# Taiji 原生计算架构与代码规范
 
-> **状态**：架构决策与实现合同 · 2026-08-21
+> 状态：Native v1 已有可执行代码，不是概念规划。
 >
-> **名称边界**：`Taiji` 是新的认知计算底座；`NeuroPlex` 在迁移期继续表示现有产品、群体装配和兼容运行时。代码实现使用 `neuroplex.taiji`，因为顶层模块名 `taiji` 已被 `neuroplex/__init__.py` 用作旧 checkpoint 的 pickle 兼容别名。
+> 权威实现：仓库顶层 `taiji/`。
 >
-> **结论边界**：本规范把“Transformer 不适合作为群体神经元的长期底座”作为项目的可检验架构假设。Taiji 的目标是补上持续状态、局部在线学习、内生记忆、稀疏事件协作和感知—行动闭环；它不能预先证明或保证 AGI，是否成立只能由下面的反证实验决定。
+> 边界：`neuroplex/` 是冻结的 Transformer 基线，不是 Taiji 的宿主、成员容器或运行时。
 
-## 1. 决策
+## 1. 定义
 
-从本文件生效起：
+Taiji 是一个**持续状态、分层预测、稀疏局部连接、在线局部学习**的计算架构。它以连续到来的事件推进状态，不读取完整 token 窗口，也不在旧 Transformer 外围添加“神经元”适配器。
 
-1. `Taiji` 是目标计算底座，不是 Transformer 的插件、LoRA 变体或新名字。
-2. `ResonanceNeuron` 和现有 9 个成员仍保留为可运行基线；其中 5 个 dialogue 成员不会删除，也不会被文档隐去。
-3. Transformer、self-attention、KV cache、每成员完整 LM head 不进入 Taiji 核心。
-4. 现有场、相位、兴奋/抑制、STDP、调质、睡眠和生命周期只复用经过验证的机制意图，不直接继承当前围绕 Transformer 的实现。
-5. Taiji 不走“1.5B 蒸馏”或固定 `7.58M/10M` 尺寸叙事；不以教师 logits 或旧模型权重为成立条件。参数规模是实验变量，不是架构定义。
-6. 第一阶段不接管生产生成，不混写现有 `ResonanceField`，先在隔离运行时完成最小可证伪验证。
-
-目标关系是：
+Native v1 已经闭合以下完整算法链：
 
 ```text
-NeuroPlex（当前产品/群体运行时）
-├── LegacyResonancePopulation：现有 9 个 Transformer 成员，作为基线
-└── TaijiPopulation：目标认知主体
-    ├── 感觉器官（事件编码）
-    ├── 同构 TaijiCell 群体（状态、预测、局部可塑性）
-    ├── 持续 TaijiField（多时间尺度共享状态）
-    ├── 情景/联想/语义/程序记忆
-    ├── 稀疏异步调度和可塑拓扑
-    └── 运动器官（文本、工具、环境动作事件）
+raw bytes
+  ↓ ByteSensor（257 个固定感受器，无 tokenizer/learned embedding）
+Taiji predictive fabric（多个递归预测区域）
+  ↓ 单一 corticostriatal context
+ByteMotor（257 个动作单元）
+  ↓
+next byte / free-running byte stream
+
+观察下一真实字节时：
+motor outcome error + region prediction error
+  ↓
+只更新相邻、已有的局部突触
 ```
 
-## 2. 为什么不能在现有实现上继续叠加模块
+这使 Taiji Native v1 在算法完整性上与一个最小自回归序列模型处于同一比较层级：有输入表示、时序状态转移、上下文形成、输出分布、学习规则、生成循环和 checkpoint。它不是 AGI 完成证明；当前代码只证明这套非 Transformer 计算链可以独立运行和学习。
 
-本结论来自函数体和状态读写，不来自计划标题。
+## 2. 为什么旧 Taiji-0 被废止
 
-| 线路 | 当前源码事实 | 对 Taiji 的约束 |
+旧实现位于 `neuroplex/taiji/`，虽然没有直接导入 Transformer，但仍然是补丁式内核：
+
+| 旧机制 | 实际问题 | Native v1 处理 |
 |---|---|---|
-| 单成员计算 | `neuroplex/resonance/neuron.py` 明确构造多层 `TransformerBlock`；树突路径仍是 field cross-attention | 细胞更新必须由持久递归动力学定义，不得把 attention 改名为树突 |
-| 序列机制 | `neuroplex/layers.py` 使用 GQA、RoPE、causal attention、KV cache 和 SwiGLU | 事件和时间必须成为一等公民，不能以 token 窗口作为全部认知状态 |
-| 群体场 | `ResonanceEnsemble.forward/continuous_forward` 每次调用先 `_get_task_field().reset()` | TaijiField 必须跨事件持续并显式衰减，只能在会话重置或受控遗忘时清空 |
-| 对话状态 | `DialogueState.start_round()` 恢复默认 field；真实推理使用线程 task field 并再次 reset；结束时又保存默认 field | 状态所有权必须统一，禁止“恢复了一个对象、计算用了另一个对象” |
-| 生成 | `Cortex._generate_p7()` 每个 token 都重新运行群体，再由某个成员的 LM head 采样 | 输出应由运动器官读取持续群体状态产生，而不是每个细胞都复制语言头 |
-| 长期记忆 | `FieldMemoryBank` 保存归一化场向量、标签和文本，正常 `generate()` 不自动写入；召回主要是 top-1 向量回注 | 情景记忆必须由运行时在显著转移时原生记录，并保存原因、动作、结果和状态变化 |
-| 学习 | `SleepEngine` 的主更新仍是 AdamW、CE/NLL、LoRA、域 tokenizer 和 LM head | Taiji 唤醒期必须有无需全局反传的局部可塑性；睡眠负责巩固而非唯一学习入口 |
-| STDP | 当前 STDP 记录“共振轮次”并按场向量 cosine 缩放 side-channel 权重 | 可保留三因子局部学习思想，但时间必须是真实 tick/delay，更新对象是原生突触 |
-| 相位 | `PhasorDynamics`、`OscillatorNode` 已真实参与连续路径，但主要调制 Transformer 成员的参与和写场 | 相位成为每个 TaijiCell 的原生状态和事件调度条件，不再是外围门控器 |
-| 调质 | `NeuromodulatorState` 主要缩放 attention 温度、FFN、学习率、写场和不应期 | 调质改为直接门控局部 eligibility、探索、能量和记忆写入 |
-| 持久化 | neuron、cortex、collab、field memory、agent memory、DialogueState 分散保存 | `TaijiState` 必须能一次保存/恢复完整认知状态和下一 tick 的因果连续性 |
+| 固定维度 `TaijiEvent` 向量由外部提供 | 没有自己的输入表示 | 原始 byte 直接变为感受器活动 |
+| 全局 priority + top-k 选择 cell | 中央调度决定群体活动 | 所有区域并行更新，由区域内抑制和阈值形成稀疏性 |
+| 活动 cell 保存精确 cue/value slot | 本质是复制式查表 | 时序经验沉入递归/预测突触，不在每 cell 复制 K/V 表 |
+| 活动 cell 输出向量取平均 | 没有原生动作语义 | 唯一运动器官产生可执行 byte 动作 |
+| `neuroplex.taiji` | Taiji 仍是旧产品内部组件 | 顶层 `taiji` 独立拥有命名空间和 checkpoint |
+| 最终 event gateway 接回 Cortex | 目标仍是兼容旧 Transformer 产品 | Legacy 只作为离线同预算基线，不进入 Taiji forward |
 
-因此，继续给 Transformer 增加“树突、相位、睡眠、场记忆”只能增加外围机制，不能改变其核心仍是“读取一个窗口、完成一次前向、丢弃主要隐状态”。Taiji 要替换的是这个最底层的状态转移函数。
+旧原型及 T4/T5 报告已从当前源码树移除；证据可从 Git 提交 `52fcb5c`、`9671ab7`、`57e3fba` 恢复。
 
-## 3. 不可妥协的底座公理
+## 3. 输入与时间
 
-### 3.1 状态先于参数
+### 3.1 原始字节感受器
 
-智能运行的基本对象是随时间变化的状态，而不只是固定权重。每个细胞、共享场、拓扑、短期记忆、目标和能量都有明确所有者、生命周期与持久化语义。
-
-### 3.2 事件先于 token
-
-底座只接收带时间、来源、可靠度和现实性标记的事件。文本 token、图像 patch、声音帧、工具反馈和内部预测都只是不同感觉器官产生的事件；token 序列不是底座 API。
-
-### 3.3 局部因果先于全局反传
-
-在线更新只能使用突触两端的局部状态、该连接的 eligibility trace 和广播调质信号。离线启动阶段允许对单个细胞或短时间片使用 surrogate gradient，但 Taiji 的运行不依赖跨全群体、跨完整生命周期的 BPTT。
-
-### 3.4 稀疏活动先于全量前向
-
-没有“每轮所有成员都重新前向”的默认动作。事件只唤醒满足新奇度、误差、目标相关性、相位和能量条件的细胞；预算调度器限制资源，但不替代细胞作认知判断。
-
-### 3.5 记忆是动力学的一部分
-
-工作记忆、联想快记忆和情景记忆在唤醒期直接读写；语义/程序记忆在睡眠中巩固。记忆不能只是 prompt 前缀或外部向量库。
-
-### 3.6 感觉、认知、行动分离
-
-细胞不各自拥有完整词表输出头。感觉器官把环境变为事件，运动器官把群体决策变为字节、工具或身体动作；认知细胞学习可跨模态复用的状态变化。
-
-### 3.7 同构起点、涌现分化
-
-Taiji-0 的认知细胞使用相同结构，不预先硬编码“数学、哲学、对话”等角色。差异由输入历史、拓扑、局部学习和资源竞争形成。感觉/运动器官可以有接口分工，但不等于预设认知人格。
-
-## 4. Taiji 的七个原生计算对象
-
-### 4.1 `TaijiEvent`
-
-最小事件合同：
+默认动作/感觉字母表大小：
 
 ```text
-tick            单调逻辑时间
-episode_id      因果片段标识
-source          sensor / cell / memory / goal / motor / environment
-target          可选目标；None 表示广播到场
-kind            sensory / peer / prediction / reward / goal / motor / control
-value           固定维度稀疏或稠密向量
-salience        当前显著度
-reliability     来源可信度
-mode            real / imagined / replay
+A = 257
+0..255  原始 byte
+256     episode boundary
 ```
 
-`mode` 是关键边界：想象事件可以参与内部推演和学习，但不能直接提交真实动作或冒充环境反馈。
+观察符号 `b_t` 时，`ByteSensor` 产生固定 one-hot 感觉活动：
 
-### 4.2 `TaijiCellState`
+```math
+x_t = onehot(b_t) \in \mathbb{R}^{A}
+```
 
-每个细胞至少持有：
+它不是 tokenizer ID，也没有可学习 embedding。UTF-8 文本、二进制协议、工具返回值都可以作为同一 byte 流进入。图像和声音以后需要各自的感受器，但必须输出同样的“当前活动”，不能调用 Transformer 编码器替代感觉器官。
 
-| 状态 | 含义 | 时间尺度 |
-|---|---|---|
-| `dendrites[K,D]` | K 个基底树突分支的局部证据 | 快 |
-| `apical[D]` | 场、目标和上下文形成的自上而下预测 | 快/中 |
-| `soma[D]` | 细胞当前信念/控制状态 | 中 |
-| `prediction[E]` | 对下一事件或场变化的预测 | 快 |
-| `error[E]` | 观察与预测的局部差 | 快 |
-| `phase[2]` | 单位圆相位向量 | 持续 |
-| `energy` | 可用计算/发放预算 | 中 |
-| `threshold` | 自适应发放阈值 | 中 |
-| `refractory` | 剩余不应期 | 快 |
-| `eligibility` | 最近因果贡献的低秩迹 | 中 |
-| `fast_memory` | 本细胞的键值联想槽 | 中/会话 |
+### 3.2 时间合同
 
-这些状态不是诊断缓存，而是下一 tick 的必要输入。
+一次 `observe()` 就是一个因果 tick。历史不作为 `L × d` 矩阵重新输入；它只通过下列持久状态影响未来：
 
-### 4.3 `TaijiFieldState`
+- 区域膜状态；
+- 当前活动；
+- 多时间尺度 trace；
+- 自适应阈值与抑制状态；
+- 局部预测误差；
+- 已学习的预测、递归和运动突触。
 
-共享场不是单向量，而是同一语义空间中的多时间尺度状态：
+只有显式 `reset_dynamics()` 清除活动状态，学习到的突触不会被清除。
+
+## 4. 参数与拓扑
+
+设区域数为 `R`，区域 `r` 的单元数为 `n_r`，并定义 `n_-1 = A`。
+
+每个区域只拥有两类慢参数：
+
+```math
+D^r \in \mathbb{R}^{n_{r-1} \times n_r}
+```
+
+`D^r` 是 reciprocal predictive synapses：正向从区域 `r` 预测下一层，转置方向把该层的局部预测误差送回区域 `r`。
+
+```math
+T^r \in \mathbb{R}^{n_r \times n_r}
+```
+
+`T^r` 预测区域自身的下一时刻活动。自连接默认禁止。
+
+运动器官参数：
+
+```math
+M \in \mathbb{R}^{A \times \sum_r n_r}, \qquad b \in \mathbb{R}^{A}
+```
+
+每个矩阵都有不可学习的二值结构 mask。每个 postsynaptic unit 只有固定 fan-in；不存在任意两单元默认全连接，也不存在运行时构造的注意力矩阵。
+
+实际存储为了 PyTorch 向量化仍使用二维 tensor，但 mask 外权重恒为零，局部更新也永远不能写入 mask 外。
+
+## 5. 持久状态
+
+区域 `r` 在 tick `t` 的状态为：
 
 ```text
-fast       瞬时同步、竞争和感觉突变
-working    当前任务、实体绑定和行动准备
-context    跨片段背景、目标和自我状态
-inhibit    维度级分流/抑制门
+u_t^r      membrane               n_r
+a_t^r      current activity        n_r
+q_t^r      temporal trace          n_r
+yhat_t^r   lower-level prediction  n_{r-1}
+e_t^r      lower prediction error  n_{r-1}
+theta_t^r  adaptive threshold      n_r
+i_t^r      inhibitory pool         scalar
 ```
 
-每层有独立衰减率。正常 tick 只衰减和更新，不 reset；新会话也只根据策略清理 `fast/working`，不能无条件删除 `context`、情景记忆和已学习拓扑。
+完整 `TaijiState` 还保存 `tick/episode_id`、全部区域状态、motor context、motor probabilities 和最后观察符号。checkpoint 另行保存所有稀疏权重、结构 mask 和 RNG 状态。因此 save/load 后的下一 tick，包括在线学习产生的参数更新，必须逐 tensor 一致。
 
-### 4.4 `TaijiSynapse`
+## 6. 一个 tick 的精确前向算法
 
-每条稀疏有向连接拥有：
+以下顺序与 `taiji/fabric.py`、`taiji/model.py` 一致，不允许实现自行交换。
 
-```text
-pre_id / post_id / branch_id
-sign                 excitatory / inhibitory
-weight               慢权重
-fast_weight          唤醒期快速可塑增量
-delay                事件传播延迟
-eligibility          因果信用痕迹
-usage / stability    生长、修剪和保护依据
+### 6.1 用真实结果结算上一个动作预测
+
+若存在上一个 motor context `c_{t-1}` 和预测分布 `p_{t-1}`，当前真实符号首先形成运动误差：
+
+```math
+\delta_t^m = onehot(b_t) - p_{t-1}
 ```
 
-兴奋/抑制是连接和细胞输出的真实符号语义，不靠把归一化向量简单取负来模拟。
+这个误差只用于运动突触，不反向穿过全部历史。
 
-### 4.5 `TaijiEpisode`
+### 6.2 区域自底向上推进
 
-情景记忆条目必须能够回答“发生了什么、谁做了什么、结果怎样”：
+令最低层真实活动 `y_t^{-1}=x_t`。对每个区域 `r=0..R-1`：
 
-```text
-episode_id / tick range
-real events and imagined events（分开）
-field before / field after
-active cells and emitted events
-prediction / action / observed outcome
-reward / surprise / confidence
-goal and homeostatic state
-causal parent ids
+1. 用上一个局部 trace 预测当前下层活动：
+
+```math
+\hat{y}_t^{r-1}=D^r q_{t-1}^r
 ```
 
-仅保存一个 field vector 和文本 label 不足以支持因果回放。
+2. 计算该突触末端可直接获得的预测误差：
 
-### 4.6 `TaijiScheduler`
-
-调度器维护延迟事件队列、每 tick 激活上限和能量预算。它读取每个细胞自己报告的优先级：
-
-\[
-p_i = w_n\,novelty_i + w_e\,\lVert error_i\rVert + w_g\,goal_i
-      + w_\phi\,phase_i - w_r\,refractory_i - w_c\,cost_i
-\]
-
-预算内高优先级细胞被执行；其余状态自然衰减。这个 top-k 只是资源约束，不是一个替群体决定语义的中心路由模型。
-
-### 4.7 `TaijiState`
-
-一个版本化状态包统一持久化：
-
-- 时钟、episode 和随机数生成器状态；
-- 全部细胞的快状态、快记忆和可塑性状态；
-- 全部场层、事件队列和延迟事件；
-- 稀疏拓扑及连接统计；
-- 情景记忆索引与调质/稳态变量；
-- 感觉/运动器官的流状态。
-
-要求保存后恢复的下一 tick 与未中断运行数值一致，而不只是模型参数可以加载。
-
-## 5. 单个 TaijiCell 的状态方程
-
-以下是实现合同，不宣称与生物神经元逐项等价。
-
-### 5.1 分支输入
-
-对细胞 `i` 的第 `k` 个树突分支：
-
-\[
-u_{ik}^{t} = S_{ik}x_t
- + \sum_j C_{ijk}(W_{ji}+A_{ji}^{t})y_j^{t-d_{ji}}
- + R_{ik}(q_i^t)
-\]
-
-- `x_t`：感觉/目标事件聚合；
-- `y_j`：经过真实 delay 的同伴事件；
-- `A^t`：快速可塑增量；
-- `q_i`：从本地联想记忆召回的值。
-
-分支是有泄漏的持续状态：
-
-\[
-d_{ik}^{t+1}=(1-\alpha_k)d_{ik}^{t}+\alpha_k\,\phi(u_{ik}^{t})
-\]
-
-### 5.2 顶树突预测与局部误差
-
-\[
-a_i^{t+1}=(1-\alpha_a)a_i^t+\alpha_a\,\phi(A_i[F_t^{working},F_t^{context},g_t])
-\]
-
-\[
-\hat b_i^t=P_s s_i^t+P_a a_i^{t+1},\qquad
-\epsilon_i^t=\bar d_i^{t+1}-\hat b_i^t
-\]
-
-这里的 apical 路径真正预测 basal 证据；误差不再退化成 `x - (x + h_apical) = -h_apical`。
-
-### 5.3 胞体更新
-
-\[
-s_i^{t+1}=Norm((1-\lambda_i)s_i^t
- + G_b\bar d_i^{t+1}+G_a a_i^{t+1}
- + G_e\epsilon_i^t+G_m q_i^t)
-\]
-
-门控系数由细胞状态、调质和能量产生，并被限制在稳定范围。`Norm` 可以是 RMS/向量范数稳定器，但不是 Transformer block。
-
-### 5.4 发放与输出
-
-\[
-r_i^t = novelty_i + \lVert\epsilon_i^t\rVert + goal_i - threshold_i - energyCost_i
-\]
-
-\[
-z_i^t=\mathbb{1}[r_i^t>0\land refractory_i=0],\qquad
-y_i^t=z_i^t\,O_i s_i^{t+1}
-\]
-
-训练时可用有界连续门近似 `z`；运行时使用稀疏事件。发放后消耗能量、进入不应期，并提高短期阈值；静默时能量恢复、阈值缓慢回落。
-
-### 5.5 多时间尺度场更新
-
-所有细胞先基于 `F_t` 计算 proposal，再一次性提交，避免 Python 迭代顺序改变因果结果：
-
-\[
-F_{t+1}^{\tau}=Clip(\lambda_{\tau}F_t^{\tau}+X_t^{\tau}+M_t^{\tau}
- + \sum_i z_i g_i E_i y_i^t)
-\]
-
-抑制通过独立的 shunting gate 作用：
-
-\[
-F_{t+1}^{effective}=F_{t+1}\odot\sigma(-I_{t+1})
-\]
-
-`fast/working/context` 使用不同 `λ`；`M_t` 是召回记忆，不与新感觉混为同一种来源。
-
-## 6. 每个 tick 的唯一合法顺序
-
-1. 推进逻辑时钟，投递到期的外部与延迟事件。
-2. 衰减 field、树突、eligibility、阈值和快记忆；恢复细胞能量。
-3. 以不可变的 `state_t` 快照为所有候选细胞计算局部输入、预测误差和激活优先级。
-4. 调度器按预算和能量选择活动细胞；未选择细胞只推进衰减状态。
-5. 活动细胞计算 proposal：新状态、发放事件、field 写入、记忆候选和 motor proposal。
-6. 原子提交全部 proposal；同一 tick 的细胞不能读到另一个细胞刚写入的半成品状态。
-7. 运动器官竞争并提交最多一个互斥动作；`imagined` proposal 永不提交到真实环境。
-8. 接收即时环境结果/奖励，更新调质信号和 eligibility。
-9. 执行局部快可塑性，记录完整 episode transition。
-10. 达到睡眠条件时进入隔离 replay；否则开始下一 tick。
-
-这套 two-phase tick 是 Taiji 的因果底线，也是并行化边界。
-
-## 7. 学习规则
-
-### 7.1 唤醒期：三因子局部学习
-
-每条活动连接维护 eligibility：
-
-\[
-e_{ji}^{t+1}=\gamma e_{ji}^{t}+pre_j^t\otimes\epsilon_i^t
-\]
-
-广播调质 `m_t` 只表示结果好坏、惊奇度或稳态压力，不传递完整梯度：
-
-\[
-\Delta A_{ji}^{t}=clip(\eta_{fast}m_t e_{ji}^{t}-\lambda_A A_{ji}^{t})
-\]
-
-快速增量进入 `fast_weight/fast_memory`，可在一次经验后立即改变行为。与本 transition 无关的细胞和连接不得变化。
-
-### 7.2 局部预测学习
-
-每个细胞预测下一感觉事件、下一 field 变化或动作结果。局部目标只训练该细胞的预测器和相关入边：
-
-\[
-L_i^{pred}=\rho(x_{t+1}-\hat x_i)+\rho(F_{t+1}-\hat F_i)
-\]
-
-启动训练可以用短窗口 autograd 优化这个局部损失；验收时必须证明在线适应不调用全局 `optimizer.step()`。
-
-### 7.3 睡眠：快到慢巩固
-
-睡眠不再围绕 LM head/LoRA 运行，而是：
-
-1. 按惊奇、奖励、未解决误差和遗忘风险选择 episode；
-2. 重放真实事件，并显式标记反事实/想象分支；
-3. 把反复有用的 `fast_weight` 合并进慢权重；
-4. 以旧 episode 交错重放防止灾难性遗忘；
-5. 下调无用突触，生长高 eligibility 且反复共激活的连接；
-6. 用 shadow state 验证稳定性，未通过则回滚本次巩固。
-
-## 8. 原生记忆分层
-
-| 记忆层 | 所有者 | 写入 | 读取 | 持久化 |
-|---|---|---|---|---|
-| 感觉缓冲 | sensory organ | 每个输入事件 | 相邻 tick | 流状态 |
-| 工作记忆 | TaijiField `fast/working` | 每个有效 field proposal | 所有活动细胞 | 是 |
-| 联想快记忆 | 每个 TaijiCell | 高误差/高奖励局部键值对 | 分支 query | 是 |
-| 情景记忆 | TaijiRuntime | 显著 transition 自动记录 | 目标/状态/因果检索 | 是 |
-| 语义记忆 | 慢权重与稳定原型 | 睡眠巩固 | 细胞动力学 | 是 |
-| 程序记忆 | motor 连接与动作结果模型 | 行动反馈/睡眠 | 行动竞争 | 是 |
-| 自我/稳态 | runtime + field context | 能量、目标、能力估计 | 调度和调质 | 是 |
-
-召回不是固定 top-1：候选先按状态相似、目标相关、时间和因果链接检索，再由当前预测误差验证。召回事件带来源标记，系统可区分“我记得”与“环境刚刚发生”。
-
-## 9. 感觉和运动器官
-
-### 9.1 文本不是特殊本体
-
-最初的文本感觉器官使用 UTF-8 byte 事件，避免 256K shared embedding 和每成员完整词表头成为底座成本。它可以学习字节片段、词和概念的时间层级，但 TaijiCell 只看事件向量。
-
-### 9.2 输出属于 motor population
-
-文本 motor 最小输出空间是 256 个字节加少量控制事件（如 EOS、THINK、ACTION）。同一 motor 接口以后可扩展到工具和身体动作。认知细胞提交意图/预测，motor 细胞竞争后才输出；不允许每个认知细胞各自生成一份完整文本再做字符串融合。
-
-### 9.3 内部想象
-
-Taiji 使用同一事件格式运行短程内部 rollout，但所有事件标记为 `imagined`。世界模型预测的结果可更新计划置信度，只有真实环境回执能产生 `real outcome` 和外部 reward。这是后续主动探索和规划的必要接口，不在 Taiji-0 首个内核中假装已经实现。
-
-## 10. 从现有代码迁移什么、重写什么
-
-| 当前部件 | 处理 | Taiji 落点 |
-|---|---|---|
-| `ResonanceNeuron.layers/lm_head` | 替换 | `TaijiCell` 持续状态转移 + 独立 motor organ |
-| `ResonanceField` 的贡献/抑制思想 | 重写 | 多时间尺度、跨 tick 持续的 `TaijiField` |
-| `continuous_forward` 的时间思想 | 重写 | 事件队列和 two-phase tick；不重复整网 forward |
-| `PhasorDynamics/OscillatorNode` | 选择性复用数学 | cell 原生 phase 与调度条件 |
-| `STDPTracker` | 重写 | 真实 tick/delay eligibility + 三因子更新 |
-| `NeuromodulatorState` | 重写接线 | reward/surprise/homeostasis 门控局部可塑性和探索 |
-| `FieldMemoryBank/DialogueState` | 替换 | 统一 episode store、cell fast memory、持久 field |
-| `SleepConsolidator` 的 replay/prune/grow 意图 | 重写 | Taiji episode replay 和快到慢巩固 |
-| `LifecycleManager` | 后期适配 | 使用 Taiji 的能量、贡献、误差和 lesion 指标 |
-| `Cortex/API/body/tools` | 兼容适配 | 只通过 event gateway 接入，不让它们定义底座 |
-
-现有 9 个成员以及 5 个 dialogue 成员保持冻结基线。Taiji 首阶段不与它们共享 field；不同底座的向量语义尚未校准，直接混写会让实验无法归因。通过独立基准后，才能用显式 `LegacyEventGateway` 做输入/输出级互操作。
-
-## 11. Taiji-0：最小可证伪内核
-
-Taiji-0 不是语言模型，也不用于证明“已经有智能”。它只验证底座是否真的拥有旧架构缺少的因果性质。
-
-建议初始配置：
-
-```text
-cells                 3 个同构认知细胞
-event_dim             32
-state_dim             64
-field_dim             128
-dendritic_branches    4
-fast_memory_slots     16 / cell
-active_budget         每 tick 最多 2 个 cell
-topology              稀疏有向 E/I，固定起点后允许局部变化
-runtime               CPU、确定性 two-phase tick
+```math
+e_t^{r-1}=y_t^{r-1}-\hat{y}_t^{r-1}
 ```
 
-这些数值只是快速实验点，不是新一轮固定尺寸身份。Taiji-0 的参数量应远低于一个现有 micro Transformer；若状态合同不成立，扩大参数没有意义。
+3. 同一 reciprocal synapse 把误差投回本区域：
 
-### 11.1 必须通过的门槛
-
-| ID | 可证伪命题 | 通过线 |
-|---|---|---|
-| T0 | 核心无 Transformer | `neuroplex/taiji` 不导入 attention、TransformerBlock、KV cache 或 transformers |
-| T1 | 状态有因果作用 | 相同 probe 在“保留经历状态”和“reset 状态”下产生稳定可重复的不同结果；lesion 后差异消失 |
-| T2 | field 跨事件持续 | 空白 tick 后按配置衰减但不归零；只有显式 reset 才清空 |
-| T3 | two-phase 确定性 | 改变 cell 容器迭代顺序不改变同一 seed 的提交结果 |
-| T4 | 局部在线学习 | 一次新关联后误差下降至少 30%，且不调用全局 optimizer；无关 cell 慢权重 bitwise 不变 |
-| T5 | 持续学习 | 顺序学习至少 20 个关联后，首四分位关联保留率 ≥ 70% |
-| T6 | 群体增益 | 3-cell 在组合/延迟任务上优于最佳单 cell；lesion 任一关键 cell 有可测下降，而非三份重复副本 |
-| T7 | 稀疏和能量 | 每 tick 活动数不超过预算，长期无“所有 cell 永久高活性” |
-| T8 | 数值稳定 | 10,000 tick 无 NaN/Inf，state/field/fast-weight 均在显式上界内 |
-| T9 | 完整恢复 | save/load 后下一 tick 的事件、活动 cell、field 和输出数值一致 |
-| T10 | 行动闭环 | 至少一个环境任务中，动作改变后续感觉，且该结果反向改变预测/策略 |
-
-任一门槛失败都先修底座，不用扩大训练数据或参数掩盖。
-
-## 12. 评估顺序
-
-1. **动力学合同**：T0/T1/T2/T3/T7/T8/T9。
-2. **局部学习合同**：T4/T5。
-3. **群体涌现合同**：T6；同时做 1-cell、3-cell、field lesion、memory lesion 四组消融。
-4. **感知—行动合同**：T10，在可复现小环境中验证。
-5. **字节流能力**：只在前四层通过后训练文本 sensor/motor；比较同数据、同参数、同算力下的 Taiji 与 micro Transformer。
-6. **产品互操作**：通过 event gateway A/B，不直接替换现有 9 成员。
-
-评价必须同时报告任务分、在线适应速度、遗忘、活动稀疏度、能耗代理、状态 lesion 效果和参数/计算量。单独报告 next-byte loss 不能证明 Taiji 方向成立。
-
-## 13. 迁移阶段和停止条件
-
-### Phase A：隔离内核
-
-建立 `neuroplex/taiji`，只实现 event/state/field/cell/runtime 和合同测试。禁止 loader、Cortex、生产 checkpoint 接线。
-
-### Phase B：局部学习与记忆
-
-加入 fast memory、eligibility、三因子更新和 episode store，通过 T4/T5。
-
-### Phase C：群体与环境
-
-加入可塑 topology、sensor/motor、内部想象隔离，在小环境完成 T6/T10。
-
-### Phase D：同预算基准
-
-用相同数据、参数、训练 FLOPs 和推理预算比较 Taiji 与 micro Transformer。若 Taiji 只在参数更多或外部记忆更大时获胜，结论必须按真实资源重算。
-
-### Phase E：兼容接入
-
-仅当核心门槛通过，才让 NeuroPlex 通过 event gateway 装配 TaijiPopulation。旧 9 成员继续作为回归对照，直到 Taiji 在目标任务上稳定超过基线。
-
-停止条件：若 T1/T4/T6 在三轮结构性修改后仍不能优于无状态 RNN/单细胞对照，应暂停“Taiji 可形成新底座”的结论，回到状态方程和学习规则，而不是继续堆外围仿生模块。
-
-## 14. Phase A 实现结果（2026-08-21）
-
-Taiji-0 动力学合同已经落地：
-
-```text
-neuroplex/taiji/__init__.py
-neuroplex/taiji/config.py
-neuroplex/taiji/events.py
-neuroplex/taiji/state.py
-neuroplex/taiji/field.py
-neuroplex/taiji/cell.py
-neuroplex/taiji/runtime.py
-tests/taiji/test_state_contract.py
+```math
+g_t^r=(D^r)^T e_t^{r-1}
 ```
 
-实测结果：
+4. 递归突触产生局部下一状态预测：
 
-- 默认 3-cell 内核共有 `258,060` 个参数，远低于现有 micro Transformer，但此数值只表示实验内核成本；
-- 定向合同 `6 passed`：T0 无旧序列层依赖、T1 状态因果、T2 field 持续衰减、T3 two-phase 顺序无关、T7 稀疏预算/能量/有界状态、T9 参数+认知状态+待投递事件 round-trip；
-- 全测试集 `53 passed, 1 warning`；warning 来自 FastAPI/Starlette 的既有弃用提示；
-- 256 tick 稳定性已作为快速守卫通过，T8 的正式 10,000 tick 尚未验收；
-- 没有接入 loader/Cortex/旧 field，没有训练，也没有修改 9 个 Legacy 成员。
+```math
+\hat{a}_t^r=T^r q_{t-1}^r
+```
 
-当前实现仍不具备局部写入快记忆、episode、三因子权重更新、motor/environment 或语言能力；Phase A 通过不能解释为已经产生智能。
+5. 上一区域通过其 decoder 提供延迟一个 tick 的 top-down context：
 
-## 15. T4 实现结果（2026-08-21）
+```math
+c_t^r = D^{r+1}q_{t-1}^{r+1} \quad (r<R-1), \qquad c_t^{R-1}=0
+```
 
-一次性局部关联已经接入 `neuroplex/taiji/plasticity.py`、`TaijiCell` 和 `TaijiRuntime.learn_association()`：
+6. 膜状态积分：
 
-- cue 和真实 observed outcome 都经过正常 tick；imagined outcome 被硬拒绝；
-- 只有 cue 时活动的细胞写一个本地 fast-memory slot，并更新本地 eligibility；
-- 未活动细胞的 keys/values/usage 逐张量不变；全部慢参数逐张量不变；
-- 相同 cue 的实测 MSE `0.489072 → 0.0`，下降 100%，超过 T4 的 30% 门槛；
-- fast memory 随统一 checkpoint 精确恢复，显式 full reset 会清除它；
-- 定向 Taiji 测试 `9 passed`，全测试集 `56 passed, 1 warning`。
+```math
+u_t^r=Bound(\lambda_u u_{t-1}^r+\alpha_g g_t^r+\alpha_T \hat{a}_t^r+\alpha_c c_t^r)
+```
 
-该结果是“精确 cue 的一次性联想存取”，不是概念泛化、组合推理或长期记忆证明。零误差来自命中本地键值记忆后直接召回 observed outcome，必须继续用多关联干扰和容量实验防止把 lookup 误称为智能。
+7. 区域内抑制池由正驱动均值更新，不使用全局 top-k：
 
-## 16. T5 实现结果（2026-08-21）
+```math
+v_t^r=ReLU(u_t^r-\theta_{t-1}^r)
+```
 
-`scripts/training/verify_taiji_t5_continual_memory.py` 用固定 seed 顺序呈现 20 个不同 `cue → outcome`，每对只写一次，使用每细胞 32 个槽位以排除容量淘汰：
+```math
+i_t^r=\lambda_i i_{t-1}^r+(1-\lambda_i)\gamma_i mean(v_t^r)
+```
 
-- 最早 5 个关联保留率 `100%`，全部 20 个关联保留率 `100%`；
-- mean MSE 从未学习时的 `0.0703043` 降到 `4.84e-8`；清除快记忆后回到 `0.0703043`，lesion 保留率为 `0%`；
-- 所有慢参数 bitwise 不变，没有槽溢出；活动细胞键的最大非对角余弦为 `0.394521`，未出现当前召回阈值下的键冲突；
-- 定向测试与全套回归均通过：`57 passed, 1 warning`；报告为 `reports/taiji_t5_continual_memory_20260821.json`。
+8. 当前活动：
 
-因此 T5 的严格命题——“足够容量下，顺序局部写入不会立即遗忘早期关联”——通过。但同一实验也发现了不能掩盖的群体缺陷：
+```math
+a_t^r=tanh(ReLU(u_t^r-\theta_{t-1}^r-i_t^r))
+```
 
-| cell | 20 个 episode 中被选次数 | 槽占用 |
+9. 每个单元只根据自己的活动率调整阈值：
+
+```math
+\theta_t^r=clip(\theta_{t-1}^r+\eta_h(I[a_t^r>0]-\rho_*))
+```
+
+10. 形成跨时间 eligibility/context trace：
+
+```math
+q_t^r=Bound(\lambda_q q_{t-1}^r+(1-\lambda_q)a_t^r)
+```
+
+然后令 `y_t^r=a_t^r`，继续推进上一区域。
+
+### 6.3 形成唯一运动上下文
+
+运动器官读取所有区域的 trace，但只有一个输出器官，不给每个区域复制完整输出头：
+
+```math
+q_t=[q_t^0;q_t^1;...;q_t^{R-1}]
+```
+
+```math
+c_t=\gamma_c\frac{q_t}{\lVert q_t\rVert_2+\epsilon}
+```
+
+固定范数是必要的接口合同：它防止内部 trace 振幅过小，使运动证据永远被 257 路 softmax 和 bias 淹没。
+
+### 6.4 动作概率
+
+```math
+p_t=softmax((Mc_t+b)/\tau_m)
+```
+
+默认执行 `argmax(p_t)`；探索时可从 `p_t` 采样。softmax 是运动竞争算子，不是 attention，也不访问历史序列。
+
+## 7. 局部学习算法
+
+所有更新发生在 `torch.no_grad()` 中；Taiji 参数不是 autograd Parameter，没有 optimizer 或 `loss.backward()`。
+
+### 7.1 下层预测突触
+
+```math
+\Delta D^r = \eta_D\,e_t^{r-1}(q_{t-1}^r)^T
+```
+
+只有 `D^r` 的结构 mask 内连接更新。一个突触需要的信息只有其 presynaptic trace 和 postsynaptic prediction error。
+
+### 7.2 区域转移突触
+
+```math
+\delta_t^r=a_t^r-T^r q_{t-1}^r
+```
+
+```math
+\Delta T^r=\eta_T\,\delta_t^r(q_{t-1}^r)^T
+```
+
+### 7.3 运动突触
+
+```math
+\Delta M=\eta_M\,\delta_t^m c_{t-1}^T, \qquad \Delta b=\eta_b\,\delta_t^m
+```
+
+三类更新都执行 mask、微小衰减和逐 postsynaptic row 范数约束。Native v1 没有梯度跨区域传播，也没有 BPTT。
+
+## 8. 训练、评估和生成
+
+### 8.1 在线训练
+
+`Taiji.learn_bytes(data, epochs)` 每轮显式清空动态状态，输入 boundary、原始 bytes 和结束 boundary。每到一个真实 byte，先结算上一步 motor error，再推进当前 fabric；所有局部突触即时更新。
+
+不存在 batch token matrix、teacher Transformer、蒸馏目标或 1.5B/7.58M/10M 身份。
+
+### 8.2 无副作用评估
+
+`score_bytes()` 保存完整 checkpoint，以 `learn=False` 运行流，再恢复 checkpoint。它报告 teacher-forced next-byte accuracy 和平均 surprise，不改变参数、状态或 RNG。
+
+### 8.3 自由生成
+
+`generate(prompt, length)` 感知 boundary 和 prompt，选择 motor action，再把自己产生的 byte 重新送入 ByteSensor，循环直到长度用尽或产生 boundary。因此生成和训练使用同一条感觉—认知—动作路径，不存在单独的 Transformer decode 路径。
+
+## 9. 复杂度
+
+设所有有效 decoder、transition 和 motor 边总数为 `E`。
+
+| 架构 | 单步主要计算 | 运行状态随历史长度增长 |
 |---|---:|---:|
-| `cell_0` | 20 | 20 |
-| `cell_1` | 0 | 0 |
-| `cell_2` | 20 | 20 |
+| causal Transformer | 长度为 `L` 时 attention 为 `O(Ld)`；完整序列训练为 `O(L²d)` | KV cache `O(Ld)` |
+| Taiji Native v1 | `O(E)` sparse edge operations | `O(sum n_r)`，与已经经历的长度无关 |
 
-`cell_0` 与 `cell_2` 的 20 份记忆完全相同。当前结果是两个固定赢家冗余保存精确键值，不是细胞专门化、互补表示或群体智能；所以不能直接宣布 Phase B 完成，也不能直接进入 T6 群体增益。
+运行 `L` 个事件的总计算为 `O(LE)`。代价是历史被压缩进有限状态，不能像 attention 一样无损回看任意旧位置；长期记忆必须由慢突触、情景系统和受控复习解决，而不是隐藏在无限 context window 中。
 
-## 17. 群体活动稳态决策点与唯一下一步
+当前 PyTorch 原型用 masked dense tensor 执行，理论边数是稀疏的，但物理计算尚未使用 sparse kernel。报告必须同时给出 active edge count 与 dense tensor storage，不能把 mask 后的参数节省冒充实际 FLOPs 节省。
 
-固定赢家来自当前确定性 priority、相同初态和每个关联前的动力学 reset。可行处理的边界如下：
-
-| 处理方式 | 能否让活动分散 | 为什么不作为当前方案 |
-|---|---:|---|
-| 中央学习路由器 | 能 | 把语义选择重新集中到一个全局模型，并引入额外反传依赖，违背 Taiji 的局部控制假设 |
-| 随机 epsilon / 强制 round-robin | 表面上能 | 只能制造均匀计数，不能让选择由细胞经历、能量和局部状态产生；也削弱可复现因果解释 |
-| **细胞本地长时活动稳态** | 能且可局部解释 | 每个细胞只维护自己的活动历史，固定赢家因累积疲劳让出预算，仍保留 two-phase 确定性和无中央语义路由 |
-
-唯一建议是给每个 `TaijiCellState` 增加跨 episode 持久、可 checkpoint 的活动痕迹 `h_i`：
+## 10. 代码结构
 
 ```text
-h_i <- lambda_h * h_i + z_i
-priority_i <- priority_i - beta_h * h_i
+taiji/
+├── config.py    所有形状、动力学、学习率和稳定上界
+├── sparse.py    固定 fan-in、mask、前向/反投影、局部 delta
+├── state.py     RegionState、TaijiState、TaijiStep
+├── organs.py    ByteSensor、ByteMotor
+├── fabric.py    第 6 节的分层 tick 与第 7 节的区域更新
+├── model.py     observe/learn/score/generate/checkpoint
+└── __init__.py  原生公共 API
+
+tests/taiji_native/
+├── test_architecture_contract.py
+└── test_sequence_learning.py
+
+scripts/training/verify_taiji_native_v1.py
+reports/taiji_native_v1_20260821.json
 ```
 
-普通 `reset_dynamics(preserve_fast_memory=True)` 保留 `h_i`，因为它表达跨 episode 的资源/发育历史；显式 full reset 才清零。下一步 T5-bis 必须同时满足：原 T5 首四分位保留率仍 ≥ 70%、三个细胞都参与、没有任何细胞覆盖超过 75% episode、没有一对细胞保存完全相同的全部记忆、慢参数不变、save/load 后下一次选择一致。该状态寿命和调度语义会影响以后专门化与睡眠，因此在实现前作为当前唯一待确认的架构决策。
+顶层 `taiji` 不导入 `neuroplex`、`transformers` 或旧序列层。PyTorch 只承担 tensor 运算。
+
+## 11. 与 Transformer 的逐功能替代
+
+| Transformer 功能 | Taiji 原生算子 |
+|---|---|
+| tokenizer + embedding | raw-byte receptor population |
+| positional encoding | 真实 tick + 持久递归状态 |
+| self-attention | reciprocal prediction error + sparse recurrent edges |
+| FFN block | 区域膜积分、阈值、抑制和非线性活动 |
+| residual stream | membrane 与 multi-timescale trace |
+| KV cache/context window | 有界持久状态与慢突触 |
+| 每层全局反传 | 区域局部 prediction delta |
+| LM head | 单一 motor organ |
+| autoregressive decoder | motor action 回灌 ByteSensor 的闭环 |
+| model checkpoint | 参数 + masks + 全部认知状态 + RNG |
+
+这张表表示算法职责已覆盖，不表示当前小规模 Taiji 已达到 Transformer 的语言质量。
+
+## 12. Native v1 已通过的反证门槛
+
+| ID | 合同 | 当前结果 |
+|---|---|---|
+| N0 | 顶层包不依赖 NeuroPlex/Transformer/attention/BPTT | PASS |
+| N1 | raw byte 输入，无 tokenizer | PASS |
+| N2 | 经历状态因果影响未来，显式 reset 才消失 | PASS |
+| N3 | 学习只写结构 mask 内局部突触，全部 tensor `requires_grad=False` | PASS |
+| N4 | checkpoint 后下一步输出和局部更新逐 tensor 一致 | PASS |
+| N5 | 19,521 active parameters 在线学习 byte cycle | PASS：accuracy `0 → 76.47%`，surprise 下降 `81.15%` |
+| N6 | 自由生成真正回灌自身动作 | PASS（当前只验证前四步 `a → bcda`） |
+| N7 | 相同当前 byte、不同历史能稳定预测不同后继 | 未验收 |
+| N8 | 长程自由生成不塌缩、不漂移 | 未验收；当前第 5 步后会出现错误 |
+| N9 | masked dense 改为真实 sparse/event kernel 后仍保持结果 | 未实现 |
+| N10 | 在动作会改变后续感觉的环境中在线学习 | 未实现 |
+
+## 13. 当前唯一下一步
+
+实现并执行 **N7 二阶上下文反证任务**：构造当前 byte 相同但前一历史不同、目标后继相反的确定性流，要求 Taiji 明显超过只看当前 byte 的一阶转移基线，同时做 `trace lesion`。这是判断当前递归预测状态是否真的承担“上下文计算”的最小实验；若失败，先修区域状态方程，不扩大数据、区域或训练轮数。

@@ -1,137 +1,85 @@
-# NeuroPlex Code Wiki
+# Taiji Code Wiki
 
-> **Current architecture**: a sparsely routed population neural network. Independent neurons exchange partial beliefs through a resonance field and evolve through memory, plasticity, and lifecycle control.
+This page maps the executable Native v1 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
-This page describes the active code paths. Historical experiments and retired migration utilities stay in `plans/archive/` or are marked as compatibility code; they are not the runtime architecture.
-
-## 1. Runtime map
+## Runtime path
 
 ```text
-Input
-  ↓
-shared sensory alignment + domain tokenizers
-  ↓
-Cortex
-  ├─ neuron population (independent Transformer neurons)
-  ├─ ResonanceEnsemble (routing, rounds, fusion)
-  ├─ ResonanceField (shared communication state)
-  ├─ peer channels / cross-spec projectors
-  └─ life interfaces (memory, sleep, plasticity, growth, pruning)
-  ↓
-domain-aware logits → generated output
+Taiji.observe(symbol)
+  ├─ settle previous ByteMotor prediction with the real symbol
+  ├─ ByteSensor.encode(symbol)
+  ├─ TaijiFabric.step(sensor_activity, previous_regions)
+  │    ├─ decoder prediction and lower-level error
+  │    ├─ reciprocal error backprojection
+  │    ├─ recurrent next-state prediction
+  │    ├─ delayed top-down prediction
+  │    ├─ membrane / inhibition / threshold / trace update
+  │    └─ masked local decoder and transition updates
+  ├─ normalize concatenated region traces
+  ├─ ByteMotor.probabilities(context)
+  └─ atomically install the next TaijiState
 ```
 
-The population is the unit of capability. `Cortex` is the orchestrator; it is not a replacement monolithic model.
+## Modules
 
-The production loader assembles nine members by default: five dialogue neurons
-(`zh_aug0_dialogue`, `zh_aug1_dialogue`, `zh_aug2_dialogue`, `zh_aug3_dialogue`,
-`zh_std0_dialogue`) plus four general neurons (`code`, `en`, `math`, `zh`). The
-dialogue members provide the default conversation path; the general members
-provide domain routing and shared-space composition when their checkpoints are available.
+### `taiji/config.py`
 
-## 2. Core modules
+`TaijiConfig` is the complete architecture contract: alphabet, region sizes, fan-in, dynamics, homeostasis, learning rates, norm limits, motor temperature, and seed. A config is serialized inside every checkpoint.
 
-### `neuroplex/brain/cortex.py`
+### `taiji/sparse.py`
 
-`Cortex` owns neuron loading, tokenizer wiring, generation, memory interfaces, and lifecycle integration. The main entry points are:
+`SparseSynapses` owns one immutable structural mask and one mutable weight tensor. Key methods:
 
-- `generate()` — autoregressive population inference;
-- `think()` — inspectable resonance reasoning;
-- `add_neuron()` / `remove_neuron()` / `isolate_neuron()` / `revive_neuron()` — population membership changes;
-- `set_field_memory()` — connect experience memory to the resonance path.
+- `forward(pre)` — postsynaptic evidence;
+- `backproject(error)` — reciprocal bottom-up error;
+- `local_update(error, trace)` — masked error × eligibility update;
+- `to_payload/load_payload` — exact topology and weight persistence.
 
-### `neuroplex/resonance/neuron.py`
+Weights are regular tensors with `requires_grad=False`. Masked-out values are forced to zero after every update.
 
-`ResonanceNeuron` is an independently trainable population member. Its internal Transformer can have its own hidden size, tokenizer vocabulary, field projection, neuron subtype, and local adapters.
+### `taiji/state.py`
 
-The field interface is explicit:
+`RegionState` contains membrane, activity, trace, prediction, error, adaptive threshold, and inhibitory-pool state. `TaijiState` owns every region plus motor context/probabilities and causal time. `TaijiStep` is the immutable observation result.
+
+### `taiji/organs.py`
+
+`ByteSensor` maps bytes 0–255 and boundary 256 to fixed one-hot receptor activity. `ByteMotor` is the only output organ. It updates only after the next real symbol arrives.
+
+### `taiji/fabric.py`
+
+`TaijiFabric` constructs one reciprocal decoder and recurrent transition graph per region. `step()` is the canonical forward/learning algorithm; changing its operation order is an architecture change and requires a new state version.
+
+### `taiji/model.py`
+
+`Taiji` owns organs, fabric, state, RNG and persistence:
+
+- `observe(symbol, learn=True)` — one causal tick;
+- `learn_bytes(data, epochs)` — online local development;
+- `score_bytes(data)` — no-side-effect teacher-forced evaluation;
+- `generate(prompt, length)` — action feedback loop;
+- `checkpoint()/restore()` — parameters + masks + state + RNG.
+
+## Checkpoint format
+
+Native checkpoints use `format = taiji-native-v1` and contain:
 
 ```text
-input embedding → Transformer body → field_write
-field_state ───────────────────────→ field_read / conditioning
-hidden state ──────────────────────→ domain lm_head
+config
+fabric.decoders[]
+fabric.transitions[]
+motor.synapses + motor.bias
+state
+rng_state
 ```
 
-### `neuroplex/resonance/field.py`
+They never contain a NeuroPlex neuron, tokenizer, Transformer block, LM head, LoRA adapter, or teacher reference.
 
-`ResonanceField` is a shared communication medium, not a language model. It stores the current population state, normalizes contributions, exposes leave-one-out scoring, and provides the conditioning vector used in later rounds.
+## Verification
 
-### `neuroplex/resonance/ensemble.py`
+- `tests/taiji_native/test_architecture_contract.py` checks independence, raw receptors, causal state, local masks and exact checkpoint continuation.
+- `tests/taiji_native/test_sequence_learning.py` checks online learning and short free generation.
+- `scripts/training/verify_taiji_native_v1.py` produces the committed machine-readable report.
 
-`ResonanceEnsemble` coordinates the population:
+## Legacy code
 
-1. route or probe candidate neurons;
-2. run an independent first response;
-3. write field and peer signals;
-4. apply confidence/quality/topology gates;
-5. run later conditional rounds for the active subset;
-6. fuse compatible logits and expose routing diagnostics.
-
-Continuous resonance, phase dynamics, cross-spec projection, and instance-level routing are optional mechanisms on this same population path.
-
-### `neuroplex/resonance/topology.py` and `tribal.py`
-
-Topology and coactivation tracking provide local structure: neurons can form task-relevant groups, strengthen useful peer channels, and avoid an all-to-all dependency. An expert/relay neuron can be used as one node in the graph, but the graph does not require a central controller.
-
-### `neuroplex/life/`
-
-The life plane controls population change:
-
-- `sleep_engine.py` — replay, consolidation, evaluation, and scheduled learning;
-- `integrate_engine.py` — bring a new neuron through silent, plastic, validation, and commit/apoptosis stages;
-- `evolution_engine.py` — detect capacity or domain gaps and request population growth;
-- lifecycle trackers — maturity, survival, neurogenesis, and apoptosis.
-
-## 3. Data and training paths
-
-The active training flow is:
-
-```text
-domain data
-  → independent neuron training
-  → peer/channel and cross-spec coordination
-  → population evaluation and routing calibration
-  → sleep replay + memory consolidation
-  → growth, specialization, isolation, or pruning
-```
-
-Recommended entry points:
-
-- `scripts/training/finetune_neuron_dialogue.py` — specialize a neuron;
-- `scripts/training/train_neurons_from_scratch.py` — create a neuron through independent training;
-- `scripts/training/train_cross_domain_collab.py` — train cross-domain coordination;
-- `scripts/training/train_hub_neuron.py` — train an optional relay/anchor member;
-- `scripts/training/verify_*.py` — mechanism and product-path checks.
-
-Legacy alignment code is a compatibility utility only. It is not required for creating the active population and is intentionally absent from the quick-start path.
-
-## 4. Public API layers
-
-- `api/app.py` — FastAPI application factory and router registration;
-- `api/routes_neuroplex.py` — population status, generation, and core operations;
-- `api/routes_life.py` — feed, sleep, memory, and lifecycle operations;
-- `api/routes_chat.py` — streaming conversations;
-- `frontend/` — Vue client;
-- `desktop/` — PyQt client and packaging.
-
-Use `neuroplex` imports in new code. The `taiji` module alias remains only so old serialized checkpoints can be loaded safely.
-
-## 5. Verification
-
-```bash
-python -m pytest tests/ -q
-```
-
-The small regression suite covers dialogue-format contracts and resonance side-channel behavior. Mechanism-level checks live under `scripts/training/verify_*.py` and should be run when touching the corresponding module.
-
-## 6. Design rules
-
-1. Do not introduce a hidden central backbone into the population path.
-2. Keep neuron-local failures local; routing must be able to isolate a weak member.
-3. Treat field state as communication, not as a substitute for learned neuron parameters.
-4. Add metrics for active members, field contribution, peer traffic, routing decisions, and lifecycle transitions.
-5. New identity or training data must describe population growth, peer coordination, and experience consolidation.
-
-## 7. Compatibility boundary
-
-The repository still contains historical checkpoints, environment variables, and migration helpers using the former package name or legacy terminology. They may be used to load old artifacts, but new code and product messaging must use the population vocabulary documented above. Any removal of a compatibility path requires a checkpoint migration test first.
+Everything under `neuroplex/` is the frozen Transformer population baseline. Its old interface notes remain in [INTERFACE_REFERENCE.md](INTERFACE_REFERENCE.md), which is not a Taiji API reference.

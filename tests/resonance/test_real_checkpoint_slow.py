@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 import torch
 
+from neuroplex.legacy_checkpoint import load_legacy_checkpoint
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = PROJECT_ROOT / "data"
 NEURONS = DATA / "neurons"
@@ -24,7 +26,7 @@ SLEEP_DATA = PROJECT_ROOT / "taiji_data" / "sleep_data"
 def _load_ckpt(path: Path):
     if not path.exists():
         pytest.skip(f"ckpt 不存在: {path}")
-    return torch.load(path, map_location="cpu", weights_only=False)
+    return load_legacy_checkpoint(path, map_location="cpu")
 
 
 @pytest.mark.slow

@@ -1,0 +1,50 @@
+{
+  "architecture": {
+    "active_parameters": 19521,
+    "dense_tensor_storage": 54961,
+    "learning": "local-predictive-and-motor-delta",
+    "regions": [
+      64,
+      48
+    ],
+    "sensor": "raw-byte-one-hot",
+    "sequence_window": null,
+    "structural_sparsity": 0.6448208729826604
+  },
+  "benchmark": "taiji_native_v1",
+  "checks": {
+    "checkpoint_exact_next_step": true,
+    "free_generation_prefix": true,
+    "local_parameters_changed": true,
+    "native_namespace": true,
+    "no_autograd_parameters": true,
+    "no_legacy_or_transformer_dependency": true,
+    "online_learning_reduces_surprise": true,
+    "teacher_forced_accuracy": true
+  },
+  "epochs": 200,
+  "metrics": {
+    "after": {
+      "accuracy": 0.7647058823529411,
+      "mean_surprise": 1.0483765585832365,
+      "observations": 17.0
+    },
+    "before": {
+      "accuracy": 0.0,
+      "mean_surprise": 5.562210127734239,
+      "observations": 17.0
+    },
+    "changed_parameter_tensors": 6,
+    "generated_hex": "6263646163636264",
+    "generated_text": "bcdaccbd",
+    "surprise_reduction": 0.8115179875431474,
+    "training": {
+      "mean_surprise": 1.4634316099142006,
+      "observations": 3400.0,
+      "online_accuracy": 0.5726470588235294
+    },
+    "training_seconds": 2.009094599998207
+  },
+  "seed": 7,
+  "status": "pass"
+}

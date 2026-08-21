@@ -20,8 +20,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # neuroplex.resonance 核心只依赖 torch + sentencepiece（标准库之外），
-      # 故 CI 不装完整 requirements（PyQt6/langchain 等与 tests 无关）。
+      # Native Taiji only requires torch. sentencepiece/FastAPI are installed
+      # below solely so the frozen NeuroPlex regression tests remain runnable.
       - name: Install torch (CPU)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
@@ -33,13 +33,12 @@ jobs:
       - name: Install package (editable)
         run: pip install -e . --no-deps
 
-      - name: Run population bootstrap smoke
-        run: python -X utf8 -u scripts/bootstrap_population_demo.py
+      - name: Verify native Taiji end to end
+        run: python -X utf8 -u scripts/training/verify_taiji_native_v1.py
 
-      - name: Run population baseline and API smoke
-        run: python -X utf8 -u scripts/verify_population_baseline.py --seed 20260819
+      - name: Run native architecture contracts
+        run: python -m pytest tests/taiji_native -q
 
-      - name: Run tests
-        # 真实 ckpt 契约测试（test_real_checkpoint_slow.py）在无 data/ 时自动 skip；
-        # 本地跑完整回归：python -m pytest tests/ -q（含 slow，需 data/ 产物）
+      - name: Run complete regression suite
+        # Legacy real-checkpoint tests skip when local artifacts are absent.
         run: python -m pytest tests/ -q

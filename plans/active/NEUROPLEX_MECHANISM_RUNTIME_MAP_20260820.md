@@ -456,7 +456,7 @@ TypeError: 'dict_values' object is not an iterator
 生产链闭合；还需要区分“容器迭代器错误”和“直接 neuron probe 与真实 Ensemble 输出契约不一致”
 这两个问题。
 
-## 13. Legacy 修复建议（已被 Taiji Phase A 暂停）
+## 13. Legacy 修复建议（已被原生 Taiji 主线暂停）
 
 基于源码和运行时证据，Legacy NeuroPlex 不能直接进入大规模训练，也不能先假设场记忆控制器已有可靠捕获点。当时建议是：
 
@@ -467,4 +467,4 @@ TypeError: 'dict_values' object is not an iterator
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
 
-该建议仍然有效但不再是项目当前执行入口。Taiji-0 状态合同、T4 和 T5 留存门槛已通过；T5 同时暴露固定赢家坍缩。当前唯一下一步建议是确认跨 episode 的 cell-local 活动稳态后执行 T5-bis。PlayEngine、D1 和现有场记忆修复作为 Legacy 基线暂停，现有工作区改动保留。
+该建议仍然有效但不再是项目当前执行入口。旧 `neuroplex.taiji` 补丁原型已删除；正式顶层 Taiji Native v1 已实现独立感知、预测状态、局部学习、动作和生成。当前唯一下一步是 N7 二阶上下文与 trace lesion。PlayEngine、D1 和现有场记忆修复作为 Legacy 基线暂停，现有工作区改动保留。
