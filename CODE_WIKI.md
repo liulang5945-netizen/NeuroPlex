@@ -82,9 +82,11 @@ They never contain a NeuroPlex neuron, tokenizer, Transformer block, LM head, Lo
 - `tests/taiji_native/test_sequence_learning.py` checks online learning and eight-step free generation.
 - `tests/taiji_native/test_context_memory.py` checks history-dependent successors against a full dynamic-state lesion.
 - `tests/taiji_native/test_delayed_memory.py` isolates slow trace after four shared distractors with necessary/sufficient lesions.
+- `tests/taiji_native/test_long_free_run.py` checks 128 autonomous feedback steps on an explicitly non-terminal cycle.
 - `scripts/training/verify_taiji_native_v2.py` produces the Native v2 machine-readable report.
 - `scripts/training/verify_taiji_n7_context.py` measures full, first-order, trace-lesioned and all-state-lesioned context behavior.
 - `scripts/training/verify_taiji_n8_delayed_trace.py` measures full, no-trace, trace-only and all-state delayed behavior.
+- `scripts/training/verify_taiji_n9_long_free_run.py` records every free-running tick and all state bounds.
 
 ## Legacy code
 

@@ -26,10 +26,11 @@ ByteSensor
 | `taiji/organs.py` | raw-byte 感觉器官、全坐标覆盖的稀疏感受器组、唯一 byte 运动器官 | ✅ |
 | `taiji/fabric.py` | 分层预测误差、递归状态、抑制、稳态与区域局部学习 | ✅ |
 | `taiji/model.py` | observe、learn、score、generate、Native v2 checkpoint | ✅ |
-| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5/N6/N7/N8 | ✅ 10 passed |
+| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、N5/N6/N7/N8/N9 | ✅ 11 passed |
 | `verify_taiji_native_v2.py` | 独立端到端基准 | ✅ PASS |
 | `verify_taiji_n7_context.py` | 二阶歧义与因果切除基准 | ✅ PASS |
 | `verify_taiji_n8_delayed_trace.py` | 共同干扰后的 slow-trace 必要性/充分性 | ✅ PASS |
+| `verify_taiji_n9_long_free_run.py` | 128 步纯动作回灌与逐 tick 状态上界 | ✅ PASS |
 
 ## 3. Native v2 实测
 
@@ -61,7 +62,9 @@ N7 单独能成立的结论是：持久动态状态已具有二阶上下文能�
 
 N8 在线索与 probe 之间加入共同干扰 `1234`：完整状态与 trace-only 均为 100%，在 probe 前清零 trace 或清零全部动态状态均为 50%。这证明 slow trace 对该固定延迟任务既必要又足够；它仍不是可检索情景记忆。
 
-报告：`reports/taiji_native_v2_20260821.json`、`reports/taiji_n7_context_20260821.json`、`reports/taiji_n8_delayed_trace_20260821.json`。
+N9 在明确无终点的 `abcd × 4` 循环合同下，只给 prompt `a`，随后 128 个动作全部自反馈：128/128 正确、无非法/boundary 动作，membrane/trace/threshold 每 tick 有界。若训练含结束 boundary，则第四轮后停止是正确监督，不能拿来要求无限循环。
+
+报告：`reports/taiji_native_v2_20260821.json`、`reports/taiji_n7_context_20260821.json`、`reports/taiji_n8_delayed_trace_20260821.json`、`reports/taiji_n9_long_free_run_20260821.json`。
 
 ## 4. 本轮删除的错误机制
 
@@ -79,7 +82,7 @@ Native v2 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 
 ## 6. 当前唯一下一步
 
-执行 **N9 长程自由运行稳定性反证**：沿用 Native v2 固定配置与 N5 数据，只输入一次 prompt，随后生成 128 步并逐位置比较期望循环；同时断言所有 membrane/trace 仍在架构上界内。预先固定通过线，不增加训练轮数或规模。
+执行 **N10 真实稀疏执行迁移**：将 `SparseSynapses` 的 masked dense tensor 路径替换为固定 postsynaptic edge index + active weight，forward/backproject/local update 不再触碰 mask 外元素。先建立 dense reference 等价测试，再切换默认并重跑全部原生门槛。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

@@ -1,0 +1,40 @@
+{
+  "benchmark": "taiji_n9_long_free_run",
+  "checks": {
+    "all_four_actions_remain_present": true,
+    "all_state_is_finite": true,
+    "exact_128_step_cycle": true,
+    "membrane_bound_holds": true,
+    "no_first_error": true,
+    "no_invalid_or_boundary_action": true,
+    "public_generate_matches_instrumented_loop": true,
+    "threshold_bounds_hold": true,
+    "trace_bound_holds": true
+  },
+  "epochs": 200,
+  "free_run_steps": 128,
+  "metrics": {
+    "accuracy": 1.0,
+    "distinct_actions": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "final_tick": 130,
+    "finite_state": true,
+    "first_error_index": null,
+    "generated_head": "bcdabcdabcdabcdabcdabcdabcdabcda",
+    "generated_tail": "bcdabcdabcdabcdabcdabcdabcdabcda",
+    "invalid_actions": 0,
+    "max_membrane_norm": 0.875015914440155,
+    "max_trace_norm": 0.19787047803401947,
+    "threshold_max": 0.40099966526031494,
+    "threshold_min": -0.08080001920461655
+  },
+  "prompt": "a",
+  "seed": 7,
+  "status": "pass",
+  "training_includes_boundary": false,
+  "training_stream": "abcdabcdabcdabcd"
+}

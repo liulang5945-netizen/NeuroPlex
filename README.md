@@ -86,6 +86,7 @@ python -m pip install -e ".[dev]"
 python scripts/training/verify_taiji_native_v2.py
 python scripts/training/verify_taiji_n7_context.py
 python scripts/training/verify_taiji_n8_delayed_trace.py
+python scripts/training/verify_taiji_n9_long_free_run.py
 python -m pytest tests/taiji_native -q
 ```
 
@@ -124,7 +125,9 @@ On the N7 ambiguous stream, full Taiji predicts all eight history-dependent `x �
 
 N8 inserts the shared distractors `1234` between cue and probe. Full and trace-only states score 100%; removing trace or all dynamic state scores 50%. This establishes that slow trace is necessary and sufficient for this fixed-delay behavior, but it is not yet evidence of episodic or autobiographical memory.
 
-Reports: [Native v2](reports/taiji_native_v2_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), and [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json).
+N9 trains the same 16-byte cycle under an explicit non-terminal stream contract, then feeds back 128 motor actions with no teacher forcing. All 128 positions are exact, all four actions remain present, and membrane/trace/threshold bounds hold at every tick. A terminal boundary is deliberately excluded from this benchmark because teaching “stop after the fourth cycle” would contradict an infinite-cycle target.
+
+Reports: [Native v2](reports/taiji_native_v2_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json).
 
 ## Source layout
 
@@ -141,6 +144,7 @@ tests/taiji_native/                 native architecture contracts
 scripts/training/verify_taiji_native_v2.py
 scripts/training/verify_taiji_n7_context.py
 scripts/training/verify_taiji_n8_delayed_trace.py
+scripts/training/verify_taiji_n9_long_free_run.py
 plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md
 ```
 
@@ -158,7 +162,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The next gate is N9: after one prompt, the motor must feed back its own actions for 128 steps without teacher forcing, sequence drift, or a state-bound violation. Training epochs and architecture size remain fixed.
+The next gate is N10: replace masked-dense region execution with a true edge-indexed sparse/event kernel while preserving exact topology, local updates, checkpoint continuation, and N5/N7/N8/N9 behavior.
 
 ## License
 
