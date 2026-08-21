@@ -1,67 +1,68 @@
-# NeuroPlex Architecture Direction
+# Taiji / NeuroPlex Architecture Direction
 
-> **Status**: active decision record · 2026-08-18
+> **Status**: active decision record · 2026-08-21
 >
-> NeuroPlex is a **population neural network**: independent neurons cooperate through a shared resonance field, adaptive peer connections, routing, memory, and lifecycle control. The population—not a single large language model—is the unit of capability, scaling, and evolution.
+> `NeuroPlex` remains the population/product runtime during migration. `Taiji` is the new non-Transformer computational substrate that will become the cognitive member implementation if its falsification gates pass.
 
 ## Decision
 
-Adopt the **sparsely routed population resonance network** as the canonical architecture.
+Adopt a two-level architecture identity:
 
-The runtime has four cooperating planes:
+1. **Population topology** — sparse, field-coupled, independently persistent members remain the system-level direction.
+2. **Cell substrate** — replace Transformer-based `ResonanceNeuron` as the target member implementation with native `TaijiCell` dynamics.
 
-1. **Sensory plane** — shared input/token alignment makes different neurons able to receive the same experience without forcing them to share an internal representation.
-2. **Neuron population** — domain-, role-, and subtype-specific Transformer neurons remain independently trainable and hot-swappable.
-3. **Resonance plane** — field read/write, peer excitation/inhibition, cross-spec projection, and multi-round aggregation let active neurons exchange partial beliefs.
-4. **Life plane** — routing, confidence/quality gates, field memory, sleep replay, synaptic plasticity, neurogenesis, maturation, and apoptosis control which neurons participate and how the population changes.
+The existing architecture proved that population assembly, routing, field communication and lifecycle mechanisms can be implemented, but its member still recomputes a Transformer sequence on every call. Adding biological labels around that body does not create persistent cellular state or local online learning. Taiji therefore changes the state transition itself rather than adding another adapter.
 
-The optional expert/relay neuron is a communication aid, not a central model or a mandatory coordinator. New neurons grow from data, field experience, and peer coordination. The old centralized migration path is retained only where compatibility requires it and is not part of the product architecture.
+```text
+Current baseline
+  NeuroPlex → ResonanceEnsemble → Transformer ResonanceNeuron × 9
+
+Target
+  NeuroPlex → TaijiPopulation
+             ├── event sensors
+             ├── persistent TaijiCell population
+             ├── multi-timescale TaijiField
+             ├── native memory / local plasticity / sparse scheduler
+             └── motor population
+```
+
+The full state equations, tick order, learning rule and falsification gates are defined in [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
 ## Candidate comparison
 
-| Option | Core abstraction | Fit with current code | Independent growth | Runtime sparsity | Lifecycle support | Decision |
-|---|---|---:|---:|---:|---:|---|
-| Monolithic model + adapters | One backbone, many adapters | Low | Low | Medium | Low | Retire as primary direction |
-| Dense neuron ensemble | Every neuron participates every round | Medium | High | Low | Medium | Useful baseline only |
-| MoE-style experts | One router selects parameter shards | Medium | Medium | High | Low | Borrow routing ideas, not the identity |
-| **Sparse population resonance** | Independent neurons + field + peer topology | **High** | **High** | **High** | **High** | **Adopt** |
-| Hierarchical cortical graph | Clusters, relays, and local circuits | High in the long term | High | High | High | Future extension after population baseline |
-
-### Why the adopted option wins
-
-- It matches the implementation that already exists: `Cortex`, `ResonanceEnsemble`, `ResonanceField`, peer channels, instance routing, field memory, and lifecycle modules.
-- Capability scales by adding, specializing, isolating, or retiring neurons instead of replacing a central model.
-- The routing decision is inspectable at task and instance level; field contributions and quality gates can be measured.
-- Training can be split into neuron learning, peer coordination, and population evaluation, which keeps failures local and makes hot-swapping practical.
-- The design leaves room for hierarchical clusters without forcing a second central backbone today.
+| Option | Persistent native state | Online local learning | Sparse population fit | Removes Transformer dependency | Decision |
+|---|---:|---:|---:|---:|---|
+| Transformer + more bio-inspired adapters | Low | Low | Medium | No | Stop extending as target substrate |
+| Smaller Transformer neurons | Low | Low | High | No | Retain only as cost/quality baseline |
+| Generic RNN/GRU members | Medium | Medium | Medium | Yes | Baseline against Taiji, not target identity |
+| State-space sequence model members | Medium | Low/Medium | Medium | Mostly | Useful comparison; still sequence-model-first |
+| MoE parameter shards | Low | Low | High | No | Routing reference only |
+| **Taiji event/state/field cells** | **High by contract** | **High by contract** | **High** | **Yes** | **Adopt as falsifiable target** |
 
 ## Canonical terms
 
-Use these terms in new documentation, APIs, logs, and training data:
-
-| Prefer | Avoid as the primary framing |
+| Term | Meaning |
 |---|---|
-| neuron population / population network | one big model / model size ladder |
-| peer coordination / field alignment | centralized migration |
-| experience replay / consolidation | centralized transfer |
-| neuron growth / specialization | whole-model upgrade |
-| relay or anchor neuron (optional) | central control model |
+| `Taiji` | new non-Transformer computational substrate |
+| `TaijiCell` | persistent, locally plastic cognitive member |
+| `TaijiField` | persistent multi-timescale population state |
+| `TaijiPopulation` | sparse event-driven cell network |
+| `NeuroPlex` | current product and migration-time population runtime |
+| `LegacyResonancePopulation` | existing 9 Transformer members, including all 5 dialogue members |
+| `event gateway` | explicit boundary between sensors/motors, legacy runtime and Taiji |
 
-Legacy alignment utilities may remain for checkpoint compatibility, but they must be clearly isolated from the active population path and must not appear in the product identity or quick-start flow.
+Do not describe Taiji as a distilled model, a `1.5B` replacement, or a fixed `7.58M/10M` model. Those sizes may appear in historical experiments, not in the substrate identity.
 
-## Migration boundary
+## Compatibility and package boundary
 
-This decision changes the public contract and the active narrative first:
+The canonical implementation path is `neuroplex.taiji`. A new top-level Python package named `taiji` must not be introduced while `neuroplex/__init__.py` maps `taiji` to `neuroplex` for old PyTorch checkpoint loading.
 
-- public README and code wiki describe the population network;
-- active plans describe current population mechanisms and experiments;
-- generated identity/developer data teaches the population model;
-- stale local file URIs, old package paths, and contradictory license wording are removed;
-- legacy centralized-migration entry points are either isolated as compatibility code or replaced by population-growth interfaces;
-- historical audit files remain historical evidence, but are not linked as current architecture guidance.
+The current 9 members remain untouched as a reproducible benchmark. Taiji will not write into the existing `ResonanceField` during Phase A–D because the two fields have different time, state and vector semantics. Interoperation, if earned, happens through typed events after independent evaluation.
 
-## Next implementation slice
+## AGI claim boundary
 
-The naming migration and compatibility boundary are complete enough for the public path. The minimal reproducible population baseline is now in `scripts/verify_population_baseline.py`: fixed inputs, dense/sparse comparison, route/field observability, in-memory checkpoint round-trip, Cortex smoke, and API health.
+The working hypothesis is that persistent state, native memory, local plasticity, sparse asynchronous population dynamics and a real perception–action loop are more appropriate AGI research primitives than a stateless Transformer member. These properties are necessary design targets, not proof of sufficiency. Environment design, objectives, developmental curriculum, grounding and safety remain separate unsolved problems.
 
-The next slice is a short, resumable cross-domain peer-coordination experiment on real checkpoints, with independent per-domain validation and anchor-regression guards. The synthetic probe is a runtime contract, not a language-quality claim. Centralized migration and monolithic upgrade paths remain outside the active roadmap.
+## Current implementation slice
+
+Implement Taiji-0 as an isolated deterministic kernel and test state causality, field persistence, two-phase order independence, sparse energy budgets and complete state round-trip. No production integration or language training is authorized in this slice. Existing PlayEngine and D1 work are paused baseline work, not deleted.

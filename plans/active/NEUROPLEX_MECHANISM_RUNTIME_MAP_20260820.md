@@ -3,6 +3,8 @@
 > 审计日期：2026-08-20
 >
 > 本文以源码函数体、调用者、状态读写和可复现实验为唯一依据。计划文件中的“已接入”只有在这里找到真实入口后才成立。行号按本次审计时的工作区记录，代码改动后应重新核对。
+>
+> **2026-08-21 架构边界**：本文现在是 Legacy NeuroPlex（现有 9 个 Transformer 成员）的事实基线，不是 Taiji 新底座规范。Taiji 的替换设计见 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md)；本审计保留用于解释底层替换原因和后续同预算/消融对照。
 
 ## 0. 审计结论先行
 
@@ -454,10 +456,9 @@ TypeError: 'dict_values' object is not an iterator
 生产链闭合；还需要区分“容器迭代器错误”和“直接 neuron probe 与真实 Ensemble 输出契约不一致”
 这两个问题。
 
-## 13. 计划修订与唯一下一步
+## 13. Legacy 修复建议（已被 Taiji Phase A 暂停）
 
-基于源码和运行时证据，当前不能进入大规模训练，也不能先假设场记忆控制器已有可靠捕获点。
-唯一合适的下一步是：
+基于源码和运行时证据，Legacy NeuroPlex 不能直接进入大规模训练，也不能先假设场记忆控制器已有可靠捕获点。当时建议是：
 
 > **修复 PlayEngine 的实际运行契约：先修复首个 neuron 参数的迭代器错误，再让 PlayEngine
 > 通过真实 `Cortex.think()/Ensemble` 协作结果获取场状态和 resonance 分数，并为这条路径增加
@@ -465,3 +466,5 @@ TypeError: 'dict_values' object is not an iterator
 
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
+
+该建议仍然有效但不再是项目当前执行入口。当前唯一下一步是隔离实现 Taiji-0 的持久状态动力学合同；PlayEngine、D1 和现有场记忆修复作为 Legacy 基线暂停，现有工作区改动保留。

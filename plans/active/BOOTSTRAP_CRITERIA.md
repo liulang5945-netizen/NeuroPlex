@@ -2,6 +2,8 @@
 
 > 目标：把"态极获得一定能力后自主进化、不再由用户设计"这一愿景，落成**可测量、可验证的启动判据**。
 > 触发语境：2026-08-15，用户指出"一直在验证机制，没到自举能力门槛"。本文档回答：门槛到底是什么、怎么测、达到后我们停止设计什么。
+>
+> **2026-08-21 边界**：下列 A/B/C/D 实证全部来自 Transformer-based Legacy NeuroPlex，不能自动外推为 Taiji 已具备自举。Taiji 首先执行底座 T0–T10 门槛；本文件保留为未来迁移自举判据时的历史证据和反例库。
 
 ---
 
@@ -13,7 +15,7 @@
 
 ### 1.1 定位：态极 vs 主流 AGI 缺口（2026-08-15 补充）
 
-**客观判断**：主流大模型架构（Transformer 大规模预训练）无法独立到达 AGI——它提供了 AGI 最难的一块"皮层"（语言/知识/推理/世界模型雏形，这是过去几十年任何架构没做到的），但缺四个公认的关键维度，恰是 AGI 区别于"超级工具"的分水岭：
+**项目工作假设**：Transformer 大规模预训练本身不足以覆盖持续学习、自我评估驱动改进、真实环境经验和主动探索。这个判断指导 Taiji 的设计，但不是已经被证明的“不可能性定理”；新底座也必须用同预算实验反证自身。
 
 | 主流 AGI 缺口（社区共识） | 主流 LLM 现状 | 态极的对应实验 |
 |--------------------------|--------------|----------------|
@@ -260,7 +262,7 @@
 
 ---
 
-## 8. 唯一下一步（2026-08-20）
+## 8. Legacy NeuroPlex 实验证据（不再决定当前下一步）
 
 **C2 跨域迁移 4/4 PASS**：
 
@@ -285,7 +287,7 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**当前唯一下一步 → PlayEngine 运行契约修复**：源码级 runtime trace 已确认普通 `Cortex.generate()` 的连续场/相位路径可运行，但 PlayEngine 在进入 neuron 前因迭代器错误退出，且读取字段与 `ResonanceNeuron.forward()` 契约不一致。当前执行顺序以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 和 [NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md) 为准：先修复 PlayEngine 并用回归 trace 确认 replay 边界，再决定场记忆自动捕获和后续训练。
+**当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定：先实现 Taiji-0 的状态动力学合同，再把本文件中的自举门槛迁移为 Taiji 原生指标。
 
 **D1-fix v4 阶段性（已落 plan，等用户决策 v5）**：方案 D（hysteresis N=2 + ceiling 1.3）已实现并跑 1000 步（**2/5 PASS**——dialogue 0.8744 < 0.90 / knowledge 0.7937 < 0.90 / unfamiliar 0.8277 < 0.90 均 FAIL；但**LoRA 累积爆炸已解决**：v3 16.84→18.76 ↑ → v4 16.84→14.81 ↓）。v4 把 SKIP 路径压得过严，**k/u 反而比 v3 退步**。**v5 候选**（用户决策）：a) ceiling 拉到 1.5-1.8 给 SKIP 累积留空间；b) 略降 DECAY 0.9→0.85 让衰减更温和；c) hysteresis N=3 进一步抗噪声；d) 接受 v4 k/u 略改善，承认 LoRA 爆炸是优先修复项。
 

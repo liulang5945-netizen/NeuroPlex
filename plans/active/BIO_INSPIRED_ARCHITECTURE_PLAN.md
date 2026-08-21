@@ -1,25 +1,27 @@
 # NeuroPlex Active Architecture Plan
 
-> **状态**：当前活跃计划 · 2026-08-20
+> **状态**：当前活跃计划 · 2026-08-21
 >
 > 本文件只描述当前项目状态和下一步，不承载旧实验的叙事。机制历史、项目事件、训练参考和历史审计统一见 `archive/`。
 >
 > **🆕 2026-08-21：D1-fix v8 方案 K（ceiling 2.0 + DECAY 0.85）跑完 1000 步（2/5 PASS，27.2 min）**。v8 三组 std ratio 与 v5/v7 **完全相同**（0.9127/0.8388/0.7871）、LoRA 终值同为 11.84、peak LoRA 15.90、0 崩溃——**K 假设"ceiling 2.0 越过 SKIP 触发门槛"反向证伪**：`pre_lora_l2=0.0` 的 baseline=0 让 ceiling 表达"LoRA/baseline"倍率**数学上不可触发**（除 0 无意义），ceiling 1.6/1.7/2.0 在 1000 步内**均未触发**。v5 / v7 / v8 数值完全等价；**v5 仍是 D 系列最优**。门槛 A/B/C 完整闭环 ✅、D1 首测 3/5、D1-fix v3 3/5、D1-fix v4 2/5、D1-fix v5 3/5 (★最优) / D1-fix v6 2/5 / D1-fix v7 2/5 / D1-fix v8 2/5（三者等价）。
+>
+> **当前架构决策覆盖旧执行建议**：用户已决定设计名为 `Taiji` 的非 Transformer 底座。D1、PlayEngine 修复和小 Transformer 尺寸搜索均转为 Legacy NeuroPlex 基线工作，保留代码与证据但暂停执行。目标底座以 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 为准。
 
 ## 1. 架构决策
 
-NeuroPlex 采用**稀疏路由群体共振网络**。系统的能力单位是神经元群体，不是单一中心模型。
+系统层继续采用**稀疏群体网络**；成员底座由现有 Transformer `ResonanceNeuron` 转向非 Transformer `TaijiCell`。系统的能力单位仍是持续运行的群体，不是单一中心模型。
 
 ```text
 输入
   ↓
-共享感知对齐 + 域 tokenizer
+事件感觉器官
   ↓
-神经元群体：独立 Transformer / 领域 / 角色 / 亚型
-  ↕  field_write / field_read + peer channels
-共振场：共享通信状态
+TaijiCell 群体：持久状态 / 局部预测 / 在线可塑性
+  ↕  稀疏事件 + 原生突触
+TaijiField：跨 tick 的多时间尺度共享状态
   ↓
-稀疏路由、质量门控、记忆、睡眠、突触可塑性
+原生记忆、能量调度、运动器官、睡眠巩固
   ↓
 群体输出 + 生命周期决策
 ```
@@ -31,7 +33,8 @@ NeuroPlex 采用**稀疏路由群体共振网络**。系统的能力单位是神
 | 单体模型 + adapter | 低 | 中 | 低 | 低 | 退居兼容层 |
 | 全量神经元 ensemble | 高 | 低 | 高 | 中 | 作为基线 |
 | MoE 专家分片 | 中 | 高 | 中 | 低 | 借鉴路由，不作为身份 |
-| **稀疏群体共振** | **高** | **高** | **高** | **高** | **当前主线** |
+| 稀疏群体共振 + Transformer 成员 | 高 | 高 | 高 | 高 | 保留为 Legacy 基线 |
+| **Taiji 事件驱动持久细胞群** | **高** | **高** | **高** | **高** | **当前目标主线** |
 | 分层皮层图 | 高 | 高 | 高 | 高 | 群体基线稳定后的扩展 |
 
 完整理由和迁移边界见 [ARCHITECTURE_DIRECTION_2026_08.md](ARCHITECTURE_DIRECTION_2026_08.md)。
@@ -48,7 +51,7 @@ NeuroPlex 采用**稀疏路由群体共振网络**。系统的能力单位是神
 
 集中式迁移、整体模型升级等词只允许出现在兼容层说明或历史记录中，不得出现在产品身份、快速开始和当前架构主叙事中。
 
-## 2. 当前实现地图
+## 2. 当前 Legacy NeuroPlex 实现地图
 
 | 平面 | 代码 | 当前状态 |
 |---|---|---|
@@ -65,28 +68,15 @@ NeuroPlex 采用**稀疏路由群体共振网络**。系统的能力单位是神
 
 可选的 expert neuron 是群体中的中继/锚点成员，不是强制中心。新神经元优先从领域数据、记忆经验和同伴协调中成长。
 
-### 1.3 小规模神经元路线（重新打开，实验候选）
+这张表只描述当前可运行基线，不再等同于目标架构。Taiji 的对象、状态所有权和替换边界见底座规范第 4、10 节。
 
-本轮重新启用“小规模神经元”路线，但不把 `10M` 当作硬规格。历史方案中同时存在两种
-参考：早期 compact（约 18M/36M，随词表和实现版本变化）以及 TinyStories 的独立约 10M
-模型。后者使用 tied token embedding、独立 tokenizer 和简化的 field 消融路径，不能直接
-冒充当前生产 `ResonanceNeuron` 的参数契约。
+### 1.3 小规模路线的最新边界
 
-当前路线的统一口径是：
+历史 `7.58M/10M` 路线是在 Transformer 成员内部缩尺寸，现作为成本基线保留，不再承担新底座身份。Taiji 从远小于现有 micro Transformer 的动力学内核开始；参数规模只在同预算 A/B 中测量，不设硬值。
 
-- 继续使用生产 `ResonanceNeuron`，保留共享输入、field read/write、域输出头和跨规格投影；
-- `10M` 只作为目标量级上限，优先寻找更小但仍能参与群体通信的候选；
-- 神经元本地参数与群体级共享 embedding 分开计量。共享 `256K×512` 感知表只计一次，不能
-  因为每个 checkpoint 保存副本就误判为每个神经元都需要承担完整成本；
-- 新候选先作为研究 canary 与现有 **5 个 dialogue + 4 个 general** 混合前向，不能替换五个
-  dialogue 神经元，也不能改变默认生产阵容；
-- 只有同时通过参数预算、单体前向、跨规格场投影和混合群体回归后，才进入小规模训练。
+现有 **5 个 dialogue + 4 个 general** 成员全部保留且冻结。Taiji-0 不替换它们，也不与它们混写同一个场；只有底座状态、局部学习和群体消融门槛通过后，才建立显式 event gateway 做兼容实验。
 
-这条路线用于回答两个独立问题：小神经元能否以更低成本形成有效成员，以及它加入当前群体后
-是否带来可测的协作增益。现有五个 dialogue 的 quality gate 仍保持阻断，不能用随机或未训练
-的 canary 掩盖现有语言能力问题。
-
-## 3. 训练与运行闭环
+## 3. Legacy 训练与运行闭环（暂停，保留基线）
 
 ```text
 领域数据
@@ -214,15 +204,17 @@ P0 sniff 推翻此前的"judge-LoRA 耦合"诊断：
 
 ## 7. 唯一下一步
 
-### 7.0 当前优先级：先完成源码运行证据
+### 7.0 当前优先级：Taiji-0 隔离动力学内核
 
-本轮审计发现，项目中存在生产主链、训练专线、睡眠专线和实验/诊断专线并行运行的情况。不能仅依据计划中的“✅”继续训练。实际 trace 已确认 `assemble_cortex → generate → continuous_forward → field/phase` 运行，但普通生成没有产生 pending memory；PlayEngine 在 `play_engine.py:211-212` 的迭代器错误处退出，尚未进入 neuron/replay。trace 不训练、不改变 9 成员生产权重。
+源码逐线审计已经确认：现有成员核心是 Transformer；任务场在每次 forward 开始时 reset；对话、场记忆、睡眠和状态持久化由多个外围对象分裂持有。继续修 PlayEngine 或调整 D1 只能改善 Legacy NeuroPlex，不能验证新底座。
 
 唯一下一步改为：
 
-**修复 PlayEngine 的实际运行契约：消除迭代器错误，让它通过真实 `Cortex.think()/Ensemble` 获取场状态和 resonance 分数，并用回归 trace 重新确认高共振 replay。**
+**按 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) Phase A 实现 `neuroplex.taiji` 的 Taiji-0 内核，并先锁住 T0/T1/T2/T3/T7/T9：无 Transformer、状态因果、场持续、two-phase 顺序无关、稀疏能量预算和完整状态恢复。**
 
-### 7.1 D1-fix 状态（阶段性 + 等用户决策 v4）
+边界：不接 `loader/Cortex`，不训练语言，不写生产 checkpoint，不修改现有 9 个成员；当前 D1 工作区改动原样保留。
+
+### 7.1 Legacy D1-fix 状态（暂停，仅作基线证据）
 
 **D1 长程稳定性首测：3/5 PASS + 2/5 FAIL — 根因 = 过度收敛（非爆炸非遗忘）**
 
@@ -352,14 +344,14 @@ D1 暴露的不是参数没调好，是**机制缺陷**：固定 `lora_decay_per
 | **O. DECAY 0.85→0.83 不动 ceiling** | 沿 v7 跑前 L 方案（更狠衰减） | 中——更狠 DECAY 对 u 组可能更敏感 | 中——DECAY 0.83 已逼近"LoRA 不累积"边界 | 中——上限探索 | ★★ |
 | **P. 接受 v5 跳到 D2** | dialogue 0.9127 已过门槛，k/u 0.84/0.79 留 D2 长程；修复 baseline 留 D3 重测 | — | k/u 仍 FAIL | 高——不再死磕 D1，进阶 | ★★ |
 
-**当前推荐**：方案 **N（修复 baseline=0 让 ceiling 可触发 + DECAY 0.85 保留）**——v5/v7/v8 三个 ceiling 值已证伪等价（数学不可触发）；必须**修复 `pre_lora_l2_baseline` 初始化**（用前 50 步 LoRA 均值作 baseline 而非 0），让 ceiling 真正能接住 SKIP 触发条件。这是 ceiling 机制在 D1 baseline=0 模型下失效的**唯一根因**。**资源**：改 sleep_engine.py baseline 初始化 ~10 min + 写新的 verify 路径分支 ~10 min + 重跑 1000 步 25 min ≈ 45 min。
+**Legacy 当时推荐（已被 Taiji 路线暂停）**：方案 **N（修复 baseline=0 让 ceiling 可触发 + DECAY 0.85 保留）**。该建议只记录 D1 实验的后继关系，不再是项目当前执行入口。
 
 **v5 历史观察**：
 - **首次 D 系列维度过门槛**：v5 dialogue 0.9127 > 0.90（v1=0.9108、v2=?、v3=0.8679、v4=0.8744、v5=0.9127）——v5 是首次 dialogue PASS
 - **k 组接近 v3**：v5 0.8388 vs v3 0.8437 差 0.005
 - **u 组是长程稳定性最敏感的**：pre std 基数 0.62（vs dialogue 0.57、knowledge 1.03），同比例衰减下相对损失最大
 
-**v8 唯一下一步推荐**：方案 **N（修复 baseline=0 让 ceiling 可触发 + DECAY 0.85 保留）**——v5/v7/v8 三者等价已证伪"调 ceiling 值"路径，必须修 `pre_lora_l2_baseline` 初始化（用前 50 步 LoRA 均值作 baseline 而非 0），让 ceiling 真正生效。**资源**：改 sleep_engine.py baseline 初始化 ~10 min + 写新的 verify 路径分支 ~10 min + 重跑 1000 步 25 min ≈ 45 min。
+**v8 后继记录（已暂停）**：若未来恢复 Legacy D1，再考虑方案 N；它不与 Taiji-0 并行执行。
 
 **不写生产 checkpoint**。继续冻结 9 成员 production weights。
 
