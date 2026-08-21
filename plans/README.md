@@ -18,7 +18,7 @@
 ## 当前代码事实
 
 - 正式基底包：顶层 `taiji/`；不导入 `neuroplex` 或 `transformers`。
-- 被替代的 Transformer 底层：`neuroplex/layers.py::TransformerBlock`，唯一消费点 `neuroplex/resonance/neuron.py:25`。
+- 被替代的 Transformer 底层：`neuroplex/layers.py::TransformerBlock`，live 消费点 3 处（`neuroplex/resonance/neuron.py:25`、`scripts/training/train_tinystories.py:26`、`scripts/training/train_tinystories_field.py:32`），由 `tests/taiji_native/test_naming_boundary_contract.py` 强制封闭。
 - 原生链：raw-byte sensor → hierarchical predictive fabric ↔ distributed episodic field → 全皮层覆盖稀疏感受器组 → byte motor → action feedback。
 - 原生学习：区域预测误差、递归状态误差、运动结果误差和情景 cue→event/readout 的真实边局部 delta；无 optimizer/BPTT。
 - 当前可复现实验：62,529 active learned parameters，byte-cycle accuracy `0 → 94.12%`；N7/N8 上下文与 trace 因果门槛通过；N9 自反馈 128/128；N10 真实按边等价；N11 主动环境末 40 次成功率 `100%`，随机 `50%`，action-lesion `57.5%`；M5 八条 one-shot 情景 action recall `87.5%`，同宽 trace-only 与 recurrent lesion 均 `25%`；M6 内生 replay/巩固 5/5 seed 通过。

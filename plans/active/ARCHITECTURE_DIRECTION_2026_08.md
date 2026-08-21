@@ -12,11 +12,22 @@
 |---|---|---|
 | **NeuroPlex** | 整个项目 | 仓库本身；`pyproject.toml` 的分发名仍是历史遗留 `taiji-neuron`，不改（会破坏已装环境与 CI） |
 | **Taiji / Taiji Predictive Fabric（TPF）** | NeuroPlex 的**新底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；`Native v5` 是当前参考实现；不导入 `neuroplex` 或 `transformers` |
-| **Legacy NeuroPlex** | 冻结的 Transformer 基线（9 个成员） | `neuroplex/` 包；底层 Transformer 就是 `neuroplex/layers.py::TransformerBlock`，唯一消费点 `neuroplex/resonance/neuron.py:25` |
+| **Legacy NeuroPlex** | 冻结的 Transformer 基线（9 个成员） | `neuroplex/` 包（113 文件 / 36420 行）；底层 Transformer 是 `neuroplex/layers.py::TransformerBlock`，live 消费点 3 处（见下） |
 | **`taiji.*`（历史 import 别名）** | `neuroplex/` 的旧包名 | 只在历史 pickle 与 `scripts/archive/` 中出现；由 `neuroplex/legacy_checkpoint.py` 在受控作用域内临时映射 |
-| ~~态极~~ | Legacy NeuroPlex 的旧中文称呼，**不指新基底** | 冻结代码内仍有 196 处（日志与用户文案），不改名；**新文档与新代码禁止使用**，需要指代时写 “Legacy NeuroPlex” |
+| **`taiji` / `taiji_model`（HTTP 路径与指标名）** | 对外 API 契约，**既不指新基底也不指 Legacy** | `api/` 内约 60 处：`/api/taiji/*`、`/api/taiji_model/*`、`taiji_requests_total` 等 Prometheus 指标、`app_state.is_taiji()`、`engine="taiji"`。属于外部可见契约，**不得为了命名整洁而改动** |
+| ~~态极~~ | Legacy NeuroPlex 的旧中文称呼，**不指新基底** | 冻结代码内仍有 202 处 / 55 文件（日志与用户文案），不改名；**新文档与新代码禁止使用**，需要指代时写 “Legacy NeuroPlex” |
 
-被替代的边界是明确的单点：Taiji 顶掉 `neuroplex/layers.py::TransformerBlock` 承担的计算职责，而不是顶掉 `api/`、`neuroplex/life/` 等外围工程层。
+被替代的边界是明确的：Taiji 顶掉 `neuroplex/layers.py::TransformerBlock` 承担的计算职责，而不是顶掉 `api/`、`neuroplex/life/` 等外围工程层。
+
+该 Transformer 底层当前的 **live 消费点恰好 3 处**（`scripts/archive/` 冻结层不计）：
+
+| 消费点 | 性质 |
+|---|---|
+| `neuroplex/resonance/neuron.py:25` | Legacy 基线自身的构成部分 |
+| `scripts/training/train_tinystories.py:26` | **有意保留**的纯 Transformer 对照实验（验证 training pipeline 正确性） |
+| `scripts/training/train_tinystories_field.py:32` | 同上，field 变体 |
+
+这份名单由 `tests/taiji_native/test_naming_boundary_contract.py` 按 import 语句（AST，非文本匹配）强制封闭：新增任何消费点都会让 CI 失败，必须先在本文件记录“为什么还要在被替代的底层上继续投入”。
 
 ## 1. 不可回退边界
 
@@ -60,6 +71,34 @@
 旧 `neuroplex/taiji/` 已删除。历史代码可从 Git 提交恢复，不在当前包中暴露。
 
 `scripts/archive/` 里 98 个文件的 301 处 `from taiji.<legacy>` 属于历史别名（含义＝`neuroplex`），在当前包布局下会误解析到新基底 `taiji/`。处置口径：**不重写、不改名**，因为其依赖的 Legacy 符号与数据路径本身已不存在（`scripts/archive/architecture_verification.py:8-10` 已自证），重写只会产出可导入但不可运行的假活代码。风险已被界定：`scripts/archive/` 无 `test_*.py`，pytest 不收集；CI 只跑 `tests/taiji_native` 与 `tests/`；无任何在用代码引用该目录。判定依据写在 `scripts/archive/README.md`。
+
+### 4.1 是否删除 Legacy NeuroPlex（`neuroplex/`）
+
+判定：**现在不删**。不是出于工作量，而是因为删除会同时摧毁两样东西：对外服务层，以及本项目核心主张的举证能力。实测依赖事实：
+
+| 方向 | 实测 | 含义 |
+|---|---|---|
+| `taiji/` → `neuroplex` | **0** | 新基底自足，删除不影响基底本身 |
+| `taiji/` → `transformers` | **0** | 基底与 Transformer 生态无关 |
+| `neuroplex/` → `taiji` | **0** | 替代关系单向，基线是干净参照系 |
+| `neuroplex/` → `transformers` | **0** | HF transformers 只是 `legacy` extra，未实际 import |
+| `api/` → `neuroplex` | **40+ import 行**（5 个路由文件，多为函数内懒加载） | 删除即整个服务层失效 |
+| `tests/` → `neuroplex` | **13 import 行**（10+ 文件） | 删除即丢失这批回归 |
+| `scripts/training/` → `neuroplex` | **100+ import 行**（约 50 个诊断/对照脚本） | 删除即丢失全部对照实验能力 |
+
+两条不可忽视的理由：
+
+1. **举证依赖对照。** 本项目的核心主张是“Transformer 不能达到目标、Taiji 能”。这是一个**比较性命题**，它的证据形式必然是同预算对照。删掉 Transformer 基线，等于删掉唯一的对照臂——此后 Taiji 的任何指标都变成无参照的绝对数字，无法反驳“换个 Transformer 配置也能做到”。`scripts/training/train_tinystories.py` 正是为此有意保留的纯 Transformer 对照（其 docstring 自陈“目标：验证训练 pipeline 是否正确”）。
+2. **`api/` 的 `taiji` 是对外契约。** `api/` 内约 60 处 `taiji` 是 HTTP 路径与 Prometheus 指标名（`/api/taiji/*`、`taiji_requests_total`），已被外部消费者依赖。它们既不指新基底也不指 Legacy，删除或改名属于破坏性变更。
+
+**允许删除的前置条件**（全部满足才重新评估，缺一即维持不删）：
+
+1. Taiji 通过语言能力反证门槛，并在**同预算**下给出优于 Legacy 基线的实测结果（对照结论一旦落定并归档，对照臂才失去价值）；
+2. `api/` 已有一条不经 `neuroplex/` 的 Taiji 原生服务路径，且旧路由的对外契约有迁移或兼容方案；
+3. `tests/` 中依赖 `neuroplex` 的 13 处已迁移或明确废弃；
+4. `scripts/training/` 的对照结论已归档到 plans，脚本不再是唯一证据载体。
+
+**在此之前的正确做法是"冻结"而非"删除"**：`neuroplex/` 不接受新功能，只做不改变行为的修复；边界由 `tests/taiji_native/test_naming_boundary_contract.py` 强制——新增 Transformer 底层消费点会让 CI 失败。冻结保留了对照能力和回滚余地，删除则不可逆。
 
 ## 5. 能力声明边界
 
