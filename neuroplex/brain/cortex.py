@@ -253,7 +253,13 @@ class Cortex:
 
             if not os.path.exists(ckpt_path):
                 continue
-            ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+            # 历史 ckpt 用 taiji.* 命名空间序列化，需要显式进入 legacy 命名空间
+            # (legacy_checkpoint.load_legacy_checkpoint 提供临时 alias，避免
+            #  process-wide shadow 顶层 taiji 命名空间) — R17, 2026-08-21
+            from neuroplex.legacy_checkpoint import load_legacy_checkpoint
+            ckpt = load_legacy_checkpoint(
+                ckpt_path, map_location=self.device
+            )
             cfg: NeuronConfig = ckpt["neuron_config"]
             sd = ckpt["state_dict"]
 
@@ -465,7 +471,8 @@ class Cortex:
             logger.debug(f"[Cortex] 状态文件不存在: {path}")
             return False
 
-        state = torch.load(path, map_location=self.device, weights_only=False)
+        from neuroplex.legacy_checkpoint import load_legacy_checkpoint
+        state = load_legacy_checkpoint(path, map_location=self.device)
         logger.info(f"[Cortex] 加载状态: {path} (version={state.get('version', 1)})")
 
         # shared_embedding（fp16 → fp32 恢复）
@@ -980,7 +987,8 @@ class Cortex:
             return False
 
         try:
-            ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+            from neuroplex.legacy_checkpoint import load_legacy_checkpoint
+            ckpt = load_legacy_checkpoint(ckpt_path, map_location=self.device)
             cfg: NeuronConfig = ckpt["neuron_config"]
             sd = ckpt["state_dict"]
             sd = self._migrate_state_dict(sd, cfg)

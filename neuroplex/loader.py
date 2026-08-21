@@ -13,6 +13,22 @@ from typing import Optional, Any
 
 import torch
 
+from .legacy_checkpoint import load_legacy_checkpoint
+
+
+def _safe_torch_load(path, *, map_location, weights_only: bool):
+    """统一 ckpt 加载：weights_only=False 走 legacy 命名空间兼容历史 ckpt。
+
+    历史 ckpt 用 ``taiji.*`` 命名空间序列化（项目曾名 taiji-neuron），
+    当前代码已重命名为 ``neuroplex.*``，torch.load 直接加载会报
+    ``ModuleNotFoundError: No module named 'taiji.resonance'``。
+    load_legacy_checkpoint 提供临时 alias 上下文，绕过 process-wide
+    shadow（neuroplex/__init__.py 明确禁止 import-time 全局 alias）。
+    """
+    if weights_only:
+        return torch.load(path, map_location=map_location, weights_only=True)
+    return load_legacy_checkpoint(path, map_location=map_location)
+
 from .tokenizer_native_v2 import TaijiNativeTokenizerV2
 
 # 向后兼容别名
@@ -753,7 +769,7 @@ def assemble_cortex(
         vqvae_ckpt = "data/vqvae/vqvae_latest.pt"
         image_latent_dim = 256  # 默认值，有 checkpoint 时会被覆盖
         if os.path.exists(vqvae_ckpt):
-            ckpt = torch.load(vqvae_ckpt, map_location=device, weights_only=False)
+            ckpt = _safe_torch_load(vqvae_ckpt, map_location=device, weights_only=False)
             cfg_dict = ckpt.get("config", {})
             image_latent_dim = cfg_dict.get("latent_dim", 256)
             vqvae_model = VQVAE(
@@ -778,7 +794,7 @@ def assemble_cortex(
         encodec_ckpt = "data/encodec/encodec_latest.pt"
         audio_latent_dim = 128  # 默认值
         if os.path.exists(encodec_ckpt):
-            ckpt = torch.load(encodec_ckpt, map_location=device, weights_only=False)
+            ckpt = _safe_torch_load(encodec_ckpt, map_location=device, weights_only=False)
             cfg_dict = ckpt.get("config", {})
             audio_latent_dim = cfg_dict.get("latent_dim", 128)
             encodec_model = EnCodec(
@@ -802,7 +818,7 @@ def assemble_cortex(
         video_ckpt = "data/video/video_latest.pt"
         video_latent_dim = 256  # 默认值
         if os.path.exists(video_ckpt):
-            ckpt = torch.load(video_ckpt, map_location=device, weights_only=False)
+            ckpt = _safe_torch_load(video_ckpt, map_location=device, weights_only=False)
             cfg_dict = ckpt.get("config", {})
             video_latent_dim = cfg_dict.get("latent_dim", 256)
             video_model = VideoVQVAE(
@@ -920,7 +936,7 @@ def ensure_judge_capability(cortex, device: str) -> int:
         if sh_path is None:
             logger.warning("[ensure_judge_capability] 无 shared_lm_head.pt，跳过判定注入")
             return 0
-        w = torch.load(sh_path, map_location=device, weights_only=False)
+        w = _safe_torch_load(sh_path, map_location=device, weights_only=False)
         w = w["weight"] if isinstance(w, dict) and "weight" in w else w
         shared_head = torch.nn.Linear(w.shape[1], w.shape[0], bias=False).to(device)
         shared_head.weight.data.copy_(w)
@@ -968,7 +984,7 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
     shared_lm_head = None
     lm_head_path = os.path.join(extra_dir, "shared_lm_head.pt")
     if os.path.exists(lm_head_path):
-        sd = torch.load(lm_head_path, map_location=device, weights_only=False)
+        sd = _safe_torch_load(lm_head_path, map_location=device, weights_only=False)
         w = sd["weight"] if isinstance(sd, dict) and "weight" in sd else sd
         shared_lm_head = torch.nn.Linear(w.shape[1], w.shape[0], bias=False)
         shared_lm_head.weight.data.copy_(w)
@@ -992,7 +1008,7 @@ def _load_extra_neurons(cortex, extra_dir: str, device: str) -> list:
         if nid in cortex.neurons:
             continue
         try:
-            ckpt = torch.load(path, map_location=device, weights_only=False)
+            ckpt = _safe_torch_load(path, map_location=device, weights_only=False)
             cfg = ckpt.get("neuron_config")
             if cfg is None:
                 cfg = get_domain_neuron_config(nid, spec="compact")
@@ -1102,7 +1118,7 @@ def _load_collab_weights_into_cortex(
         logger.info("[assemble_cortex] 协作层权重未找到: %s（跳过）", collab_path)
         return False
 
-    ckpt = torch.load(collab_path, map_location=device, weights_only=False)
+    ckpt = _safe_torch_load(collab_path, map_location=device, weights_only=False)
     if not isinstance(ckpt, dict):
         logger.warning("[assemble_cortex] 协作层权重格式异常（非 dict），跳过")
         return False

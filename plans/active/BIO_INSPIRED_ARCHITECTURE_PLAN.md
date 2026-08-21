@@ -77,3 +77,18 @@ Native v2 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 ## 6. 当前唯一下一步
 
 执行 **N8 延迟上下文/trace 因果反证**：在线索与共同 probe 之间插入相同干扰序列，预先固定 delay 与通过线；比较完整状态、trace-only lesion、全状态 lesion 和一阶基线。目标不是再提高 N5，而是判断 slow trace 是否在快 activity 被干扰后仍承担可用历史。如果失败，只根据状态轨迹修正时间尺度或局部信用分配，不扩大区域、epoch 或数据。
+
+## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
+
+> 完整判定标准与所有方案讨论见 [BOOTSTRAP_CRITERIA.md](BOOTSTRAP_CRITERIA.md) 第 4 节。本节只记录 v9 修复结论与对 Taiji 主线的隐含信号。
+
+- **D1 系列目标**：1000 步压力测试下，3 组（dialogue/knowledge/unfamiliar）std ratio ≥ pre × 0.90
+- **v3/v4/v5/v6/v7/v8 演化**：见 BOOTSTRAP_CRITERIA.md
+- **v9（2026-08-21，方案 N 落地）**：修复 `pre_lora_l2_baseline=0.0` 的理论缺陷（`LoRA/0` 无意义使 ceiling 永远不触发），改为前 50 步 LoRA L2 均值
+  - 结果 2/5：dialogue 1.0854 ✅（首次完整超过 v5 0.9127 维度）；knowledge 0.8177 ❌；unfamiliar 0.8190 ❌
+  - 0 崩溃，26.3 min
+  - **关键确认**：post_lora_l2 = **10.96**（v5/v7/v8 都是 11.84，**v9 < v8 -0.88**），ceiling 机制真的开始工作
+  - **但 k/u 与 v5/v7/v8 字面相近**：DECAY 0.85 仍是决定性因素，ceiling 仅在 LoRA 终值上显出差异
+  - 报告：`reports/play_engine_d1_fix_v9_baseline_fix_20260821.json`
+- **对 Taiji 主线的隐含信号**：D1 修复无法靠调整 PlayEngine sleep 参数闭环——`std ratio 0.82-0.91` 已成天花板；要让 D1 完整通过，要么换架构路线（去 LoRA ceiling 转别机制），要么承认 D 系列不是当前瓶颈，转向 D2 长程记忆检索
+- **Taiji 不复用任何 PlayEngine 代码**：Taiji 是顶层原生 TPF，无 LoRA、无 sleep、无 play engine；D1 修复经验仅作为"持续学习系统需要衰减 + 抑制上限 + 软起点"的设计直觉

@@ -122,6 +122,8 @@ class SleepReport:
     decay_current_lora_l2: Optional[float] = None
     # D1-fix v4：ceiling 参考基线 LoRA L2（首次测量写入或外部注入）
     decay_lora_l2_baseline: Optional[float] = None
+    # D1-fix v9（2026-08-21）：baseline warmup 已收集的测量数（0 表示还在 warmup）
+    decay_lora_l2_warmup_collected: int = 0
 
 
 @dataclass
@@ -182,6 +184,20 @@ class SleepConfig:
     # 在第一次测量时自动写）。用于跨进程/重启时让 ceiling 有稳定
     # 参考点；与 decay_lora_ceiling_ratio 配对使用。
     pre_lora_l2_baseline: Optional[float] = None
+    # D1-fix v9（2026-08-21）：baseline 初始化策略——
+    # "first_measurement"（旧）= 第一次 sleep 周期测量值（LoRA 尚未训练时
+    # 拿到 0.0 → baseline 锁 0 → ceiling 机制数学上不可触发，v8 复现根因）；
+    # "first_n_steps_mean"（新）= 前 N 个 sleep 周期测量值的均值作为 baseline
+    # —— 跳过 LoRA 刚初始化那段噪声，用稳态后的 L2 当参考点，
+    # 让 ceiling 真正可触发、hysteresis 抗噪有意义。N 由
+    # lora_l2_baseline_warmup_n 控制。
+    lora_l2_baseline_init: str = "first_n_steps_mean"
+    lora_l2_baseline_warmup_n: int = 50  # D1-fix v9：warmup 测量数——前
+    # N 个 sleep 周期的 LoRA L2 取均值作为 baseline。N 选 D1 主循环
+    # decision_every=50 的 1 周期为下限（保证至少有 1 个稳态测量），
+    # 上限 ≤ 200（再大累计时间 >5 分钟影响测试周转）。50 = 单次
+    # 1000 步 D1 跑出至少 20 个样本均值的最低成本方案，且与 B1-bis
+    # 决策粒度对齐。
 
 
 class SleepEngine:
@@ -231,6 +247,14 @@ class SleepEngine:
         # D1-fix v4：LoRA L2 ceiling baseline——首次测量时写入，之后用
         # 同一 baseline 判定 ceiling；可被外部 pre_lora_l2_baseline 覆盖。
         self._lora_l2_baseline: Optional[float] = None
+        # D1-fix v9（2026-08-21）：warmup 样本桶——按
+        # lora_l2_baseline_init 策略收前 N 步 LoRA L2 测量值，
+        # 满 N 后取均值写 baseline。绕过 LoRA 刚初始化那段
+        # 0.0 噪声，让 ceiling 真正能触发。
+        self._lora_l2_warmup_samples: List[float] = []
+        # D1-fix v9：baseline 是否已锁定——锁定后不再收集样本，
+        # 避免长程漂移让 baseline 跟着跑。
+        self._lora_l2_baseline_locked: bool = False
 
         # 神经元架构接口（由 set_brain_interfaces 注入）
         self.cortex: Optional[Any] = None  # Cortex 实例
@@ -1152,14 +1176,48 @@ class SleepEngine:
                 except Exception:
                     cur_l2 = None
                 report.decay_current_lora_l2 = cur_l2
-                # 写入 baseline：外部优先；否则首次测量时自动写
-                if self._lora_l2_baseline is None:
-                    self._lora_l2_baseline = (
-                        self.config.pre_lora_l2_baseline
-                        if self.config.pre_lora_l2_baseline is not None
-                        else cur_l2
-                    )
+                # 写入 baseline：D1-fix v9 策略——
+                # - 外部 pre_lora_l2_baseline 最高优先级（与 v4 一致）
+                # - 否则按 lora_l2_baseline_init 策略：
+                #   * "first_measurement"（旧）= 直接用 cur_l2 写入（v8 复现 0.0 锁死）
+                #   * "first_n_steps_mean"（v9 新）= 前 N 步均值；
+                #     warmup 期间 baseline 保持 None（让 ceiling 跳过），
+                #     满 N 后取均值锁定，且之后不再跟随
+                if self.config.pre_lora_l2_baseline is not None:
+                    self._lora_l2_baseline = self.config.pre_lora_l2_baseline
+                    self._lora_l2_baseline_locked = True
+                elif not self._lora_l2_baseline_locked:
+                    init_strategy = self.config.lora_l2_baseline_init
+                    if init_strategy == "first_measurement":
+                        if self._lora_l2_baseline is None and cur_l2 is not None:
+                            self._lora_l2_baseline = cur_l2
+                            self._lora_l2_baseline_locked = True
+                    elif init_strategy == "first_n_steps_mean":
+                        if cur_l2 is not None:
+                            self._lora_l2_warmup_samples.append(cur_l2)
+                        warmup_n = max(1, int(
+                            self.config.lora_l2_baseline_warmup_n))
+                        if len(self._lora_l2_warmup_samples) >= warmup_n:
+                            self._lora_l2_baseline = (
+                                sum(self._lora_l2_warmup_samples)
+                                / len(self._lora_l2_warmup_samples)
+                            )
+                            self._lora_l2_baseline_locked = True
+                            logger.info(
+                                f"  [D1-fix v9] baseline warmup 完成："
+                                f"取前 {len(self._lora_l2_warmup_samples)} 步 "
+                                f"LoRA L2 均值={self._lora_l2_baseline:.3f} "
+                                f"作为 ceiling 参考点"
+                            )
+                    else:
+                        raise ValueError(
+                            f"未知 lora_l2_baseline_init={init_strategy!r}, "
+                            f"仅支持 first_measurement | first_n_steps_mean"
+                        )
                 report.decay_lora_l2_baseline = self._lora_l2_baseline
+                report.decay_lora_l2_warmup_collected = (
+                    len(self._lora_l2_warmup_samples)
+                )
                 # ceiling 强制：cur_l2 > baseline × ratio → 强制衰减
                 ceiling_forced = False
                 if (cur_l2 is not None

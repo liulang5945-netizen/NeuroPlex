@@ -44,6 +44,10 @@
     D1_DECAY_SAMPLE_N=3
     D1_HYSTERESIS_N=2          # D1-fix v4：连续 N 周期 SKIP 信号才真 SKIP
     D1_CEILING_RATIO=1.3       # D1-fix v4：LoRA L2 > baseline × 此值强制衰减
+    D1_BASELINE_INIT=first_n_steps_mean  # D1-fix v9：baseline 初始化策略
+    #   first_measurement（v4-v8 默认）= 第一次测量值（LoRA 0.0 时锁死）
+    #   first_n_steps_mean（v9 默认）= 前 N 步均值，让 ceiling 真正可触发
+    D1_BASELINE_WARMUP_N=50    # D1-fix v9：warmup 步数——前 N 步均值为 baseline
     D1_EPSILON=0.10
     D1_FORCE_STREAK=5
     D1_RECENCY_BONUS=0.5
@@ -96,6 +100,8 @@ DECAY_MIN_REL_RATIO = float(os.environ.get("D1_DECAY_MIN_REL_RATIO", "0.95"))
 DECAY_SAMPLE_N = int(os.environ.get("D1_DECAY_SAMPLE_N", "3"))
 HYSTERESIS_N = int(os.environ.get("D1_HYSTERESIS_N", "2"))
 CEILING_RATIO = float(os.environ.get("D1_CEILING_RATIO", "1.3"))
+BASELINE_INIT = os.environ.get("D1_BASELINE_INIT", "first_n_steps_mean")
+BASELINE_WARMUP_N = int(os.environ.get("D1_BASELINE_WARMUP_N", "50"))
 EPSILON = float(os.environ.get("D1_EPSILON", "0.10"))
 FORCE_SWITCH_STREAK = int(os.environ.get("D1_FORCE_STREAK", "5"))
 RECENCY_BONUS = float(os.environ.get("D1_RECENCY_BONUS", "0.5"))
@@ -465,6 +471,8 @@ def main():
             "decay_judge_sample_n": DECAY_SAMPLE_N,
             "hysteresis_n": HYSTERESIS_N,
             "ceiling_ratio": CEILING_RATIO,
+            "baseline_init": BASELINE_INIT,  # D1-fix v9
+            "baseline_warmup_n": BASELINE_WARMUP_N,  # D1-fix v9
             "epsilon": EPSILON,
             "force_switch_streak": FORCE_SWITCH_STREAK,
             "recency_bonus": RECENCY_BONUS,
@@ -491,6 +499,20 @@ def main():
     }
     if HYSTERESIS_N >= 2 and CEILING_RATIO < 1.5 and DECAY >= 0.88:
         out_path = (f"reports/play_engine_d1_fix_v4_hysteresis_ceiling_"
+                    f"{today}.json")
+    # v9 path - 1.5<=CEILING<1.7, DECAY<0.88, baseline=first_n_steps_mean
+    # (N plan: 修 baseline 初始化让 ceiling 真正可触发) — 必须在 v5 之前判断，
+    # 避免 v5 path 优先吃掉 v9 命名
+    elif (HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7
+          and DECAY < 0.88
+          and BASELINE_INIT == "first_n_steps_mean"):
+        out_path = (f"reports/play_engine_d1_fix_v9_baseline_fix_"
+                    f"{today}.json")
+    # v9-old path - same as v5 but baseline=first_measurement (A/B 对照)
+    elif (HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7
+          and DECAY < 0.88
+          and BASELINE_INIT == "first_measurement"):
+        out_path = (f"reports/play_engine_d1_fix_v9_baseline_old_"
                     f"{today}.json")
     # v5 path - 1.5<=CEILING<1.7, DECAY<0.88 (tightened: exclude v7 ceiling 1.7)
     elif HYSTERESIS_N >= 2 and 1.5 <= CEILING_RATIO < 1.7 and DECAY < 0.88:

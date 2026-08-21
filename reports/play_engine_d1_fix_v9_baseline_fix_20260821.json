@@ -1,14 +1,16 @@
 {
-  "timestamp": "2026-08-21 01:50:15",
+  "timestamp": "2026-08-21 13:54:07",
   "task": "D1 长程稳定性：1000 步压力测试 + 轨迹采样",
   "config": {
     "n_micro": 1000,
     "decay": 0.85,
     "judge_driven_decay": true,
     "decay_min_judge_std": 0.05,
-    "decay_judge_sample_n": 8,
+    "decay_judge_sample_n": 3,
     "hysteresis_n": 2,
     "ceiling_ratio": 1.6,
+    "baseline_init": "first_n_steps_mean",
+    "baseline_warmup_n": 50,
     "epsilon": 0.1,
     "force_switch_streak": 5,
     "recency_bonus": 0.5,
@@ -17,39 +19,39 @@
   },
   "pre_groups": {
     "dialogue": {
-      "std": 0.5660052486303611,
-      "mean": 14.24802815914154
+      "std": 0.28305614430995957,
+      "mean": 13.990263104438782
     },
     "knowledge": {
-      "std": 1.0281596319891215,
-      "mean": 14.466376662254333
+      "std": 1.0554865368772304,
+      "mean": 14.427112698554993
     },
     "unfamiliar": {
-      "std": 0.622965598417961,
-      "mean": 14.39274251461029
+      "std": 0.6206154184371532,
+      "mean": 14.334827661514282
     }
   },
   "post_groups": {
     "dialogue": {
-      "std": 0.516604260264309,
-      "mean": 14.283243298530579
+      "std": 0.30721572835761296,
+      "mean": 14.03200888633728
     },
     "knowledge": {
-      "std": 0.8623693990528046,
-      "mean": 14.504226803779602
+      "std": 0.8630620695310686,
+      "mean": 14.412018775939941
     },
     "unfamiliar": {
-      "std": 0.49035938640924187,
-      "mean": 14.390145301818848
+      "std": 0.5082759856770512,
+      "mean": 14.331257224082947
     }
   },
   "ratio_summary": {
-    "dialogue": 0.9127199111923532,
-    "knowledge": 0.8387504938162452,
-    "unfamiliar": 0.7871371832642503
+    "dialogue": 1.085352621850164,
+    "knowledge": 0.8176912157350011,
+    "unfamiliar": 0.8189870418575848
   },
   "pre_lora_l2": 0.0,
-  "post_lora_l2": 11.838194584284635,
+  "post_lora_l2": 10.956882401106672,
   "trajectory": [
     {
       "nlls": {
@@ -67,11 +69,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.32805347442627,
-        "knowledge": 13.725368022918701,
-        "unfamiliar": 13.975632667541504
+        "dialogue": 14.332523822784424,
+        "knowledge": 13.727874755859375,
+        "unfamiliar": 13.979043960571289
       },
-      "lora_l2": 15.900739382852644,
+      "lora_l2": 15.90958623419184,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -81,11 +83,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.259044647216797,
-        "knowledge": 13.708609580993652,
-        "unfamiliar": 14.001508235931396
+        "dialogue": 14.265098571777344,
+        "knowledge": 13.716271877288818,
+        "unfamiliar": 14.009772300720215
       },
-      "lora_l2": 14.076783770551232,
+      "lora_l2": 14.072449356292653,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -95,11 +97,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.26831340789795,
-        "knowledge": 13.704604625701904,
-        "unfamiliar": 14.033907890319824
+        "dialogue": 14.277800559997559,
+        "knowledge": 13.72121000289917,
+        "unfamiliar": 14.048210620880127
       },
-      "lora_l2": 12.829461914328373,
+      "lora_l2": 12.842265114983492,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -109,11 +111,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.31405782699585,
-        "knowledge": 13.71029806137085,
-        "unfamiliar": 14.064262866973877
+        "dialogue": 14.303102493286133,
+        "knowledge": 13.724451541900635,
+        "unfamiliar": 14.049517631530762
       },
-      "lora_l2": 11.957408028343982,
+      "lora_l2": 12.024062387489469,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -123,11 +125,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.335942268371582,
-        "knowledge": 13.727078914642334,
-        "unfamiliar": 14.070624828338623
+        "dialogue": 14.368110179901123,
+        "knowledge": 13.727240562438965,
+        "unfamiliar": 14.063473224639893
       },
-      "lora_l2": 11.368692570953524,
+      "lora_l2": 13.523092416985449,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -137,11 +139,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.34849214553833,
-        "knowledge": 13.766744136810303,
-        "unfamiliar": 14.086796760559082
+        "dialogue": 14.334444999694824,
+        "knowledge": 13.769404888153076,
+        "unfamiliar": 14.04917049407959
       },
-      "lora_l2": 10.98528772784546,
+      "lora_l2": 12.767260383720531,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -151,11 +153,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.35709285736084,
-        "knowledge": 13.817062854766846,
-        "unfamiliar": 14.116278171539307
+        "dialogue": 14.338938236236572,
+        "knowledge": 13.813452243804932,
+        "unfamiliar": 14.0760498046875
       },
-      "lora_l2": 10.596818391902135,
+      "lora_l2": 12.08627472355353,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -165,11 +167,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.359297275543213,
-        "knowledge": 13.847519874572754,
-        "unfamiliar": 14.125575542449951
+        "dialogue": 14.340281963348389,
+        "knowledge": 13.835290908813477,
+        "unfamiliar": 14.06953477859497
       },
-      "lora_l2": 10.518298557011734,
+      "lora_l2": 11.600246227085481,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -179,11 +181,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.337407112121582,
-        "knowledge": 13.846390724182129,
-        "unfamiliar": 14.10218334197998
+        "dialogue": 14.36730432510376,
+        "knowledge": 13.80431318283081,
+        "unfamiliar": 14.052143573760986
       },
-      "lora_l2": 12.319663613437482,
+      "lora_l2": 11.165156707890311,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -193,11 +195,11 @@
     },
     {
       "nlls": {
-        "dialogue": 14.295547008514404,
-        "knowledge": 13.812335014343262,
-        "unfamiliar": 14.058642864227295
+        "dialogue": 14.383994102478027,
+        "knowledge": 13.801784038543701,
+        "unfamiliar": 14.04811429977417
       },
-      "lora_l2": 11.838194584284635,
+      "lora_l2": 10.956882401106672,
       "coaction": {
         "fast_pair_count": 0,
         "strong_pair_count": 0,
@@ -206,22 +208,22 @@
       "step": 1000
     }
   ],
-  "switch_count": 13,
+  "switch_count": 11,
   "selected_counts": {
-    "philosophy": 10,
-    "law": 3,
-    "medicine": 3,
+    "philosophy": 12,
+    "law": 2,
+    "medicine": 1,
     "art": 1,
     "history": 2,
-    "engineering": 1
+    "engineering": 2
   },
   "distinct_topics": 6,
-  "epsilon_used": 3,
-  "force_used": 2,
+  "epsilon_used": 2,
+  "force_used": 1,
   "crash_count": 0,
   "passed": 3,
   "failed": 2,
   "verdict": "D1 FAIL (2 维不过)",
   "next_step": "D1-fix v5 (hysteresis N=2 + ceiling 1.6 + DECAY=0.85) 仍 FAIL——考虑：a) 进一步放宽 ceiling (1.6→1.8) 给 SKIP 更多空间；b) 进一步收紧 DECAY (0.85→0.80) 让被允许累积衰减更快；c) hysteresis N 2→1（既然 v5 ceiling 已经够宽，不再需要抗噪）",
-  "elapsed_seconds": 1799.8198132514954
+  "elapsed_seconds": 1579.569808959961
 }
