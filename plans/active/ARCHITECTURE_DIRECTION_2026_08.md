@@ -15,7 +15,7 @@
 
 ## 2. 正式算法名称与组成
 
-基础算法称为 **Taiji Predictive Fabric（TPF）**。Native v2 是其当前可执行参考实现：
+基础算法称为 **Taiji Predictive Fabric（TPF）**。Native v3 是其当前可执行参考实现：
 
 - raw event receptor population；
 - hierarchical reciprocal prediction error；
@@ -27,12 +27,13 @@
 - masked local plasticity；
 - closed autoregressive action feedback；
 - atomic cognition checkpoint。
+- compressed fixed-fan-in edge execution。
 
 公式、张量形状、精确 tick 顺序、局部更新和代码映射见 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md)。这些内容构成实现合同，变更状态顺序或张量语义必须升级 state/checkpoint 版本并重新通过 N0–N11。
 
 ## 3. 本轮结构决策：公共运动感受器
 
-动作单元不能各自读取随机且不同的皮层子空间，否则 softmax 比较的是不同证据；也不能共同只取一个 48/224 坐标子集，否则有效上下文会被结构性丢弃。Native v2 固定采用平衡单 fan-out receptor map：全部皮层 activity/trace 坐标各进入一个公共运动通道，257 个动作共享全部 48 个通道。该修正不增加 learned motor 参数，并同时通过 N5 与 N7。
+动作单元不能各自读取随机且不同的皮层子空间，否则 softmax 比较的是不同证据；也不能共同只取一个 48/224 坐标子集，否则有效上下文会被结构性丢弃。Native v3 固定采用平衡单 fan-out receptor map：全部皮层 activity/trace 坐标各进入一个公共运动通道，257 个动作共享全部 48 个通道。该修正不增加 learned motor 参数，并同时通过 N5 与 N7。
 
 ## 4. 包和兼容边界
 
@@ -42,8 +43,8 @@
 
 ## 5. 能力声明边界
 
-Native v2 是完整可运行的非 Transformer 序列学习架构，但只在小型 byte 流上通过在线学习、128 步自由回灌、二阶上下文与固定延迟 trace 因果反证。它尚未证明语言能力、情景记忆、组合推理、真实稀疏算力或 AGI。架构是否继续扩展由 N0–N11 门槛决定，不由“类脑”命名、参数规模或单个 demo 决定。
+Native v3 是完整可运行的非 Transformer 序列学习架构，已在小型 byte 流上通过在线学习、128 步自由回灌、二阶上下文、固定延迟 trace 因果与真实按边执行反证。它尚未证明主动环境学习、语言能力、情景记忆、组合推理或 AGI。架构是否继续扩展由 N0–N11 门槛决定，不由“类脑”命名、参数规模或单个 demo 决定。
 
 ## 6. 当前唯一下一步
 
-执行 N10 真实 sparse/event kernel：以 edge index 保存和执行固定 fan-in 突触，并用 dense reference 证明 forward、backproject、local update、checkpoint 与 N5–N9 等价。未通过前不增加情景数据库、参数规模或大文本训练。
+执行 N11 环境行动学习：动作改变下一 sensation/outcome，学习来自局部结果/奖励而非正确 byte 教师；与随机动作及 action-learning lesion 比较。未通过前不增加情景数据库、参数规模或大文本训练。

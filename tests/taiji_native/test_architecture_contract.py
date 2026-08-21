@@ -89,7 +89,20 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
         model.motor.synapses,
     )
     for projection in synapses:
-        assert torch.count_nonzero(projection.weight[~projection.mask]) == 0
+        posts = torch.arange(projection.out_features).unsqueeze(1).expand_as(
+            projection.pre_index.cpu()
+        )
+        edge_keys = (
+            posts * projection.in_features
+            + projection.pre_index.cpu()
+        )
+        assert projection.pre_index.shape == (
+            projection.out_features,
+            projection.row_fan_in,
+        )
+        assert projection.row_fan_in <= projection.fan_in
+        assert torch.unique(edge_keys).numel() == projection.edge_count
+        assert torch.isfinite(projection.edge_weight).all()
 
 
 def test_motor_receptors_cover_every_cortical_coordinate_once() -> None:
@@ -102,7 +115,13 @@ def test_motor_receptors_cover_every_cortical_coordinate_once() -> None:
     assert receptors.channel.numel() == model.config.cortical_context_dim
     assert int(counts.sum()) == model.config.cortical_context_dim
     assert int(counts.max() - counts.min()) <= 1
-    assert torch.all(model.motor.synapses.mask)
+    motor = model.motor.synapses
+    assert motor.row_fan_in == model.config.motor_context_dim
+    for post in range(motor.out_features):
+        assert torch.equal(
+            torch.sort(motor.pre_index[post].cpu()).values,
+            torch.arange(model.config.motor_context_dim, dtype=torch.int32),
+        )
 
 
 def test_checkpoint_preserves_learning_state_and_exact_next_step() -> None:

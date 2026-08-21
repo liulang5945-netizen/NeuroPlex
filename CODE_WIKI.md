@@ -1,6 +1,6 @@
 # Taiji Code Wiki
 
-This page maps the executable Native v2 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
+This page maps the executable Native v3 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
 ## Runtime path
 
@@ -29,14 +29,14 @@ Taiji.observe(symbol)
 
 ### `taiji/sparse.py`
 
-`SparseSynapses` owns one immutable structural mask and one mutable weight tensor. Key methods:
+`SparseSynapses` owns a compressed fixed-fan-in topology. `pre_index[post, edge]` and `edge_weight[post, edge]` are the only synapse arrays; the postsynaptic row is implicit. Key methods:
 
 - `forward(pre)` — postsynaptic evidence;
 - `backproject(error)` — reciprocal bottom-up error;
-- `local_update(error, trace)` — masked error × eligibility update;
+- `local_update(error, trace)` — existing-edge-only error × eligibility update;
 - `to_payload/load_payload` — exact topology and weight persistence.
 
-Weights are regular tensors with `requires_grad=False`. Masked-out values are forced to zero after every update.
+Weights are regular tensors with `requires_grad=False`. There is no mask or absent-edge weight to allocate. Forward uses gather-sum, reciprocal projection uses scatter-add, and learning never constructs a dense outer product.
 
 ### `taiji/state.py`
 
@@ -62,12 +62,12 @@ Weights are regular tensors with `requires_grad=False`. Masked-out values are fo
 
 ## Checkpoint format
 
-Native checkpoints use `format = taiji-native-v2` and contain:
+Native checkpoints use `format = taiji-native-v3` and contain:
 
 ```text
 config
-fabric.decoders[]
-fabric.transitions[]
+fabric.decoders[].pre_index + edge_weight
+fabric.transitions[].pre_index + edge_weight
 motor.receptors.channel + motor.receptors.polarity
 motor.synapses + motor.bias
 state
@@ -83,10 +83,12 @@ They never contain a NeuroPlex neuron, tokenizer, Transformer block, LM head, Lo
 - `tests/taiji_native/test_context_memory.py` checks history-dependent successors against a full dynamic-state lesion.
 - `tests/taiji_native/test_delayed_memory.py` isolates slow trace after four shared distractors with necessary/sufficient lesions.
 - `tests/taiji_native/test_long_free_run.py` checks 128 autonomous feedback steps on an explicitly non-terminal cycle.
-- `scripts/training/verify_taiji_native_v2.py` produces the Native v2 machine-readable report.
+- `scripts/training/verify_taiji_native_v3.py` produces the Native v3 machine-readable report.
 - `scripts/training/verify_taiji_n7_context.py` measures full, first-order, trace-lesioned and all-state-lesioned context behavior.
 - `scripts/training/verify_taiji_n8_delayed_trace.py` measures full, no-trace, trace-only and all-state delayed behavior.
 - `scripts/training/verify_taiji_n9_long_free_run.py` records every free-running tick and all state bounds.
+- `tests/taiji_native/test_sparse_kernel.py` compares fixed-fan-in forward, reciprocal projection and local update against a dense reference.
+- `scripts/training/verify_taiji_n10_sparse_migration.py` reruns N5–N9 and compares behavior with committed v2 evidence.
 
 ## Legacy code
 

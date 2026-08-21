@@ -2,7 +2,7 @@
 
 > 本文只描述顶层 `taiji/` 当前真实记忆所有权。旧 `ResonanceField`、`FieldMemoryBank` 和已删除的 `neuroplex.taiji` K/V slots 都不属于正式 Taiji。
 
-## 1. Native v2 已实现的记忆
+## 1. Native v3 已实现的记忆
 
 | 类型 | 代码状态 | 时间尺度 | 清除方式 |
 |---|---|---|---|
@@ -16,7 +16,7 @@
 
 `SparseReceptorBank H` 只把全部 activity/trace 均衡折叠进公共运动证据通道；它是固定器官拓扑，不保存经历，不得被称为记忆。
 
-`TaijiState` 原子保存所有快状态；Native v2 checkpoint 同时保存慢突触、结构 mask、感受器 channel/polarity、motor context、概率和 RNG。当前没有单独的“场记忆控制器”：区域膜状态、activity 与 trace 组成分布式工作场。
+`TaijiState` 原子保存所有快状态；Native v3 checkpoint 同时保存慢突触的压缩 pre-index/edge weights、感受器 channel/polarity、motor context、概率和 RNG。当前没有单独的“场记忆控制器”：区域膜状态、activity 与 trace 组成分布式工作场。
 
 ## 2. N7/N8 已证明和未证明的边界
 
@@ -50,4 +50,4 @@ N7 只清空 `trace` 后仍为 100%，说明短间隔线索可停留在 membrane
 
 ## 5. 当前唯一下一步
 
-M4 已闭合当前工作场的最小因果链，N9 也已证明无终点循环可稳定自反馈 128 步。项目当前执行 N10 真实稀疏内核迁移，先让底座的计算成本与稀疏语义一致；N10 等价性通过后进入 M5 原生情景记忆设计。
+M4 已闭合当前工作场的最小因果链，N9 已证明无终点循环可稳定自反馈 128 步，N10 已让底座按真实边执行。项目当前先完成 N11 环境行动学习，使事件真正包含 agent action 与 outcome；随后 M5 情景记忆才有可记录、可反事实检验的因果事件，而不是又退回文本 K/V。

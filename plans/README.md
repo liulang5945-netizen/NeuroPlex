@@ -17,14 +17,14 @@
 
 - 正式包：顶层 `taiji/`；不导入 `neuroplex` 或 `transformers`。
 - 原生链：raw-byte sensor → hierarchical predictive fabric → 全皮层覆盖稀疏感受器组 → byte motor → action feedback。
-- 原生学习：区域预测误差、递归状态误差、运动结果误差的局部 masked delta；无 optimizer/BPTT。
-- 当前可复现实验：19,521 active learned parameters，byte-cycle accuracy `0 → 94.12%`，surprise 下降 `97.98%`；N7 二阶歧义 `100%`；N8 延迟任务完整/trace-only `100%`、no-trace/全状态切除 `50%`；N9 无终点循环自由回灌 128/128 正确且状态全程有界。
+- 原生学习：区域预测误差、递归状态误差、运动结果误差的真实边局部 delta；无 optimizer/BPTT。
+- 当前可复现实验：19,521 active learned parameters，byte-cycle accuracy `0 → 94.12%`；N7/N8 上下文与 trace 因果门槛通过；N9 自反馈 128/128；N10 压缩固定 fan-in 算子误差 ≤ `2.98e-8`，N5–N9 与 v2 参考一致。
 - 旧 `neuroplex.taiji` K/V 原型及 T4/T5 活动文件已删除；Git 历史仍可恢复。
 - 现有 9 个 Transformer 成员（含 5 个对话成员）未被改写，只作为离线对照。
 
 ## 当前唯一下一步
 
-执行 **N10 真实稀疏执行迁移**：把区域 masked-dense `weight @ vector` 与 dense outer update 改为按固定 edge index 聚合/更新；先建立 dense/sparse 逐 tensor 等价测试，再切换默认内核，并重跑 N5/N7/N8/N9。
+执行 **N11 环境行动学习反证**：动作必须真实改变下一感觉/结果，Taiji 在固定交互预算内在线提高成功率，并显著超过随机策略与 action-learning lesion。
 
 ## 归档
 

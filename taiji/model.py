@@ -20,7 +20,7 @@ class Taiji:
     intentionally exposes no loss.backward() or optimizer contract.
     """
 
-    CHECKPOINT_FORMAT = "taiji-native-v2"
+    CHECKPOINT_FORMAT = "taiji-native-v3"
     STATE_VERSION = 2
 
     def __init__(
@@ -216,16 +216,26 @@ class Taiji:
     def parameter_tensors(self) -> Tuple[torch.Tensor, ...]:
         return (
             *self.fabric.parameter_tensors(),
-            self.motor.synapses.weight,
+            self.motor.synapses.edge_weight,
             self.motor.bias,
         )
 
     def parameter_count(self, *, active_only: bool = True) -> int:
-        if not active_only:
-            return sum(tensor.numel() for tensor in self.parameter_tensors())
-        return (
+        active = (
             self.fabric.active_edge_count()
-            + int(self.motor.synapses.mask.sum().item())
+            + self.motor.synapses.edge_count
+            + self.motor.bias.numel()
+        )
+        if active_only:
+            return active
+        return active
+
+    def dense_equivalent_parameter_count(self) -> int:
+        """Return the learned scalar count a dense implementation would store."""
+
+        return (
+            self.fabric.dense_equivalent_edge_count()
+            + self.motor.synapses.dense_equivalent_count
             + self.motor.bias.numel()
         )
 

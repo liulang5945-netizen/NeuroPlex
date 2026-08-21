@@ -195,12 +195,18 @@ class TaijiFabric:
 
     def parameter_tensors(self) -> Tuple[torch.Tensor, ...]:
         return tuple(
-            synapses.weight
+            synapses.edge_weight
             for synapses in (*self.decoders, *self.transitions)
         )
 
     def active_edge_count(self) -> int:
         return sum(
-            int(synapses.mask.sum().item())
+            synapses.edge_count
+            for synapses in (*self.decoders, *self.transitions)
+        )
+
+    def dense_equivalent_edge_count(self) -> int:
+        return sum(
+            synapses.dense_equivalent_count
             for synapses in (*self.decoders, *self.transitions)
         )

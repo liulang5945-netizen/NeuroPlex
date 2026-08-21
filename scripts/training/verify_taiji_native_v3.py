@@ -1,4 +1,4 @@
-"""Verify the complete Native v2 Taiji byte-stream architecture."""
+"""Verify Native v3 Taiji with edge-indexed sparse synapse execution."""
 
 from __future__ import annotations
 
@@ -39,6 +39,14 @@ def _native_import_contract() -> bool:
     )
 
 
+def _synapses(model: Taiji) -> tuple[object, ...]:
+    return (
+        *model.fabric.decoders,
+        *model.fabric.transitions,
+        model.motor.synapses,
+    )
+
+
 def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
     config = TaijiConfig(
         region_sizes=(64, 48),
@@ -47,7 +55,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         seed=seed,
     )
     data = b"abcdabcdabcdabcd"
-    model = Taiji(config, episode_id="native-v2")
+    model = Taiji(config, episode_id="native-v3")
     initial_parameters = [tensor.clone() for tensor in model.parameter_tensors()]
     before = model.score_bytes(data)
 
@@ -78,23 +86,61 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         )
     )
 
+    synapses = _synapses(model)
     receptor_counts = torch.bincount(
         model.motor.receptors.channel.cpu(),
         minlength=config.motor_context_dim,
     )
+    edge_count = sum(synapse.edge_count for synapse in synapses)
+    topology_index_scalars = sum(
+        synapse.pre_index.numel() for synapse in synapses
+    )
+    topology_index_bytes = sum(
+        synapse.pre_index.numel() * synapse.pre_index.element_size()
+        for synapse in synapses
+    )
+    edge_weight_bytes = sum(
+        synapse.edge_weight.numel() * synapse.edge_weight.element_size()
+        for synapse in synapses
+    )
     active_parameters = model.parameter_count(active_only=True)
-    dense_storage = model.parameter_count(active_only=False)
+    actual_learned_storage = model.parameter_count(active_only=False)
+    dense_equivalent = model.dense_equivalent_parameter_count()
+    default_model = Taiji(TaijiConfig(), episode_id="v3-storage-projection")
+    default_synapses = _synapses(default_model)
+    default_edges = sum(synapse.edge_count for synapse in default_synapses)
+    default_dense_edges = sum(
+        synapse.dense_equivalent_count for synapse in default_synapses
+    )
+    no_dense_synapse_tensor = all(
+        synapse.edge_count == synapse.dense_equivalent_count
+        or not any(
+            isinstance(value, torch.Tensor)
+            and value.shape == (synapse.out_features, synapse.in_features)
+            for value in vars(synapse).values()
+        )
+        for synapse in synapses
+    )
     checks = {
         "native_namespace": Path(taiji.__file__).resolve().parent.name == "taiji",
         "no_legacy_or_transformer_dependency": _native_import_contract(),
         "no_autograd_parameters": all(
             tensor.requires_grad is False for tensor in model.parameter_tensors()
         ),
+        "compressed_fixed_fan_in_storage": all(
+            synapse.edge_weight.ndim == 2
+            and synapse.edge_count == synapse.pre_index.numel()
+            and synapse.edge_weight.shape == synapse.pre_index.shape
+            for synapse in synapses
+        ),
+        "no_dense_synapse_tensor": no_dense_synapse_tensor,
         "all_cortical_coordinates_reach_motor": (
             int(receptor_counts.sum()) == config.cortical_context_dim
             and int(receptor_counts.max() - receptor_counts.min()) <= 1
         ),
-        "shared_action_evidence_space": bool(torch.all(model.motor.synapses.mask)),
+        "shared_action_evidence_space": bool(
+            model.motor.synapses.row_fan_in == config.motor_context_dim
+        ),
         "online_learning_reduces_surprise": (
             after["mean_surprise"] <= before["mean_surprise"] * 0.30
         ),
@@ -104,21 +150,50 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         "checkpoint_exact_next_step": exact_next_step,
     }
     return {
-        "benchmark": "taiji_native_v2",
+        "benchmark": "taiji_native_v3_fixed_fan_in",
         "seed": seed,
         "epochs": epochs,
         "architecture": {
             "checkpoint_format": model.CHECKPOINT_FORMAT,
+            "state_version": model.STATE_VERSION,
+            "synapse_storage": "fixed-fan-in-v1",
             "sensor": "raw-byte-one-hot",
             "regions": list(config.region_sizes),
             "cortical_context_dim": config.cortical_context_dim,
             "motor_receptor_channels": config.motor_context_dim,
             "fixed_receptor_edges": config.cortical_context_dim,
-            "learning": "local-predictive-and-motor-delta",
-            "sequence_window": None,
+            "learned_synapse_edges": edge_count,
             "active_learned_parameters": active_parameters,
-            "dense_learned_tensor_storage": dense_storage,
-            "learned_structural_sparsity": 1.0 - active_parameters / dense_storage,
+            "actual_learned_scalar_storage": actual_learned_storage,
+            "dense_equivalent_learned_scalars": dense_equivalent,
+            "avoided_dense_weight_scalars": dense_equivalent - actual_learned_storage,
+            "topology_index_scalars": topology_index_scalars,
+            "topology_index_bytes": topology_index_bytes,
+            "edge_weight_bytes": edge_weight_bytes,
+            "sparse_synapse_storage_bytes": (
+                topology_index_bytes + edge_weight_bytes
+            ),
+            "dense_synapse_weight_bytes": (
+                (dense_equivalent - config.alphabet_size)
+                * model.motor.bias.element_size()
+            ),
+            "sparse_to_dense_synapse_byte_ratio": (
+                (topology_index_bytes + edge_weight_bytes)
+                / (
+                    (dense_equivalent - config.alphabet_size)
+                    * model.motor.bias.element_size()
+                )
+            ),
+            "default_config_storage_projection": {
+                "learned_synapse_edges": default_edges,
+                "dense_equivalent_edges": default_dense_edges,
+                "edge_density": default_edges / default_dense_edges,
+                "sparse_to_dense_synapse_byte_ratio": (
+                    default_edges * (4 + 4) / (default_dense_edges * 4)
+                ),
+            },
+            "learning": "edge-local-predictive-and-motor-delta",
+            "sequence_window": None,
         },
         "metrics": {
             "before": before,

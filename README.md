@@ -20,7 +20,7 @@ raw byte receptors
   → emitted action returns as the next sensation
 ```
 
-| Transformer responsibility | Taiji Native v2 |
+| Transformer responsibility | Taiji Native v3 |
 |---|---|
 | tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
 | positional encoding | causal ticks and persistent state |
@@ -75,7 +75,7 @@ c_t=\gamma_c\frac{\tilde c_t}{\lVert\tilde c_t\rVert_2+\epsilon}
 
 Every cortical coordinate reaches exactly one receptor, and every action competes on the same `K` channels.
 
-Every update is restricted by a fixed fan-in mask. There is no attention matrix, context window, optimizer, `backward()`, teacher model, or distillation path.
+Every update is restricted to stored fixed-fan-in edges. There is no dense structural mask, attention matrix, context window, optimizer, `backward()`, teacher model, or distillation path.
 
 The complete tensor shapes, update order, state contract, complexity, and code mapping are in [the architecture specification](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
@@ -83,10 +83,11 @@ The complete tensor shapes, update order, state contract, complexity, and code m
 
 ```bash
 python -m pip install -e ".[dev]"
-python scripts/training/verify_taiji_native_v2.py
+python scripts/training/verify_taiji_native_v3.py
 python scripts/training/verify_taiji_n7_context.py
 python scripts/training/verify_taiji_n8_delayed_trace.py
 python scripts/training/verify_taiji_n9_long_free_run.py
+python scripts/training/verify_taiji_n10_sparse_migration.py
 python -m pytest tests/taiji_native -q
 ```
 
@@ -105,16 +106,17 @@ checkpoint = model.checkpoint()
 restored = Taiji.from_checkpoint(checkpoint)
 ```
 
-## Reproducible Native v2 results
+## Reproducible Native v3 results
 
 The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
 | Metric | Result |
 |---|---:|
-| active sparse parameters | 19,521 |
+| active learned parameters | 19,521 |
 | fixed receptor edges | 224 (one per cortical coordinate) |
-| dense learned tensor storage | 38,513 |
-| learned structural sparsity | 49.31% |
+| actual learned scalar storage | 19,521 |
+| dense-equivalent learned scalars | 38,513 |
+| compressed topology | 19,264 int32 pre-indices |
 | byte-cycle accuracy | 0% → 94.12% |
 | mean surprise | 5.4041 → 0.1090 |
 | surprise reduction | 97.98% |
@@ -127,7 +129,9 @@ N8 inserts the shared distractors `1234` between cue and probe. Full and trace-o
 
 N9 trains the same 16-byte cycle under an explicit non-terminal stream contract, then feeds back 128 motor actions with no teacher forcing. All 128 positions are exact, all four actions remain present, and membrane/trace/threshold bounds hold at every tick. A terminal boundary is deliberately excluded from this benchmark because teaching “stop after the fourth cycle” would contradict an infinite-cycle target.
 
-Reports: [Native v2](reports/taiji_native_v2_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json).
+N10 replaces masked-dense synapses with compressed fixed-fan-in rows. Against a dense reference, forward differs by at most `2.98e-8`; backprojection and local update are exact. N5–N9 behavior matches the committed v2 evidence. In the small benchmark, edge weights plus int32 topology use 100.71% of dense weight bytes because edge density is 50.36%; the default configuration projects to 65.96% at 32.98% density. This validates real edge execution, not a universal speedup claim.
+
+Reports: [Native v3](reports/taiji_native_v3_20260821.json), [N10 sparse migration](reports/taiji_n10_sparse_migration_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json). The [Native v2 report](reports/taiji_native_v2_20260821.json) remains as the migration reference.
 
 ## Source layout
 
@@ -141,7 +145,8 @@ taiji/
 └── model.py     observe, learn, score, generate, checkpoint
 
 tests/taiji_native/                 native architecture contracts
-scripts/training/verify_taiji_native_v2.py
+scripts/training/verify_taiji_native_v3.py
+scripts/training/verify_taiji_n10_sparse_migration.py
 scripts/training/verify_taiji_n7_context.py
 scripts/training/verify_taiji_n8_delayed_trace.py
 scripts/training/verify_taiji_n9_long_free_run.py
@@ -162,7 +167,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The next gate is N10: replace masked-dense region execution with a true edge-indexed sparse/event kernel while preserving exact topology, local updates, checkpoint continuation, and N5/N7/N8/N9 behavior.
+The next gate is N11: place Taiji in a minimal environment where its selected action changes the next sensation, then learn the successful action online from local outcome/reward signals. This is the first gate that is not next-byte imitation.
 
 ## License
 
