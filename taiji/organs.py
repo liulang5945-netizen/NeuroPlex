@@ -34,6 +34,90 @@ class ByteSensor:
         return (boundary, *body, boundary)
 
 
+class SparseReceptorBank:
+    """Fold every cortical signal into a shared, bounded motor evidence space.
+
+    Each input coordinate has exactly one fixed excitatory or inhibitory edge.
+    Inputs are assigned evenly across receptor channels, so sparse compression
+    never makes a cortical coordinate invisible to the action population.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        *,
+        generator: torch.Generator,
+        context_norm: float,
+        device: torch.device | str = "cpu",
+    ) -> None:
+        if in_features <= 0 or out_features <= 0:
+            raise ValueError("receptor dimensions must be positive")
+        if out_features > in_features:
+            raise ValueError("receptor count cannot exceed cortical inputs")
+        self.in_features = int(in_features)
+        self.out_features = int(out_features)
+        self.context_norm = float(context_norm)
+        self.device = torch.device(device)
+
+        order = torch.randperm(self.in_features, generator=generator)
+        channel = torch.empty(self.in_features, dtype=torch.long)
+        channel[order] = torch.arange(self.in_features) % self.out_features
+        polarity = (
+            torch.randint(0, 2, (self.in_features,), generator=generator) * 2 - 1
+        ).to(torch.float32)
+        counts = torch.bincount(channel, minlength=self.out_features).to(torch.float32)
+
+        self.channel = channel.to(self.device)
+        self.polarity = polarity.to(self.device)
+        self.channel_scale = counts.rsqrt().to(self.device)
+
+    def forward(self, cortical_state: torch.Tensor) -> torch.Tensor:
+        if cortical_state.shape != (self.in_features,):
+            raise ValueError(
+                f"cortical state shape must be ({self.in_features},), "
+                f"got {tuple(cortical_state.shape)}"
+            )
+        context = torch.zeros(self.out_features, device=self.device)
+        context.scatter_add_(
+            0,
+            self.channel,
+            cortical_state.to(self.device) * self.polarity,
+        )
+        context.mul_(self.channel_scale)
+        norm = context.norm()
+        if float(norm.item()) < 1e-8:
+            return context
+        return context * (self.context_norm / norm)
+
+    def to_payload(self) -> Dict[str, Any]:
+        return {
+            "in_features": self.in_features,
+            "out_features": self.out_features,
+            "context_norm": self.context_norm,
+            "channel": self.channel.detach().cpu().clone(),
+            "polarity": self.polarity.detach().cpu().clone(),
+        }
+
+    def load_payload(self, payload: Mapping[str, Any]) -> None:
+        expected = (self.in_features, self.out_features, self.context_norm)
+        actual = (
+            int(payload["in_features"]),
+            int(payload["out_features"]),
+            float(payload["context_norm"]),
+        )
+        if actual != expected:
+            raise ValueError("receptor payload does not match architecture")
+        channel = payload["channel"].detach().to(self.device, dtype=torch.long)
+        polarity = payload["polarity"].detach().to(
+            self.device, dtype=torch.float32
+        )
+        if not torch.equal(channel, self.channel):
+            raise ValueError("receptor channel map does not match architecture")
+        if not torch.equal(polarity, self.polarity):
+            raise ValueError("receptor polarity does not match architecture")
+
+
 class ByteMotor:
     """A single action organ trained by local outcome error."""
 
@@ -46,16 +130,26 @@ class ByteMotor:
     ) -> None:
         self.config = config
         self.device = torch.device(device)
+        self.receptors = SparseReceptorBank(
+            config.cortical_context_dim,
+            config.motor_context_dim,
+            generator=generator,
+            context_norm=config.motor_context_norm,
+            device=self.device,
+        )
         self.synapses = SparseSynapses(
             config.alphabet_size,
             config.motor_context_dim,
-            config.motor_fan_in,
+            config.motor_context_dim,
             generator=generator,
             init_scale=config.weight_init_scale,
             max_weight_norm=config.max_weight_norm,
             device=self.device,
         )
         self.bias = torch.zeros(config.alphabet_size, device=self.device)
+
+    def encode_context(self, cortical_state: torch.Tensor) -> torch.Tensor:
+        return self.receptors.forward(cortical_state)
 
     def probabilities(self, context: torch.Tensor) -> torch.Tensor:
         evidence = self.synapses.forward(context) + self.bias
@@ -85,11 +179,13 @@ class ByteMotor:
 
     def to_payload(self) -> Dict[str, Any]:
         return {
+            "receptors": self.receptors.to_payload(),
             "synapses": self.synapses.to_payload(),
             "bias": self.bias.detach().cpu().clone(),
         }
 
     def load_payload(self, payload: Mapping[str, Any]) -> None:
+        self.receptors.load_payload(payload["receptors"])
         self.synapses.load_payload(payload["synapses"])
         bias = payload["bias"].detach().to(self.device).clone()
         if bias.shape != (self.config.alphabet_size,):

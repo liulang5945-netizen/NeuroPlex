@@ -15,11 +15,12 @@ Taiji does not wrap a Transformer in neuron terminology. The native path is:
 raw byte receptors
   → hierarchical reciprocal prediction errors
   → persistent recurrent region states
+  → balanced sparse cortical receptor bank
   → one byte motor organ
   → emitted action returns as the next sensation
 ```
 
-| Transformer responsibility | Taiji Native v1 |
+| Transformer responsibility | Taiji Native v2 |
 |---|---|
 | tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
 | positional encoding | causal ticks and persistent state |
@@ -27,7 +28,7 @@ raw byte receptors
 | residual/FFN state | membrane integration, inhibition, adaptive thresholds, traces |
 | KV cache | bounded dynamic state and learned transition synapses |
 | global backpropagation | masked local prediction/state/motor deltas |
-| LM head | one motor population |
+| LM head | all-state sparse receptor bank + one motor population |
 | autoregressive decode | motor byte fed back through the same sensor |
 
 The implementation imports neither `transformers` nor the legacy `neuroplex` runtime. PyTorch is used only as a tensor execution engine.
@@ -64,6 +65,16 @@ Activity is formed through an adaptive threshold and a local inhibitory pool. Le
 \Delta M=\eta_M(onehot(b_t)-p_{t-1})c_{t-1}^T
 ```
 
+The motor does not discard a random cortical subset. It concatenates every region's fast activity and slow trace into `s_t`, then a fixed balanced single-fan-out receptor map `H` folds every coordinate into `K` shared evidence channels:
+
+```math
+\tilde c_{t,k}=|G_k|^{-1/2}\sum_{j\in G_k}\sigma_j s_{t,j},
+\qquad
+c_t=\gamma_c\frac{\tilde c_t}{\lVert\tilde c_t\rVert_2+\epsilon}
+```
+
+Every cortical coordinate reaches exactly one receptor, and every action competes on the same `K` channels.
+
 Every update is restricted by a fixed fan-in mask. There is no attention matrix, context window, optimizer, `backward()`, teacher model, or distillation path.
 
 The complete tensor shapes, update order, state contract, complexity, and code mapping are in [the architecture specification](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
@@ -72,7 +83,8 @@ The complete tensor shapes, update order, state contract, complexity, and code m
 
 ```bash
 python -m pip install -e ".[dev]"
-python scripts/training/verify_taiji_native_v1.py
+python scripts/training/verify_taiji_native_v2.py
+python scripts/training/verify_taiji_n7_context.py
 python -m pytest tests/taiji_native -q
 ```
 
@@ -91,24 +103,25 @@ checkpoint = model.checkpoint()
 restored = Taiji.from_checkpoint(checkpoint)
 ```
 
-## Reproducible Native v1 result
+## Reproducible Native v2 results
 
 The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
 | Metric | Result |
 |---|---:|
 | active sparse parameters | 19,521 |
-| dense tensor storage | 54,961 |
-| structural sparsity | 64.48% |
-| byte-cycle accuracy | 0% → 76.47% |
-| mean surprise | 5.5622 → 1.0484 |
-| surprise reduction | 81.15% |
-| short free generation | `a → bcdaccbd` (first four steps correct) |
+| fixed receptor edges | 224 (one per cortical coordinate) |
+| dense learned tensor storage | 38,513 |
+| learned structural sparsity | 49.31% |
+| byte-cycle accuracy | 0% → 94.12% |
+| mean surprise | 5.4041 → 0.1090 |
+| surprise reduction | 97.98% |
+| free generation | `a → bcdabcda` (all eight steps correct) |
 | checkpoint exact-next-step | pass |
 
-This is evidence that the algorithm can learn a tiny stream. It is not evidence of language understanding: generation currently drifts after four steps, and second-order context has not yet passed its lesion test.
+On the N7 ambiguous stream, full Taiji predicts all eight history-dependent `x → b/d` successors correctly. A first-order model and a full dynamic-state lesion both score 50%. A trace-only lesion remains at 100%, so N7 proves short persistent context but does not yet prove slow-trace or long-term field memory.
 
-Report: [reports/taiji_native_v1_20260821.json](reports/taiji_native_v1_20260821.json).
+Reports: [Native v2](reports/taiji_native_v2_20260821.json) and [N7 context](reports/taiji_n7_context_20260821.json).
 
 ## Source layout
 
@@ -117,12 +130,13 @@ taiji/
 ├── config.py    architecture and dynamics contract
 ├── sparse.py    fixed fan-in synapses and local updates
 ├── state.py     persistent region and whole-system state
-├── organs.py    raw-byte sensor and byte motor
+├── organs.py    raw-byte sensor, sparse receptor bank, and byte motor
 ├── fabric.py    predictive recurrent tick
 └── model.py     observe, learn, score, generate, checkpoint
 
 tests/taiji_native/                 native architecture contracts
-scripts/training/verify_taiji_native_v1.py
+scripts/training/verify_taiji_native_v2.py
+scripts/training/verify_taiji_n7_context.py
 plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md
 ```
 
@@ -140,7 +154,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The next gate is N7: the same current byte must lead to different correct successors under different histories, and clearing the temporal trace must remove that advantage. The project does not scale parameters or download larger text data until that context mechanism is demonstrated.
+The next gate is N8: a cue must still control the correct action after a shared distractor sequence, and clearing the slow trace must remove that advantage. The project does not add episodic memory, scale parameters, or download larger text data until the slow-state contribution is demonstrated causally.
 
 ## License
 

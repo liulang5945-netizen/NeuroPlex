@@ -1,6 +1,6 @@
 # Taiji 原生计算架构与代码规范
 
-> 状态：Native v1 已有可执行代码，不是概念规划。
+> 状态：Native v2 已有可执行代码、方程、状态协议和反证测试，不是概念规划。
 >
 > 权威实现：仓库顶层 `taiji/`。
 >
@@ -10,12 +10,14 @@
 
 Taiji 是一个**持续状态、分层预测、稀疏局部连接、在线局部学习**的计算架构。它以连续到来的事件推进状态，不读取完整 token 窗口，也不在旧 Transformer 外围添加“神经元”适配器。
 
-Native v1 已经闭合以下完整算法链：
+Native v2 已经闭合以下完整算法链：
 
 ```text
 raw bytes
   ↓ ByteSensor（257 个固定感受器，无 tokenizer/learned embedding）
 Taiji predictive fabric（多个递归预测区域）
+  ↓ fast activity + slow trace
+稀疏运动感受器组（覆盖全部皮层坐标的 48 个公共证据通道）
   ↓ 单一 corticostriatal context
 ByteMotor（257 个动作单元）
   ↓
@@ -27,13 +29,13 @@ motor outcome error + region prediction error
 只更新相邻、已有的局部突触
 ```
 
-这使 Taiji Native v1 在算法完整性上与一个最小自回归序列模型处于同一比较层级：有输入表示、时序状态转移、上下文形成、输出分布、学习规则、生成循环和 checkpoint。它不是 AGI 完成证明；当前代码只证明这套非 Transformer 计算链可以独立运行和学习。
+这使 Taiji Native v2 在算法完整性上与一个最小自回归序列模型处于同一比较层级：有输入表示、时序状态转移、上下文形成、输出分布、学习规则、生成循环和 checkpoint。它不是 AGI 完成证明；当前代码只证明这套非 Transformer 计算链可以独立运行和学习。
 
 ## 2. 为什么旧 Taiji-0 被废止
 
 旧实现位于 `neuroplex/taiji/`，虽然没有直接导入 Transformer，但仍然是补丁式内核：
 
-| 旧机制 | 实际问题 | Native v1 处理 |
+| 旧机制 | 实际问题 | Native v2 处理 |
 |---|---|---|
 | 固定维度 `TaijiEvent` 向量由外部提供 | 没有自己的输入表示 | 原始 byte 直接变为感受器活动 |
 | 全局 priority + top-k 选择 cell | 中央调度决定群体活动 | 所有区域并行更新，由区域内抑制和阈值形成稀疏性 |
@@ -95,13 +97,27 @@ T^r \in \mathbb{R}^{n_r \times n_r}
 
 `T^r` 预测区域自身的下一时刻活动。自连接默认禁止。
 
-运动器官参数：
+定义完整皮层输出维数与运动证据通道数：
 
 ```math
-M \in \mathbb{R}^{A \times \sum_r n_r}, \qquad b \in \mathbb{R}^{A}
+C=2\sum_r n_r, \qquad K=\text{motor\_fan\_in}, \qquad K\le C
 ```
 
-每个矩阵都有不可学习的二值结构 mask。每个 postsynaptic unit 只有固定 fan-in；不存在任意两单元默认全连接，也不存在运行时构造的注意力矩阵。
+运动感受器结构：
+
+```math
+H\in\mathbb{R}^{K\times C}
+```
+
+`H` 是固定、平衡、带极性的稀疏映射。每个皮层坐标恰好连接一个运动感受器，即每列恰有一个非零值；每行接收 `floor(C/K)` 或 `ceil(C/K)` 个坐标。它不学习，作用是让全部皮层状态进入公共动作证据空间，同时保持 `O(C)` 条感受器边。
+
+运动器官慢参数：
+
+```math
+M \in \mathbb{R}^{A \times K}, \qquad b \in \mathbb{R}^{A}
+```
+
+区域矩阵都有不可学习的二值结构 mask，每个 postsynaptic unit 只有固定 fan-in。所有 `A` 个动作单元读取相同的 `K` 个公共证据通道，因而不同动作的 evidence 可直接比较；不存在按动作随机丢弃不同皮层坐标的非对称读出，也不存在运行时构造的注意力矩阵。
 
 实际存储为了 PyTorch 向量化仍使用二维 tensor，但 mask 外权重恒为零，局部更新也永远不能写入 mask 外。
 
@@ -207,17 +223,23 @@ q_t^r=Bound(\lambda_q q_{t-1}^r+(1-\lambda_q)a_t^r)
 
 ### 6.3 形成唯一运动上下文
 
-运动器官读取所有区域的 trace，但只有一个输出器官，不给每个区域复制完整输出头：
+先把每个区域的快活动和慢 trace 拼接为完整皮层状态；两种时间尺度都必须显式存在：
 
 ```math
-q_t=[q_t^0;q_t^1;...;q_t^{R-1}]
+s_t=[a_t^0;\ldots;a_t^{R-1};q_t^0;\ldots;q_t^{R-1}]\in\mathbb{R}^{C}
+```
+
+初始化时，把每个坐标 `j` 均衡分配给唯一通道 `h(j)`，并固定极性 `\sigma_j\in\{-1,+1\}`。令 `G_k=\{j\mid h(j)=k\}`，运动感受器计算：
+
+```math
+\tilde c_{t,k}=\frac{1}{\sqrt{|G_k|}}\sum_{j\in G_k}\sigma_j s_{t,j}
 ```
 
 ```math
-c_t=\gamma_c\frac{q_t}{\lVert q_t\rVert_2+\epsilon}
+c_t=\gamma_c\frac{\tilde c_t}{\lVert\tilde c_t\rVert_2+\epsilon}\in\mathbb{R}^{K}
 ```
 
-固定范数是必要的接口合同：它防止内部 trace 振幅过小，使运动证据永远被 257 路 softmax 和 bias 淹没。
+这相当于单 fan-out 的稀疏 feature hashing，但在架构中具有明确器官语义：每个皮层信号都到达一个运动感受器，所有动作读取同一组感受器。固定范数防止内部状态振幅过小，使运动证据被 257 路 softmax 和 bias 淹没。`H` 不保存历史，也不执行内容寻址。
 
 ### 6.4 动作概率
 
@@ -231,10 +253,24 @@ p_t=softmax((Mc_t+b)/\tau_m)
 
 所有更新发生在 `torch.no_grad()` 中；Taiji 参数不是 autograd Parameter，没有 optimizer 或 `loss.backward()`。
 
+实现共用同一个精确局部更新算子。对结构 mask `B`、postsynaptic error `delta`、presynaptic eligibility `z`：
+
+```math
+S(z)=\max(1,\sqrt{\lVert z\rVert_0})
+```
+
+```math
+Local(W,B,\delta,z,\eta)=RowBound\left(
+B\odot\left[(1-\lambda_w)W+\eta\frac{\delta z^T}{S(z)}\right],L_w
+\right)
+```
+
+`RowBound` 独立限制每个 postsynaptic row 的 L2 范数不超过 `L_w`。因此 mask 外权重在初始化、衰减、学习、load 后都严格为零。
+
 ### 7.1 下层预测突触
 
 ```math
-\Delta D^r = \eta_D\,e_t^{r-1}(q_{t-1}^r)^T
+D^r\leftarrow Local(D^r,B_D^r,e_t^{r-1},q_{t-1}^r,\eta_D)
 ```
 
 只有 `D^r` 的结构 mask 内连接更新。一个突触需要的信息只有其 presynaptic trace 和 postsynaptic prediction error。
@@ -246,16 +282,20 @@ p_t=softmax((Mc_t+b)/\tau_m)
 ```
 
 ```math
-\Delta T^r=\eta_T\,\delta_t^r(q_{t-1}^r)^T
+T^r\leftarrow Local(T^r,B_T^r,\delta_t^r,q_{t-1}^r,\eta_T)
 ```
 
 ### 7.3 运动突触
 
 ```math
-\Delta M=\eta_M\,\delta_t^m c_{t-1}^T, \qquad \Delta b=\eta_b\,\delta_t^m
+M\leftarrow Local(M,\mathbf{1},\delta_t^m,c_{t-1},\eta_M)
 ```
 
-三类更新都执行 mask、微小衰减和逐 postsynaptic row 范数约束。Native v1 没有梯度跨区域传播，也没有 BPTT。
+```math
+b\leftarrow clip\left(b+\eta_b\delta_t^m-mean(b+\eta_b\delta_t^m),-L_w,L_w\right)
+```
+
+三类更新都执行结构约束、微小衰减和逐 postsynaptic row 范数约束。Native v2 没有梯度跨区域传播，也没有 BPTT；固定感受器映射 `H` 不更新。
 
 ## 8. 训练、评估和生成
 
@@ -275,14 +315,14 @@ p_t=softmax((Mc_t+b)/\tau_m)
 
 ## 9. 复杂度
 
-设所有有效 decoder、transition 和 motor 边总数为 `E`。
+设区域 decoder/transition 的有效边总数为 `E_f`。感受器固定边数为 `C`，运动可塑边数为 `AK`。
 
 | 架构 | 单步主要计算 | 运行状态随历史长度增长 |
 |---|---:|---:|
 | causal Transformer | 长度为 `L` 时 attention 为 `O(Ld)`；完整序列训练为 `O(L²d)` | KV cache `O(Ld)` |
-| Taiji Native v1 | `O(E)` sparse edge operations | `O(sum n_r)`，与已经经历的长度无关 |
+| Taiji Native v2 | `O(E_f+C+AK)` sparse/local edge operations | `O(sum n_r + K)`，与已经经历的长度无关 |
 
-运行 `L` 个事件的总计算为 `O(LE)`。代价是历史被压缩进有限状态，不能像 attention 一样无损回看任意旧位置；长期记忆必须由慢突触、情景系统和受控复习解决，而不是隐藏在无限 context window 中。
+运行 `L` 个事件的总计算为 `O(L(E_f+C+AK))`。代价是历史被压缩进有限状态，不能像 attention 一样无损回看任意旧位置；长期记忆必须由慢突触、情景系统和受控复习解决，而不是隐藏在无限 context window 中。
 
 当前 PyTorch 原型用 masked dense tensor 执行，理论边数是稀疏的，但物理计算尚未使用 sparse kernel。报告必须同时给出 active edge count 与 dense tensor storage，不能把 mask 后的参数节省冒充实际 FLOPs 节省。
 
@@ -293,17 +333,20 @@ taiji/
 ├── config.py    所有形状、动力学、学习率和稳定上界
 ├── sparse.py    固定 fan-in、mask、前向/反投影、局部 delta
 ├── state.py     RegionState、TaijiState、TaijiStep
-├── organs.py    ByteSensor、ByteMotor
+├── organs.py    ByteSensor、SparseReceptorBank、ByteMotor
 ├── fabric.py    第 6 节的分层 tick 与第 7 节的区域更新
 ├── model.py     observe/learn/score/generate/checkpoint
 └── __init__.py  原生公共 API
 
 tests/taiji_native/
 ├── test_architecture_contract.py
-└── test_sequence_learning.py
+├── test_sequence_learning.py
+└── test_context_memory.py
 
-scripts/training/verify_taiji_native_v1.py
-reports/taiji_native_v1_20260821.json
+scripts/training/verify_taiji_native_v2.py
+scripts/training/verify_taiji_n7_context.py
+reports/taiji_native_v2_20260821.json
+reports/taiji_n7_context_20260821.json
 ```
 
 顶层 `taiji` 不导入 `neuroplex`、`transformers` 或旧序列层。PyTorch 只承担 tensor 运算。
@@ -319,13 +362,13 @@ reports/taiji_native_v1_20260821.json
 | residual stream | membrane 与 multi-timescale trace |
 | KV cache/context window | 有界持久状态与慢突触 |
 | 每层全局反传 | 区域局部 prediction delta |
-| LM head | 单一 motor organ |
+| LM head | 稀疏公共感受器组 + 单一 motor organ |
 | autoregressive decoder | motor action 回灌 ByteSensor 的闭环 |
 | model checkpoint | 参数 + masks + 全部认知状态 + RNG |
 
 这张表表示算法职责已覆盖，不表示当前小规模 Taiji 已达到 Transformer 的语言质量。
 
-## 12. Native v1 已通过的反证门槛
+## 12. Native v2 反证门槛
 
 | ID | 合同 | 当前结果 |
 |---|---|---|
@@ -334,13 +377,16 @@ reports/taiji_native_v1_20260821.json
 | N2 | 经历状态因果影响未来，显式 reset 才消失 | PASS |
 | N3 | 学习只写结构 mask 内局部突触，全部 tensor `requires_grad=False` | PASS |
 | N4 | checkpoint 后下一步输出和局部更新逐 tensor 一致 | PASS |
-| N5 | 19,521 active parameters 在线学习 byte cycle | PASS：accuracy `0 → 76.47%`，surprise 下降 `81.15%` |
-| N6 | 自由生成真正回灌自身动作 | PASS（当前只验证前四步 `a → bcda`） |
-| N7 | 相同当前 byte、不同历史能稳定预测不同后继 | 未验收 |
-| N8 | 长程自由生成不塌缩、不漂移 | 未验收；当前第 5 步后会出现错误 |
-| N9 | masked dense 改为真实 sparse/event kernel 后仍保持结果 | 未实现 |
-| N10 | 在动作会改变后续感觉的环境中在线学习 | 未实现 |
+| N5 | 19,521 active parameters 在线学习 byte cycle | PASS：accuracy `0 → 94.12%`，surprise 下降 `97.98%` |
+| N6 | 自由生成真正回灌自身动作 | PASS：`a → bcdabcda`，8 步全部正确 |
+| N7 | 相同当前 byte、不同历史能稳定预测不同后继 | PASS：完整状态 `100%`，一阶基线/全状态切除均 `50%` |
+| N8 | 跨干扰延迟后，慢 trace 对正确动作具有独立因果贡献 | 未验收；N7 的 trace-only lesion 仍为 `100%` |
+| N9 | 长程自由生成不塌缩、不漂移 | 未验收 |
+| N10 | masked dense 区域改为真实 sparse/event kernel 后仍保持结果 | 未实现 |
+| N11 | 在动作会改变后续感觉的环境中在线学习 | 未实现 |
+
+N7 的结论必须精确：当前动态状态确实解决了二阶歧义，但该任务的即时上下文主要保存在 membrane/activity；单独清零 slow trace 不会破坏结果。因此 N7 不能作为长期场记忆证据。
 
 ## 13. 当前唯一下一步
 
-实现并执行 **N7 二阶上下文反证任务**：构造当前 byte 相同但前一历史不同、目标后继相反的确定性流，要求 Taiji 明显超过只看当前 byte 的一阶转移基线，同时做 `trace lesion`。这是判断当前递归预测状态是否真的承担“上下文计算”的最小实验；若失败，先修区域状态方程，不扩大数据、区域或训练轮数。
+实现并执行 **N8 延迟上下文/trace 因果反证任务**：提示线索之后插入足以覆盖即时 activity 的共同干扰序列，再要求相同 probe 产生不同后继；比较完整状态、只清零 trace、只保留一阶统计三组。通过线必须预先固定，失败时先定位状态时间尺度或信用分配，不扩大区域、数据或 epoch。

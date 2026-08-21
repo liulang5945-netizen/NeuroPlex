@@ -7,7 +7,7 @@ runtime.  PyTorch is used only as a tensor execution engine.
 from .config import TaijiConfig
 from .fabric import TaijiFabric
 from .model import Taiji
-from .organs import ByteMotor, ByteSensor
+from .organs import ByteMotor, ByteSensor, SparseReceptorBank
 from .sparse import SparseSynapses
 from .state import RegionState, TaijiState, TaijiStep
 
@@ -15,6 +15,7 @@ __all__ = [
     "ByteMotor",
     "ByteSensor",
     "RegionState",
+    "SparseReceptorBank",
     "SparseSynapses",
     "Taiji",
     "TaijiConfig",

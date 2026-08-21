@@ -1,0 +1,56 @@
+{
+  "architecture": {
+    "active_learned_parameters": 19521,
+    "checkpoint_format": "taiji-native-v2",
+    "cortical_context_dim": 224,
+    "dense_learned_tensor_storage": 38513,
+    "fixed_receptor_edges": 224,
+    "learned_structural_sparsity": 0.4931321891309428,
+    "learning": "local-predictive-and-motor-delta",
+    "motor_receptor_channels": 48,
+    "regions": [
+      64,
+      48
+    ],
+    "sensor": "raw-byte-one-hot",
+    "sequence_window": null
+  },
+  "benchmark": "taiji_native_v2",
+  "checks": {
+    "all_cortical_coordinates_reach_motor": true,
+    "checkpoint_exact_next_step": true,
+    "free_generation_cycle": true,
+    "local_parameters_changed": true,
+    "native_namespace": true,
+    "no_autograd_parameters": true,
+    "no_legacy_or_transformer_dependency": true,
+    "online_learning_reduces_surprise": true,
+    "shared_action_evidence_space": true,
+    "teacher_forced_accuracy": true
+  },
+  "epochs": 200,
+  "metrics": {
+    "after": {
+      "accuracy": 0.9411764705882353,
+      "mean_surprise": 0.10902371435415156,
+      "observations": 17.0
+    },
+    "before": {
+      "accuracy": 0.0,
+      "mean_surprise": 5.404065399312174,
+      "observations": 17.0
+    },
+    "changed_parameter_tensors": 6,
+    "generated_hex": "6263646162636461",
+    "generated_text": "bcdabcda",
+    "surprise_reduction": 0.9798256115908538,
+    "training": {
+      "mean_surprise": 0.22649242944185263,
+      "observations": 3400.0,
+      "online_accuracy": 0.9370588235294117
+    },
+    "training_seconds": 2.4499613999942085
+  },
+  "seed": 7,
+  "status": "pass"
+}

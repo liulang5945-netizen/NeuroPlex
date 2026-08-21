@@ -16,15 +16,15 @@
 ## 当前代码事实
 
 - 正式包：顶层 `taiji/`；不导入 `neuroplex` 或 `transformers`。
-- 原生链：raw-byte sensor → hierarchical predictive fabric → byte motor → action feedback。
+- 原生链：raw-byte sensor → hierarchical predictive fabric → 全皮层覆盖稀疏感受器组 → byte motor → action feedback。
 - 原生学习：区域预测误差、递归状态误差、运动结果误差的局部 masked delta；无 optimizer/BPTT。
-- 当前可复现实验：19,521 active parameters，byte-cycle accuracy `0 → 76.47%`，surprise 下降 `81.15%`，自由生成前四步正确。
+- 当前可复现实验：19,521 active learned parameters，byte-cycle accuracy `0 → 94.12%`，surprise 下降 `97.98%`，自由生成 8 步循环正确；N7 二阶歧义 `100%`，一阶/全状态切除对照 `50%`。
 - 旧 `neuroplex.taiji` K/V 原型及 T4/T5 活动文件已删除；Git 历史仍可恢复。
 - 现有 9 个 Transformer 成员（含 5 个对话成员）未被改写，只作为离线对照。
 
 ## 当前唯一下一步
 
-执行 **N7 二阶上下文反证**：相同当前 byte 在不同历史下必须预测不同后继，并用 trace lesion 证明差异来自 Taiji 持久状态，而不是一阶字节频率。失败时只修改状态方程，不扩大规模或训练数据。
+执行 **N8 延迟上下文/trace 因果反证**：在线索与相同 probe 之间插入共同干扰，比较完整状态、trace lesion、全状态 lesion 与一阶基线。N7 已证明完整动态状态有二阶上下文，但 trace-only lesion 未降低结果，不能把短时 activity 冒充场记忆。
 
 ## 归档
 

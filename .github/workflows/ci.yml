@@ -34,7 +34,7 @@ jobs:
         run: pip install -e . --no-deps
 
       - name: Verify native Taiji end to end
-        run: python -X utf8 -u scripts/training/verify_taiji_native_v1.py
+        run: python -X utf8 -u scripts/training/verify_taiji_native_v2.py
 
       - name: Run native architecture contracts
         run: python -m pytest tests/taiji_native -q

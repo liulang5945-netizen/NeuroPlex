@@ -16,4 +16,4 @@ def test_native_taiji_learns_a_raw_byte_cycle_online() -> None:
 
     assert after["mean_surprise"] < before["mean_surprise"]
     assert after["accuracy"] >= 0.75
-    assert model.generate(b"a", 4) == b"bcda"
+    assert model.generate(b"a", 8) == b"bcdabcda"

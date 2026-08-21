@@ -20,8 +20,8 @@ class Taiji:
     intentionally exposes no loss.backward() or optimizer contract.
     """
 
-    CHECKPOINT_FORMAT = "taiji-native-v1"
-    STATE_VERSION = 1
+    CHECKPOINT_FORMAT = "taiji-native-v2"
+    STATE_VERSION = 2
 
     def __init__(
         self,
@@ -98,7 +98,8 @@ class Taiji:
         regions, activity_rates, error_norms = self.fabric.step(
             sensory, previous.regions, learn=learn
         )
-        context = self.fabric.motor_context(regions)
+        cortical_state = self.fabric.cortical_context(regions)
+        context = self.motor.encode_context(cortical_state)
         probabilities = self.motor.probabilities(context)
         predicted_symbol = int(probabilities.argmax().item())
         self._state = TaijiState(

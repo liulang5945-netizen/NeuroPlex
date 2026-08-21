@@ -1,4 +1,4 @@
-"""Verify the first complete native Taiji byte-stream architecture."""
+"""Verify the complete Native v2 Taiji byte-stream architecture."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         seed=seed,
     )
     data = b"abcdabcdabcdabcd"
-    model = Taiji(config, episode_id="native-v1")
+    model = Taiji(config, episode_id="native-v2")
     initial_parameters = [tensor.clone() for tensor in model.parameter_tensors()]
     before = model.score_bytes(data)
 
@@ -78,6 +78,10 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         )
     )
 
+    receptor_counts = torch.bincount(
+        model.motor.receptors.channel.cpu(),
+        minlength=config.motor_context_dim,
+    )
     active_parameters = model.parameter_count(active_only=True)
     dense_storage = model.parameter_count(active_only=False)
     checks = {
@@ -86,26 +90,35 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         "no_autograd_parameters": all(
             tensor.requires_grad is False for tensor in model.parameter_tensors()
         ),
+        "all_cortical_coordinates_reach_motor": (
+            int(receptor_counts.sum()) == config.cortical_context_dim
+            and int(receptor_counts.max() - receptor_counts.min()) <= 1
+        ),
+        "shared_action_evidence_space": bool(torch.all(model.motor.synapses.mask)),
         "online_learning_reduces_surprise": (
             after["mean_surprise"] <= before["mean_surprise"] * 0.30
         ),
         "teacher_forced_accuracy": after["accuracy"] >= 0.75,
-        "free_generation_prefix": generated.startswith(b"bcda"),
+        "free_generation_cycle": generated == b"bcdabcda",
         "local_parameters_changed": changed_tensors >= 3,
         "checkpoint_exact_next_step": exact_next_step,
     }
     return {
-        "benchmark": "taiji_native_v1",
+        "benchmark": "taiji_native_v2",
         "seed": seed,
         "epochs": epochs,
         "architecture": {
+            "checkpoint_format": model.CHECKPOINT_FORMAT,
             "sensor": "raw-byte-one-hot",
             "regions": list(config.region_sizes),
+            "cortical_context_dim": config.cortical_context_dim,
+            "motor_receptor_channels": config.motor_context_dim,
+            "fixed_receptor_edges": config.cortical_context_dim,
             "learning": "local-predictive-and-motor-delta",
             "sequence_window": None,
-            "active_parameters": active_parameters,
-            "dense_tensor_storage": dense_storage,
-            "structural_sparsity": 1.0 - active_parameters / dense_storage,
+            "active_learned_parameters": active_parameters,
+            "dense_learned_tensor_storage": dense_storage,
+            "learned_structural_sparsity": 1.0 - active_parameters / dense_storage,
         },
         "metrics": {
             "before": before,

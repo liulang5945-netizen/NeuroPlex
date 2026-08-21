@@ -287,7 +287,7 @@
 - 100 步（完整）Δ = +0.194 / +0.212 / +0.225
 - 增长放大约 2-3 倍（曲线持续涨到 50-70 步才饱和），**不是早期冲击而是真实累积**
 
-**当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定。旧 Taiji-0/T4/T5 路线已经废止；正式顶层 Taiji Native v1 已闭合 raw-byte 感知、预测 fabric、局部学习和 motor 生成，当前进入 N7 二阶上下文反证。
+**当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定。旧 Taiji-0/T4/T5 路线已经废止；正式顶层 Taiji Native v2 已闭合 raw-byte 感知、预测 fabric、全皮层覆盖运动感受器、局部学习和 motor 生成，N7 二阶上下文已通过，当前进入 N8 延迟上下文/trace 因果反证。
 
 **D1-fix v4 阶段性（已落 plan，等用户决策 v5）**：方案 D（hysteresis N=2 + ceiling 1.3）已实现并跑 1000 步（**2/5 PASS**——dialogue 0.8744 < 0.90 / knowledge 0.7937 < 0.90 / unfamiliar 0.8277 < 0.90 均 FAIL；但**LoRA 累积爆炸已解决**：v3 16.84→18.76 ↑ → v4 16.84→14.81 ↓）。v4 把 SKIP 路径压得过严，**k/u 反而比 v3 退步**。**v5 候选**（用户决策）：a) ceiling 拉到 1.5-1.8 给 SKIP 累积留空间；b) 略降 DECAY 0.9→0.85 让衰减更温和；c) hysteresis N=3 进一步抗噪声；d) 接受 v4 k/u 略改善，承认 LoRA 爆炸是优先修复项。
 

@@ -57,6 +57,10 @@ class TaijiConfig:
             raise ValueError("region_sizes must contain dimensions greater than 1")
         if self.synapse_fan_in <= 0 or self.motor_fan_in <= 0:
             raise ValueError("fan-in values must be positive")
+        if self.motor_fan_in > 2 * sum(self.region_sizes):
+            raise ValueError(
+                "motor_fan_in cannot exceed the available cortical state"
+            )
         for name in (
             "membrane_decay",
             "trace_decay",
@@ -87,8 +91,12 @@ class TaijiConfig:
             raise ValueError("synapse_decay cannot be negative")
 
     @property
+    def cortical_context_dim(self) -> int:
+        return 2 * sum(self.region_sizes)
+
+    @property
     def motor_context_dim(self) -> int:
-        return sum(self.region_sizes)
+        return self.motor_fan_in
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)

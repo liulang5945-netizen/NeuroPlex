@@ -169,14 +169,13 @@ class TaijiFabric:
 
         return tuple(next_states), tuple(activity_rates), tuple(error_norms)
 
-    def motor_context(self, regions: Sequence[RegionState]) -> torch.Tensor:
-        """Expose a stable-scale corticostriatal context to the motor organ."""
+    def cortical_context(self, regions: Sequence[RegionState]) -> torch.Tensor:
+        """Expose time-separated fast activity and slow trace to an organ."""
 
-        context = torch.cat([region.trace for region in regions], dim=0)
-        norm = context.norm()
-        if float(norm.item()) < 1e-8:
-            return context
-        return context * (self.config.motor_context_norm / norm)
+        return torch.cat([
+            *(region.activity for region in regions),
+            *(region.trace for region in regions),
+        ], dim=0)
 
     def to_payload(self) -> Dict[str, Any]:
         return {

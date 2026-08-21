@@ -92,6 +92,19 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
         assert torch.count_nonzero(projection.weight[~projection.mask]) == 0
 
 
+def test_motor_receptors_cover_every_cortical_coordinate_once() -> None:
+    model = Taiji(_config())
+    receptors = model.motor.receptors
+    counts = torch.bincount(
+        receptors.channel.cpu(), minlength=receptors.out_features
+    )
+
+    assert receptors.channel.numel() == model.config.cortical_context_dim
+    assert int(counts.sum()) == model.config.cortical_context_dim
+    assert int(counts.max() - counts.min()) <= 1
+    assert torch.all(model.motor.synapses.mask)
+
+
 def test_checkpoint_preserves_learning_state_and_exact_next_step() -> None:
     original = Taiji(_config(), episode_id="roundtrip")
     for symbol in (256, 116, 97, 105, 106, 105):

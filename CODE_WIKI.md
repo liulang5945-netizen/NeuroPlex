@@ -1,6 +1,6 @@
 # Taiji Code Wiki
 
-This page maps the executable Native v1 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
+This page maps the executable Native v2 algorithm to source code. The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
 ## Runtime path
 
@@ -15,7 +15,8 @@ Taiji.observe(symbol)
   │    ├─ delayed top-down prediction
   │    ├─ membrane / inhibition / threshold / trace update
   │    └─ masked local decoder and transition updates
-  ├─ normalize concatenated region traces
+  ├─ concatenate every region's fast activity and slow trace
+  ├─ SparseReceptorBank folds every cortical coordinate into K shared channels
   ├─ ByteMotor.probabilities(context)
   └─ atomically install the next TaijiState
 ```
@@ -43,7 +44,7 @@ Weights are regular tensors with `requires_grad=False`. Masked-out values are fo
 
 ### `taiji/organs.py`
 
-`ByteSensor` maps bytes 0–255 and boundary 256 to fixed one-hot receptor activity. `ByteMotor` is the only output organ. It updates only after the next real symbol arrives.
+`ByteSensor` maps bytes 0–255 and boundary 256 to fixed one-hot receptor activity. `SparseReceptorBank` gives every cortical activity/trace coordinate exactly one fixed signed edge, balances those edges across `K` shared channels, and normalizes their joint evidence. `ByteMotor` is the only output organ; all 257 actions read the same channels, and it updates only after the next real symbol arrives.
 
 ### `taiji/fabric.py`
 
@@ -61,12 +62,13 @@ Weights are regular tensors with `requires_grad=False`. Masked-out values are fo
 
 ## Checkpoint format
 
-Native checkpoints use `format = taiji-native-v1` and contain:
+Native checkpoints use `format = taiji-native-v2` and contain:
 
 ```text
 config
 fabric.decoders[]
 fabric.transitions[]
+motor.receptors.channel + motor.receptors.polarity
 motor.synapses + motor.bias
 state
 rng_state
@@ -76,9 +78,11 @@ They never contain a NeuroPlex neuron, tokenizer, Transformer block, LM head, Lo
 
 ## Verification
 
-- `tests/taiji_native/test_architecture_contract.py` checks independence, raw receptors, causal state, local masks and exact checkpoint continuation.
-- `tests/taiji_native/test_sequence_learning.py` checks online learning and short free generation.
-- `scripts/training/verify_taiji_native_v1.py` produces the committed machine-readable report.
+- `tests/taiji_native/test_architecture_contract.py` checks independence, raw receptors, causal state, local masks, complete motor coverage and exact checkpoint continuation.
+- `tests/taiji_native/test_sequence_learning.py` checks online learning and eight-step free generation.
+- `tests/taiji_native/test_context_memory.py` checks history-dependent successors against a full dynamic-state lesion.
+- `scripts/training/verify_taiji_native_v2.py` produces the Native v2 machine-readable report.
+- `scripts/training/verify_taiji_n7_context.py` measures full, first-order, trace-lesioned and all-state-lesioned context behavior.
 
 ## Legacy code
 
