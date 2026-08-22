@@ -1,0 +1,154 @@
+{
+  "timestamp": "2026-08-23 03:53:29",
+  "task": "A4/A5 原生版：经验驱动增长与自然饱和",
+  "checkpoint": "E:\\Seed\\checkpoints\\seed_corpus.pt",
+  "batches": 10,
+  "texts_per_batch": 4,
+  "cycles_per_text": 4,
+  "max_symbols": 128,
+  "baseline": {
+    "dialogue": {
+      "mean": -3.0717781019496213,
+      "std": 0.2431236462151857
+    },
+    "knowledge": {
+      "mean": -3.284757039445499,
+      "std": 0.3773189725140465
+    },
+    "unfamiliar": {
+      "mean": -3.479066639533325,
+      "std": 0.25175021253214463
+    }
+  },
+  "final": {
+    "dialogue": {
+      "mean": -2.9761326668524104,
+      "std": 0.23823105445544315
+    },
+    "knowledge": {
+      "mean": -3.2693234370733326,
+      "std": 0.3630529006740254
+    },
+    "unfamiliar": {
+      "mean": -3.4122060441444506,
+      "std": 0.3161338629617613
+    }
+  },
+  "trajectory": [
+    {
+      "batch": 0,
+      "group_means": {
+        "dialogue": -3.0717781019496213,
+        "knowledge": -3.284757039445499,
+        "unfamiliar": -3.479066639533325
+      },
+      "overall_mean": -3.2785339269761486
+    },
+    {
+      "batch": 1,
+      "group_means": {
+        "dialogue": -3.0184370507641325,
+        "knowledge": -3.2586858770000213,
+        "unfamiliar": -3.4437457662645925
+      },
+      "overall_mean": -3.240289564676249
+    },
+    {
+      "batch": 2,
+      "group_means": {
+        "dialogue": -3.0132583887851196,
+        "knowledge": -3.2680429759014014,
+        "unfamiliar": -3.44525201764153
+      },
+      "overall_mean": -3.242184460776017
+    },
+    {
+      "batch": 3,
+      "group_means": {
+        "dialogue": -3.024163034286384,
+        "knowledge": -3.2392369338500218,
+        "unfamiliar": -3.4285310253883154
+      },
+      "overall_mean": -3.2306436645082406
+    },
+    {
+      "batch": 4,
+      "group_means": {
+        "dialogue": -2.9354903681408855,
+        "knowledge": -3.236765686110516,
+        "unfamiliar": -3.4458545694597187
+      },
+      "overall_mean": -3.206036874570373
+    },
+    {
+      "batch": 5,
+      "group_means": {
+        "dialogue": -2.9290791196908725,
+        "knowledge": -3.221836213176827,
+        "unfamiliar": -3.4690627839563852
+      },
+      "overall_mean": -3.2066593722746948
+    },
+    {
+      "batch": 6,
+      "group_means": {
+        "dialogue": -2.9411953808197064,
+        "knowledge": -3.2479507012293163,
+        "unfamiliar": -3.4363781269139357
+      },
+      "overall_mean": -3.2085080696543193
+    },
+    {
+      "batch": 7,
+      "group_means": {
+        "dialogue": -2.9561551090719114,
+        "knowledge": -3.2716073457592323,
+        "unfamiliar": -3.41358129254326
+      },
+      "overall_mean": -3.2137812491248012
+    },
+    {
+      "batch": 8,
+      "group_means": {
+        "dialogue": -3.0003098767593777,
+        "knowledge": -3.2886368428885002,
+        "unfamiliar": -3.4050441034295584
+      },
+      "overall_mean": -3.2313302743591454
+    },
+    {
+      "batch": 9,
+      "group_means": {
+        "dialogue": -3.0011471162267758,
+        "knowledge": -3.2745675435279975,
+        "unfamiliar": -3.403760115728944
+      },
+      "overall_mean": -3.2264915918279056
+    },
+    {
+      "batch": 10,
+      "group_means": {
+        "dialogue": -2.9761326668524104,
+        "knowledge": -3.2693234370733326,
+        "unfamiliar": -3.4122060441444506
+      },
+      "overall_mean": -3.2192207160233983
+    }
+  ],
+  "group_rises": {
+    "dialogue": 0.0956454350972109,
+    "knowledge": 0.015433602372166177,
+    "unfamiliar": 0.06686059538887434
+  },
+  "post_peak_drop": 0.013183841453025202,
+  "criteria": {
+    "finite": true,
+    "all_rise": true,
+    "bounded": true,
+    "saturates": true,
+    "std_holds": true
+  },
+  "a4_pass": true,
+  "a5_pass": true,
+  "elapsed_seconds": 315.2296574115753
+}

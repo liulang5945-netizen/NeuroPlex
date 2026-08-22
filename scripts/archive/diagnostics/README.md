@@ -20,7 +20,14 @@
 - `_diag_a2_struct.py`：换线全禁后 Δ=-0.025、unfamiliar=+0.06、targets=+0.12——
   换线确认为主损伤源。
 - `_diag_a2_trust.py`：门控信号选型（write_count 信任度 → 场成熟度）。
+- `_diag_a2_split_paths.py`：清醒学习 +0.129、回放增量 -0.238——损伤全在内生回放。
+- `_diag_a2_cue_off.py`：关 `replay_cue_chain` 后 +0.125——成熟场夜间唯一损伤源是
+  cue-chain 慢写。
+- `_diag_a3_obs_only.py`：纯情节写入（fabric 冻结）+ 回放 8 轮面板漂移仅 +0.0001，
+  支撑观察性夜晚机制。
 
 最终机制：`replay_maturity_ticks` 场成熟度门控——新场保留换线修复与 outcome
-慢通路写入（M7 outcome leg），成熟场冻结两者以保护清醒面板（A2）。
+慢通路写入（M7 outcome leg），成熟场冻结两者以保护清醒面板（A2）；门控输入改用
+不入检查点的 `_development_ticks` 生命周期计数器（诊断廿四：`reset_dynamics`
+重置 `state.tick` 会绕过门控），成熟场 cue-chain 慢写另加 `cue_learn_scale` 门控。
 机制代码见 `taiji/model.py::consolidate` 与 `taiji/config.py`。

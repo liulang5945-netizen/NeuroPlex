@@ -40,6 +40,9 @@ def main() -> None:
     parser.add_argument("--batches", type=int, default=10)
     parser.add_argument("--texts-per-batch", type=int, default=4)
     parser.add_argument("--cycles-per-text", type=int, default=4)
+    # 每条新经验的清醒预算：整篇全文的单遍学习会把已收敛的基底拉向新
+    # 文档分布（40 篇全文累计后面板 -0.07）；经历压缩片段保留经验写入与巩固。
+    parser.add_argument("--max-symbols", type=int, default=128)
     args = parser.parse_args()
 
     started = time.time()
@@ -82,7 +85,12 @@ def main() -> None:
         chunk = new_texts[
             (batch - 1) * args.texts_per_batch : batch * args.texts_per_batch
         ]
-        scheduler.night(chunk, cycles_per_text=args.cycles_per_text, learn=True)
+        scheduler.night(
+            chunk,
+            cycles_per_text=args.cycles_per_text,
+            learn=True,
+            max_symbols=args.max_symbols if args.max_symbols > 0 else None,
+        )
         measurement = common.measure_panel(model, judge)
         entry = {
             "batch": batch,
@@ -152,6 +160,7 @@ def main() -> None:
             "batches": args.batches,
             "texts_per_batch": args.texts_per_batch,
             "cycles_per_text": args.cycles_per_text,
+            "max_symbols": args.max_symbols,
             "baseline": {
                 name: {"mean": g["mean"], "std": g["std"]}
                 for name, g in baseline["groups"].items()

@@ -37,6 +37,9 @@ def main() -> None:
     parser.add_argument("--rounds", type=int, default=8)
     parser.add_argument("--targets", type=int, default=4)
     parser.add_argument("--cycles-per-text", type=int, default=4)
+    # 自我维持的夜晚是观察性的（不重复学习面板文本）；max-symbols 只限制
+    # 观察窗口，≤0 表示观察整段文本。
+    parser.add_argument("--max-symbols", type=int, default=0)
     args = parser.parse_args()
 
     started = time.time()
@@ -61,8 +64,14 @@ def main() -> None:
         # 每轮重新由 judge 选差——巩固对象始终来自自我评估
         panel_texts = [item[2] for item in common.panel_texts_by_quality(judge)]
         targets = scheduler.select_for_sleep(panel_texts, k=args.targets)
+        # 自我维持的夜晚是观察性的：情节写入 + 内生回放，清醒预测器不再
+        # 重复学习同一面板文本（诊断廿五：观察性夜晚 8 轮漂移 ≈1e-4）。
         night = scheduler.night(
-            targets, cycles_per_text=args.cycles_per_text, learn=True
+            targets,
+            cycles_per_text=args.cycles_per_text,
+            learn=True,
+            max_symbols=args.max_symbols if args.max_symbols > 0 else None,
+            observational=True,
         )
         accepted_total += float(night["accepted"])
         measurement = common.measure_panel(model, judge)
@@ -108,6 +117,7 @@ def main() -> None:
             "rounds": args.rounds,
             "targets": args.targets,
             "cycles_per_text": args.cycles_per_text,
+            "max_symbols": args.max_symbols,
             "baseline_overall_mean": baseline_mean,
             "trajectory": trajectory,
             "cumulative_abs_delta": cumulative,

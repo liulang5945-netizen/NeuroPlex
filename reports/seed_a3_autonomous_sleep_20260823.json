@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-08-23 03:32:17",
+  "task": "A3 原生版：连续 8 轮自主睡眠",
+  "checkpoint": "E:\\Seed\\checkpoints\\seed_corpus.pt",
+  "rounds": 8,
+  "targets": 4,
+  "cycles_per_text": 4,
+  "max_symbols": 0,
+  "baseline_overall_mean": -3.2785339269761486,
+  "trajectory": [
+    {
+      "round": 0,
+      "overall_mean": -3.2785339269761486,
+      "delta": 0.0
+    },
+    {
+      "round": 1,
+      "overall_mean": -3.350865584522212,
+      "delta": -0.07233165754606352,
+      "accepted": 14.0
+    },
+    {
+      "round": 2,
+      "overall_mean": -3.276405341582308,
+      "delta": 0.002128585393840865,
+      "accepted": 13.0
+    },
+    {
+      "round": 3,
+      "overall_mean": -3.2731874980937015,
+      "delta": 0.005346428882447185,
+      "accepted": 16.0
+    },
+    {
+      "round": 4,
+      "overall_mean": -3.276983511898438,
+      "delta": 0.0015504150777108094,
+      "accepted": 16.0
+    },
+    {
+      "round": 5,
+      "overall_mean": -3.278713530821807,
+      "delta": -0.00017960384565851584,
+      "accepted": 16.0
+    },
+    {
+      "round": 6,
+      "overall_mean": -3.2783788970021654,
+      "delta": 0.00015502997398320062,
+      "accepted": 15.0
+    },
+    {
+      "round": 7,
+      "overall_mean": -3.2785193022351096,
+      "delta": 1.4624741039082068e-05,
+      "accepted": 16.0
+    },
+    {
+      "round": 8,
+      "overall_mean": -3.278528729981233,
+      "delta": 5.196994915745989e-06,
+      "accepted": 16.0
+    }
+  ],
+  "cumulative_abs_delta": 5.196994915745989e-06,
+  "accepted_total": 122.0,
+  "criteria": {
+    "finite": true,
+    "stable": true
+  },
+  "a3_pass": true,
+  "elapsed_seconds": 253.56940054893494
+}

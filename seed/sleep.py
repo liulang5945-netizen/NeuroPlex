@@ -55,7 +55,13 @@ class SeedSleepScheduler:
         scored.sort(key=lambda item: item[0])
         return [text for _quality, text in scored[: int(k)]]
 
-    def experience(self, text: bytes, *, learn: bool = True) -> Dict[str, float]:
+    def experience(
+        self,
+        text: bytes,
+        *,
+        learn: bool = True,
+        max_symbols: int | None = None,
+    ) -> Dict[str, float]:
         """Live the text once so the episodic field holds a real engram.
 
         Each tick observes the true byte, acts on the organism's own top
@@ -68,6 +74,13 @@ class SeedSleepScheduler:
         living the text is how the organism keeps learning from experience
         after pretraining; with ``learn=False`` motor, fabric and episodic
         weights are all untouched, so the bout is purely observational.
+
+        ``max_symbols`` caps how much of the waking stream the bout lives
+        through: sleep consolidation replays compressed snippets, not whole
+        lived episodes, so an autonomous night bounds its own waking budget
+        per text.  Without the cap a self-sustaining sleep loop re-learns
+        the same full panel texts every round and the panel drifts by the
+        dose (A3, phase 3).
         """
 
         if not text:
@@ -77,8 +90,9 @@ class SeedSleepScheduler:
         boundary = self.seed.substrate.config.boundary_symbol
         self.seed.reset_dynamics(episode_id="sleep-experience")
         self.seed.observe(boundary, learn=False)
+        symbols = text if max_symbols is None else text[: int(max_symbols)]
         actions = 0
-        for symbol in text:
+        for symbol in symbols:
             self.seed.observe(int(symbol), learn=bool(learn))
             probabilities = self.seed.snapshot().motor_probabilities
             candidates = top_candidates(probabilities, ACTION_FANOUT)
@@ -103,13 +117,24 @@ class SeedSleepScheduler:
         *,
         cycles_per_text: int,
         learn: bool,
+        max_symbols: int | None = None,
+        observational: bool = False,
     ) -> Dict[str, float]:
         """Experience the selected texts, then sleep on what the field holds.
 
         Consolidation is entirely endogenous: ``consolidate`` reactivates
         engrams from the field's own value axis and its priority gate decides
         what is worth replaying.  With ``learn=False`` the bout replays
-        without touching any weight.
+        without touching any weight.  ``max_symbols`` forwards the waking
+        budget to each experience bout.
+
+        ``observational`` separates the two jobs of sleep.  Living the text
+        with learning is how the organism grows from *new* experience; a
+        self sustaining sleep loop reactivates engrams it already holds and
+        must not re-learn the same texts round after round -- diagnosis 25
+        measured an observational bout (episodic writes plus endogenous
+        replay, fabric untouched) drifting the panel by +0.0001 over eight
+        rounds, while full-dose re-learning drifted it by the dose (A3).
         """
 
         if cycles_per_text <= 0:
@@ -123,7 +148,10 @@ class SeedSleepScheduler:
         confidence_sum = 0.0
         error_sum = 0.0
         for text in texts:
-            self.experience(text, learn=bool(learn))
+            if observational:
+                self._write_episodic_observations(text, max_symbols=max_symbols)
+            else:
+                self.experience(text, learn=bool(learn), max_symbols=max_symbols)
             if self.seed.substrate.memory.write_count <= 0:
                 continue
             result = self.seed.consolidate(
@@ -143,6 +171,41 @@ class SeedSleepScheduler:
             "mean_confidence": confidence_sum / attempts,
             "mean_error_norm": error_sum / attempts,
         }
+
+    def _write_episodic_observations(
+        self, text: bytes, *, max_symbols: int | None = None
+    ) -> None:
+        """Observe the text with the fabric frozen, still writing engrams.
+
+        The self sustaining night reactivates what the field already holds,
+        so the observation bout must not teach the fabric -- every sensation
+        tick runs with learning off, while each settled action still binds
+        its outcome into the episodic field (``learn_memory``) so replay has
+        something endogenous to reactivate.  Measured over eight rounds this
+        path moves the waking panel by ~1e-4 (diagnosis 25): consolidation
+        without re-learning is how sleep stays self sustaining.
+        """
+
+        if not text:
+            raise ValueError("cannot observe empty text")
+
+        quality = float(self.judge.score(text)["quality"])
+        boundary = self.seed.substrate.config.boundary_symbol
+        self.seed.reset_dynamics(episode_id="sleep-observation")
+        self.seed.observe(boundary, learn=False)
+        symbols = text if max_symbols is None else text[: int(max_symbols)]
+        for symbol in symbols:
+            self.seed.observe(int(symbol), learn=False)
+            probabilities = self.seed.snapshot().motor_probabilities
+            candidates = top_candidates(probabilities, ACTION_FANOUT)
+            self.seed.act(candidates, sample=False)
+            self.seed.settle_action(
+                quality,
+                learn=False,
+                learn_memory=True,
+                provenance="experienced",
+            )
+        self.seed.observe(boundary, learn=False)
 
 
 def top_candidates(probabilities: torch.Tensor, count: int) -> List[int]:

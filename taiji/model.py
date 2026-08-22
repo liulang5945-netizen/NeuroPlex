@@ -57,6 +57,11 @@ class Taiji:
         self.memory = EpisodicField(
             self.config, generator=self._memory_rng, device=self.device
         )
+        # Lifetime development ticks survive episode boundaries: state.tick
+        # restarts at every reset_dynamics, so it cannot carry the replay
+        # maturity gate -- an experienced text resets it to tens of ticks and
+        # a lived checkpoint would read as a fresh field (A2, diagnosis 24).
+        self._development_ticks = 0
         self._state = self._initial_state(episode_id)
 
     def _initial_state(self, episode_id: str) -> TaijiState:
@@ -96,6 +101,9 @@ class Taiji:
             raise RuntimeError("pending action must be settled before reset")
         if self._state.pending_experience is not None:
             raise RuntimeError("pending experience must observe its outcome before reset")
+        self._development_ticks = max(
+            self._development_ticks, int(self._state.tick)
+        )
         self._state = self._initial_state(episode_id or self._state.episode_id)
 
     @torch.no_grad()
@@ -341,6 +349,9 @@ class Taiji:
         regions = state.regions
         memory_state = state.memory
         tick = int(state.tick)
+        # The maturity gate reads the lifetime counter, refreshed here so a
+        # checkpoint loaded straight into sleep still counts as lived.
+        self._development_ticks = max(self._development_ticks, tick)
         structural_before = int(self.fabric.structural_events)
         winner_resource = torch.ones(
             self.config.alphabet_size, device=self.device
@@ -387,11 +398,15 @@ class Taiji:
             # pays for it (A2, phase 3).  Field maturity is the separator: a
             # fresh one-shot field keeps the lottery repair and the outcome
             # leg of the contingency store, while a field that has lived
-            # through a corpus freezes both.  The episodic write count cannot
-            # carry this gate -- it restarts at zero every session, so the
-            # first consolidation of a lived field would read as fully trusted
-            # and rewire against garbage error anyway (A2, diagnosis 21).
-            field_trusted = tick < int(self.config.replay_maturity_ticks)
+            # through a corpus freezes both.  Neither the episodic write
+            # count nor state.tick can carry this gate -- both restart at
+            # every session/episode boundary, so a lived field's first
+            # consolidation would read as fully trusted and rewire against
+            # garbage error anyway (A2, diagnosis 21/24); only the lifetime
+            # development counter survives the reset.
+            field_trusted = self._development_ticks < int(
+                self.config.replay_maturity_ticks
+            )
             # The engram is read at its mode, not sampled.  The readouts are
             # softmaxes over the whole 257 byte alphabet, so a correct but
             # low-margin reactivation still looks nearly uniform: measured peak
@@ -497,6 +512,18 @@ class Taiji:
                 cue_settled = tuple(cue_states)
                 tick += 1
                 action_activity = self.sensor.encode(action_symbol)
+                # The cue-chain write is the last dream-basis update left on a
+                # lived field, and diagnosis 23 measured it alone dragging the
+                # whole panel down (-0.23) while the very same night without it
+                # improved every group (+0.13): the reinstated basis carries
+                # the engram's identity but not the corpus statistics the slow
+                # decoder already fitted, so writes from it fit the decoder to
+                # dream garbage.  The maturity gate therefore covers this leg
+                # too -- a fresh toy field keeps the mechanism M7 probes for,
+                # a lived field rehearses without rewriting.
+                cue_learn_scale = (
+                    learn_scale * winner_gain if field_trusted else 0.0
+                )
                 for _ in range(int(self.config.replay_write_repeats)):
                     regions, _rates, error_norms = self.fabric.step(
                         action_activity,
@@ -504,7 +531,7 @@ class Taiji:
                         learn=learn,
                         episodic_feedback=replay.cortical_projection,
                         learn_scale=0.0,
-                        consolidation_learn_scale=learn_scale * winner_gain,
+                        consolidation_learn_scale=cue_learn_scale,
                         use_consolidated=False,
                         adapt_homeostasis=False,
                     )

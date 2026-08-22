@@ -48,7 +48,15 @@
   - 未门控：一夜睡眠全面板 Δ≈-0.23 ~ -0.38（换线为主损伤源）；
   - 门控后：overall Δ=-0.025、**unfamiliar +0.062、targets +0.123**，
     some_improvement PASS；M7 七项保持全过。
-  - A2 复验（800K 成熟检查点）待重训完成后最终落盘。
+  - A2 复验（800K 成熟检查点）**PASS**：全体 Δ=+0.1290（dialogue +0.081、
+    knowledge +0.101、unfamiliar +0.206），参数变化 > 0；配套修复两处——
+    `_development_ticks` 生命周期计数器（诊断廿四：`reset_dynamics` 重置
+    `state.tick` 绕过成熟门控）与 cue-chain 慢写的 `cue_learn_scale` 门控。
+  - A3 **PASS**（8 轮累计 |Δ|=0.0000 < 0.15，122 次内生回放接受）：观察性夜晚
+    机制（情节写入 + 内生回放、清醒预测器冻结）使自我维持睡眠零漂移。
+  - A4/A5 **PASS**：10 批新经验后三组全升（+0.096/+0.015/+0.067），不爆炸（≤0.30），
+    过顶回落 0.0132 ≤ 0.15，三组 std 比 0.980/0.962/1.256 ≥ 0.95。
+  - B1 **PASS**：20 次决策覆盖 6/6 主题、切换 19 次、最高频占比 0.25 ≤ 0.70、0 崩溃。
 - 对照：Transformer 无内生巩固；继续训练即灾难性遗忘，只能靠冻结回避。
 
 ## 4. 工程继承清单（阶段 4）
@@ -64,9 +72,9 @@
 
 ## 5. 待完成项（诚实边界）
 
-1. **A2–A5/B1 最终复验**：依赖 800K 成熟检查点（重训进行中，约 38 分钟）。
-   机制已由诊断二十与玩具场判据证明；数值报告待检查点落盘后由
-   `verify_seed_a2_sleep.py / a3 / a4_a5 / b1` 产出。
+1. ~~A2–A5/B1 最终复验~~ 已完成（见 §3.3）：A2/A3/A4/A5/B1 五项判据全部 PASS，
+   数值报告落盘 `reports/seed_a2_sleep / a3_autonomous_sleep / a4_a5_experience /
+   b1_explore_20260823.json`。
 2. **生成可读性**：byte-level 生成尚未到人工可读（阶段 1 通过线不要求）。
 3. **原生移动端客户端**：当前以移动端浏览器远程接入实现；独立 App 未启动。
 
@@ -77,5 +85,8 @@ pytest tests -q                                        # 全仓回归
 python scripts/training/verify_taiji_m7_cue_chain.py   # M7 七项判据
 python scripts/training/verify_seed_a1_judge.py        # A1 同判据
 python scripts/training/verify_seed_a2_sleep.py        # A2（需 800K 检查点）
+python scripts/training/verify_seed_a3_autonomous_sleep.py
+python scripts/training/verify_seed_a4_a5_experience.py
+python scripts/training/verify_seed_b1_explore.py
 python scripts/training/train_seed_corpus.py --scale 2 --epochs 1 --max-symbols 800000
 ```

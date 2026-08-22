@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-23 00:38:54",
+  "timestamp": "2026-08-23 03:34:46",
   "task": "A2 原生版：仅自我评估驱动的巩固",
   "checkpoint": "E:\\Seed\\checkpoints\\seed_corpus.pt",
   "targets": 6,
@@ -8,51 +8,51 @@
     "texts": 6.0,
     "cycles": 48.0,
     "accepted": 48.0,
-    "mean_priority": 0.2278102211880726,
-    "mean_confidence": 0.6770189049637593,
-    "mean_error_norm": 1.7898398009883405
+    "mean_priority": 0.21693582853989954,
+    "mean_confidence": 0.6565595276843189,
+    "mean_error_norm": 1.762622914174884
   },
-  "parameter_delta": 1687.2941706478596,
+  "parameter_delta": 1522.631027251482,
   "baseline": {
     "dialogue": {
-      "mean": -3.0717780480269665,
-      "std": 0.24312359250843424
+      "mean": -3.0717781019496213,
+      "std": 0.2431236462151857
     },
     "knowledge": {
-      "mean": -3.2847570487104165,
-      "std": 0.3773190295838565
+      "mean": -3.284757039445499,
+      "std": 0.3773189725140465
     },
     "unfamiliar": {
-      "mean": -3.4790666493229434,
-      "std": 0.25175024773784255
+      "mean": -3.479066639533325,
+      "std": 0.25175021253214463
     }
   },
   "after": {
     "dialogue": {
-      "mean": -3.3224195913895977,
-      "std": 0.20126041113719745
+      "mean": -2.991129930282527,
+      "std": 0.18867241751589506
     },
     "knowledge": {
-      "mean": -3.3460464193148747,
-      "std": 0.29392722606999455
+      "mean": -3.184111850767586,
+      "std": 0.2736309935371036
     },
     "unfamiliar": {
-      "mean": -3.4830624247005906,
-      "std": 0.18844673433418388
+      "mean": -3.273452555512633,
+      "std": 0.17480500056699183
     }
   },
   "group_deltas": {
-    "dialogue": -0.2506415433626312,
-    "knowledge": -0.06128937060445816,
-    "unfamiliar": -0.0039957753776471705
+    "dialogue": 0.08064817166709437,
+    "knowledge": 0.10064518867791294,
+    "unfamiliar": 0.20561408402069192
   },
-  "overall_delta": -0.10530889644824493,
+  "overall_delta": 0.1289691481219002,
   "criteria": {
     "finite": true,
-    "no_regression": false,
-    "some_improvement": false,
+    "no_regression": true,
+    "some_improvement": true,
     "consolidation_real": true
   },
-  "a2_pass": false,
-  "elapsed_seconds": 133.29087471961975
+  "a2_pass": true,
+  "elapsed_seconds": 147.2559974193573
 }
