@@ -30,7 +30,7 @@
 
 ## 当前状态与唯一下一步
 
-M7 已闭合（七项判据全过）：accepted replay 用内生 `cortical_projection` 重建 cue 基底、把 action mode 写入慢通路，`act()` 显著高于 no-replay/content-lesion。阶段 1/2 完成：800K raw-byte 重训（byte_ppl 23.1，面板三组排序正确）、`seed/judge.py` 原生自我评估、A1 同判据验证通过。阶段 3 进行中：原生 sleep 调度（judge 驱动巩固）已落地；场成熟度门控（`replay_maturity_ticks`）约束睡眠期的换线与慢通路写入——新场保留修复与 outcome leg，成熟场冻结两者以保护清醒面板。当前唯一下一步：A2–A5/B1 判据全部复验通过后进入阶段 4 产品接入（api/前端/桌面端/移动端）。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6 与 [BOOTSTRAP_CRITERIA.md](active/BOOTSTRAP_CRITERIA.md)。
+M7 已闭合（七项判据全过）：accepted replay 用内生 `cortical_projection` 重建 cue 基底、把 action mode 写入慢通路，`act()` 显著高于 no-replay/content-lesion。阶段 1/2 完成：800K raw-byte 重训（byte_ppl 23.1，面板三组排序正确）、`seed/judge.py` 原生自我评估、A1 同判据验证通过。阶段 3 完成：原生 sleep 调度 + 主题探索环境，A2–A5/B1 五项判据在 800K 成熟检查点上全部 PASS（报告落盘 `reports/seed_a2/a3/a4_a5/b1_*.json`）；机制：`_development_ticks` 生命周期成熟门控、观察性夜晚（零漂移自我维持睡眠）、经验清醒预算封顶。阶段 4/5 完成：产品接入（api/前端/桌面端/移动端远程接入）全仓 108 项绿；超越证据报告见 `reports/seed_phase5_transcendence_20260823.md`。当前诚实边界：byte-level 生成尚未到人工可读。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6 与 [BOOTSTRAP_CRITERIA.md](active/BOOTSTRAP_CRITERIA.md)。
 
 ## 归档
 
