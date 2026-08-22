@@ -63,19 +63,28 @@ M6 已证明场可内生选择 engram 并把 action→outcome 结构巩固进 fa
 | 29 | 2/4 | 4/4 | 4/4 |
 | 61 | 2/4 | 2/4 | 3/4 |
 
-因此“给 trace 加自适应公共基线”被否决：它只修复一部分随机拓扑。seed 11/61 的错误已存在于去共模残差本身；失败 true row 虽读到峰值残差单元，但 16-contact 固定随机 fan-in 同时给 rival row 更强支持。当前上限是：
+因此“给 trace 加自适应公共基线”被否决：它只修复一部分随机拓扑。进一步的完整 12-seed 离线镜像已经把上限拆成两个独立因素：
+
+- K64 signed shared-support 单独达到 11/12；它消除了固定 16-contact 的随机盲区，但 seed 11 仍因 `2→!` 只得到 6 次 replay、其它模式得到 23–32 次而停在 3/4；
+- 保留所有内生 replay target/rate/count、只把写 basis 替换成清醒 probe，seed 11 仍是 3/4，排除“睡眠写入与清醒读取错位”为首因；
+- 把四个模式的自然写入量截到相同下限后，K32/K64 在 12/12 seed 全部 4/4；
+- 给 replay winner 神经元配置睡眠 bout 内的局部可塑性资源，winner 每次获胜后资源乘 retention，K64 在 retention `0.5/0.7/0.8/0.9` 下均为 12/12 seed × 4/4，旋转内容 lesion 全部 0/4。retention `0.9` 的跨面板最小/平均 margin 最大：`0.0004383 / 0.0043703`。
+
+当前上限已经从单一“不可分”订正为：
 
 ```text
 非负 cortical trace
-  × 固定随机稀疏解码支撑
-  × 单层局部 delta
-  → 部分 seed 的动作残差在线性读出前已不可分
+  × 固定随机稀疏解码支撑        → 几何盲区
+  × 无 bout 级资源的 replay winner → 多数模式覆盖少数模式
+  → 扩大单元数不能给出巩固可分性的结构保证
 ```
 
 这会限制 Seed 的可扩展记忆与组合学习：扩大单元数只能降低概率，不能给出结构保证。
 
-机器可读结果：`reports/taiji_m6_locus_20260822.json`。
+逐 cortical channel 的熟悉度资源、现有 fast fatigue 的 decay/gain 扫描、睡眠期慢速 memory-unit threshold offset 都未救回 seed 11，不能进入运行态。有效机制的粒度必须落在**内生 replay winner 神经元**，而不是外部 event ID、Python replay list 或每 engram 配额。
+
+机器可读结果：`reports/taiji_m6_locus_20260822.json`、`reports/taiji_signed_opponent_20260822.json`。
 
 ## 6. 当前唯一下一步
 
-先实现一个**离线 signed-opponent basis 反证器**，不改 Taiji 状态和 checkpoint：把每个区域的活动表示成匹配的 ON/OFF（或正/负误差）双通道，令每个原坐标对读出贡献严格零和；同时让每个目标 decoder row 对每个 opponent pair 至少有一个可学习接触。必须在完整 12-seed M6 面板上达到每 seed 4/4 正 margin，且 N5–N11/M5–M6 不退化，才允许把该表示写入 `fabric.step`。若离线仍失败，继续修改支撑生成规则，不升级运行态。
+把已通过的 K64 signed shared-support + winner-resource retention `0.9` 实现为 Taiji 下一条原生 checkpoint line：在区域状态中维护可在线获得的 waking baseline，decoder 对 signed residual 读写且所有 row 共享完整支撑；`consolidate` 为内生 action winner 神经元创建 bout-local resource，每次获胜后乘 `0.9`，醒来即释放。实现不得保存 event ID/配额，不得把资源写成 teacher target；随后重跑 checkpoint 等价、N5–N11、M5 与完整 M6 12-seed 因果面板。

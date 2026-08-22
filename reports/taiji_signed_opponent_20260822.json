@@ -1,0 +1,4017 @@
+{
+  "benchmark": "taiji-signed-opponent-offline",
+  "status": "pass",
+  "cycles": 96,
+  "seeds": [
+    11,
+    17,
+    23,
+    29,
+    37,
+    43,
+    53,
+    61,
+    71,
+    79,
+    89,
+    97
+  ],
+  "widths": [
+    64
+  ],
+  "resource_powers": [
+    0.0
+  ],
+  "sleep_trace_decay_override": null,
+  "sleep_fatigue_gain_override": null,
+  "sleep_homeostasis_rate": 0.0,
+  "mode_resource_retentions": [
+    0.5,
+    0.7,
+    0.8,
+    0.9
+  ],
+  "constraints": {
+    "runtime_modified": false,
+    "external_replay_list": false,
+    "teacher_target": false,
+    "target_source": "episodic field replay outcome mode",
+    "diagnostic_controls_use_only_endogenous_replay_modes": true,
+    "one_fixed_receptor_edge_per_cortical_coordinate": true,
+    "all_outcome_rows_share_channel_support": true,
+    "strict_on_off_opponent_read": true,
+    "local_resource_uses_event_identity_or_quota": false,
+    "sleep_homeostasis_uses_event_identity_or_quota": false,
+    "sleep_homeostasis_persists_into_waking_state": false,
+    "winner_resource_uses_external_event_identity_or_quota": false
+  },
+  "selected_candidate": {
+    "width": 64,
+    "winner_resource_retention": 0.9,
+    "passing_seeds": 12,
+    "rotated_content_lesion_passing_seeds": 0,
+    "all_seeds_pass": true,
+    "minimum_margin": 0.0004382964107207954,
+    "mean_margin": 0.004370269518403802
+  },
+  "per_seed": [
+    {
+      "seed": 11,
+      "accepted_replays": 91,
+      "mirrored_local_writes": 728,
+      "accepted_pairs": {
+        "0->+": 23,
+        "1->-": 32,
+        "2->!": 6,
+        "3->?": 30
+      },
+      "balanced_writes_per_action": 48,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04124931991100311,
+      "actual_taiji_accuracy": 0.5,
+      "actual_taiji_positive_margins": 2,
+      "variants": {
+        "64": {
+          "accuracy": 0.75,
+          "positive_margins": 3,
+          "pairs": 4,
+          "mean_margin": 0.004471894237212837,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.00271492637693882
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.008042655885219574
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "-",
+              "margin": -0.0013324175961315632
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.008462412282824516
+            }
+          ],
+          "probe_aligned_positive_margins": 3,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0019155984045937657
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.005344286561012268
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "-",
+              "margin": -0.0005682413466274738
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.005370778031647205
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0005684616044163704
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.000688204076141119
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0011196660343557596
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0010257340036332607
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.25,
+          "rotated_content_lesion_positive_margins": 1,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 184,
+              "1": 256,
+              "2": 48,
+              "3": 240
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9217013716697693,
+                  "1": 0.10310722887516022,
+                  "2": -0.08278685808181763,
+                  "3": 0.22168706357479095
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.09960021078586578,
+                  "1": 0.9595107436180115,
+                  "2": 0.3012474477291107,
+                  "3": -0.03678171709179878
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.007802964653819799,
+                  "1": 0.32589495182037354,
+                  "2": 0.95697420835495,
+                  "3": -0.019295351579785347
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": 0.16275595128536224,
+                  "1": -0.033092886209487915,
+                  "2": -0.041824910789728165,
+                  "3": 0.965357780456543
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 0.75,
+              "positive_margins": 3,
+              "pairs": 4,
+              "mean_margin": 0.004471894237212837,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.00271492637693882
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.008042655885219574
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "-",
+                  "margin": -0.0013324175961315632
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.008462412282824516
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 1
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0004137300420552492,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0002635496493894607
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0003712858015205711
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.000458903843536973
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0005611808737739921
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0006697112621623091,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.00044336539576761425
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0006436740513890982
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0006606681272387505
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0009311374742537737
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.000957287717028521,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0006648863200098276
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.001025661826133728
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0007485411479137838
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0013900615740567446
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0016656520019751042,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.001204020925797522
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0021923473104834557
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0006028695497661829
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0026633702218532562
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 17,
+      "accepted_replays": 85,
+      "mirrored_local_writes": 680,
+      "accepted_pairs": {
+        "0->+": 19,
+        "1->-": 28,
+        "2->!": 18,
+        "3->?": 20
+      },
+      "balanced_writes_per_action": 144,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.045071445405483246,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.016509346663951874,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.015004847198724747
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.028239941224455833
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.008035458624362946
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.01475713960826397
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0112947728484869
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.021718313917517662
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.005363659933209419
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.010717078112065792
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.010740338824689388
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.013976727612316608
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.005433583166450262
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.009520999155938625
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 152,
+              "1": 224,
+              "2": 144,
+              "3": 160
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9749100804328918,
+                  "1": -0.06285721808671951,
+                  "2": -0.08741683512926102,
+                  "3": -0.10027629137039185
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.050602417439222336,
+                  "1": 0.9735254645347595,
+                  "2": 0.05730598419904709,
+                  "3": 0.013223468326032162
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.07267966866493225,
+                  "1": 0.01602710783481598,
+                  "2": 0.9840543866157532,
+                  "3": -0.055591270327568054
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.071725033223629,
+                  "1": -0.00025175625341944396,
+                  "2": -0.04927755519747734,
+                  "3": 0.9716242551803589
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.016509346663951874,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.015004847198724747
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.028239941224455833
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.008035458624362946
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.01475713960826397
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0015290562150767073,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0016205316642299294
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0020773685537278652
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0009133844287134707
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0015049402136355639
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0025378321297466755,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0026869233697652817
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.003449272597208619
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00151983299292624
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.002495299559086561
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0037594226305373013,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0039629447273910046
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0051436759531497955
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0022371537052094936
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0036939161363989115
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.00674999225884676,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.006911023519933224
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.00970198679715395
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.003849353641271591
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0065376050770282745
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 23,
+      "accepted_replays": 90,
+      "mirrored_local_writes": 720,
+      "accepted_pairs": {
+        "0->+": 31,
+        "1->-": 18,
+        "2->!": 15,
+        "3->?": 26
+      },
+      "balanced_writes_per_action": 120,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.043781936168670654,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.013181871443521231,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.019924823194742203
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.003685248550027609
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.001150812255218625
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.02796660177409649
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.015098259784281254
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.002964867977425456
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0010868946556001902
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.022046778351068497
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.006692396942526102
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.00358102610334754
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0013266329187899828
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.013140962459146976
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 248,
+              "1": 144,
+              "2": 120,
+              "3": 208
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9876151084899902,
+                  "1": 0.31107792258262634,
+                  "2": -0.05976937711238861,
+                  "3": -0.09411010146141052
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.2556802034378052,
+                  "1": 0.9679883718490601,
+                  "2": 0.3294490575790405,
+                  "3": -0.13847802579402924
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.10967065393924713,
+                  "1": 0.3513258993625641,
+                  "2": 0.976182222366333,
+                  "3": -0.1620393842458725
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.10695628076791763,
+                  "1": -0.10690774023532867,
+                  "2": -0.1224830374121666,
+                  "3": 0.9775413274765015
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.013181871443521231,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.019924823194742203
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.003685248550027609
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.001150812255218625
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.02796660177409649
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0010754612849268597,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0011649206280708313
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0006461667944677174
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00020025412959512323
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0022905035875737667
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.001784088512067683,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0019421218894422054
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.001064781565219164
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0003305725404061377
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.003798878053203225
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.002647547604283318,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0029238658025860786
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0015469053760170937
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0004723569145426154
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.005647062323987484
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.004860909772105515,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.005779312923550606
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0025042283814400434
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0007292020600289106
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0104308957234025
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 29,
+      "accepted_replays": 85,
+      "mirrored_local_writes": 680,
+      "accepted_pairs": {
+        "0->+": 12,
+        "1->-": 42,
+        "2->!": 21,
+        "3->?": 10
+      },
+      "balanced_writes_per_action": 80,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04155132174491882,
+      "actual_taiji_accuracy": 0.5,
+      "actual_taiji_positive_margins": 2,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.008575284155085683,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.00017072143964469433
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.02271558903157711
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.009315285831689835
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0020995403174310923
+            }
+          ],
+          "probe_aligned_positive_margins": 3,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "-",
+              "margin": -4.132965113967657e-05
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.015744322910904884
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.007339045871049166
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0014857047935947776
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0009861282305791974
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.0034807617776095867
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0034545427188277245
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0015913437819108367
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 96,
+              "1": 336,
+              "2": 168,
+              "3": 80
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9554922580718994,
+                  "1": 0.15073741972446442,
+                  "2": -0.14137522876262665,
+                  "3": -0.08990427851676941
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.1861458271741867,
+                  "1": 0.9769151210784912,
+                  "2": -0.1166999489068985,
+                  "3": -0.09502781182527542
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.10892214626073837,
+                  "1": -0.13893109560012817,
+                  "2": 0.9497742056846619,
+                  "3": 0.14047221839427948
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.016977252438664436,
+                  "1": -0.18586160242557526,
+                  "2": 0.034336160868406296,
+                  "3": 0.9124614000320435
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.008575284155085683,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.00017072143964469433
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.02271558903157711
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.009315285831689835
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0020995403174310923
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0006607564355363138,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.000282529421383515
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0010608106385916471
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0008497650851495564
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.00044992059702053666
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0010900647175731137,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.00046257785288617015
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0017567701870575547
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0014160610735416412
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0007248497568070889
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0015967859362717718,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0006410157075151801
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0026371439453214407
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0021171863190829754
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.000991797773167491
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0028599094512173906,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0008750090491957963
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.005275517702102661
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0038651099894195795
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0014240010641515255
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 37,
+      "accepted_replays": 83,
+      "mirrored_local_writes": 664,
+      "accepted_pairs": {
+        "0->+": 19,
+        "1->-": 13,
+        "2->!": 40,
+        "3->?": 11
+      },
+      "balanced_writes_per_action": 88,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04796166718006134,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.013636586256325245,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.013375496491789818
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.0035620639100670815
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.029398523271083832
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.008210261352360249
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.010192911140620708
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.0030831617768853903
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.02139444835484028
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.006436777301132679
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.006011902820318937
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.002633168362081051
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0062452261336147785
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.006416934076696634
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 152,
+              "1": 104,
+              "2": 320,
+              "3": 88
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9807601571083069,
+                  "1": -0.07786677777767181,
+                  "2": -0.11842779070138931,
+                  "3": -0.10349474102258682
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.06992994993925095,
+                  "1": 0.9139819145202637,
+                  "2": -0.13667382299900055,
+                  "3": 0.05117964372038841
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.07934079319238663,
+                  "1": -0.014567500911653042,
+                  "2": 0.9576286673545837,
+                  "3": -0.0513029545545578
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.09109620749950409,
+                  "1": -0.05515945702791214,
+                  "2": -0.09772174060344696,
+                  "3": 0.9548583626747131
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.013636586256325245,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.013375496491789818
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0035620639100670815
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.029398523271083832
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.008210261352360249
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0012552733824122697,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0014528668252751231
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0005235947901383042
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0015428024344146252
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0015018294798210263
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0020775109296664596,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0024162058252841234
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0008741894271224737
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0025716861709952354
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0024479622952640057
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.003024283651029691,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0035626301541924477
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0012622404610738158
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.003853240516036749
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.003419023472815752
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0052184234955348074,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0061949617229402065
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.002016098005697131
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.007536244112998247
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.005126390140503645
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 43,
+      "accepted_replays": 73,
+      "mirrored_local_writes": 584,
+      "accepted_pairs": {
+        "0->+": 17,
+        "1->-": 20,
+        "2->!": 25,
+        "3->?": 11
+      },
+      "balanced_writes_per_action": 88,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04480541869997978,
+      "actual_taiji_accuracy": 0.75,
+      "actual_taiji_positive_margins": 3,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.005903200595639646,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.009487560018897057
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.006458032876253128
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.00524843018501997
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0024187793023884296
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.007073224056512117
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.004169117659330368
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0037766117602586746
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0015584139619022608
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.004604634828865528
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.0031994187738746405
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0009433948434889317
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.001493370160460472
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 136,
+              "1": 160,
+              "2": 200,
+              "3": 88
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.974282443523407,
+                  "1": -0.009796109981834888,
+                  "2": -0.0635082945227623,
+                  "3": -0.0006342537817545235
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.033609237521886826,
+                  "1": 0.9788804650306702,
+                  "2": 0.601979672908783,
+                  "3": -0.033031485974788666
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.036655545234680176,
+                  "1": 0.5780400633811951,
+                  "2": 0.9734214544296265,
+                  "3": -0.004296713974326849
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.09578873962163925,
+                  "1": -0.07032069563865662,
+                  "2": -0.03212573751807213,
+                  "3": 0.957412600517273
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.005903200595639646,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.009487560018897057
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.006458032876253128
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00524843018501997
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0024187793023884296
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.000668443666654639,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0011310690315440297
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0008674962446093559
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00025027355877682567
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0004249358316883445
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0011071986227761954,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.001876414055004716
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0014402583474293351
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0004208454629406333
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0006912766257300973
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0016202850965783,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0027519292198121548
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0021157097071409225
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0006477029528468847
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.000965798506513238
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.002772168634692207,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.004676080774515867
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0035612944047898054
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0013922082725912333
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.001459091086871922
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 53,
+      "accepted_replays": 76,
+      "mirrored_local_writes": 608,
+      "accepted_pairs": {
+        "0->+": 10,
+        "1->-": 31,
+        "2->!": 14,
+        "3->?": 21
+      },
+      "balanced_writes_per_action": 80,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.0525052584707737,
+      "actual_taiji_accuracy": 0.75,
+      "actual_taiji_positive_margins": 3,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.010697886405978352,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0010189886670559645
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.025137238204479218
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0013922112993896008
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.015243107452988625
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0003681459929794073
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.020287588238716125
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0006073340773582458
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.011882811784744263
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.001063397154211998
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.006137976422905922
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0014373641461133957
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.005755353253334761
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 80,
+              "1": 248,
+              "2": 112,
+              "3": 168
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9241552352905273,
+                  "1": 0.08412068337202072,
+                  "2": 0.0672219768166542,
+                  "3": -0.0030420541297644377
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.19885419309139252,
+                  "1": 0.9762052893638611,
+                  "2": 0.2304558902978897,
+                  "3": -0.07001161575317383
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": 0.17307758331298828,
+                  "1": 0.20796048641204834,
+                  "2": 0.9617246389389038,
+                  "3": -0.08909722417593002
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.0690603107213974,
+                  "1": -0.10139346122741699,
+                  "2": -0.08196661621332169,
+                  "3": 0.9752485752105713
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.010697886405978352,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0010189886670559645
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.025137238204479218
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0013922112993896008
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.015243107452988625
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0009530185925541446,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0003422962035983801
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.001502552768215537
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0004606490838341415
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0015065763145685196
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0015822071582078934,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.000554170343093574
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.00250938325189054
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0007586103165522218
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0025066647212952375
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.002329516559257172,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0007511738804168999
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0037819542922079563
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0010736602125689387
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0037112778518348932
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.004158888477832079,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0010180240496993065
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.007459141314029694
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0015601273626089096
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.006598261184990406
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 61,
+      "accepted_replays": 68,
+      "mirrored_local_writes": 544,
+      "accepted_pairs": {
+        "0->+": 8,
+        "1->-": 37,
+        "2->!": 11,
+        "3->?": 12
+      },
+      "balanced_writes_per_action": 64,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.048712678253650665,
+      "actual_taiji_accuracy": 0.5,
+      "actual_taiji_positive_margins": 2,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.009083072538487613,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0023217976558953524
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.028801212087273598
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.004626105539500713
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0005831748712807894
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0017418444622308016
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.021026965230703354
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0030115554109215736
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0003189011476933956
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0017486262368038297
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.004374719224870205
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0022091155406087637
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0008619247819297016
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 64,
+              "1": 296,
+              "2": 88,
+              "3": 96
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9548934698104858,
+                  "1": -0.1348700374364853,
+                  "2": -0.07750511169433594,
+                  "3": -0.04673462361097336
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.0926499143242836,
+                  "1": 0.9676707983016968,
+                  "2": -0.08477307111024857,
+                  "3": 0.21178410947322845
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.034280627965927124,
+                  "1": -0.11511144787073135,
+                  "2": 0.9636626839637756,
+                  "3": -0.07360190153121948
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.02956986241042614,
+                  "1": 0.1316995769739151,
+                  "2": -0.0684048980474472,
+                  "3": 0.9332892298698425
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.009083072538487613,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0023217976558953524
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.028801212087273598
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.004626105539500713
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0005831748712807894
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0008252555053331889,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0005643655313178897
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0015671212458983064
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0008558178669773042
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0003137173771392554
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.001349278594716452,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0008927065646275878
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0025992996525019407
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0013938822085037827
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.000511225953232497
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0019335746619617566,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.001187663758173585
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0038951656315475702
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.001942853326909244
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0007086159312166274
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.003297856805147603,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0016370846424251795
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.007671944331377745
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0029028260614722967
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0009795721853151917
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 71,
+      "accepted_replays": 93,
+      "mirrored_local_writes": 744,
+      "accepted_pairs": {
+        "0->+": 22,
+        "1->-": 17,
+        "2->!": 45,
+        "3->?": 9
+      },
+      "balanced_writes_per_action": 72,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.041038770228624344,
+      "actual_taiji_accuracy": 0.75,
+      "actual_taiji_positive_margins": 3,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.010479193733772263,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.012685909867286682
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.005048265680670738
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.023565426468849182
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0006171729182824492
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.009871763177216053
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.003216034732758999
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.017874108627438545
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.000395802577259019
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.004181456286460161
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.001686815288849175
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0037371341604739428
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0004319647268857807
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 176,
+              "1": 136,
+              "2": 360,
+              "3": 72
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9684640169143677,
+                  "1": -0.10151560604572296,
+                  "2": -0.1263052523136139,
+                  "3": -0.08902153372764587
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.1370396763086319,
+                  "1": 0.95488440990448,
+                  "2": -0.10904832929372787,
+                  "3": 0.034838639199733734
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.12673762440681458,
+                  "1": -0.09843011945486069,
+                  "2": 0.9589418172836304,
+                  "3": -0.10773251950740814
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.18864813446998596,
+                  "1": 0.0346045047044754,
+                  "2": -0.18386362493038177,
+                  "3": 0.8700399994850159
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.010479193733772263,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.012685909867286682
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.005048265680670738
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.023565426468849182
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0006171729182824492
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0007652716740267351,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0011911081383004785
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0005873324698768556
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0011364335659891367
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.00014621252194046974
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0012735732416331302,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.001986156450584531
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0009809811599552631
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00189307052642107
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.00023408482957165688
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.001883223267213907,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0029482883401215076
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.001445956528186798
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.002823543269187212
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.00031510493136011064
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0034255389909958467,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.005299942567944527
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0024718574713915586
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.005492059513926506
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0004382964107207954
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 79,
+      "accepted_replays": 90,
+      "mirrored_local_writes": 720,
+      "accepted_pairs": {
+        "0->+": 19,
+        "1->-": 37,
+        "2->!": 15,
+        "3->?": 19
+      },
+      "balanced_writes_per_action": 120,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04467238858342171,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.015312044182792306,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.012564284726977348
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.03192400559782982
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.007305062375962734
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.009454824030399323
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.010695280507206917
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.024282971397042274
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0054817236959934235
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.010351757518947124
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.008600698783993721
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.009800828993320465
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.005782875698059797
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.008292438462376595
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 152,
+              "1": 296,
+              "2": 120,
+              "3": 152
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9770451784133911,
+                  "1": 0.08743184059858322,
+                  "2": -0.10603638738393784,
+                  "3": -0.047475848346948624
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": 0.03114102967083454,
+                  "1": 0.9631109833717346,
+                  "2": 0.05935574695467949,
+                  "3": 0.01338212750852108
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.11902482062578201,
+                  "1": 0.020597677677869797,
+                  "2": 0.9381523728370667,
+                  "3": -0.0851643905043602
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.11756861954927444,
+                  "1": 0.11317302286624908,
+                  "2": 0.009627265855669975,
+                  "3": 0.9579258561134338
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.015312044182792306,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.012564284726977348
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.03192400559782982
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.007305062375962734
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.009454824030399323
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0013725956960115582,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.001518719713203609
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0017725614598020911
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.001014221808873117
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0011848798021674156
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.00227440323214978,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.002510659396648407
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0029415665194392204
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0016826428472995758
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.001962744165211916
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.003355813038069755,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.003687627147883177
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.004398352932184935
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0024448130279779434
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0028924590442329645
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.005971178179606795,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0063227140344679356
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.008591066114604473
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.004003170877695084
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.004967761691659689
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 89,
+      "accepted_replays": 93,
+      "mirrored_local_writes": 744,
+      "accepted_pairs": {
+        "0->+": 33,
+        "1->-": 31,
+        "2->!": 8,
+        "3->?": 21
+      },
+      "balanced_writes_per_action": 64,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.04713529720902443,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.017429709434509277,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.03127214312553406
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.02106008306145668
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0006268825381994247
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.016759729012846947
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.025078022852540016
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.015797315165400505
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.000525745446793735
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.014418419450521469
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.00656953314319253
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.003812880488112569
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0016524489037692547
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.005688888020813465
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 264,
+              "1": 248,
+              "2": 64,
+              "3": 168
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9702904224395752,
+                  "1": -0.080909863114357,
+                  "2": -0.12812493741512299,
+                  "3": -0.053858984261751175
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.05637981742620468,
+                  "1": 0.9857895374298096,
+                  "2": 0.1709612011909485,
+                  "3": -0.10309164226055145
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.17229114472866058,
+                  "1": 0.14709170162677765,
+                  "2": 0.9639958739280701,
+                  "3": -0.10674336552619934
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.10097790509462357,
+                  "1": -0.0863768681883812,
+                  "2": -0.06859846413135529,
+                  "3": 0.9543123841285706
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.017429709434509277,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.03127214312553406
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.02106008306145668
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0006268825381994247
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.016759729012846947
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0013819177402183414,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0020126905292272568
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0012577471788972616
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0005731882993131876
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0016840449534356594
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.00228469938156195,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.003348186844959855
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0021127827931195498
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0008881435496732593
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0027896843384951353
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0033665229857433587,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0050062332302331924
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.00321181770414114
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0011327510001137853
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.004115290008485317
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.006153086433187127,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.009621203877031803
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.006362656131386757
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0013452237471938133
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.007283261977136135
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "seed": 97,
+      "accepted_replays": 87,
+      "mirrored_local_writes": 696,
+      "accepted_pairs": {
+        "0->+": 4,
+        "1->-": 16,
+        "2->!": 40,
+        "3->?": 27
+      },
+      "balanced_writes_per_action": 32,
+      "sleep_trace_decay": 0.72,
+      "sleep_fatigue_gain": 1.2,
+      "sleep_homeostasis_rate": 0.0,
+      "sleep_threshold_offset_norm": 0.0,
+      "baseline_norm": 0.03876659646630287,
+      "actual_taiji_accuracy": 1.0,
+      "actual_taiji_positive_margins": 4,
+      "variants": {
+        "64": {
+          "accuracy": 1.0,
+          "positive_margins": 4,
+          "pairs": 4,
+          "mean_margin": 0.01429053395986557,
+          "rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0034646536223590374
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.007453214842826128
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.025219956412911415
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0210243109613657
+            }
+          ],
+          "probe_aligned_positive_margins": 4,
+          "probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.004040862433612347
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.0063941869884729385
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.017812296748161316
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.017591528594493866
+            }
+          ],
+          "balanced_probe_aligned_positive_margins": 4,
+          "balanced_probe_aligned_rows": [
+            {
+              "action": "0",
+              "expected_outcome": "+",
+              "predicted_outcome": "+",
+              "margin": 0.0037272023037075996
+            },
+            {
+              "action": "1",
+              "expected_outcome": "-",
+              "predicted_outcome": "-",
+              "margin": 0.001595287467353046
+            },
+            {
+              "action": "2",
+              "expected_outcome": "!",
+              "predicted_outcome": "!",
+              "margin": 0.0019921937491744757
+            },
+            {
+              "action": "3",
+              "expected_outcome": "?",
+              "predicted_outcome": "?",
+              "margin": 0.0026351718697696924
+            }
+          ],
+          "rotated_content_lesion_accuracy": 0.0,
+          "rotated_content_lesion_positive_margins": 0,
+          "receptor_edges": 64,
+          "decoder_edges_for_four_outcomes": 256,
+          "alignment": {
+            "write_counts_by_action": {
+              "0": 32,
+              "1": 128,
+              "2": 320,
+              "3": 216
+            },
+            "probe_to_write_centroid_cosines": [
+              {
+                "probe_action": "0",
+                "against_write_centroids": {
+                  "0": 0.9863578677177429,
+                  "1": 0.08112219721078873,
+                  "2": -0.07344759255647659,
+                  "3": -0.05158817768096924
+                }
+              },
+              {
+                "probe_action": "1",
+                "against_write_centroids": {
+                  "0": -0.03224436938762665,
+                  "1": 0.9601939916610718,
+                  "2": -0.12432890385389328,
+                  "3": 0.07296378165483475
+                }
+              },
+              {
+                "probe_action": "2",
+                "against_write_centroids": {
+                  "0": -0.06948263943195343,
+                  "1": -0.10970287770032883,
+                  "2": 0.975099503993988,
+                  "3": -0.11394578963518143
+                }
+              },
+              {
+                "probe_action": "3",
+                "against_write_centroids": {
+                  "0": -0.06043818220496178,
+                  "1": 0.08927271515130997,
+                  "2": -0.06964927911758423,
+                  "3": 0.9823725819587708
+                }
+              }
+            ]
+          },
+          "local_resource": {
+            "0.0": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.01429053395986557,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0034646536223590374
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.007453214842826128
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.025219956412911415
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0210243109613657
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          },
+          "winner_resource": {
+            "0.5": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0014876475324854255,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0019883252680301666
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0010218941606581211
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0014112298376858234
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0015291408635675907
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.7": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0023042107932269573,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.002650833921507001
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0016847983933985233
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.0023260838352143764
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.0025551270227879286
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.8": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.0031848635408096015,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0030251655261963606
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.0024459364358335733
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.003439155640080571
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.003829196561127901
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            },
+            "0.9": {
+              "accuracy": 1.0,
+              "positive_margins": 4,
+              "pairs": 4,
+              "mean_margin": 0.00530962971970439,
+              "rows": [
+                {
+                  "action": "0",
+                  "expected_outcome": "+",
+                  "predicted_outcome": "+",
+                  "margin": 0.0033577438443899155
+                },
+                {
+                  "action": "1",
+                  "expected_outcome": "-",
+                  "predicted_outcome": "-",
+                  "margin": 0.00402531772851944
+                },
+                {
+                  "action": "2",
+                  "expected_outcome": "!",
+                  "predicted_outcome": "!",
+                  "margin": 0.00658818194642663
+                },
+                {
+                  "action": "3",
+                  "expected_outcome": "?",
+                  "predicted_outcome": "?",
+                  "margin": 0.007267275359481573
+                }
+              ],
+              "rotated_content_lesion_positive_margins": 0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "summary": {
+    "64": {
+      "passing_seeds": 11,
+      "seed_count": 12,
+      "all_seeds_pass": false,
+      "rotated_content_lesion_passing_seeds": 0,
+      "probe_aligned_passing_seeds": 10,
+      "balanced_probe_aligned_passing_seeds": 12,
+      "local_resource": {
+        "0.0": {
+          "passing_seeds": 11,
+          "rotated_content_lesion_passing_seeds": 0
+        }
+      },
+      "winner_resource": {
+        "0.5": {
+          "passing_seeds": 12,
+          "rotated_content_lesion_passing_seeds": 0,
+          "all_seeds_pass": true,
+          "minimum_margin": 0.00014621252194046974,
+          "mean_margin": 0.0010323689806076193
+        },
+        "0.7": {
+          "passing_seeds": 12,
+          "rotated_content_lesion_passing_seeds": 0,
+          "all_seeds_pass": true,
+          "minimum_margin": 0.00023408482957165688,
+          "mean_margin": 0.0016945648812907166
+        },
+        "0.8": {
+          "passing_seeds": 12,
+          "rotated_content_lesion_passing_seeds": 0,
+          "all_seeds_pass": true,
+          "minimum_margin": 0.00031510493136011064,
+          "mean_margin": 0.002471593890732038
+        },
+        "0.9": {
+          "passing_seeds": 12,
+          "rotated_content_lesion_passing_seeds": 0,
+          "all_seeds_pass": true,
+          "minimum_margin": 0.0004382964107207954,
+          "mean_margin": 0.004370269518403802
+        }
+      }
+    }
+  }
+}

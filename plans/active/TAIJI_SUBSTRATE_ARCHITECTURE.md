@@ -521,4 +521,4 @@ N9 的训练流显式设置 `include_boundary=False`，因为它检验无限循�
 
 ## 13. 当前唯一下一步
 
-执行 signed-opponent basis 的离线 12-seed 反证。公共基线已在 seed 11/61 失败，不能进入运行态；新表示必须先让每个 seed 的 4 个 contingency margin 全部为正，才允许改 `fabric.step`、state 与 checkpoint。禁止外部 event list、teacher target、dense attention 或直接复制 memory weights。
+signed-opponent 离线反证已通过：K64 shared-support 单独 11/12；加入 bout-local replay winner resource 后，retention `0.5–0.9` 均达到 12/12 seed × 4/4，所有旋转内容 lesion 为 0/4；选择最小 margin 最大的 `0.9`。下一步把该组合实现为新的原生 checkpoint line：`RegionState` 增加 waking baseline，decoder 对 signed residual 使用全共享支撑，`consolidate` 的 winner 神经元资源只在一次 sleep bout 内存在并在每次获胜后乘 `0.9`。实现后必须重跑 N4–N11/M5/M6；仍禁止外部 event list、teacher target、dense attention 或 memory-weight 复制。

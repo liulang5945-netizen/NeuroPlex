@@ -30,7 +30,7 @@
 
 ## 当前唯一下一步
 
-执行 signed-opponent basis 离线反证：先在完整 12-seed M6 面板证明每 seed 的 4 个 action→outcome margin 全部转正，再允许修改 Taiji 运行态。原因与判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §5–§6。
+离线门槛已经通过：K64 signed shared-support + replay winner bout-local resource 在完整 12-seed 面板全部 4/4，选择 retention `0.9`。当前唯一下一步是把 waking baseline、共享支撑 decoder 与该资源机制实现为新的 Taiji 原生 checkpoint line，并回归 N4–N11/M5/M6。原因与判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §5–§6。
 
 ## 归档
 

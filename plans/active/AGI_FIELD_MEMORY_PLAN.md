@@ -200,8 +200,8 @@ action 相对两个对照均提升 **62.5 个百分点**。另有独立反证确
 | M5 | 分布式情景场优于同宽 trace-only，且 recurrent/read lesion 消除收益 | **PASS** |
 | M6 | 内生 replay 巩固后，切除情景读出仍保留能力 | **PASS（12-seed 面板 10/12，mean gain +0.4583，无 seed 受损）** |
 
-M5 只证明一个 8-event one-shot 微型场，不证明大容量无干扰记忆、语言情景理解、自传连续性或人脑等价。当前 write_count 是诊断计数，不是事件索引；代码还没有内生 replay、睡眠相位、巩固选择或结构生长。
+M5/M6 只证明一个 8-event one-shot 微型场及其内生 replay，不证明大容量无干扰记忆、语言情景理解、自传连续性或人脑等价。`write_count` 是诊断计数，不是事件索引；当前代码已有 replay、睡眠巩固选择和受门控结构重连，但 signed shared-support 与 winner resource 仍只在离线镜像中通过，尚未进入运行态。
 
 ## 9. 当前唯一下一步
 
-M6 已实现。下一步不是增加 replay 剂量，而是对 signed-opponent cortical basis 做离线 12-seed 反证，消除固定随机 sparse decoder 在残差支撑上的结构盲区；通过前不得修改运行态或 checkpoint。外部 Python event list、teacher target、dense attention 和直接复制 memory weights 到 fabric 仍禁止。
+离线 12-seed 反证已经通过：K64 signed shared-support + bout-local winner resource retention `0.9` 达到每 seed 4/4，旋转内容 lesion 全为 0/4。下一步把这两个机制一起落入新原生 checkpoint line，并重跑 N4–N11/M5/M6。外部 Python event list、teacher target、per-engram 配额、dense attention 和直接复制 memory weights 到 fabric 仍禁止。

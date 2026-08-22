@@ -300,7 +300,13 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
 
 所以“在 `fabric.step` 给 trace 扣公共基线”被否决，不升级 `RegionState` 或 checkpoint。seed 11 的 `0/2` 与 seed 61 的 `2` 在纯残差上仍为负；true row 已接触峰值残差单元，但固定 16-contact 支撑让 rival row 读到更大正量。构建上限从“rank-1 共模”进一步收敛为“**带符号残差 × 固定随机稀疏支撑的可分性没有结构保证**”。
 
-**当前唯一下一步**：先做 signed-opponent basis 离线反证，不改运行态。每个 cortical 坐标变成严格零和的 ON/OFF 或正/负误差对，并为 decoder row 提供 opponent-pair 覆盖约束；完整 12-seed 面板每个 seed 都达到 4/4 正 margin 后，才允许进入 `fabric.step`。具体边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §5–§6。
+### 6.8 signed-opponent 与 replay winner 资源（PASS，2026-08-22）
+
+`verify_taiji_signed_opponent.py` 在不修改 Taiji runtime/checkpoint 的前提下，镜像真实 M6 decoder-0 写入。K64 signed shared-support 把随机支撑失败从 12 seed 中的多例压到 seed 11 一例（11/12），但其 `2→!` 只有 6 次 accepted replay，另外三对为 23/32/30；即使把每次写入强制落在清醒 probe basis，仍为 3/4。把四类自然写入量配平后 K32/K64 均 12/12 × 4/4，确认剩余根因是 replay winner 的巩固剂量垄断。
+
+被否决的局部机制：逐 channel 熟悉度资源；`memory_trace_decay 0.85–0.98`；`replay_fatigue_gain 2–8`；sleep-only memory-unit 阈值积分 `0.001–0.02`。它们都不能让 seed 11 超过 3/4。有效机制是 winner 神经元自己的 bout-local resource：初值 1，每次该 winner 被内生场选中后乘 retention，同一 replay 的 8 次局部写共享当前资源。K64 在 retention `0.5/0.7/0.8/0.9` 下全部 12/12 × 4/4，旋转内容 lesion 全部 0/4；`0.9` 的最小/平均 margin 最强（`0.0004383 / 0.0043703`）。它不读取 event list、不识别 engram、不设外部配额，只使用场自己的 action winner。
+
+**当前唯一下一步**：实现 K64 signed shared-support + winner resource retention `0.9` 的新原生 checkpoint line，并重跑 N4–N11/M5/M6 全套门槛。具体状态与边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §5–§6。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

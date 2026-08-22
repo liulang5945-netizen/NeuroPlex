@@ -1,8 +1,8 @@
 # Taiji、Transformer 与生物神经系统的边界比较
 
-> 本文依据顶层 `taiji/` Native v5 源码与 N5–N11/M5 实验，不把工程名称当成生物等价或 AGI 证明。
+> 本文依据顶层 `taiji/` Native v6 源码与 N5–N11/M5–M6 实验，不把工程名称当成生物等价或 AGI 证明。
 
-| 维度 | Transformer | Taiji Native v5 | 生物启发边界 |
+| 维度 | Transformer | Taiji Native v6 | 生物启发边界 |
 |---|---|---|---|
 | 输入 | token/patch embedding | raw-byte receptor population | 感受器有固定物理来源；Taiji 当前仅实现 byte |
 | 时间 | 位置编码和上下文窗口 | 每次观察推进持久状态 | 生物时间连续且多尺度；Taiji 当前是离散 tick |
@@ -26,13 +26,15 @@
 - N10 的按边 forward/backproject/update 与 dense reference 等价，并保持 N5–N9 行为。
 - N11 的动作真实改变 outcome sensation；奖励局部学习达到 100%，显著超过随机/action-lesion。
 - M5 的八条 one-shot 经历 action recall 为 87.5%，同宽 trace-only/循环 lesion 为 25%；能恢复 outcome、time、episode、provenance 并回注下一 fabric tick。
+- M6 的分布式场能用自身 novelty/value/familiarity/time 信号选择 replay，并把 contingency 沉入 fabric；12-seed 因果面板 10/12 且没有 seed 被 replay 伤害。
+- 下一代 signed shared-support + replay-winner resource 已通过离线 12-seed × 4/4 与旋转内容 lesion，但尚未进入运行态，不能提前计作 Native v6 能力。
 
 ## 当前不能成立的结论
 
 - 不能称为人脑仿真、语言智能或 AGI；
-- 八条微型情景不能推出大容量抗干扰、自传连续性或巩固；
-- 尚无内生 replay/睡眠巩固、完整世界模型、自我模型、内在价值系统或多感官器官；
+- 八条微型情景和四对 contingency 不能推出大容量抗干扰、自传连续性或开放域巩固；
+- 尚无内生想象、完整世界模型、自我模型、内在价值系统或多感官器官；
 - 通用 PyTorch sparse gather/scatter 不能等同生物事件计算或硬件能效；
 - 非 Transformer 本身不保证通用智能。
 
-当前最关键边界转向巩固：Native v5 已能跨 episode 检索微型真实事件，但能力仍依赖 episodic readout。M6 必须让场自主选择 replay，把结构经同一局部规则沉入 predictive fabric，并在切除情景 readout 后保留行为。
+当前最关键边界仍是巩固的结构保证：Native v6 已有内生 replay，但固定随机 decoder 支撑与无 bout 级资源的 winner 会造成跨 seed 几何盲区和剂量垄断。离线通过的唯一下一步是 K64 signed shared-support + winner resource retention `0.9` 的运行态实现及全门槛回归。

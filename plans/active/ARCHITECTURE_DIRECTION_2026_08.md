@@ -106,4 +106,4 @@ Native v5 是完整可运行的非 Transformer 感知—状态—情景—行动
 
 ## 6. 当前唯一下一步
 
-M6 内生 replay/巩固和覆盖修复已落地。公共基线离线验证只在 seed 29 达到 4/4，seed 11/61 失败，因此不进入 fabric。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：signed-opponent basis 离线反证。本文件只维护决策与命名边界。
+M6 内生 replay/巩固和覆盖修复已落地；signed-opponent + replay-winner resource 的 12-seed 离线反证也已通过。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：把 K64 shared-support、waking signed baseline 与 bout-local winner resource retention `0.9` 实现为新的 Taiji 原生 checkpoint line。本文件只维护决策与命名边界。

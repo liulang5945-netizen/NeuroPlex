@@ -205,7 +205,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-M6 endogenous replay is implemented and transfers contingency structure into the fabric across the seed panel. The current falsification target is the remaining read/write separability ceiling: offline common-mode subtraction reached 4/4 positive margins on only one of seeds 11/29/61, so a generic adaptive baseline is rejected. The next substrate change must first demonstrate, offline and across the full panel, that a signed opponent eligibility/readout basis can make every contingency separable without teacher targets, dense attention or per-event slots.
+M6 endogenous replay transfers contingency structure into the fabric. The next read/write mechanism has now passed its offline gate: a K64 signed shared-support decoder plus a sleep-bout resource on the endogenous replay winner reached 4/4 positive margins on every seed in the 12-seed panel; rotated-content lesions reached 0/4 throughout. Retention `0.9` had the strongest worst-case margin. The current task is to implement that mechanism as a new native Taiji checkpoint line and rerun N4–N11/M5/M6, still without teacher targets, dense attention, event slots or per-engram quotas.
 
 ## License
 
