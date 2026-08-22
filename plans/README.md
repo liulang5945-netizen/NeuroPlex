@@ -28,9 +28,9 @@
 - 现有 9 个 Transformer 成员（含 5 个对话成员）未被改写，只作为离线对照。
 - `scripts/archive/` 内 `from taiji.<legacy>` 是历史别名（含义＝`neuroplex`），已确认不重写；判定见 `scripts/archive/README.md`。
 
-## 当前唯一下一步
+## 当前状态与唯一下一步
 
-M7 FAIL 基线已建立：action→outcome `100%`，cue 慢通路 `50%`/零 margin，行为 `62.5%` 且不优于 control。当前唯一下一步是让 accepted replay 先以内生 `cortical_projection` 重建 cue 并局部写入 cue→action，再执行现有 action→outcome burst。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6。
+M7 已闭合（七项判据全过）：accepted replay 用内生 `cortical_projection` 重建 cue 基底、把 action mode 写入慢通路，`act()` 显著高于 no-replay/content-lesion。阶段 1/2 完成：800K raw-byte 重训（byte_ppl 23.1，面板三组排序正确）、`seed/judge.py` 原生自我评估、A1 同判据验证通过。阶段 3 进行中：原生 sleep 调度（judge 驱动巩固）已落地；场成熟度门控（`replay_maturity_ticks`）约束睡眠期的换线与慢通路写入——新场保留修复与 outcome leg，成熟场冻结两者以保护清醒面板。当前唯一下一步：A2–A5/B1 判据全部复验通过后进入阶段 4 产品接入（api/前端/桌面端/移动端）。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6 与 [BOOTSTRAP_CRITERIA.md](active/BOOTSTRAP_CRITERIA.md)。
 
 ## 归档
 
