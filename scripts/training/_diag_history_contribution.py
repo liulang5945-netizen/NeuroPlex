@@ -33,8 +33,8 @@ def main() -> None:
         [PROJECT_ROOT / DEFAULT_CORPUS[0]]
     ))[200_000:200_000 + PROBE_LEN]
 
-    # Full-history pass: stream the probe with learning off, record surprise.
-    model.reset_dynamics(episode_id="probe-full")
+    # Full-history pass: keep the checkpoint's accumulated cortical state
+    # (activity, traces, thresholds) and stream the probe on top of it.
     full_surprise = []
     full_top1 = 0
     for symbol in symbols:
