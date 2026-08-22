@@ -3,5 +3,6 @@
 from .config import SeedConfig
 from .judge import SeedJudge
 from .model import Seed
+from .sleep import SeedSleepScheduler
 
-__all__ = ["Seed", "SeedConfig", "SeedJudge"]
+__all__ = ["Seed", "SeedConfig", "SeedJudge", "SeedSleepScheduler"]
