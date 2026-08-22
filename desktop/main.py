@@ -94,8 +94,29 @@ class BackendManager:
             # 等待后端就绪
             self._wait_for_ready()
 
+            # Seed 模式：环境变量 SEED_RUNTIME=1 时，后端就绪后自动切换到
+            # taiji 原生运行时（加载 checkpoints/seed_corpus.pt）。
+            if os.environ.get("SEED_RUNTIME") == "1":
+                self._activate_seed()
+
         except Exception as e:
             logger.error(f"Failed to start backend: {e}")
+
+    def _activate_seed(self):
+        """请求后端激活 Seed 原生运行时。"""
+        import urllib.request
+
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/api/system/switch_model",
+                data=json.dumps({"model_type": "seed"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=120)
+            logger.info("Seed native runtime activated")
+        except Exception as e:
+            logger.warning(f"Seed runtime activation failed: {e}")
 
     def _wait_for_ready(self, timeout: int = 30):
         """等待后端就绪"""

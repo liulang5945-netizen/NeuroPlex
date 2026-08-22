@@ -15,6 +15,7 @@ class HealthPayload(BaseModel):
     model_loaded: bool = False
     model_name: str = ""
     is_taiji: bool = False
+    is_seed: bool = False  # Seed 原生运行时（taiji 基底）是否激活
     startup_complete: bool = False
     startup_error: str = ""
 

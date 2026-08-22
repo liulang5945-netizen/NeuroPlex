@@ -1,6 +1,7 @@
 """Canonical model switch routes for runtime model lifecycle operations.
 
-Cortex 神经元架构是唯一认知主体，switch_model 重载 Cortex。
+认知主体可切换：Cortex（neuroplex，冻结对照）与 Seed（taiji 原生）。
+switch_model(model_type="cortex") 重载 Cortex；model_type="seed" 激活原生运行时。
 """
 
 from __future__ import annotations
@@ -33,15 +34,20 @@ def reload_model() -> dict[str, Any]:
 def switch_model(req: dict[str, Any]) -> dict[str, Any]:
     """切换/重载模型。
 
-    P8: 唯一支持的操作是重载 Cortex（model_type="cortex" 或忽略）。
+    支持的 model_type：
+    - "cortex"（默认）：重载 Cortex 神经元架构（同时卸载 Seed 运行时）；
+    - "seed"：加载并激活 taiji 原生 Seed 检查点（可选参数 "checkpoint"）。
     旧 model_type="self" 已废弃，会被自动路由到 Cortex 重载。
     """
     global _switch_thread
 
     model_type = str(req.get("model_type", "") or "").lower()
-    # P8: 所有 model_type 都路由到 Cortex 重载
+
+    if model_type == "seed":
+        return _switch_to_seed(req)
+
     if model_type and model_type not in ("cortex", "self"):
-        return {"status": "error", "message": f"不支持的模型类型: {model_type}，当前仅支持 Cortex 神经元架构"}
+        return {"status": "error", "message": f"不支持的模型类型: {model_type}，支持 cortex / seed"}
 
     if not _switch_lock.acquire(blocking=False):
         current = app_state.get_switch_status()
@@ -98,6 +104,25 @@ def get_switch_status() -> dict[str, Any]:
     }
 
 
+def _switch_to_seed(req: dict[str, Any]) -> dict[str, Any]:
+    """激活 Seed 原生运行时（加载检查点 + 接管聊天主路由）。"""
+    from api.seed_runtime import activate_seed
+
+    try:
+        runtime = activate_seed(req.get("checkpoint"))
+        app_state.update_switch_status("success", f"Seed runtime active ({runtime.name})")
+        return {
+            "status": "ok",
+            "message": f"Seed runtime active: {runtime.name}",
+            "model_type": "seed",
+            "seed": runtime.status(),
+        }
+    except Exception as exc:
+        logger.error(f"Seed activation failed: {exc}")
+        app_state.update_switch_status("error", "", f"Seed activation failed: {exc}")
+        return {"status": "error", "message": f"Seed 激活失败: {exc}"}
+
+
 @router.post("/api/system/pub_reset")
 def force_reset_publishing() -> dict[str, Any]:
     result = app_state.force_reset_publishing()
@@ -116,6 +141,10 @@ def _do_switch_model(*, async_mode: bool = False) -> dict[str, Any]:
     try:
         if async_mode:
             app_state.update_switch_status("switching", "Unloading current Cortex...")
+
+        # 切回 Cortex 主路径：Seed 运行时与 Cortex 互斥，先卸载。
+        from api.seed_runtime import deactivate_seed
+        deactivate_seed()
 
         app_state.unload_model()
         gc.collect()

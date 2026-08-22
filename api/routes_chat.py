@@ -19,6 +19,7 @@ from neuroplex.core.app_state import app_state
 from neuroplex.core.utils import get_external_path
 from api.models import ChatRequest
 from api.chat_strategies import create_event_generator
+from api.seed_runtime import get_seed_runtime, is_seed_active
 
 logger = logging.getLogger("ApiServer.Chat")
 router = APIRouter()
@@ -26,9 +27,47 @@ router = APIRouter()
 
 # ======================== 流式聊天 ========================
 
+def _seed_event_generator(request, seed_runtime):
+    """Seed 原生分支：用户消息转为 byte 流喂入基底，generate 产出回复。
+
+    多轮上下文由 taiji 持久状态天然承担（无需 KV cache 拼装）；回复同时
+    作为清醒持续学习写回基底。事件格式与前端统一解析协议一致。
+    """
+    import asyncio
+
+    async def event_generator():
+        try:
+            answer = await asyncio.to_thread(
+                seed_runtime.chat,
+                request.prompt,
+                history=request.history or None,
+            )
+            event = {"type": "final", "data": {"answer": answer, "step": 1}}
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error(f"Seed 推理出错: {e}")
+            yield f"data: {json.dumps(f'生成出错: {e}', ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return event_generator
+
+
 @router.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """流式聊天端点，支持 SSE 推送"""
+    # Seed 原生运行时激活时优先走原生分支（与 Cortex 互斥）
+    seed_runtime = get_seed_runtime()
+    if seed_runtime is not None:
+        return StreamingResponse(
+            _seed_event_generator(request, seed_runtime)(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     # 触发用户指令，中断当前生命活动
     try:
         from neuroplex.life.life_scheduler import get_life_scheduler
@@ -343,6 +382,7 @@ async def health_check():
         "status": "ok",
         "service": "Taiji API",
         "timestamp": time.time(),
-        "model_loaded": app_state.model is not None,
+        "model_loaded": app_state.model is not None or is_seed_active(),
         "taiji_available": app_state.is_taiji(),
+        "seed_active": is_seed_active(),
     }
