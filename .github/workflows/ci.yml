@@ -28,7 +28,7 @@ jobs:
       - name: Install test dependencies
         # FastAPI 可选依赖：python-multipart（form/File）—— test_api_health 触发 Form 中间件
         # 另带 pydantic+anyio（FastAPI 内部用）确保类型解析工作正常
-        # tomli 仅在 3.10 装：tomllib 自 3.11 才进标准库，环境标记让 3.12 自动跳过
+        # tomli 仅 3.10 需要：tomllib 自 3.11 才进标准库，环境标记让 3.12 自动跳过
         run: pip install sentencepiece pytest httpx fastapi python-multipart pydantic anyio "tomli>=2.0.0; python_version < '3.11'"
 
       - name: Install package (editable)
