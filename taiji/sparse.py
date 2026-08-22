@@ -132,7 +132,18 @@ class SparseSynapses:
         learning_rate: float,
         weight_decay: float,
     ) -> None:
-        """Apply error × eligibility on existing edges only."""
+        """Apply error × eligibility on existing edges only.
+
+        Decay is gated per contact by the same eligibility that gates
+        potentiation: a presynaptically silent edge relaxes, an edge lit by
+        this plasticity event is protected.  The ungated global form decayed
+        every weight on every learning tick -- ``(1 - 1e-5)`` per tick
+        compounds to ``e^-8`` over 800K ticks -- and once the model fit its
+        stream the shrinking error writes could no longer offset the constant
+        evaporation, so cortical decoders collapsed to ~1/3000 of their
+        learned mass mid-training.  Tying decay to silence keeps forgetting
+        (unused contacts still relax) without taxing what is in use.
+        """
 
         if postsynaptic_error.shape != (self.out_features,):
             raise ValueError("postsynaptic error dimension mismatch")
@@ -142,7 +153,12 @@ class SparseSynapses:
         presynaptic_trace = presynaptic_trace.to(self.device)
         scale = max(1.0, float((presynaptic_trace != 0).sum().item()) ** 0.5)
         if weight_decay:
-            self.edge_weight.mul_(1.0 - float(weight_decay))
+            silent = (presynaptic_trace[self.pre_index] == 0).to(
+                self.edge_weight.dtype
+            )
+            self.edge_weight.mul_(
+                1.0 - float(weight_decay) * silent
+            )
         self.edge_weight.add_(
             float(learning_rate)
             * postsynaptic_error.unsqueeze(1)
