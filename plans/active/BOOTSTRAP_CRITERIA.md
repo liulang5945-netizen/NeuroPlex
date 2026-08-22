@@ -290,7 +290,33 @@
 
 **当时的后继建议（已暂停）**：修复 PlayEngine 运行契约。当前执行顺序改由 [TAIJI_SUBSTRATE_ARCHITECTURE.md](TAIJI_SUBSTRATE_ARCHITECTURE.md) 与 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 决定。旧 Taiji-0/T4/T5 路线已经废止；正式顶层 Taiji Native v5 已闭合 raw-byte 感知、预测 fabric、分布式情景场、运动感受器、局部学习、主动 reward action、motor 生成和真实按边内核，并通过 N7–N11/M5；当前进入 M6 内生 replay/巩固。
 
-**D1-fix v4 阶段性（已落 plan，等用户决策 v5）**：方案 D（hysteresis N=2 + ceiling 1.3）已实现并跑 1000 步（**2/5 PASS**——dialogue 0.8744 < 0.90 / knowledge 0.7937 < 0.90 / unfamiliar 0.8277 < 0.90 均 FAIL；但**LoRA 累积爆炸已解决**：v3 16.84→18.76 ↑ → v4 16.84→14.81 ↓）。v4 把 SKIP 路径压得过严，**k/u 反而比 v3 退步**。**v5 候选**（用户决策）：a) ceiling 拉到 1.5-1.8 给 SKIP 累积留空间；b) 略降 DECAY 0.9→0.85 让衰减更温和；c) hysteresis N=3 进一步抗噪声；d) 接受 v4 k/u 略改善，承认 LoRA 爆炸是优先修复项。
+> **✅ PlayEngine 运行契约修复落地（2026-08-20）**：§NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820 §13 唯一下一步已实现。三处源码修复（`neuroplex/life/play_engine.py::_free_resonance_session`）：
+>
+> | 编号 | 修复 | 旧实现 | 新实现 |
+> |---|---|---|---|
+> | R-PE-1 | line 211 迭代器 bug | `next(self._cortex.neurons.values())` 抛 TypeError 被外层吞 → PlayEngine 永远返回 None | `next(iter(self._cortex.neurons.values()))` |
+> | R-PE-2 | 共振信号源 | 直调 `neuron.forward()` 读不存在的 `output['resonance_score']` | 走 `cortex.think(collab_mode="continuous")`，共振分来自 `final_scores` |
+> | R-PE-3 | field_state 来源 | 读不存在的 `neuron._last_field_state` | `cortex.get_last_field_state()`（真实任务场） |
+>
+> **回归验证**：
+> - `verify_play_engine_contract_mock.py`（无需 checkpoint）**13/13 PASS** — 4 场景全过（final_scores 全正 / 空 / field_state=None / coaction 接线）
+> - 源码级 inspect 检查 PASS — 三处修复点在代码中，三处旧断裂契约已移除
+> - `verify_play_engine_runtime_contract.py`（5 维判据 + 行级 trace）**待用户在含 9 成员 checkpoint 的环境运行**
+>
+> **新的唯一下一步**：用户运行 `verify_play_engine_runtime_contract.py` 确认生产路径 5/5 PASS 后，再决定场记忆自动捕获（普通 `Cortex.generate()` 自动 record_field_memory）和 coaction 连续路径补全（`continuous_forward` 内调 `coaction.update()`）的优先级与实现顺序。
+
+> **✅ C28 Gap 1 + Gap 2 落地（2026-08-20）**：§NEUROPLEX_MECHANISM_RUNTIME_MAP §15。两项 ⚠️ 缺口已闭合（冻结 9 成员生产权重，不训练）：
+>
+> | 缺口 | 修复 |
+> |---|---|
+> | Gap 1：普通 `Cortex.generate()` 不自动 `record_field_memory` | `generate()`/`_generate_p7()` 新增 `auto_capture: bool = True`（默认开，隔离传 False）；返回前调 `_capture_field_memory()` 把 (field_state, prompt, generated_text, phase) 喂全局 SleepEngine |
+> | Gap 2：`continuous_forward()` 不调 `coaction.update` | t-loop 每积分步 STDP 后插入 `coaction.update(active_this, round_num=t+1)`，带 try/except + len>=2 门控（与离散 forward 一致） |
+>
+> **回归验证**：`verify_c28_gap1_gap2_contract.py`（无需 checkpoint）**21/21 PASS** — Gap 1 11 维（_capture_field_memory 直接调用 + auto_capture 透传门控 + 源码级 inspect）+ Gap 2 7 维（continuous_forward 含 coaction.update + round_num + 非致命包装 + len>=2 门控 + 离散 forward 对照）
+>
+> **新的唯一下一步**：用户在含 9 成员 checkpoint 的环境运行两条生产验证：(1) `verify_play_engine_runtime_contract.py` 5/5 PASS；(2) `diag_runtime_mechanism_trace.py` 确认 `pending_field_memories after>0` / `coaction_pairs>0` / `play_result 非 None`。两条全过后，自举门槛 A 运行时契约源码层完整闭合，可决策是否启动小规模 replay 训练验证能力增长信号。
+
+> 这些修复已并入当前代码；D1 v3-v9 的完整演进与最新判定以本文件前部总表为准，避免在这里重复旧的候选下一步。
 
 **历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。**已完成 D1 首测 + D1-fix v3**：knowledge std ratio 0.7517 / unfamiliar 0.8047 < 0.90 → v3 改善至 0.8437 / 0.8803，但 dialogue 反退至 0.8679。**D1 完整 PASS 仍差一维**——v4 待定。
 

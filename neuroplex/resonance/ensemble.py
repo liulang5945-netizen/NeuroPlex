@@ -2232,6 +2232,18 @@ class ResonanceEnsemble:
                         )
                     except Exception as e:
                         logger.debug("STDP record_firing 失败 (%s): %s", nid, e)
+            # C28 Gap 2（2026-08-20 机制审计修复）：连续路径补全 coaction 统计。
+            # 离散 forward() 在每轮记录 coaction（ensemble.py:2788），但
+            # continuous_forward 此前遗漏 → 连续动力学下的共激活结构无法生长
+            # （§4.2 / §11 ⚠️ 缺口）。此处与离散路径一致：每积分步对
+            # active_this（本步软激活过阈的 neuron）调 coaction.update，
+            # round_num=t+1 与 STDP 同语义。CoactivationTracker.update 用 EMA
+            # 累积，多次调用安全（§tribal.py:69）。
+            if self.coaction is not None and len(active_this) >= 2:
+                try:
+                    self.coaction.update(active_this, round_num=t + 1)
+                except Exception as e:
+                    logger.warning("continuous coaction 记录失败（非致命）: %s", e)
             try:
                 field.lateral_inhibition_norm()
             except Exception as e:

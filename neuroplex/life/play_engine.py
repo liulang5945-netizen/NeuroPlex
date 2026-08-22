@@ -194,7 +194,6 @@ class PlayEngine:
                 if not ids or len(ids) < 2:
                     return None
                 ids = ids[:128]
-                is_p7_mode = True
             elif tokenizer is not None:
                 # 旧路径：共享 tokenizer
                 try:
@@ -204,12 +203,17 @@ class PlayEngine:
                 if len(ids) < 3:
                     return None
                 ids = ids[:128]
-                is_p7_mode = False
             else:
                 return None
 
-            device = next(self._cortex.neurons.values()).parameters().__next__().device \
-                if self._cortex.neurons else 'cpu'
+            # R-PE-1（2026-08-20 机制审计修复）：dict_values 不是 iterator，
+            # 必须先 iter() 再 next()。原 `next(self._cortex.neurons.values())`
+            # 直接抛 TypeError: 'dict_values' object is not an iterator，
+            # 被外层 except 吞掉，导致 PlayEngine 永远返回 None。
+            if not self._cortex.neurons:
+                return None
+            first_neuron = next(iter(self._cortex.neurons.values()))
+            device = next(first_neuron.parameters()).device
 
             input_ids = torch.tensor([ids], dtype=torch.long, device=device)
 
@@ -220,45 +224,72 @@ class PlayEngine:
             else:
                 return None
 
-            # 对每个神经元运行 forward，收集激活模式
-            activated_neurons = []
-            max_score = 0.0
-            for nid, neuron in self._cortex.neurons.items():
-                try:
-                    with torch.no_grad():
-                        output = neuron.forward(shared_emb, return_logits=False)
-                    score = output.get('resonance_score', 0.0) if isinstance(output, dict) else 0.0
-                    if score > 0.3:
-                        activated_neurons.append((nid, score))
-                        max_score = max(max_score, score)
-                except Exception:
-                    continue
+            # R-PE-2（2026-08-20 机制审计修复）：原实现对每个 neuron 直接调
+            # neuron.forward(shared_emb) 并读 output['resonance_score'] /
+            # neuron._last_field_state —— 但 ResonanceNeuron.forward() 不
+            # 产出这两个字段（见 NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md
+            # §3.3 / §12.1），因此 activated_neurons 永远为空、coaction /
+            # high_resonance_state 永远不触发。
+            #
+            # 修复：走真实 Cortex.think(collab_mode="continuous") 协作路径，
+            # 取返回的 final_scores（per-neuron 时间平均激活，即"共振分"）作为
+            # 激活信号；用 cortex.get_last_field_state() 取真实任务场（线程
+            # 本地 task field，而非默认场）作为高共振重放状态。这把 PlayEngine
+            # 的"自由共振→高共振 replay"链接到生产 ensemble 路径，闭合源码
+            # 审计确认的契约断裂。
+            with torch.no_grad():
+                think_result = self._cortex.think(
+                    shared_embeddings=shared_emb,
+                    collab_mode="continuous",
+                )
+            final_scores = think_result.get("final_scores") or {}
+            # final_scores 是时间平均激活累积值（可能 > 1），按群体内最大值
+            # 归一化到 [0, 1] 作为"相对共振强度"，与原 0.3 / 0.5 阈值语义对齐。
+            raw_max = max(final_scores.values()) if final_scores else 0.0
+            if raw_max <= 0.0:
+                # 群体未产生任何激活（极端情况）：保留旧行为，返回低质量活动
+                content = (
+                    f"自由共振: 话题='{topic[:30]}', 群体未激活"
+                )
+                return PlayActivity(
+                    activity_type="curiosity",
+                    topic=f"自由共振: {topic[:50]}",
+                    content=content,
+                    quality_score=0.0,
+                    kept=False,
+                )
+            norm_scores = {nid: s / raw_max for nid, s in final_scores.items()}
 
-            # 记录共激活：同时激活的神经元对
-            if self._coaction is not None and len(activated_neurons) >= 2:
+            # 收集相对激活强度超阈值的 neuron（保留原 0.3 阈值语义）
+            activated_neurons = [
+                (nid, s) for nid, s in norm_scores.items() if s > 0.3
+            ]
+            max_score = max(s for _, s in activated_neurons) if activated_neurons else 0.0
+
+            # 记录共激活：同时激活的神经元对（走真实 ensemble 路径后才有意义）
+            active_ids = [nid for nid, _ in activated_neurons]
+            if self._coaction is not None and len(active_ids) >= 2:
                 try:
-                    active_ids = [nid for nid, _ in activated_neurons]
                     self._coaction.update(active_ids)
                 except Exception as e:
                     logger.debug(f"共激活记录失败（非关键）: {e}")
 
             # 记录高共振状态到 SleepConsolidator（供睡眠时重放）
+            # R-PE-3：field_state 必须来自真实任务场（cortex.get_last_field_state
+            # 取 ensemble._get_task_field()），不能读 neuron._last_field_state
+            # （ResonanceNeuron.forward 不写该属性）。
             if self._sleep_consolidator is not None and max_score > 0.5:
                 try:
-                    # 使用第一个激活神经元的 field_state 作为重放状态
-                    # C25-D：一并记录 active_ids（重放时据此再激活共激活统计）
-                    # C26 增量六：一并记录触发文本（重放训练的语言目标）
-                    for nid, neuron in self._cortex.neurons.items():
-                        if hasattr(neuron, '_last_field_state'):
-                            self._sleep_consolidator.record_high_resonance_state(
-                                field_state=neuron._last_field_state,
-                                resonance_score=max_score,
-                                step=self._play_step,
-                                active_nids=active_ids if len(activated_neurons) >= 2 else None,
-                                threshold=0.5,
-                                text=topic,
-                            )
-                            break
+                    field_state = self._cortex.get_last_field_state()
+                    if field_state is not None:
+                        self._sleep_consolidator.record_high_resonance_state(
+                            field_state=field_state,
+                            resonance_score=max_score,
+                            step=self._play_step,
+                            active_nids=active_ids if len(active_ids) >= 2 else None,
+                            threshold=0.5,
+                            text=topic,
+                        )
                 except Exception as e:
                     logger.debug(f"高共振状态记录失败（非关键）: {e}")
 

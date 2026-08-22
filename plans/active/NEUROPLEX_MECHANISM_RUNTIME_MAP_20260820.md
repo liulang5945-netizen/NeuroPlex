@@ -467,4 +467,97 @@ TypeError: 'dict_values' object is not an iterator
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
 
-该建议仍然有效但不再是项目当前执行入口。旧 `neuroplex.taiji` 补丁原型已删除；正式顶层 Taiji Native v5 已实现独立感知、预测状态、分布式情景场、运动感受器、局部学习、主动 reward action、生成和压缩按边执行，并通过 N7–N11/M5。当前唯一下一步是 M6 内生 replay/巩固。PlayEngine/D1 继续作为独立 Legacy 档案，不进入 Taiji forward。
+## 14. PlayEngine 运行契约修复落地（2026-08-20）
+
+§13 唯一下一步已实现并验证。三处源码修复（`neuroplex/life/play_engine.py::_free_resonance_session`）：
+
+| 编号 | 修复点 | 旧实现（断裂） | 新实现（闭合） |
+|---|---|---|---|
+| **R-PE-1** | line 211 迭代器 bug | `next(self._cortex.neurons.values())` 抛 `TypeError: 'dict_values' object is not an iterator`，被外层 except 吞掉 → PlayEngine 永远返回 None | `next(iter(self._cortex.neurons.values()))` |
+| **R-PE-2** | 共振信号源 | 直调 `neuron.forward(shared_emb)` 读 `output['resonance_score']`（§3.3 确认 ResonanceNeuron.forward 不产出此字段）→ activated_neurons 永远为空、coaction / replay 永不触发 | 走 `cortex.think(shared_embeddings=shared_emb, collab_mode="continuous")`，共振分来自 `result["final_scores"]`（per-neuron 时间平均激活），按群体内 max 归一化到 [0,1] 与原 0.3/0.5 阈值语义对齐 |
+| **R-PE-3** | field_state 来源 | 读 `neuron._last_field_state`（§3.3 确认 forward 不写该属性）→ record_high_resonance_state 即使触发也写入 None | `cortex.get_last_field_state()`（取 `ensemble._get_task_field()`，即真实线程本地任务场，§2.1 所有权结论） |
+
+### 14.1 回归验证
+
+| 脚本 | 依赖 | 结果 |
+|---|---|---|
+| `scripts/training/verify_play_engine_contract_mock.py` | 无需 checkpoint（mock cortex） | **13/13 PASS** — 4 场景全过：① final_scores 全正 → record 调用 + field_state 非空张量；② final_scores 空 → 低质量活动不抛；③ field_state=None → record 跳过不抛；④ coaction 接线 → update 收 ≥2 active_ids |
+| `scripts/training/verify_play_engine_runtime_contract.py` | 9 成员 production checkpoint（`data/neurons` + `data/foundation_v1_dual` + `collab_v3_c24v2.ckpt.pt`） | **待用户在含 checkpoint 的环境运行** — 5 维判据：C1 行级 trace 无 TypeError；C2 cortex.think 被调用；C3 final_scores 非空；C4 返回非 None PlayActivity；C5 record_high_resonance_state 调用且 field_state 非空 |
+| 源码级 inspect 检查 | 无依赖 | **PASS** — `next(iter(` / `cortex.think(` / `get_last_field_state()` 三处修复点均在代码中；`neuron._last_field_state` / `output.get('resonance_score'` / `next(self._cortex.neurons.values())` 三处旧断裂契约已从代码中移除（仅余注释中的解释性引用） |
+
+### 14.2 行级 trace 回归守卫
+
+`diag_runtime_mechanism_trace.py` 用 `sys.settrace()` 记录 `_free_resonance_session` 的所有行号 + 异常事件；新版 `verify_play_engine_runtime_contract.py` 在此基础上新增 5 维判据，使 PlayEngine 不能再"静默回归"——任何把 `cortex.think()` 改回 `neuron.forward()`、或把 `get_last_field_state()` 改回 `neuron._last_field_state`、或重新引入 `next(dict.values())` 的改动都会被立即判 FAIL。
+
+### 14.3 行为变化边界
+
+- **不影响其他 play engine 验证脚本**：B1/B1-bis/B2/C1/C2/D1/A4/A5 全部直接调 `sleep_engine.record_field_memory()` 和 `sc.record_high_resonance_state()` 手工注入 replay（§8.2 已记录），不依赖 `_free_resonance_session` 内部记录。本修复只让"自动生产路径"开始具备同样的能力。
+- **不写 checkpoint、不训练**：仅推理路径修复，9 成员 production weights 完全不动。
+- **不改变 `play()` 公开接口**：`_free_resonance_session` 仍是 `play()` 候选活动之一，返回 `PlayActivity | None` 的契约不变；只是从"永远 None"变成"按共振强度返回"。
+
+### 14.4 新的唯一下一步
+
+§13 的"修复 PlayEngine 运行契约"已完成。新的下一步收敛为：
+
+> **用户在含 9 成员 checkpoint 的环境运行 `verify_play_engine_runtime_contract.py`，确认生产路径 5/5 PASS 后，再决定场记忆自动捕获（普通 `Cortex.generate()` 自动 record_field_memory）和 coaction 连续路径补全（`continuous_forward` 内调 `coaction.update()`）的优先级与实现顺序。**
+
+场记忆自动捕获与 coaction 连续路径补全仍是 §11 表中两项 ⚠️ 缺口；它们的实现边界取决于本节修复在生产路径上的实测结果。
+
+## 15. C28 Gap 1 + Gap 2 落地（2026-08-20）
+
+§14.4 的两项 ⚠️ 缺口已实现并验证。两处源码修复均冻结 9 成员生产权重、不写 checkpoint、不训练。
+
+### 15.1 Gap 1 — 场记忆自动捕获（`neuroplex/brain/cortex.py`）
+
+| 修复点 | 旧实现（断裂） | 新实现（闭合） |
+|---|---|---|
+| `generate()` / `_generate_p7()` 签名 | 无自动沉淀参数 | 新增 `auto_capture: bool = True`，向后兼容（隔离验证脚本传 False） |
+| 普通 `generate()` 调用 | 不调 `record_field_memory`（§6.3 ⚠️ 缺口）→ 普通对话经验无法进入 sleep 固化→replay 训练闭环 | `_generate_p7()` 返回前调 `_capture_field_memory(prompt, result_text)`，把 (field_state, prompt[:40], generated_text, phase) 喂给全局 `SleepEngine.record_field_memory()` |
+| SMCS 多候选路径 | N/A | 候选生成阶段 `auto_capture=False`（避免重复沉淀），仅对最终选中候选沉淀一次 |
+| 退化重试路径 | N/A | 两次 `_generate_p7` 各自沉淀（field_state 不同，记忆库按相似度去重，可接受） |
+
+**捕获模式**与 `generate_task_chain` [cortex.py:1392](file:///workspace/neuroplex/brain/cortex.py#L1392) 现成模式一致：`get_sleep_engine().record_field_memory(fs, label, text=text, phase=self.get_last_phase())`，区别仅在 label 来源（task_chain 用 stage template，generate 用 prompt[:40]）。field_state 取 `self.get_last_field_state()`（真实任务场，§2.1 所有权结论），phase 取 `self.get_last_phase()`（C27 KoPE 相位归属记忆）。
+
+**行为变化边界**：
+- 生产 `generate()` 现在自动喂全局 SleepEngine（loader 用 `get_sleep_engine()` 装配，即全局单例）的 `pending_field_memories` 队列 → 睡眠 Phase 1.5 固化进持久场记忆库 → replay 训练可消费
+- 28 个调 `cortex.generate()` 的 verify/diag 脚本默认开启 auto_capture，会向全局 SleepEngine 单例的 pending 队列追加（瞬时，非致命；这些脚本多用本地 SleepEngine 实例跑固化，全局单例的 pending 不会被消费，属良性副作用）
+- 隔离需求时传 `auto_capture=False`
+
+### 15.2 Gap 2 — coaction 连续路径补全（`neuroplex/resonance/ensemble.py`）
+
+| 修复点 | 旧实现（断裂） | 新实现（闭合） |
+|---|---|---|
+| `continuous_forward()` t-loop | 仅记 STDP，不调 `coaction.update`（§4.2/§11 ⚠️ 缺口）→ 连续动力学下的共激活结构无法生长 | 每积分步 STDP 记录后、`lateral_inhibition_norm` 前插入 `self.coaction.update(active_this, round_num=t+1)`，带 try/except 非致命包装 |
+
+**模式**与离散 `forward()` [ensemble.py:2788](file:///workspace/neuroplex/resonance/ensemble.py#L2788) 一致：`if self.coaction is not None and len(active_this) >= 2: try: self.coaction.update(...) except ...`。门控 `len(active_this) >= 2` 与 `CoactivationTracker.update` [tribal.py:83](file:///workspace/neuroplex/resonance/tribal.py#L83) 单 neuron 短路一致。`CoactivationTracker.update` 用 EMA 累积 slow 矩阵，多次调用安全（不会重置）。
+
+### 15.3 回归验证
+
+`scripts/training/verify_c28_gap1_gap2_contract.py`（无需 checkpoint，mock + 源码级 inspect）**21/21 PASS**：
+
+- **Gap 1（11 维）**：G1.1 `_capture_field_memory` 直接调用 → record_field_memory 收到正确 (field_state, label, text, phase)；G1.2/G1.3/G1.4 auto_capture 透传门控；G1.5/G1.6/G1.7 源码级 inspect（参数存在 / 门控存在 / 方法定义存在）
+- **Gap 2（7 维）**：G2.1 continuous_forward 含 coaction.update；G2.2 带 round_num=t+1 + 非致命包装；G2.3 len>=2 门控；G2.4/G2.5 离散 forward 对照基准
+
+### 15.4 §11 缺口表状态更新
+
+| 缺口 | 修复前状态 | 修复后状态 |
+|---|---|---|
+| §6.3 普通 `Cortex.generate()` 不自动 `record_field_memory` | ⚠️ 缺口 | ✅ 闭合（Gap 1，auto_capture 默认开） |
+| §4.2/§11 `continuous_forward` 不调 `coaction.update` | ⚠️ 缺口 | ✅ 闭合（Gap 2，每积分步补全） |
+| PlayEngine `_free_resonance_session` 契约断裂 | ⚠️ 缺口 | ✅ 闭合（§14，R-PE-1/2/3） |
+
+### 15.5 新的唯一下一步
+
+三项机制缺口（PlayEngine 契约 / 场记忆自动捕获 / coaction 连续路径）已全部闭合。下一步收敛为**用户在含 9 成员 checkpoint 的环境运行两条生产路径验证**：
+
+1. `python -u scripts/training/verify_play_engine_runtime_contract.py` — PlayEngine 自由共振→高共振 replay 链 5/5 PASS
+2. `python -u scripts/training/diag_runtime_mechanism_trace.py` — 重跑机制 trace，确认：
+   - `pending_field_memories: {before: 0, after: >0}`（Gap 1 闭合证据，普通 generate 现在自动沉淀）
+   - `coaction_pairs: >0`（Gap 2 闭合证据，continuous 路径现累积共激活）
+   - `play_result: 非 None`（PlayEngine 修复证据）
+
+两条生产验证全过后，自举门槛 A（"眼睛驱动手"闭环：对话→经验→sleep 固化→replay 训练→能力增长）的运行时契约在源码层面完整闭合，可进入下一阶段决策：是否启动小规模 replay 训练验证能力增长信号，或继续推进门槛 B/C 的其他缺口。
+
+## 16. 当前归属
+
+§14–§15 的修复已并入代码，但它们属于冻结的 Legacy NeuroPlex 运行事实，不进入原生 Taiji forward。项目当前名称、Seed 上层模型与 Taiji 基底的边界，以 `ARCHITECTURE_DIRECTION_2026_08.md` 和 `TAIJI_SUBSTRATE_ARCHITECTURE.md` 为准；本文件不再发布项目主线的“下一步”。
