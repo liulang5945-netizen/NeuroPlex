@@ -1,4 +1,4 @@
-"""Throwaway diagnostic: which candidate set-point fix actually moves behaviour?
+"""Historical Native v6: which set-point candidate moved behaviour?
 
 The probe softmaxes only over the four outcome bytes, so chance is 0.25 and the
 entropy trap of the full 257-way readout does not apply here.  Yet measured

@@ -164,23 +164,20 @@ def _evaluate_contingency(
     Two properties of the substrate dictate this protocol.
 
     First, the read has to happen on the channel that sleep actually writes.
-    ``consolidate`` only touches ``fabric.decoders`` and ``fabric.transitions``
-    -- the motor bank and the episodic field come out of sleep bit-identical,
+    ``consolidate`` writes a dedicated slow cortical pathway in addition to the
+    fast predictor; the motor bank and episodic field come out bit-identical,
     which ``sleep_only_touches_cortex`` asserts.  Reading ``step.probabilities``
-    therefore reads a surface no amount of consolidation can move, so the
-    prediction is taken from ``decoders[0]``, whose whole job is to predict the
-    next lower-level activity: exactly the action -> outcome contingency.
+    would mix unrelated motor evidence into the claim, so the prediction is
+    taken from ``consolidation_decoders[0]`` alone.  It begins exactly at zero,
+    receives only endogenous replay writes and predicts the next lower-level
+    activity: exactly the action -> outcome contingency.
 
     Second, the read has to happen on the same basis the write happened on.
-    Region 0 is sparse, and a single byte after a reset leaves only 4-9 of its
-    64 units active, whereas the settled traces that replay writes on carry
-    ~35.  Because each decoder row draws a fixed fan-in of 16 of those 64
-    units, a 4-unit trace can miss a given row's support outright -- measured
-    fan-in energy overlap ranged from 50% down to a hard 0%, making some pairs
-    unlearnable as a matter of arithmetic rather than of consolidation.  The
-    action is therefore presented for the same number of passes the replay
-    burst uses, which brings the probe to 21-34 active units.  Only the action
-    is ever presented; the outcome is never shown, so nothing leaks.
+    The slow pathway reads ``trace - waking_baseline`` with complete shared
+    support.  The action is presented for the same number of passes replay uses
+    so the probe reproduces its settled trace; the baseline is frozen because
+    evaluation is non-learning.  Only the action is ever presented; the outcome
+    is never shown, so nothing leaks.
     """
 
     index_of = {symbol: position for position, symbol in enumerate(OUTCOMES)}
@@ -202,7 +199,7 @@ def _evaluate_contingency(
                 use_memory=False,
             )
         trace = model.snapshot().regions[0].trace
-        evidence = model.fabric.decoders[0].forward(trace).detach()
+        evidence = model.fabric.consolidated_decode(0, trace).detach()
         restricted = torch.softmax(evidence[selector], dim=0)
         target = index_of[outcome]
         prediction = OUTCOMES[int(restricted.argmax().item())]
@@ -387,6 +384,10 @@ def run_benchmark(*, seed: int = 29, cycles: int = 96) -> Dict[str, object]:
             "replay_value_weight": model.config.replay_value_weight,
             "replay_priority_threshold": model.config.replay_priority_threshold,
             "replay_learning_scale": model.config.replay_learning_scale,
+            "cortical_baseline_rate": model.config.cortical_baseline_rate,
+            "replay_winner_resource_retention": (
+                model.config.replay_winner_resource_retention
+            ),
         },
         "metrics": {
             "before_sleep": baseline_metrics,
@@ -454,7 +455,10 @@ def run_panel(
         float(row["accuracy_gain_over_control"]) for row in per_seed
     ) / max(1, len(per_seed))
     checks = {
-        "majority_of_seeds_pass": passing * 2 > len(per_seed),
+        "all_seeds_pass": passing == len(per_seed),
+        "all_seeds_reach_full_contingency": all(
+            float(row["full_replay_accuracy"]) == 1.0 for row in per_seed
+        ),
         "mean_accuracy_gain_is_positive": mean_gain > 0.0,
         "no_seed_is_harmed_by_replay": all(
             float(row["accuracy_gain_over_control"]) >= 0.0 for row in per_seed

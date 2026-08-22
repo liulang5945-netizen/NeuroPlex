@@ -18,7 +18,7 @@ from taiji import SparseSynapses, Taiji
 from verify_taiji_n7_context import run_benchmark as run_n7
 from verify_taiji_n8_delayed_trace import run_benchmark as run_n8
 from verify_taiji_n9_long_free_run import run_benchmark as run_n9
-from verify_taiji_native_v5 import run_benchmark as run_native
+from verify_taiji_native_v7 import run_benchmark as run_native
 
 
 def _dense_view(synapses: SparseSynapses) -> torch.Tensor:

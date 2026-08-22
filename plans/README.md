@@ -23,14 +23,14 @@
 - 被替代的 Transformer 底层：`neuroplex/layers.py::TransformerBlock`，live 消费点 3 处（`neuroplex/resonance/neuron.py:25`、`scripts/training/train_tinystories.py:26`、`scripts/training/train_tinystories_field.py:32`），由 `tests/taiji_native/test_naming_boundary_contract.py` 强制封闭。
 - 原生链：raw-byte sensor → hierarchical predictive fabric ↔ distributed episodic field → 全皮层覆盖稀疏感受器组 → byte motor → action feedback。
 - 原生学习：区域预测误差、递归状态误差、运动结果误差和情景 cue→event/readout 的真实边局部 delta；无 optimizer/BPTT。
-- 当前可复现实验：62,529 active learned parameters，byte-cycle accuracy `0 → 94.12%`；N7/N8 上下文与 trace 因果门槛通过；N9 自反馈 128/128；N10 真实按边等价；N11 主动环境末 40 次成功率 `100%`，随机 `50%`，action-lesion `57.5%`；M5 八条 one-shot 情景 action recall `87.5%`，同宽 trace-only 与 recurrent lesion 均 `25%`；M6 12-seed 面板 10/12 判定通过且无 seed 被 replay 伤害。
+- 当前可复现实验：Native v7 为 83,841 active learned parameters，byte-cycle accuracy `0 → 94.12%`；N7/N8 上下文与 trace 因果门槛通过；N9 自反馈 128/128；N10 真实按边等价；N11 主动环境末 40 次成功率 `100%`，随机 `50%`，action-lesion `57.5%`；M5 one-shot action recall `87.5%`；M6 12/12 seed 均为 4/4，control 均为 25%，mean gain `+0.75`。
 - 旧 `neuroplex.taiji` K/V 原型及 T4/T5 活动文件已删除；Git 历史仍可恢复。
 - 现有 9 个 Transformer 成员（含 5 个对话成员）未被改写，只作为离线对照。
 - `scripts/archive/` 内 `from taiji.<legacy>` 是历史别名（含义＝`neuroplex`），已确认不重写；判定见 `scripts/archive/README.md`。
 
 ## 当前唯一下一步
 
-离线门槛已经通过：K64 signed shared-support + replay winner bout-local resource 在完整 12-seed 面板全部 4/4，选择 retention `0.9`。当前唯一下一步是把 waking baseline、共享支撑 decoder 与该资源机制实现为新的 Taiji 原生 checkpoint line，并回归 N4–N11/M5/M6。原因与判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §5–§6。
+Native v7 已实现并通过全回归。当前唯一下一步是 M7：让内生 replay 重建 `cue → action → outcome` 因果链，并在切除 episodic readout 后仍由 cortical path 选择 cue 对应动作；这把 M6 的无条件 action→outcome 联结推进为最小情境策略。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6。
 
 ## 归档
 

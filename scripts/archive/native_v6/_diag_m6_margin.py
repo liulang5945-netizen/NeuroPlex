@@ -1,4 +1,4 @@
-"""Throwaway diagnostic: why does a well rehearsed pair still lose its margin?
+"""Historical Native v6: why did a rehearsed pair still lose its margin?
 
 Coverage is no longer the constraint -- every pair now gets 8-33% of the
 rehearsals -- yet three pairs still read back wrong with margins within 0.002 of

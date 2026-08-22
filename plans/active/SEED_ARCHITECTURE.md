@@ -55,7 +55,7 @@ seed  ──public API──>  taiji
 
 ## 5. 当前构建上限
 
-M6 已证明场可内生选择 engram 并把 action→outcome 结构巩固进 fabric，但残留错误不是 replay 覆盖不足。`_diag_m6_margin.py locus 11 29 61` 的离线前置验证结果：
+M6 已证明场可内生选择 engram 并把 action→outcome 结构巩固进 fabric，但残留错误不是 replay 覆盖不足。`scripts/archive/native_v6/_diag_m6_margin.py locus 11 29 61` 的历史离线验证结果：
 
 | seed | 原始正 margin | 去共模后的正 margin | gain≤1 最好结果 |
 |---:|---:|---:|---:|
@@ -79,12 +79,14 @@ M6 已证明场可内生选择 engram 并把 action→outcome 结构巩固进 fa
   → 扩大单元数不能给出巩固可分性的结构保证
 ```
 
-这会限制 Seed 的可扩展记忆与组合学习：扩大单元数只能降低概率，不能给出结构保证。
+这曾限制 Seed 的可扩展记忆与组合学习：扩大单元数只能降低概率，不能给出结构保证。
 
 逐 cortical channel 的熟悉度资源、现有 fast fatigue 的 decay/gain 扫描、睡眠期慢速 memory-unit threshold offset 都未救回 seed 11，不能进入运行态。有效机制的粒度必须落在**内生 replay winner 神经元**，而不是外部 event ID、Python replay list 或每 engram 配额。
 
-机器可读结果：`reports/taiji_m6_locus_20260822.json`、`reports/taiji_signed_opponent_20260822.json`。
+Native v7 已把反证结果落实为双时间尺度 cortical path：清醒快速 decoder 仍为固定稀疏预测通路；零初始化的慢速 consolidation decoder 读取 waking baseline 周围的 signed residual，每个 row 共享完整支撑；winner resource 为 bout-local，retention `0.9`；慢通路使用独立 RNG 子流，新增器官不会改变 transitions/motor/memory 的既有拓扑。运行态 M6 达到 12/12 seed × 4/4，所有 control 为 25%，mean gain `+0.75`。N5–N11/M5 与 83 项全仓测试均通过。
+
+机器可读结果：`reports/taiji_m6_locus_20260822.json`、`reports/taiji_signed_opponent_20260822.json`、`reports/taiji_m6_seed_panel_v7_20260822.json`。
 
 ## 6. 当前唯一下一步
 
-把已通过的 K64 signed shared-support + winner-resource retention `0.9` 实现为 Taiji 下一条原生 checkpoint line：在区域状态中维护可在线获得的 waking baseline，decoder 对 signed residual 读写且所有 row 共享完整支撑；`consolidate` 为内生 action winner 神经元创建 bout-local resource，每次获胜后乘 `0.9`，醒来即释放。实现不得保存 event ID/配额，不得把资源写成 teacher target；随后重跑 checkpoint 等价、N5–N11、M5 与完整 M6 12-seed 因果面板。
+定义并实现 M7 cue-conditioned consolidation 反证：内生场必须重建完整 `cue → action → outcome` 顺序，慢速 cortical path 在切除 episodic action/cortical readout 后仍能依据 cue 选择对应 action，并在 action 后预测 outcome。禁止把 cue/action/outcome 列表交给 `consolidate`，禁止 teacher action、event slot 或 memory-weight 复制；control、内容 lesion 和顺序 lesion 必须回落。先固定可执行基准与状态流，再改 replay burst。

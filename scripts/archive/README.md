@@ -1,6 +1,8 @@
 # scripts/archive — 历史脚本（不可运行）
 
-本目录是 Legacy NeuroPlex 时期的验证/诊断脚本存档，**全部视为不可运行的历史记录**，只用于追溯当时做过哪些检查。
+本目录是 Legacy NeuroPlex 和已退役 Native substrate 版本的验证/诊断脚本存档，**全部视为不可运行的历史记录**，只用于追溯当时做过哪些检查。
+
+`native_v6/` 保存 M6 fixed-fan-in 上限、写入 basis、replay 覆盖与 signed-opponent 离线反证。其结论已由 Native v7 的双时间尺度 consolidation path 吸收；这些脚本绑定旧 payload/decoder 语义，必须在对应历史提交上复现，不能从当前 HEAD 运行。
 
 ## 为什么这里的 `from taiji.<...>` 不是 Bug
 

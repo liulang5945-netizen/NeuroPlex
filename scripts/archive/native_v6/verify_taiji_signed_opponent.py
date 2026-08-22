@@ -1,4 +1,4 @@
-"""Offline falsification of a signed, shared-support cortical readout.
+"""Historical Native v6 offline falsification of signed shared support.
 
 This script does not modify Taiji runtime state, topology or checkpoints.  It
 listens to the real decoder-0 local writes made by M6 consolidation and mirrors

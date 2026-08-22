@@ -43,6 +43,34 @@ class TaijiFabric:
             )
             for lower_size, region_size in zip(lower_sizes, config.region_sizes)
         )
+        # A separate slow consolidation pathway keeps sleep learning from
+        # overwriting the fast sparse predictor.  Every row shares the complete
+        # signed cortical support, so learnability no longer depends on whether
+        # a randomly sampled row happened to touch a residual coordinate.
+        consolidation_rng = torch.Generator(device="cpu")
+        consolidation_rng.manual_seed(
+            config.seed + config.consolidation_seed_offset
+        )
+        self.consolidation_decoders = tuple(
+            SparseSynapses(
+                lower_size,
+                region_size,
+                region_size,
+                generator=consolidation_rng,
+                init_scale=config.weight_init_scale,
+                max_weight_norm=config.max_weight_norm,
+                device=self.device,
+            )
+            for lower_size, region_size in zip(lower_sizes, config.region_sizes)
+        )
+        for decoder in self.consolidation_decoders:
+            decoder.edge_weight.zero_()
+        # The running means supply the opponent origins.  They are homeostatic
+        # statistics, not trainable parameters.
+        self.trace_baselines = tuple(
+            torch.zeros(region_size, device=self.device)
+            for region_size in config.region_sizes
+        )
         self.transitions = tuple(
             SparseSynapses(
                 region_size,
@@ -110,6 +138,37 @@ class TaijiFabric:
             ))
         return tuple(states)
 
+    def opponent_trace(self, index: int, trace: torch.Tensor) -> torch.Tensor:
+        if not 0 <= int(index) < len(self.trace_baselines):
+            raise IndexError("region index outside the predictive fabric")
+        expected = (self.config.region_sizes[int(index)],)
+        if trace.shape != expected:
+            raise ValueError(
+                f"region trace must be {expected}, got {tuple(trace.shape)}"
+            )
+        return trace.to(self.device) - self.trace_baselines[int(index)]
+
+    def consolidated_decode(self, index: int, trace: torch.Tensor) -> torch.Tensor:
+        """Read only the slow shared-support consolidation pathway."""
+
+        return self.consolidation_decoders[int(index)].forward(
+            self.opponent_trace(index, trace)
+        )
+
+    def decode(
+        self,
+        index: int,
+        trace: torch.Tensor,
+        *,
+        include_consolidated: bool = True,
+    ) -> torch.Tensor:
+        """Combine fast sparse prediction with slow opponent consolidation."""
+
+        prediction = self.decoders[int(index)].forward(trace.to(self.device))
+        if include_consolidated:
+            prediction = prediction + self.consolidated_decode(index, trace)
+        return prediction
+
     @torch.no_grad()
     def step(
         self,
@@ -119,6 +178,8 @@ class TaijiFabric:
         learn: bool,
         episodic_feedback: Optional[torch.Tensor] = None,
         learn_scale: float = 1.0,
+        consolidation_learn_scale: float = 0.0,
+        use_consolidated: bool = True,
         restructure: bool = False,
         adapt_homeostasis: bool = True,
     ) -> Tuple[Tuple[RegionState, ...], Tuple[float, ...], Tuple[float, ...]]:
@@ -128,6 +189,13 @@ class TaijiFabric:
             raise ValueError("region state count does not match the architecture")
         if not math.isfinite(learn_scale) or learn_scale < 0.0:
             raise ValueError("learn_scale must be a finite non-negative number")
+        if (
+            not math.isfinite(consolidation_learn_scale)
+            or consolidation_learn_scale < 0.0
+        ):
+            raise ValueError(
+                "consolidation_learn_scale must be a finite non-negative number"
+            )
         if episodic_feedback is None:
             episodic_feedback = torch.zeros(
                 self.config.cortical_context_dim, device=self.device
@@ -148,13 +216,27 @@ class TaijiFabric:
             self.config.region_sizes, self.decoders, self.transitions
         )):
             old = previous[index]
+            signed_trace = self.opponent_trace(index, old.trace)
+            consolidated_prediction = self.consolidation_decoders[index].forward(
+                signed_trace
+            )
             lower_prediction = decoder.forward(old.trace)
+            if use_consolidated:
+                lower_prediction = lower_prediction + consolidated_prediction
             lower_error = lower_activity - lower_prediction
             recurrent_prediction = transition.forward(old.trace)
             bottom_up = decoder.backproject(lower_error)
+            if use_consolidated:
+                bottom_up = bottom_up + self.consolidation_decoders[
+                    index
+                ].backproject(lower_error)
 
             if index + 1 < len(previous):
-                top_down = self.decoders[index + 1].forward(previous[index + 1].trace)
+                top_down = self.decode(
+                    index + 1,
+                    previous[index + 1].trace,
+                    include_consolidated=use_consolidated,
+                )
             else:
                 top_down = torch.zeros(region_size, device=self.device)
 
@@ -296,6 +378,17 @@ class TaijiFabric:
                     * learn_scale,
                     weight_decay=decay,
                 )
+                if consolidation_learn_scale > 0.0:
+                    consolidation_error = (
+                        lower_activity - consolidated_prediction
+                    )
+                    self.consolidation_decoders[index].local_update(
+                        consolidation_error,
+                        signed_trace,
+                        learning_rate=self.config.predictive_learning_rate
+                        * consolidation_learn_scale,
+                        weight_decay=decay,
+                    )
                 transition.local_update(
                     state_error,
                     old.trace,
@@ -316,6 +409,15 @@ class TaijiFabric:
                     activity,
                     learning_rate=self.config.lateral_learning_rate * learn_scale,
                     baseline=mean_rate * mean_rate,
+                )
+
+            # The opponent origin is learned only from varied waking traffic.
+            # Evaluation/generation and replay read the established statistic;
+            # a repeated sleep burst cannot drag its own zero point toward the
+            # pattern it is trying to consolidate.
+            if learn and adapt_homeostasis:
+                self.trace_baselines[index].lerp_(
+                    trace, float(self.config.cortical_baseline_rate)
                 )
 
             next_states.append(RegionState(
@@ -370,6 +472,13 @@ class TaijiFabric:
     def to_payload(self) -> Dict[str, Any]:
         return {
             "decoders": [decoder.to_payload() for decoder in self.decoders],
+            "consolidation_decoders": [
+                decoder.to_payload() for decoder in self.consolidation_decoders
+            ],
+            "trace_baselines": [
+                baseline.detach().cpu().clone()
+                for baseline in self.trace_baselines
+            ],
             "transitions": [transition.to_payload() for transition in self.transitions],
             "laterals": [lateral.to_payload() for lateral in self.laterals],
         }
@@ -377,12 +486,35 @@ class TaijiFabric:
     def load_payload(self, payload: Mapping[str, Any]) -> None:
         if len(payload["decoders"]) != len(self.decoders):
             raise ValueError("decoder count does not match architecture")
+        if len(payload["consolidation_decoders"]) != len(
+            self.consolidation_decoders
+        ):
+            raise ValueError(
+                "consolidation decoder count does not match architecture"
+            )
+        if len(payload["trace_baselines"]) != len(self.trace_baselines):
+            raise ValueError("trace baseline count does not match architecture")
         if len(payload["transitions"]) != len(self.transitions):
             raise ValueError("transition count does not match architecture")
         if len(payload["laterals"]) != len(self.laterals):
             raise ValueError("lateral count does not match architecture")
         for synapses, state in zip(self.decoders, payload["decoders"]):
             synapses.load_payload(state)
+        for synapses, state in zip(
+            self.consolidation_decoders, payload["consolidation_decoders"]
+        ):
+            synapses.load_payload(state)
+        for target, stored in zip(
+            self.trace_baselines, payload["trace_baselines"]
+        ):
+            baseline = stored.detach().to(self.device, dtype=torch.float32)
+            if baseline.shape != target.shape:
+                raise ValueError(
+                    "trace baseline shape does not match architecture"
+                )
+            if not bool(torch.isfinite(baseline).all()):
+                raise ValueError("trace baseline contains a non-finite value")
+            target.copy_(baseline)
         for synapses, state in zip(self.transitions, payload["transitions"]):
             synapses.load_payload(state)
         for synapses, state in zip(self.laterals, payload["laterals"]):
@@ -391,17 +523,32 @@ class TaijiFabric:
     def parameter_tensors(self) -> Tuple[torch.Tensor, ...]:
         return tuple(
             synapses.edge_weight
-            for synapses in (*self.decoders, *self.transitions, *self.laterals)
+            for synapses in (
+                *self.decoders,
+                *self.consolidation_decoders,
+                *self.transitions,
+                *self.laterals,
+            )
         )
 
     def active_edge_count(self) -> int:
         return sum(
             synapses.edge_count
-            for synapses in (*self.decoders, *self.transitions, *self.laterals)
+            for synapses in (
+                *self.decoders,
+                *self.consolidation_decoders,
+                *self.transitions,
+                *self.laterals,
+            )
         )
 
     def dense_equivalent_edge_count(self) -> int:
         return sum(
             synapses.dense_equivalent_count
-            for synapses in (*self.decoders, *self.transitions, *self.laterals)
+            for synapses in (
+                *self.decoders,
+                *self.consolidation_decoders,
+                *self.transitions,
+                *self.laterals,
+            )
         )

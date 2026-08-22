@@ -1,4 +1,4 @@
-"""Verify Native v5 Taiji with active action and episodic field state."""
+"""Verify Native v7 Taiji with dual-timescale cortical prediction."""
 
 from __future__ import annotations
 
@@ -47,6 +47,7 @@ def _native_import_contract() -> bool:
 def _learned_synapses(model: Taiji) -> tuple[object, ...]:
     return (
         *model.fabric.decoders,
+        *model.fabric.consolidation_decoders,
         *model.fabric.transitions,
         model.motor.synapses,
         model.memory.association,
@@ -81,7 +82,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         seed=seed,
     )
     data = b"abcdabcdabcdabcd"
-    model = Taiji(config, episode_id="native-v5")
+    model = Taiji(config, episode_id="native-v7")
     initial_parameters = [tensor.clone() for tensor in model.parameter_tensors()]
     before = model.score_bytes(data)
 
@@ -190,7 +191,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
         } & set(vars(model.memory)),
     }
     return {
-        "benchmark": "taiji_native_v5_episodic_field",
+        "benchmark": "taiji_native_v7_dual_timescale",
         "seed": seed,
         "epochs": epochs,
         "architecture": {

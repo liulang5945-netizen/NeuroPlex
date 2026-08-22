@@ -11,7 +11,7 @@
 | 规范名 | 指代 | 代码/文件事实 |
 |---|---|---|
 | **Seed** | 项目与模型级主体 | 顶层 `seed/`；分发名 `seed`；拥有模型组合与 `seed-native-v1` checkpoint envelope |
-| **Taiji / Taiji Predictive Fabric（TPF）** | Seed 的**底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；当前 checkpoint line Native v6；不导入 `seed`、`neuroplex` 或 `transformers` |
+| **Taiji / Taiji Predictive Fabric（TPF）** | Seed 的**底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；当前 checkpoint line Native v7；不导入 `seed`、`neuroplex` 或 `transformers` |
 | **Legacy NeuroPlex** | 冻结的 Transformer 基线（9 个成员） | `neuroplex/` 包（113 文件 / 36420 行）；底层 Transformer 是 `neuroplex/layers.py::TransformerBlock`，live 消费点 3 处（见下） |
 | **`taiji.*`（历史 import 别名）** | `neuroplex/` 的旧包名 | 只在历史 pickle 与 `scripts/archive/` 中出现；由 `neuroplex/legacy_checkpoint.py` 在受控作用域内临时映射 |
 | **`taiji` / `taiji_model`（历史 HTTP 路径与指标名）** | Legacy 应用兼容契约，**不定义 Seed/Taiji 新边界** | 在 Seed 原生服务路径完成前保持兼容；新增 API 必须使用 Seed 命名 |
@@ -106,4 +106,4 @@ Native v5 是完整可运行的非 Transformer 感知—状态—情景—行动
 
 ## 6. 当前唯一下一步
 
-M6 内生 replay/巩固和覆盖修复已落地；signed-opponent + replay-winner resource 的 12-seed 离线反证也已通过。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：把 K64 shared-support、waking signed baseline 与 bout-local winner resource retention `0.9` 实现为新的 Taiji 原生 checkpoint line。本文件只维护决策与命名边界。
+Native v7 的 signed consolidation 与 winner resource 已落地并通过 12/12 M6 和全回归。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：M7 cue-conditioned consolidation，使 cortical path 在 episodic lesion 后保留最小情境策略。本文件只维护决策与命名边界。

@@ -34,6 +34,7 @@ class TaijiConfig:
     lateral_fan_in: int = 16
     lateral_learning_rate: float = 0.02
     lateral_seed_offset: int = 977
+    consolidation_seed_offset: int = 1951
     bottom_up_gain: float = 1.00
     recurrent_gain: float = 0.55
     top_down_gain: float = 0.30
@@ -43,6 +44,7 @@ class TaijiConfig:
     threshold_max: float = 1.50
     homeostasis_rate: float = 0.015
     target_activity: float = 0.12
+    cortical_baseline_rate: float = 0.00390625
 
     predictive_learning_rate: float = 0.025
     transition_learning_rate: float = 0.012
@@ -76,6 +78,7 @@ class TaijiConfig:
     replay_learning_scale: float = 0.45
     replay_burst_repeats: int = 8
     replay_write_repeats: int = 8
+    replay_winner_resource_retention: float = 0.90
     structural_turnover_ratio: float = 0.25
     structural_capture_target: float = 0.90
     structural_error_threshold: float = 0.35
@@ -99,6 +102,15 @@ class TaijiConfig:
             raise ValueError(
                 "lateral_seed_offset must be positive so the lateral bank draws "
                 "from a stream distinct from the feedforward projections"
+            )
+        if self.consolidation_seed_offset <= 0:
+            raise ValueError(
+                "consolidation_seed_offset must select a positive independent "
+                "random stream"
+            )
+        if self.consolidation_seed_offset == self.lateral_seed_offset:
+            raise ValueError(
+                "consolidation and lateral banks require distinct random streams"
             )
         if self.motor_fan_in > 2 * sum(self.region_sizes):
             raise ValueError(
@@ -157,6 +169,8 @@ class TaijiConfig:
             raise ValueError("memory_feedback_gain cannot be negative")
         if not 0.0 < self.reward_baseline_rate <= 1.0:
             raise ValueError("reward_baseline_rate must be in (0, 1]")
+        if not 0.0 < self.cortical_baseline_rate <= 1.0:
+            raise ValueError("cortical_baseline_rate must be in (0, 1]")
         if not 0.0 <= self.memory_novelty_gain <= 1.0:
             raise ValueError("memory_novelty_gain must be in [0, 1]")
         if not 0.0 <= self.memory_reward_gain <= 1.0:
@@ -175,6 +189,10 @@ class TaijiConfig:
             raise ValueError("replay_burst_repeats must be positive")
         if self.replay_write_repeats <= 0:
             raise ValueError("replay_write_repeats must be positive")
+        if not 0.0 < self.replay_winner_resource_retention <= 1.0:
+            raise ValueError(
+                "replay_winner_resource_retention must be in (0, 1]"
+            )
         if not 0.0 <= self.structural_turnover_ratio <= 1.0:
             raise ValueError("structural_turnover_ratio must be in [0, 1]")
         if not 0.0 < self.structural_capture_target <= 1.0:

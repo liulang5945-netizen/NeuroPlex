@@ -6,7 +6,7 @@
 
 ```text
 ByteSensor
-  → reciprocal predictive region 0..R
+  → fast sparse predictor + slow signed consolidation path, region 0..R
   → [all current activities; all slow traces]
   ↔ distributed EpisodicField + one-tick cortical feedback
   → balanced SparseReceptorBank
@@ -26,11 +26,11 @@ ByteSensor
 | `taiji/state.py` | 区域/场/整机状态、pending action/experience 原子事务 | ✅ |
 | `taiji/organs.py` | raw-byte 感觉器官、全坐标覆盖的稀疏感受器组、唯一 byte 运动器官 | ✅ |
 | `taiji/memory.py` | 分布式事件编码、循环补全、novelty/reward 写门、因果 readout | ✅ |
-| `taiji/fabric.py` | 分层预测误差、递归状态、抑制、稳态、场 feedback 与区域局部学习 | ✅ |
-| `taiji/model.py` | observe、act、settle_action、learn/score/generate、Native v5 checkpoint | ✅ |
+| `taiji/fabric.py` | 分层预测误差、递归状态、waking baseline、双时间尺度 decoder 与区域局部学习 | ✅ |
+| `taiji/model.py` | observe、act、settle_action、learn/score/generate、Native v7 checkpoint | ✅ |
 | `taiji/environment.py` | action-dependent sensation/reward 环境协议 | ✅ |
-| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、命名/边界守护、N5–N11/M5–M6 | ✅ 27 passed |
-| `verify_taiji_native_v5.py` | 独立端到端、主动/情景状态与压缩存储基准 | ✅ PASS |
+| `tests/taiji_native/` | 独立性、局部性、状态、感受器覆盖、命名/边界守护、N5–N11/M5–M6 | ✅ 30 passed |
+| `verify_taiji_native_v7.py` | 独立端到端、主动/情景状态与压缩存储基准 | ✅ PASS |
 | `verify_taiji_n7_context.py` | 二阶歧义与因果切除基准 | ✅ PASS |
 | `verify_taiji_n8_delayed_trace.py` | 共同干扰后的 slow-trace 必要性/充分性 | ✅ PASS |
 | `verify_taiji_n9_long_free_run.py` | 128 步纯动作回灌与逐 tick 状态上界 | ✅ PASS |
@@ -38,20 +38,20 @@ ByteSensor
 | `verify_taiji_n11_active_environment.py` | reward action、随机与 action-lesion 因果对照 | ✅ PASS |
 | `verify_taiji_m5_episodic_field.py` | one-shot field、同宽 trace、循环 lesion、metadata/readback | ✅ PASS |
 
-## 3. Native v5 实测
+## 3. Native v7 实测
 
 固定 seed `7`、区域 `[64,48]`、区域 fan-in `16`、运动感受器 `48`：
 
 | 指标 | 结果 |
 |---|---:|
-| active learned parameters | 62,529 |
+| active learned parameters | 83,841 |
 | fixed receptor edges | 224（每个皮层坐标恰好一条） |
-| actual learned scalar storage | 62,529 |
-| dense-equivalent learned scalars | 112,241 |
-| learned synapse edges / int32 indices | 62,272 / 62,272 |
+| actual learned scalar storage | 83,841 |
+| dense-equivalent learned scalars | 138,161 |
+| learned synapse edges / int32 indices | 81,792 / 81,792 |
 | byte-cycle accuracy | 0% → 94.12% |
-| mean surprise | 5.4041 → 0.1090 |
-| surprise reduction | 97.98% |
+| mean surprise | 5.4041 → 0.1069 |
+| surprise reduction | 98.02% |
 | free generation | `a → bcdabcda`，8 步全部正确 |
 | checkpoint exact next step | PASS |
 | Transformer/NeuroPlex runtime dependency | 0 |
@@ -104,7 +104,7 @@ M6 在关闭 episodic action/readback 的前提下，只靠场自己的 novelty/
 
 修复后 rewire 会**饱和**：24/48/96/192 cycle 都停在 12 个 contact；缺陷版本则是 8/23/43/81，随 cycle 近似线性增长、永不终止。
 
-报告：`reports/taiji_native_v5_20260821.json`、`reports/taiji_m5_episodic_field_20260821.json`、`reports/taiji_m6_endogenous_replay_20260821.json`、`reports/taiji_m6_seed_panel_20260821.json`、`reports/taiji_n11_active_environment_20260821.json`、`reports/taiji_n10_sparse_migration_20260821.json`，以及 N7/N8/N9 独立报告。M6 的多 seed 明细由 `--panel` 现算并落在 seed panel 报告里，不再手工维护逐 seed 快照。v2–v4 只保留为迁移参考。
+当前报告：`reports/taiji_native_v7_20260822.json`、`reports/taiji_m5_v7_20260822.json`、`reports/taiji_m6_seed_panel_v7_20260822.json`、`reports/taiji_n11_v7_20260822.json`、`reports/taiji_n10_v7_20260822.json`。v2–v6 报告只保留为迁移参考。
 
 ## 4. 本轮删除的错误机制
 
@@ -117,8 +117,8 @@ Native v5 不再让 257 个动作各自随机抽取不同皮层坐标，也不�
 - 当前只证明小型 byte 流、短程二阶上下文和八条 one-shot 情景，不代表语言理解；
 - 场已能跨 reset 检索 action/outcome/metadata，但尚未证明大容量、长期抗干扰或自传连续性；
 - PyTorch 已真实按边执行，但通用 gather/scatter 尚非定制 event kernel，小张量加速不作保证；
-- M6 的绝对水平仍低：5 seed 的 `full` 只有 0.50–1.00（chance 0.25），gain 只有 +0.25–+0.75。已定量归因于 **replay 选择覆盖不均**（见第 6 节表），是**选择覆盖**问题，不是可塑性问题；
-- 写入基底仍比 probe 基底大 1.13–1.43×，且在一次 bout 内轻微下漂（`0.2159→0.2065`）。cos ≥ 0.996 说明方向对、幅度不对，尚未解释；
+- M6 已在 12/12 seed 达到 4/4，但只巩固 action→outcome；replay 不含 cue，所以尚未形成 cue-conditioned policy；
+- 慢通路完整共享支撑增加了 19,520 个真实 decoder edge；规模仍小，但默认稀疏索引+权重字节比 dense learned-weight 字节高，后续需做隐式全支撑存储而不能虚称节省；
 - 已有 reward action、provenance 与内生 replay/巩固，但尚无内生想象生成、多感官器官；
 - 现有 5 个 dialogue + 4 个 general Transformer 成员只作为冻结离线基线，不进入 Taiji forward。
 
@@ -184,7 +184,7 @@ adapted = previous.threshold + replay_fatigue_gain * (previous.trace - previous.
 
 ### 6.5 残留 3 对 margin 为负的定量归因（已完成，2026-08-21）
 
-`full` arm 的 4 对 true-cell 未全部战胜竞争者（seed 11 的 `2`、29 的 `0`、61 的 `3`，margin -0.0021 / -0.0009 / -0.0012）。份额已不是瓶颈——这三条分别占 10.0% / 13.0% / 20.1%。用 `scripts/training/_diag_m6_margin.py` 做了三层测量，把 §6.5 原本的二选一（写入剂量 vs 竞争者被顺带抬高）替换成一条闭合的定量律。
+`full` arm 的 4 对 true-cell 未全部战胜竞争者（seed 11 的 `2`、29 的 `0`、61 的 `3`，margin -0.0021 / -0.0009 / -0.0012）。份额已不是瓶颈——这三条分别占 10.0% / 13.0% / 20.1%。用 `scripts/archive/native_v6/_diag_m6_margin.py` 做了三层测量，把 §6.5 原本的二选一（写入剂量 vs 竞争者被顺带抬高）替换成一条闭合的定量律。
 
 **归因得以成立的前提**：`sparse.local_update` 对突触前痕迹**线性**（`edge_weight += lr * error ⊗ trace[pre_index] / scale`），所以只要把 4 个探测 basis 从睡前 checkpoint 冻结下来（探测口径与 `_evaluate_contingency` 完全一致），就能在每次 accepted replay 前后对 `decoders[0]` 在全部 4 个 basis 上各求一次值，把差分全额记到中间那一次 replay 名下——即每个 burst 对**每个** basis 干了什么，而不只是对自己那个。
 
@@ -290,7 +290,7 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
 
 ### 6.7 公共基线离线前置验证（FAIL，2026-08-22）
 
-已按 §6.6 的前置条件实现 `_diag_m6_margin.py locus`，冻结睡前四个 probe basis，在不改 state/checkpoint 的前提下比较 raw、oracle 共模、256-tick 在线流均值和纯残差。结果：
+已按 §6.6 的前置条件实现历史 `scripts/archive/native_v6/_diag_m6_margin.py locus`，冻结睡前四个 probe basis，在不改 state/checkpoint 的前提下比较 raw、oracle 共模、256-tick 在线流均值和纯残差。结果：
 
 | seed | raw | pure residual | gain≤1 最好 |
 |---:|---:|---:|---:|
@@ -302,11 +302,17 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
 
 ### 6.8 signed-opponent 与 replay winner 资源（PASS，2026-08-22）
 
-`verify_taiji_signed_opponent.py` 在不修改 Taiji runtime/checkpoint 的前提下，镜像真实 M6 decoder-0 写入。K64 signed shared-support 把随机支撑失败从 12 seed 中的多例压到 seed 11 一例（11/12），但其 `2→!` 只有 6 次 accepted replay，另外三对为 23/32/30；即使把每次写入强制落在清醒 probe basis，仍为 3/4。把四类自然写入量配平后 K32/K64 均 12/12 × 4/4，确认剩余根因是 replay winner 的巩固剂量垄断。
+历史 `scripts/archive/native_v6/verify_taiji_signed_opponent.py` 在不修改当时 runtime/checkpoint 的前提下，镜像真实 M6 decoder-0 写入。K64 signed shared-support 把随机支撑失败从 12 seed 中的多例压到 seed 11 一例（11/12），但其 `2→!` 只有 6 次 accepted replay，另外三对为 23/32/30；即使把每次写入强制落在清醒 probe basis，仍为 3/4。把四类自然写入量配平后 K32/K64 均 12/12 × 4/4，确认剩余根因是 replay winner 的巩固剂量垄断。
 
 被否决的局部机制：逐 channel 熟悉度资源；`memory_trace_decay 0.85–0.98`；`replay_fatigue_gain 2–8`；sleep-only memory-unit 阈值积分 `0.001–0.02`。它们都不能让 seed 11 超过 3/4。有效机制是 winner 神经元自己的 bout-local resource：初值 1，每次该 winner 被内生场选中后乘 retention，同一 replay 的 8 次局部写共享当前资源。K64 在 retention `0.5/0.7/0.8/0.9` 下全部 12/12 × 4/4，旋转内容 lesion 全部 0/4；`0.9` 的最小/平均 margin 最强（`0.0004383 / 0.0043703`）。它不读取 event list、不识别 engram、不设外部配额，只使用场自己的 action winner。
 
-**当前唯一下一步**：实现 K64 signed shared-support + winner resource retention `0.9` 的新原生 checkpoint line，并重跑 N4–N11/M5/M6 全套门槛。具体状态与边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §5–§6。
+### 6.9 Native v7 运行态闭合（PASS，2026-08-22）
+
+正式实现采用双时间尺度而非替换快速 decoder：`fabric.decoders` 保留 waking 稀疏预测，零初始化 `consolidation_decoders` 只在 replay outcome 写入时学习，并在清醒读取时与快速证据相加。慢通路读取 `trace - trace_baseline`，baseline 只在 waking learning 更新，reset 保留、sleep/eval 冻结并进入 checkpoint。winner resource 初值 1，每次内生 action winner 获胜后乘 `0.9`，只缩放慢通路；不持久化、不保存 event ID。慢通路用独立 RNG 子流，否则新增器官会改变 transition/motor/memory topology，曾使 seed 11/43 从 4/4 回落到 3/4。
+
+最终 M6：12/12 seed 的 full replay 都是 4/4，no-replay control 都是 25%，mean gain `+0.75`，全因果检查通过。N10、N11、M5 和全仓 `83 passed` 同时通过。
+
+**当前唯一下一步**：M7 cue-conditioned consolidation。先建立 cue→action→outcome 的内生顺序回放基准及 control/content/order lesions，再允许修改 replay burst。具体边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

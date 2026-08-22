@@ -1,4 +1,4 @@
-"""Throwaway diagnostic: why is the consolidation write basis weak and unstable?
+"""Historical Native v6: why was the write basis weak and unstable?
 
 ANSWERED, and the fix is shipped.  The defect was a path asymmetry in the
 homeostatic set point.  The probe reads from ``reset_dynamics``, which rebuilds

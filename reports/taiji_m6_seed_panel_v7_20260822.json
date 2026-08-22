@@ -1,0 +1,140 @@
+{
+  "benchmark": "taiji-m6-endogenous-replay-panel",
+  "checks": {
+    "all_seeds_pass": true,
+    "all_seeds_reach_full_contingency": true,
+    "mean_accuracy_gain_is_positive": true,
+    "no_seed_is_harmed_by_replay": true
+  },
+  "cycles": 96,
+  "per_seed": [
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0004111751914024353,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 11,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0016697756946086884,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 17,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0011985599994659424,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 23,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.000710025429725647,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 29,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0012986920773983002,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 37,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0006876997649669647,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 43,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0010290257632732391,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 53,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0008134059607982635,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 61,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0008565671741962433,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 71,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.0014838315546512604,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 79,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.001531071960926056,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 89,
+      "status": "pass"
+    },
+    {
+      "accuracy_gain_over_control": 0.75,
+      "failed_checks": [],
+      "full_replay_accuracy": 1.0,
+      "margin_gain_over_control": 0.001317150890827179,
+      "no_replay_control_accuracy": 0.25,
+      "seed": 97,
+      "status": "pass"
+    }
+  ],
+  "seeds": [
+    11,
+    17,
+    23,
+    29,
+    37,
+    43,
+    53,
+    61,
+    71,
+    79,
+    89,
+    97
+  ],
+  "status": "pass",
+  "summary": {
+    "mean_accuracy_gain_over_control": 0.75,
+    "passing_seeds": 12,
+    "seed_count": 12
+  }
+}

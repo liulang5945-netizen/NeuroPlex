@@ -29,7 +29,7 @@ class Taiji:
     The class intentionally exposes no loss.backward() or optimizer contract.
     """
 
-    CHECKPOINT_FORMAT = "taiji-native-v6"
+    CHECKPOINT_FORMAT = "taiji-native-v7"
     STATE_VERSION = 5
 
     def __init__(
@@ -329,6 +329,9 @@ class Taiji:
         memory_state = state.memory
         tick = int(state.tick)
         structural_before = int(self.fabric.structural_events)
+        winner_resource = torch.ones(
+            self.config.alphabet_size, device=self.device
+        )
 
         accepted = 0
         priority_sum = 0.0
@@ -403,6 +406,10 @@ class Taiji:
             # trace settles brings it to 21-34 active units, which every row's
             # support intersects.
             action_symbol, outcome_symbol = burst
+            winner_gain = float(winner_resource[action_symbol].item())
+            winner_resource[action_symbol].mul_(
+                float(self.config.replay_winner_resource_retention)
+            )
             regions = self.fabric.clear_dynamics(regions)
             for _ in range(int(self.config.replay_burst_repeats)):
                 regions, _rates, error_norms = self.fabric.step(
@@ -411,6 +418,7 @@ class Taiji:
                     learn=False,
                     episodic_feedback=replay.cortical_projection,
                     learn_scale=learn_scale,
+                    use_consolidated=False,
                     # ``clear_dynamics`` hands the burst the set point waking
                     # left, which is correct -- sleep must not discard what
                     # waking learned.  But a sixteen-tick burst of one symbol is
@@ -452,6 +460,8 @@ class Taiji:
                     learn=learn,
                     episodic_feedback=replay.cortical_projection,
                     learn_scale=learn_scale,
+                    consolidation_learn_scale=learn_scale * winner_gain,
+                    use_consolidated=False,
                     # Rewire once, on the opening write, then spend the rest of
                     # the burst growing what was just recruited.  Restructuring
                     # on every repeat would leave the final contact stranded at

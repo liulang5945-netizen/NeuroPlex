@@ -40,6 +40,10 @@ def _thresholds(model: Taiji) -> tuple[torch.Tensor, ...]:
     return tuple(region.threshold.detach().clone() for region in model._state.regions)
 
 
+def _baselines(model: Taiji) -> tuple[torch.Tensor, ...]:
+    return tuple(value.detach().clone() for value in model.fabric.trace_baselines)
+
+
 def test_replay_reads_the_homeostatic_set_point_without_writing_it() -> None:
     """Replay must not let homeostasis integrate over its own degenerate input.
 
@@ -61,6 +65,11 @@ def test_replay_reads_the_homeostatic_set_point_without_writing_it() -> None:
     model = Taiji(_config())
     _store_episodes(model)
     before = _thresholds(model)
+    baselines_before = _baselines(model)
+    consolidation_before = tuple(
+        decoder.edge_weight.clone()
+        for decoder in model.fabric.consolidation_decoders
+    )
 
     summary = model.consolidate(cycles=24, learn=True)
     assert summary.accepted > 0
@@ -68,6 +77,16 @@ def test_replay_reads_the_homeostatic_set_point_without_writing_it() -> None:
     after = _thresholds(model)
     for index, (start, end) in enumerate(zip(before, after)):
         assert torch.equal(start, end), f"region {index} set point drifted during sleep"
+    for index, (start, end) in enumerate(
+        zip(baselines_before, _baselines(model))
+    ):
+        assert torch.equal(start, end), f"region {index} baseline drifted during sleep"
+    assert any(
+        not torch.equal(start, decoder.edge_weight)
+        for start, decoder in zip(
+            consolidation_before, model.fabric.consolidation_decoders
+        )
+    ), "sleep did not write the slow consolidation pathway"
 
 
 def test_waking_homeostasis_still_adapts() -> None:

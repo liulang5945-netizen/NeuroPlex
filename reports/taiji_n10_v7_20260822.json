@@ -1,0 +1,51 @@
+{
+  "behavior": {
+    "n5_accuracy": 0.9411764705882353,
+    "n5_generated": "bcdabcda",
+    "n7_full_accuracy": 1.0,
+    "n8_full_accuracy": 1.0,
+    "n8_no_trace_accuracy": 0.5,
+    "n8_trace_only_accuracy": 1.0,
+    "n9_accuracy": 1.0,
+    "n9_first_error_index": null,
+    "native_current_status": "pass"
+  },
+  "benchmark": "taiji_n10_sparse_migration",
+  "checks": {
+    "backproject_matches_dense": true,
+    "checkpoint_format_is_current": true,
+    "forward_matches_dense": true,
+    "local_update_matches_dense": true,
+    "n7_passes_after_migration": true,
+    "n8_passes_after_migration": true,
+    "n9_passes_after_migration": true,
+    "native_current_passes": true,
+    "no_dense_synapse_tensor": true
+  },
+  "diagnostic_timing": {
+    "native_current_training_seconds": 4.0251896000117995
+  },
+  "epochs": 200,
+  "operator_equivalence": {
+    "backproject_max_abs_error": 0.0,
+    "forward_max_abs_error": 2.9802322387695312e-08,
+    "local_update_max_abs_error": 0.0
+  },
+  "seed": 7,
+  "status": "pass",
+  "storage": {
+    "default_config_storage_projection": {
+      "dense_equivalent_edges": 235312,
+      "edge_density": 0.6035561297341402,
+      "learned_synapse_edges": 142024,
+      "sparse_to_dense_synapse_byte_ratio": 1.2071122594682804
+    },
+    "dense_equivalent_learned_scalars": 138161,
+    "dense_synapse_weight_bytes": 551616,
+    "edge_weight_bytes": 327168,
+    "learned_synapse_edges": 81792,
+    "sparse_synapse_storage_bytes": 654336,
+    "sparse_to_dense_synapse_byte_ratio": 1.186216498433693,
+    "topology_index_bytes": 327168
+  }
+}

@@ -1,4 +1,4 @@
-"""Throwaway: what does rewiring actually cost per accepted replay, per arm?
+"""Historical Native v6: what did rewiring cost per accepted replay, per arm?
 
 ``test_consolidation_rewiring_terminates`` bounds events per accepted replay, but
 the bound was picked from the 384-cycle bout on the M6 benchmark corpus, not from

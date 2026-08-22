@@ -1,4 +1,4 @@
-"""Throwaway: confirm the M6 tests actually fail when the defect is reinstated.
+"""Historical Native v6: confirm tests failed when the defect was reinstated.
 
 A regression test that passes under both the fix and the bug is worse than no
 test at all, because it converts a silent failure into a false assurance.  The

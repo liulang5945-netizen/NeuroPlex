@@ -1,8 +1,8 @@
-# Taiji Native v6 原生场记忆算法
+# Taiji Native v7 原生场记忆算法
 
 > 权威实现：`taiji/memory.py`、`taiji/state.py`、`taiji/model.py`、`taiji/fabric.py`。
 >
-> 状态：M0–M6 已有代码和因果反证；当前限制是巩固读写 basis 的跨 seed 可分性。
+> 状态：M0–M6 已有代码和因果反证；M6 已在 12/12 seed 达到完整 contingency。当前限制是 replay 还没有携带 cue-conditioned 因果顺序。
 
 ## 1. 记忆层级与所有权
 
@@ -12,6 +12,7 @@
 | 膜与局部抑制 | `membrane/threshold/inhibition` | 数 tick | 清除 |
 | 工作 trace | 区域与场的 `trace` | 有限延迟 | 清除 |
 | 预测/转移记忆 | `fabric.decoders/transitions` | 慢突触 | 保留 |
+| 睡眠巩固通路 | `fabric.consolidation_decoders/trace_baselines` | 慢突触 + waking 统计 | 保留 |
 | 动作策略 | `motor.synapses/bias` | 慢突触 | 保留 |
 | 情景场 | `EpisodicField.association/readouts` | 跨 episode 慢突触 | 保留 |
 | 单步动作信用 | `PendingAction` | action→reward | 结算后清除 |
@@ -198,10 +199,10 @@ action 相对两个对照均提升 **62.5 个百分点**。另有独立反证确
 | M3 | 相同当前输入由不同动态历史产生不同正确后继 | PASS（N7） |
 | M4 | 共同干扰后 slow trace 对延迟任务必要且足够 | PASS（N8） |
 | M5 | 分布式情景场优于同宽 trace-only，且 recurrent/read lesion 消除收益 | **PASS** |
-| M6 | 内生 replay 巩固后，切除情景读出仍保留能力 | **PASS（12-seed 面板 10/12，mean gain +0.4583，无 seed 受损）** |
+| M6 | 内生 replay 巩固后，切除情景读出仍保留能力 | **PASS（12/12 seed 均 4/4；control 均 25%；mean gain +0.75）** |
 
-M5/M6 只证明一个 8-event one-shot 微型场及其内生 replay，不证明大容量无干扰记忆、语言情景理解、自传连续性或人脑等价。`write_count` 是诊断计数，不是事件索引；当前代码已有 replay、睡眠巩固选择和受门控结构重连，但 signed shared-support 与 winner resource 仍只在离线镜像中通过，尚未进入运行态。
+M5/M6 只证明一个 8-event one-shot 微型场及无条件 action→outcome replay，不证明大容量无干扰记忆、语言情景理解、自传连续性、cue-conditioned policy 或人脑等价。`write_count` 是诊断计数，不是事件索引；signed shared-support 与 winner resource 已进入 Native v7 运行态。
 
 ## 9. 当前唯一下一步
 
-离线 12-seed 反证已经通过：K64 signed shared-support + bout-local winner resource retention `0.9` 达到每 seed 4/4，旋转内容 lesion 全为 0/4。下一步把这两个机制一起落入新原生 checkpoint line，并重跑 N4–N11/M5/M6。外部 Python event list、teacher target、per-engram 配额、dense attention 和直接复制 memory weights 到 fabric 仍禁止。
+实现 M7 cue-conditioned consolidation：场的内生 replay 必须恢复 cue、action、outcome 的顺序并经同一 fabric 沉淀；切除 episodic readout 后，cue 仍应导向正确 action，随后 action 导向 outcome。外部 Python event list、teacher action、per-engram 配额、dense attention 和 memory-weight 复制仍禁止。

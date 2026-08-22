@@ -90,6 +90,7 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
     assert all(tensor.requires_grad is False for tensor in after)
     synapses = (
         *model.fabric.decoders,
+        *model.fabric.consolidation_decoders,
         *model.fabric.transitions,
         *model.fabric.laterals,
         model.motor.synapses,
@@ -125,6 +126,13 @@ def test_learning_is_local_masked_and_has_no_autograd_parameters() -> None:
         assert torch.unique(edge_keys).numel() == projection.edge_count
         assert torch.isfinite(projection.edge_weight).all()
 
+    for projection in model.fabric.consolidation_decoders:
+        assert projection.row_fan_in == projection.in_features
+        assert torch.count_nonzero(projection.edge_weight) == 0
+        expected = torch.arange(projection.in_features, dtype=torch.int32)
+        for row in projection.pre_index.cpu():
+            assert torch.equal(torch.sort(row).values, expected)
+
 
 def test_motor_receptors_cover_every_cortical_coordinate_once() -> None:
     model = Taiji(_config())
@@ -143,6 +151,59 @@ def test_motor_receptors_cover_every_cortical_coordinate_once() -> None:
             torch.sort(motor.pre_index[post].cpu()).values,
             torch.arange(model.config.motor_context_dim, dtype=torch.int32),
         )
+
+
+def test_consolidation_rng_does_not_shift_existing_organs() -> None:
+    left = Taiji(_config())
+    alternate = TaijiConfig(
+        **{
+            **_config().to_dict(),
+            "consolidation_seed_offset": 4099,
+        }
+    )
+    right = Taiji(alternate)
+
+    left_existing = (
+        *left.fabric.decoders,
+        *left.fabric.transitions,
+        *left.fabric.laterals,
+        left.motor.synapses,
+        left.memory.association,
+        left.memory.action_readout,
+        left.memory.outcome_readout,
+    )
+    right_existing = (
+        *right.fabric.decoders,
+        *right.fabric.transitions,
+        *right.fabric.laterals,
+        right.motor.synapses,
+        right.memory.association,
+        right.memory.action_readout,
+        right.memory.outcome_readout,
+    )
+    for original, changed in zip(left_existing, right_existing):
+        assert torch.equal(original.pre_index, changed.pre_index)
+        assert torch.equal(original.edge_weight, changed.edge_weight)
+
+
+def test_waking_baseline_is_checkpointed_and_reset_invariant() -> None:
+    model = Taiji(_config())
+    initial = tuple(value.clone() for value in model.fabric.trace_baselines)
+    for symbol in b"baseline traffic":
+        model.observe(symbol, learn=True)
+    learned = tuple(value.clone() for value in model.fabric.trace_baselines)
+    assert any(not torch.equal(a, b) for a, b in zip(initial, learned))
+
+    model.reset_dynamics(episode_id="baseline-reset")
+    assert all(
+        torch.equal(a, b)
+        for a, b in zip(learned, model.fabric.trace_baselines)
+    )
+    restored = Taiji.from_checkpoint(model.checkpoint())
+    assert all(
+        torch.equal(a, b)
+        for a, b in zip(learned, restored.fabric.trace_baselines)
+    )
 
 
 def test_checkpoint_preserves_learning_state_and_exact_next_step() -> None:

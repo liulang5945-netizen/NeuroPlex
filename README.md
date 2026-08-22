@@ -12,7 +12,7 @@
 | Name | Meaning |
 |---|---|
 | **Seed** | the project and model-level organism; distribution/package `seed` |
-| **Taiji** / Taiji Predictive Fabric (TPF) | Seed's computational substrate replacing the Transformer; package `taiji/`, current checkpoint line Native v6 |
+| **Taiji** / Taiji Predictive Fabric (TPF) | Seed's computational substrate replacing the Transformer; package `taiji/`, current checkpoint line Native v7 |
 | **Legacy NeuroPlex** | the frozen Transformer baseline in `neuroplex/`; the replaced bottom layer is `neuroplex/layers.py::TransformerBlock` |
 | `taiji.*` in `scripts/archive/` | a historical import alias for `neuroplex`, not this substrate |
 
@@ -30,7 +30,7 @@ raw byte receptors
   → emitted action returns as the next sensation
 ```
 
-| Transformer responsibility | Taiji Native v6 |
+| Transformer responsibility | Taiji Native v7 |
 |---|---|
 | tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
 | positional encoding | causal ticks and persistent state |
@@ -103,7 +103,7 @@ The complete tensor shapes, update order, state contract, complexity, and code m
 
 ```bash
 python -m pip install -e ".[dev]"
-python scripts/training/verify_taiji_native_v5.py
+python scripts/training/verify_taiji_native_v7.py
 python scripts/training/verify_taiji_n7_context.py
 python scripts/training/verify_taiji_n8_delayed_trace.py
 python scripts/training/verify_taiji_n9_long_free_run.py
@@ -136,14 +136,14 @@ The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
 | Metric | Result |
 |---|---:|
-| active learned parameters | 62,529 |
+| active learned parameters | 83,841 |
 | fixed motor receptor edges | 224 (one per cortical coordinate) |
-| actual learned scalar storage | 62,529 |
-| dense-equivalent learned scalars | 112,241 |
-| learned compressed topology | 62,272 int32 pre-indices |
+| actual learned scalar storage | 83,841 |
+| dense-equivalent learned scalars | 138,161 |
+| learned compressed topology | 81,792 int32 pre-indices |
 | byte-cycle accuracy | 0% → 94.12% |
-| mean surprise | 5.4041 → 0.1090 |
-| surprise reduction | 97.98% |
+| mean surprise | 5.4041 → 0.1069 |
+| surprise reduction | 98.02% |
 | free generation | `a → bcdabcda` (all eight steps correct) |
 | checkpoint exact-next-step | pass |
 
@@ -159,7 +159,7 @@ N11 separates external sensation from action credit. On a two-cue environment wh
 
 M5 stores eight one-shot active episodes in one shared 128-unit field. Writing uses a singleton demonstrated affordance with fabric/motor learning disabled; querying opens two actions, so this isolates associative recall rather than action discovery. Cross-episode action recall is 87.5%, versus 25% for equal-width trace-only execution and 25% after recurrent-association lesion. Outcome and provenance recall are 100%, episode identity is 75%, mean time-code cosine is 0.519, and recalled cortical state measurably changes the next fabric tick. The field allocates zero per-event slots.
 
-Reports: [Native v5](reports/taiji_native_v5_20260821.json), [M5 episodic field](reports/taiji_m5_episodic_field_20260821.json), [M6 endogenous replay](reports/taiji_m6_endogenous_replay_20260821.json), [M6 seed panel](reports/taiji_m6_seed_panel_20260821.json), [N11 active environment](reports/taiji_n11_active_environment_20260821.json), [N10 sparse migration](reports/taiji_n10_sparse_migration_20260821.json), [N7 context](reports/taiji_n7_context_20260821.json), [N8 delayed trace](reports/taiji_n8_delayed_trace_20260821.json), and [N9 free run](reports/taiji_n9_long_free_run_20260821.json). Native v2–v4 reports remain migration references.
+Current reports: [Native v7](reports/taiji_native_v7_20260822.json), [M6 v7 seed panel](reports/taiji_m6_seed_panel_v7_20260822.json), [N10 v7 regression](reports/taiji_n10_v7_20260822.json), [N11 v7](reports/taiji_n11_v7_20260822.json), and [M5 v7](reports/taiji_m5_v7_20260822.json). Earlier Native v2–v6 reports remain migration evidence.
 
 A single seed cannot separate a mechanism change from seed-specific idiosyncrasy, so mechanism-level decisions read the M6 seed panel (`verify_taiji_m6_endogenous_replay.py --panel`, 12 seeds) rather than one run, and a baseline is always re-executed from a clean worktree instead of read out of a committed report.
 
@@ -181,7 +181,7 @@ taiji/
 └── model.py     observe, learn, score, generate, checkpoint
 
 tests/taiji_native/                 native architecture contracts
-scripts/training/verify_taiji_native_v5.py
+scripts/training/verify_taiji_native_v7.py
 scripts/training/verify_taiji_m5_episodic_field.py
 scripts/training/verify_taiji_n10_sparse_migration.py
 scripts/training/verify_taiji_n11_active_environment.py
@@ -205,7 +205,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-M6 endogenous replay transfers contingency structure into the fabric. The next read/write mechanism has now passed its offline gate: a K64 signed shared-support decoder plus a sleep-bout resource on the endogenous replay winner reached 4/4 positive margins on every seed in the 12-seed panel; rotated-content lesions reached 0/4 throughout. Retention `0.9` had the strongest worst-case margin. The current task is to implement that mechanism as a new native Taiji checkpoint line and rerun N4–N11/M5/M6, still without teacher targets, dense attention, event slots or per-engram quotas.
+Native v7 now implements a slow signed shared-support consolidation pathway beside the fast sparse predictor. A waking-only baseline defines signed eligibility; each endogenous replay winner owns a bout-local resource retained at `0.9`; a dedicated RNG stream prevents the new pathway from shifting existing organs. The strict M6 panel now reaches 4/4 on all 12 seeds, while every no-replay control stays at chance (25%). The next falsification target is M7: replay must transfer a cue-conditioned `cue → action → outcome` chain into cortex so action choice survives episodic readout lesion; action→outcome alone is not yet a context-dependent policy or world model.
 
 ## License
 

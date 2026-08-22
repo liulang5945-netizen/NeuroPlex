@@ -1,4 +1,4 @@
-"""Throwaway diagnostic: does replay coverage explain which pair fails to learn?
+"""Historical Native v6: did replay coverage explain which pair failed?
 
 The plan's next step assumes ``priority`` lets a few engrams monopolise
 rehearsal, and that the starved pair is the one the probe cannot read back.  An
