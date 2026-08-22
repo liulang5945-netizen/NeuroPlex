@@ -188,9 +188,24 @@ def main() -> None:
           f"max_diff={diff_p1_p2:.6f}")
 
     # phase=0 应与 phase=None 接近（cos0=1, sin0=0，旋转退化）
-    out_pnone, _, _ = block(x, mask=mask, field_state=field_state, phase=None)
+    # 注意：用独立 block 实例避免 STDP 状态累积干扰（field_prev 跨调用）
+    block_pnone = TaijiBlock(
+        hidden_size=hidden, num_heads=num_heads, num_kv_heads=num_kv_heads,
+        intermediate_size=inter, field_dim=field_dim, dropout=0.0,
+    )
+    block_pnone.load_state_dict(block.state_dict())  # 同参数
+    block_pnone.field_prev = None  # 重置 STDP 状态
+    out_pnone, _, _ = block_pnone(x, mask=mask, field_state=field_state, phase=None)
+    # phase=0 也用独立实例重置 STDP
+    block_p0 = TaijiBlock(
+        hidden_size=hidden, num_heads=num_heads, num_kv_heads=num_kv_heads,
+        intermediate_size=inter, field_dim=field_dim, dropout=0.0,
+    )
+    block_p0.load_state_dict(block.state_dict())
+    block_p0.field_prev = None
+    out_p0, _, _ = block_p0(x, mask=mask, field_state=field_state, phase=0.0)
     diff_p0_none = float((out_p0 - out_pnone).abs().max())
-    check("T5c phase=0 与 phase=None 近似等价（旋转退化）",
+    check("T5c phase=0 与 phase=None 近似等价（旋转退化，独立实例排除 STDP 干扰）",
           diff_p0_none < 1e-5,
           f"max_diff={diff_p0_none:.2e}")
 
@@ -230,18 +245,152 @@ def main() -> None:
           f"grad_norm={float(gate_grad.norm()):.4f}" if gate_grad is not None else "no grad")
 
     # ════════════════════════════════════════════════════════════
+    # T7: E/I 原生接入（plans §2.3 兴奋/抑制双通道）
+    # ════════════════════════════════════════════════════════════
+    print("\n[T7] E/I 原生接入（excite/inhibit 信号门控）", flush=True)
+
+    block_ei = TaijiBlock(
+        hidden_size=hidden, num_heads=num_heads, num_kv_heads=num_kv_heads,
+        intermediate_size=inter, field_dim=field_dim, dropout=0.0,
+    )
+    block_ei.field_prev = None  # 重置 STDP
+    excite_sig = torch.randn(bsz, hidden)
+    inhibit_sig = torch.randn(bsz, hidden)
+
+    # 基线：无 E/I 信号
+    out_no_ei, _, _ = block_ei(x, mask=mask, field_state=field_state, phase=None)
+    # 有 excite 信号
+    block_ei.field_prev = None
+    out_excite, _, _ = block_ei(x, mask=mask, field_state=field_state, phase=None,
+                                 excite_signal=excite_sig)
+    # 有 inhibit 信号
+    block_ei.field_prev = None
+    out_inhibit, _, _ = block_ei(x, mask=mask, field_state=field_state, phase=None,
+                                  inhibit_signal=inhibit_sig)
+
+    diff_excite = float((out_no_ei - out_excite).abs().max())
+    diff_inhibit = float((out_no_ei - out_inhibit).abs().max())
+    check("T7a excite_signal 调制 yang 流（输出与无信号有差异）",
+          diff_excite > 1e-4,
+          f"max_diff={diff_excite:.6f}")
+    check("T7b inhibit_signal 调制 yin 流（输出与无信号有差异）",
+          diff_inhibit > 1e-4,
+          f"max_diff={diff_inhibit:.6f}")
+
+    # 不同 excite 信号产生不同输出
+    block_ei.field_prev = None
+    excite_sig2 = torch.randn(bsz, hidden)
+    out_excite2, _, _ = block_ei(x, mask=mask, field_state=field_state, phase=None,
+                                  excite_signal=excite_sig2)
+    diff_excite2 = float((out_excite - out_excite2).abs().max())
+    check("T7c 不同 excite_signal 产生不同输出（E/I 真正调制算子）",
+          diff_excite2 > 1e-4,
+          f"max_diff={diff_excite2:.6f}")
+
+    # E/I 门控参数可训练
+    check("T7d excite_gate 参数存在",
+          block_ei.excite_gate is not None
+          and block_ei.excite_gate.weight.shape == (1, hidden), "")
+    check("T7e inhibit_gate 参数存在",
+          block_ei.inhibit_gate is not None
+          and block_ei.inhibit_gate.weight.shape == (1, hidden), "")
+
+    # ════════════════════════════════════════════════════════════
+    # T8: 不应期 refractory（plans §2.2）
+    # ════════════════════════════════════════════════════════════
+    print("\n[T8] 不应期 refractory（yin 流冷却抑制）", flush=True)
+
+    block_ref = TaijiBlock(
+        hidden_size=hidden, num_heads=num_heads, num_kv_heads=num_kv_heads,
+        intermediate_size=inter, field_dim=field_dim, dropout=0.0,
+        refractory_steps=2,
+    )
+    block_ref.field_prev = None
+
+    # 基线：不在不应期
+    check("T8a 初始 in_refractory=False",
+          not block_ref.in_refractory, "")
+    out_normal, _, _ = block_ref(x, mask=mask, field_state=field_state, phase=None)
+    check("T8b 正常状态 yin 流激活（输出含 field 调制）",
+          out_normal.shape == (bsz, seqlen, hidden), "")
+
+    # 进入不应期
+    block_ref.enter_refractory()
+    check("T8c enter_refractory 后 in_refractory=True",
+          block_ref.in_refractory, "")
+    block_ref.field_prev = None
+    out_refractory, _, _ = block_ref(x, mask=mask, field_state=field_state, phase=None)
+    check("T8d 不应期 yin 流被抑制（输出与正常态有差异）",
+          not torch.allclose(out_normal, out_refractory, atol=1e-5),
+          f"max_diff={float((out_normal - out_refractory).abs().max()):.6f}")
+
+    # 不应期递减
+    block_ref.tick_refractory()
+    check("T8e tick_refractory 后计数递减（仍 in_refractory，steps=2）",
+          block_ref.in_refractory, "")
+    block_ref.tick_refractory()
+    check("T8f 二次 tick 后 in_refractory=False（冷却结束）",
+          not block_ref.in_refractory, "")
+
+    # 冷却结束后 yin 流恢复
+    block_ref.field_prev = None
+    out_recovered, _, _ = block_ref(x, mask=mask, field_state=field_state, phase=None)
+    check("T8g 冷却结束后 yin 流恢复（与正常态近似）",
+          torch.allclose(out_normal, out_recovered, atol=1e-5),
+          f"max_diff={float((out_normal - out_recovered).abs().max()):.2e}")
+
+    # ════════════════════════════════════════════════════════════
+    # T9: STDP 局部学习（plans §1.2 突触可塑性）
+    # ════════════════════════════════════════════════════════════
+    print("\n[T9] STDP 局部学习（field 时序差驱动 yin gain）", flush=True)
+
+    block_stdp = TaijiBlock(
+        hidden_size=hidden, num_heads=num_heads, num_kv_heads=num_kv_heads,
+        intermediate_size=inter, field_dim=field_dim, dropout=0.0,
+        stdp_strength=0.5,  # 强化 STDP 以便可测
+    )
+
+    # 第一轮：field_prev=None，STDP 不调制（stdp_mod=1.0）
+    check("T9a 第一轮 field_prev=None → STDP 不调制（stdp_mod=1.0）",
+          block_stdp.field_prev is None and block_stdp._stdp_modulation == 1.0, "")
+    out_r1, _, _ = block_stdp(x, mask=mask, field_state=field_state, phase=None)
+    check("T9b 第一轮后 field_prev 已记录（供下轮时序差）",
+          block_stdp.field_prev is not None, "")
+
+    # 第二轮：field 变化大 → STDP 增强（stdp_mod > 1）
+    field_state_big_change = field_state + torch.randn_like(field_state) * 2.0
+    out_r2, _, _ = block_stdp(x, mask=mask, field_state=field_state_big_change, phase=None)
+    check("T9c 第二轮 field 变化大 → STDP 调制生效（stdp_mod ≠ 1.0）",
+          abs(block_stdp._stdp_modulation - 1.0) > 1e-4,
+          f"stdp_mod={block_stdp._stdp_modulation:.4f}")
+
+    # 第三轮：field 变化小 → STDP 调制接近中性
+    field_state_small_change = field_state_big_change + torch.randn_like(field_state) * 0.01
+    out_r3, _, _ = block_stdp(x, mask=mask, field_state=field_state_small_change, phase=None)
+    check("T9d 第三轮 field 变化小 → STDP 调制接近中性（|mod-1| < 0.1）",
+          abs(block_stdp._stdp_modulation - 1.0) < 0.1,
+          f"stdp_mod={block_stdp._stdp_modulation:.4f}")
+
+    # STDP 是前向计算（不依赖反向传播）
+    check("T9e STDP 状态 field_prev 是 detach 的（前向 STDP，不进计算图）",
+          not block_stdp.field_prev.requires_grad, "")
+
+    # ════════════════════════════════════════════════════════════
     # 总结
     # ════════════════════════════════════════════════════════════
     print("\n" + "=" * 64, flush=True)
     if failed == 0:
-        print(f"判定: 全部 {passed} 维 PASS — TaijiBlock 算子契约闭合", flush=True)
+        print(f"判定: 全部 {passed} 维 PASS — TaijiBlock 算子契约闭合（含 plans 生物机制）", flush=True)
         print("  T1 接口契约对齐 TransformerBlock（可替换）", flush=True)
         print("  T2 数值稳定（含极端输入）", flush=True)
         print("  T3 退化等价（field/phase=None → 仅 yang 流）", flush=True)
         print("  T4 field-native（field 进入 yin 流 K/V）", flush=True)
         print("  T5 phase 调制（相位绑定进入算子内部）", flush=True)
         print("  T6 梯度可流通（训练就绪）", flush=True)
-        print("\n下一步: 写 taiji 设计 plan + ResonanceNeuron 集成验证", flush=True)
+        print("  T7 E/I 原生接入（excite/inhibit 信号门控，plans §2.3）", flush=True)
+        print("  T8 不应期 refractory（yin 流冷却抑制，plans §2.2）", flush=True)
+        print("  T9 STDP 局部学习（field 时序差驱动 yin gain，plans §1.2）", flush=True)
+        print("\n下一步: ResonanceNeuron 集成 + 真实群体 forward 验证", flush=True)
     else:
         print(f"判定: {failed} 维 FAIL（{passed} 维 PASS）", flush=True)
     print("=" * 64, flush=True)

@@ -322,6 +322,13 @@ class TaijiBlock(nn.Module):
         # taiji 特有
         yin_num_heads: Optional[int] = None,
         taiji_gate_init: float = 0.0,
+        # ── 生物机制（plans 对齐）──
+        # 不应期：发放后冷却 N 轮，冷却期 yin 流（field 共振读取）抑制
+        # 对齐 DESIGN_PRINCIPLES §2.2"不应期 refractory_counter"
+        refractory_steps: int = 2,
+        # STDP 局部学习强度：field 时序差驱动 yin gain 调制
+        # 对齐 DESIGN_PRINCIPLES §1.2"突触可塑性 STDP 局部学习规则"
+        stdp_strength: float = 0.1,
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -350,10 +357,21 @@ class TaijiBlock(nn.Module):
             # 初始化为 taiji_gate_init（默认 0 → sigmoid(0)=0.5 均衡起点）
             self.taiji_gate = nn.Linear(hidden_size, 1, bias=True)
             nn.init.constant_(self.taiji_gate.bias, taiji_gate_init)
+
+            # ── E/I 原生接入（plans §2.3 兴奋/抑制双通道）──
+            # excite_signal 调制 yang 流（兴奋→放大局部驱动）
+            # inhibit_signal 调制 yin 流（抑制→衰减全局共振）
+            # 信号是 [B, hidden] 或标量，经投影成 per-position gate
+            self.excite_gate = nn.Linear(hidden_size, 1, bias=True)
+            self.inhibit_gate = nn.Linear(hidden_size, 1, bias=True)
+            nn.init.constant_(self.excite_gate.bias, 0.0)   # sigmoid(0)=0.5 中性起点
+            nn.init.constant_(self.inhibit_gate.bias, 0.0)
         else:
             self.yin_resonance = None
             self.yin_norm = None
             self.taiji_gate = None
+            self.excite_gate = None
+            self.inhibit_gate = None
 
         # ── FFN（复用 layers.SwiGLU，保持 ffn_gain 调质接口）──
         self.feed_forward = SwiGLU(hidden_size, intermediate_size)
@@ -362,6 +380,21 @@ class TaijiBlock(nn.Module):
 
         # 标记（与 TransformerBlock 兼容）
         self.dendritic = self.has_yin  # has_yin 时行为类似 dendritic=True
+
+        # ── 不应期状态（plans §2.2）──
+        # refractory_counter > 0 时 yin 流不激活（field 共振读取被抑制）
+        # 模拟"不应期神经元只读场不写场"在算子层的表达：
+        # 不应期 → 不参与群体共振（yin 流关闭），只走局部 yang 流
+        self.refractory_steps = refractory_steps
+        self.register_buffer("refractory_counter", torch.zeros(1, dtype=torch.long),
+                             persistent=False)
+
+        # ── STDP 局部学习状态（plans §1.2）──
+        # field_prev: 上一轮 field_state（detach，前向 STDP 不依赖反向传播）
+        # stdp_modulation: 当前 STDP 调制量（field 时序差驱动 yin gain）
+        self.stdp_strength = stdp_strength
+        self.register_buffer("field_prev", None, persistent=False)
+        self._stdp_modulation = 1.0  # 默认中性（无 STDP 调制）
 
     def forward(
         self,
@@ -375,6 +408,11 @@ class TaijiBlock(nn.Module):
         return_attn_weights: bool = False,
         # taiji 特有（可选，向后兼容 TransformerBlock 调用）
         phase: Optional[float] = None,
+        # ── E/I 原生接入（plans §2.3）──
+        # excite_signal: [B, hidden] 兴奋信号（调制 yang 流，放大局部驱动）
+        # inhibit_signal: [B, hidden] 抑制信号（调制 yin 流，衰减全局共振）
+        excite_signal: Optional[torch.Tensor] = None,
+        inhibit_signal: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]], Optional[torch.Tensor]]:
         """Taiji 块前向。
 
@@ -388,39 +426,109 @@ class TaijiBlock(nn.Module):
             field_state: [B, D] 或 [B, S, D] 全局场状态（yin 流 KV 来源）
             return_attn_weights: 返回 yang 流 attention 权重（兼容性对齐实验）
             phase: yin 流旋转角（弧度），None 退化为实数 cross-attention
+            excite_signal: [B, hidden] 兴奋信号（E/I 原生接入，调制 yang 流）
+            inhibit_signal: [B, hidden] 抑制信号（E/I 原生接入，调制 yin 流）
 
         Returns:
             (x_out, new_kv_cache, attn_weights)
             与 TransformerBlock.forward 返回结构对齐。
         """
+        # ── 不应期检查（plans §2.2）──
+        # in_refractory 时 yin 流不激活（field 共振读取被抑制）
+        # 只走局部 yang 流，模拟"不应期神经元不参与群体共振"
+        in_refractory = bool(self.refractory_counter.item() > 0)
+
+        # ── STDP 局部学习（plans §1.2）──
+        # field 时序差驱动 yin gain 调制（前向 STDP，非反向传播）
+        # delta_field 大（field 变化大）→ STDP 增强 → yin gain 提升
+        # delta_field 小（field 稳定）→ STDP 衰减 → yin gain 降低
+        stdp_mod = 1.0
+        if (self.has_yin and field_state is not None
+                and self.field_prev is not None and self.stdp_strength > 0):
+            # field 时序差范数（normalized to [0, ~2]）
+            delta = field_state - self.field_prev
+            delta_norm = float(delta.norm().item()) / max(
+                float(field_state.norm().item()), 1e-6)
+            # STDP 调制：以 delta_norm=0 为中性点（无变化→无调制）
+            # delta_norm > 0（field 变化）→ mod > 1（增强突触）
+            # delta_norm = 0（field 稳定）→ mod = 1（中性，不调制）
+            # 用 tanh 限幅，避免发散
+            stdp_mod = 1.0 + self.stdp_strength * math.tanh(delta_norm)
+            self._stdp_modulation = stdp_mod
+
         # ── Yang 流：causal token attention ──
         yang_out, attn_weights = self.yang_attn(
             self.yang_norm(x), mask=mask,
             temp_gain=temp_gain, return_attn_weights=return_attn_weights,
         )
 
-        # ── Yin 流：field-coupled resonance（field_state 非 None 才激活）──
-        if self.has_yin and field_state is not None:
+        # ── E/I 原生接入：excite_signal 调制 yang 流（plans §2.3）──
+        # excite_gate ∈ (0,1)：兴奋信号强 → yang 流放大（局部驱动增强）
+        if self.has_yin and excite_signal is not None:
+            # excite_signal [B, hidden] → 广播到 [B, L, hidden] → gate [B, L, 1]
+            es = excite_signal.unsqueeze(1).expand(-1, x.shape[1], -1)
+            excite_g = torch.sigmoid(self.excite_gate(es))  # [B, L, 1]
+            # excite_g=0.5 中性（sigmoid(0)），>0.5 放大，<0.5 衰减
+            yang_out = yang_out * (2.0 * excite_g)
+
+        # ── Yin 流：field-coupled resonance ──
+        # 激活条件：has_yin + field_state 非 None + 不在不应期
+        yin_active = self.has_yin and field_state is not None and not in_refractory
+        if yin_active:
             yin_out, _ = self.yin_resonance(
                 self.yin_norm(x), field_state=field_state,
                 phase=phase, temp_gain=temp_gain,
                 return_attn_weights=return_attn_weights,
             )
+
+            # ── E/I 原生接入：inhibit_signal 调制 yin 流（plans §2.3）──
+            # inhibit_gate ∈ (0,1)：抑制信号强 → yin 流衰减（全局共振被抑制）
+            if inhibit_signal is not None:
+                is_ = inhibit_signal.unsqueeze(1).expand(-1, x.shape[1], -1)
+                inhibit_g = torch.sigmoid(self.inhibit_gate(is_))  # [B, L, 1]
+                # inhibit_g=0.5 中性，>0.5 衰减，<0.5 放大
+                yin_out = yin_out * (2.0 * (1.0 - inhibit_g))
+
+            # ── STDP 调制 yin gain（plans §1.2）──
+            yin_out = yin_out * stdp_mod
+
             # 太极门控融合：gate ∈ (0,1) 决定 yang/yin 权重
-            # gate = sigmoid(taiji_gate(x))  → yang 权重 = gate, yin 权重 = 1-gate
-            # （互斥融合：yang 强时 yin 让位，反之亦然）
             gate = torch.sigmoid(self.taiji_gate(x))  # [B, L, 1]
             fused = gate * yang_out + (1.0 - gate) * yin_out
             x = x + self.resid_dropout(fused)
         else:
-            # 退化路径：无 yin 流（field_state=None 或未配置 field_dim）
+            # 退化路径：无 yin 流（field_state=None / 未配置 / 不应期）
             x = x + self.resid_dropout(yang_out)
 
         # ── FFN（与 TransformerBlock 一致）──
         x = x + self.resid_dropout(self.feed_forward(self.ffn_norm(x), gain=ffn_gain))
 
+        # ── STDP 状态更新：记录本轮 field_state 供下轮时序差计算 ──
+        if self.has_yin and field_state is not None and self.stdp_strength > 0:
+            self.field_prev = field_state.detach().clone()
+
         # kv_cache 接口兼容（本原型不实现，返回 None）
         return x, None, attn_weights
+
+    # ── 不应期控制接口（plans §2.2）──
+    def enter_refractory(self, steps: Optional[int] = None) -> None:
+        """进入不应期：设置冷却计数。发放（field_write）后由神经元调用。
+
+        Args:
+            steps: 冷却轮数，None 用 self.refractory_steps
+        """
+        n = steps if steps is not None else self.refractory_steps
+        self.refractory_counter.fill_(n)
+
+    def tick_refractory(self) -> None:
+        """不应期计数递减（每轮结束调用）。"""
+        if self.refractory_counter.item() > 0:
+            self.refractory_counter -= 1
+
+    @property
+    def in_refractory(self) -> bool:
+        """是否处于不应期（yin 流被抑制）。"""
+        return bool(self.refractory_counter.item() > 0)
 
 
 __all__ = ["TaijiBlock", "_YangAttention", "_YinResonance"]
