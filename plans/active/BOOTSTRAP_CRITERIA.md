@@ -282,6 +282,21 @@
 
 **当前唯一下一步 → PlayEngine 运行契约修复**：源码级 runtime trace 已确认普通 `Cortex.generate()` 的连续场/相位路径可运行，但 PlayEngine 在进入 neuron 前因迭代器错误退出，且读取字段与 `ResonanceNeuron.forward()` 契约不一致。当前执行顺序以 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) 和 [NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md](NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820.md) 为准：先修复 PlayEngine 并用回归 trace 确认 replay 边界，再决定场记忆自动捕获和后续训练。
 
+> **✅ PlayEngine 运行契约修复落地（2026-08-20）**：§NEUROPLEX_MECHANISM_RUNTIME_MAP_20260820 §13 唯一下一步已实现。三处源码修复（`neuroplex/life/play_engine.py::_free_resonance_session`）：
+>
+> | 编号 | 修复 | 旧实现 | 新实现 |
+> |---|---|---|---|
+> | R-PE-1 | line 211 迭代器 bug | `next(self._cortex.neurons.values())` 抛 TypeError 被外层吞 → PlayEngine 永远返回 None | `next(iter(self._cortex.neurons.values()))` |
+> | R-PE-2 | 共振信号源 | 直调 `neuron.forward()` 读不存在的 `output['resonance_score']` | 走 `cortex.think(collab_mode="continuous")`，共振分来自 `final_scores` |
+> | R-PE-3 | field_state 来源 | 读不存在的 `neuron._last_field_state` | `cortex.get_last_field_state()`（真实任务场） |
+>
+> **回归验证**：
+> - `verify_play_engine_contract_mock.py`（无需 checkpoint）**13/13 PASS** — 4 场景全过（final_scores 全正 / 空 / field_state=None / coaction 接线）
+> - 源码级 inspect 检查 PASS — 三处修复点在代码中，三处旧断裂契约已移除
+> - `verify_play_engine_runtime_contract.py`（5 维判据 + 行级 trace）**待用户在含 9 成员 checkpoint 的环境运行**
+>
+> **新的唯一下一步**：用户运行 `verify_play_engine_runtime_contract.py` 确认生产路径 5/5 PASS 后，再决定场记忆自动捕获（普通 `Cortex.generate()` 自动 record_field_memory）和 coaction 连续路径补全（`continuous_forward` 内调 `coaction.update()`）的优先级与实现顺序。
+
 **D1-fix v3 阶段性（已落 plan，等用户决策 v4）**：方案 B 已实现并跑 1000 步（3/5 PASS，dialogue 0.8679 < 0.90 仍 FAIL；knowledge +0.0920 / unfamiliar +0.0756 比原 D1 改善；LoRA 16.84→18.76）。**下一步候选**（用户决策）：a) v4 hysteresis + LoRA ceiling；b) 调高 decay_min_relative_ratio（0.95→0.97 / 0.99 让 SKIP 更难触发）；c) 接受 v3 阶段性成果（k/u 已大幅改善）继续其他线路。
 
 **历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。**已完成 D1 首测 + D1-fix v3**：knowledge std ratio 0.7517 / unfamiliar 0.8047 < 0.90 → v3 改善至 0.8437 / 0.8803，但 dialogue 反退至 0.8679。**D1 完整 PASS 仍差一维**——v4 待定。

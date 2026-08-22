@@ -465,3 +465,39 @@ TypeError: 'dict_values' object is not an iterator
 
 本步骤只修复运行线路和验证，不启动训练、不改变 9 成员生产权重；场记忆自动捕获和 coaction
 连续路径补全要等这条真实 replay 边界重新跑通后再定。
+
+## 14. PlayEngine 运行契约修复落地（2026-08-20）
+
+§13 唯一下一步已实现并验证。三处源码修复（`neuroplex/life/play_engine.py::_free_resonance_session`）：
+
+| 编号 | 修复点 | 旧实现（断裂） | 新实现（闭合） |
+|---|---|---|---|
+| **R-PE-1** | line 211 迭代器 bug | `next(self._cortex.neurons.values())` 抛 `TypeError: 'dict_values' object is not an iterator`，被外层 except 吞掉 → PlayEngine 永远返回 None | `next(iter(self._cortex.neurons.values()))` |
+| **R-PE-2** | 共振信号源 | 直调 `neuron.forward(shared_emb)` 读 `output['resonance_score']`（§3.3 确认 ResonanceNeuron.forward 不产出此字段）→ activated_neurons 永远为空、coaction / replay 永不触发 | 走 `cortex.think(shared_embeddings=shared_emb, collab_mode="continuous")`，共振分来自 `result["final_scores"]`（per-neuron 时间平均激活），按群体内 max 归一化到 [0,1] 与原 0.3/0.5 阈值语义对齐 |
+| **R-PE-3** | field_state 来源 | 读 `neuron._last_field_state`（§3.3 确认 forward 不写该属性）→ record_high_resonance_state 即使触发也写入 None | `cortex.get_last_field_state()`（取 `ensemble._get_task_field()`，即真实线程本地任务场，§2.1 所有权结论） |
+
+### 14.1 回归验证
+
+| 脚本 | 依赖 | 结果 |
+|---|---|---|
+| `scripts/training/verify_play_engine_contract_mock.py` | 无需 checkpoint（mock cortex） | **13/13 PASS** — 4 场景全过：① final_scores 全正 → record 调用 + field_state 非空张量；② final_scores 空 → 低质量活动不抛；③ field_state=None → record 跳过不抛；④ coaction 接线 → update 收 ≥2 active_ids |
+| `scripts/training/verify_play_engine_runtime_contract.py` | 9 成员 production checkpoint（`data/neurons` + `data/foundation_v1_dual` + `collab_v3_c24v2.ckpt.pt`） | **待用户在含 checkpoint 的环境运行** — 5 维判据：C1 行级 trace 无 TypeError；C2 cortex.think 被调用；C3 final_scores 非空；C4 返回非 None PlayActivity；C5 record_high_resonance_state 调用且 field_state 非空 |
+| 源码级 inspect 检查 | 无依赖 | **PASS** — `next(iter(` / `cortex.think(` / `get_last_field_state()` 三处修复点均在代码中；`neuron._last_field_state` / `output.get('resonance_score'` / `next(self._cortex.neurons.values())` 三处旧断裂契约已从代码中移除（仅余注释中的解释性引用） |
+
+### 14.2 行级 trace 回归守卫
+
+`diag_runtime_mechanism_trace.py` 用 `sys.settrace()` 记录 `_free_resonance_session` 的所有行号 + 异常事件；新版 `verify_play_engine_runtime_contract.py` 在此基础上新增 5 维判据，使 PlayEngine 不能再"静默回归"——任何把 `cortex.think()` 改回 `neuron.forward()`、或把 `get_last_field_state()` 改回 `neuron._last_field_state`、或重新引入 `next(dict.values())` 的改动都会被立即判 FAIL。
+
+### 14.3 行为变化边界
+
+- **不影响其他 play engine 验证脚本**：B1/B1-bis/B2/C1/C2/D1/A4/A5 全部直接调 `sleep_engine.record_field_memory()` 和 `sc.record_high_resonance_state()` 手工注入 replay（§8.2 已记录），不依赖 `_free_resonance_session` 内部记录。本修复只让"自动生产路径"开始具备同样的能力。
+- **不写 checkpoint、不训练**：仅推理路径修复，9 成员 production weights 完全不动。
+- **不改变 `play()` 公开接口**：`_free_resonance_session` 仍是 `play()` 候选活动之一，返回 `PlayActivity | None` 的契约不变；只是从"永远 None"变成"按共振强度返回"。
+
+### 14.4 新的唯一下一步
+
+§13 的"修复 PlayEngine 运行契约"已完成。新的下一步收敛为：
+
+> **用户在含 9 成员 checkpoint 的环境运行 `verify_play_engine_runtime_contract.py`，确认生产路径 5/5 PASS 后，再决定场记忆自动捕获（普通 `Cortex.generate()` 自动 record_field_memory）和 coaction 连续路径补全（`continuous_forward` 内调 `coaction.update()`）的优先级与实现顺序。**
+
+场记忆自动捕获与 coaction 连续路径补全仍是 §11 表中两项 ⚠️ 缺口；它们的实现边界取决于本节修复在生产路径上的实测结果。
