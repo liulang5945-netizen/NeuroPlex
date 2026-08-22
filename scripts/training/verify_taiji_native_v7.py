@@ -204,7 +204,7 @@ def run_benchmark(*, epochs: int = 200, seed: int = 7) -> Dict[str, object]:
             "cortical_context_dim": config.cortical_context_dim,
             "motor_receptor_channels": config.motor_context_dim,
             "memory_units": config.memory_units,
-            "memory_context_dim": config.memory_context_dim,
+            "memory_readout_fan_in": config.memory_readout_fan_in,
             "memory_iterations": config.memory_iterations,
             "episodic_write_count_in_passive_benchmark": model.memory.write_count,
             "fixed_receptor_edges": config.cortical_context_dim,

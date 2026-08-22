@@ -18,7 +18,8 @@ def _config() -> TaijiConfig:
         motor_fan_in=48,
         memory_units=128,
         memory_fan_in=32,
-        memory_context_dim=32,
+        memory_meta_dim=32,
+        memory_readout_fan_in=32,
         memory_iterations=3,
         seed=23,
     )

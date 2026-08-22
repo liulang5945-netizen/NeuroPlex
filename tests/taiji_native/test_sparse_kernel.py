@@ -37,7 +37,17 @@ def test_edge_indexed_kernel_matches_dense_reference_for_all_operators() -> None
     weight_decay = 1e-3
     mask = dense_before != 0
     scale = max(1.0, float((presynaptic != 0).sum().item()) ** 0.5)
-    expected = dense_before * (1.0 - weight_decay)
+    # Decay is eligibility gated: an edge decays only when its presynaptic
+    # partner is silent in this plasticity event.  The dense reference must
+    # reproduce that per-contact gate, not a global multiplier.
+    presynaptic_by_edge = presynaptic[synapses.pre_index]
+    silent_by_edge = (presynaptic_by_edge == 0).to(dense_before.dtype)
+    silent_dense = torch.zeros_like(dense_before)
+    posts = torch.arange(synapses.out_features).unsqueeze(1).expand_as(
+        synapses.pre_index
+    )
+    silent_dense[posts, synapses.pre_index] = silent_by_edge
+    expected = dense_before * (1.0 - weight_decay * silent_dense)
     expected.add_(learning_rate * torch.outer(error, presynaptic) / scale * mask)
     expected.mul_(mask)
     norms = expected.norm(dim=1, keepdim=True).clamp_min(1e-8)
@@ -50,6 +60,38 @@ def test_edge_indexed_kernel_matches_dense_reference_for_all_operators() -> None
         weight_decay=weight_decay,
     )
     assert torch.allclose(_dense_view(synapses), expected, atol=1e-6)
+
+
+def test_local_update_decay_touches_only_presynaptically_silent_edges() -> None:
+    generator = torch.Generator().manual_seed(57)
+    synapses = SparseSynapses(
+        out_features=6,
+        in_features=10,
+        fan_in=4,
+        generator=generator,
+        init_scale=0.45,
+        max_weight_norm=2.5,
+    )
+    before = synapses.edge_weight.clone()
+    presynaptic = torch.zeros(10)
+    presynaptic[0] = 1.0  # exactly one lit partner
+
+    # Zero error isolates the decay term.
+    synapses.local_update(
+        torch.zeros(6),
+        presynaptic,
+        learning_rate=0.1,
+        weight_decay=0.5,
+    )
+
+    lit = presynaptic[synapses.pre_index] != 0
+    silent = ~lit
+    assert torch.equal(synapses.edge_weight[lit], before[lit]), (
+        "被本次事件点亮的接触不得被衰减抽走"
+    )
+    assert torch.allclose(
+        synapses.edge_weight[silent], 0.5 * before[silent], atol=1e-6
+    ), "沉默接触必须按衰减率放松"
 
 
 def test_sparse_kernel_stores_only_existing_edges_and_roundtrips() -> None:

@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-08-23 00:38:54",
+  "task": "A2 原生版：仅自我评估驱动的巩固",
+  "checkpoint": "E:\\Seed\\checkpoints\\seed_corpus.pt",
+  "targets": 6,
+  "cycles_per_text": 8,
+  "night_report": {
+    "texts": 6.0,
+    "cycles": 48.0,
+    "accepted": 48.0,
+    "mean_priority": 0.2278102211880726,
+    "mean_confidence": 0.6770189049637593,
+    "mean_error_norm": 1.7898398009883405
+  },
+  "parameter_delta": 1687.2941706478596,
+  "baseline": {
+    "dialogue": {
+      "mean": -3.0717780480269665,
+      "std": 0.24312359250843424
+    },
+    "knowledge": {
+      "mean": -3.2847570487104165,
+      "std": 0.3773190295838565
+    },
+    "unfamiliar": {
+      "mean": -3.4790666493229434,
+      "std": 0.25175024773784255
+    }
+  },
+  "after": {
+    "dialogue": {
+      "mean": -3.3224195913895977,
+      "std": 0.20126041113719745
+    },
+    "knowledge": {
+      "mean": -3.3460464193148747,
+      "std": 0.29392722606999455
+    },
+    "unfamiliar": {
+      "mean": -3.4830624247005906,
+      "std": 0.18844673433418388
+    }
+  },
+  "group_deltas": {
+    "dialogue": -0.2506415433626312,
+    "knowledge": -0.06128937060445816,
+    "unfamiliar": -0.0039957753776471705
+  },
+  "overall_delta": -0.10530889644824493,
+  "criteria": {
+    "finite": true,
+    "no_regression": false,
+    "some_improvement": false,
+    "consolidation_real": true
+  },
+  "a2_pass": false,
+  "elapsed_seconds": 133.29087471961975
+}

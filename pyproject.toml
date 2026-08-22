@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx", "black", "ruff"]
+dev = ["pytest", "httpx", "black", "ruff", "tomli>=2.0.0; python_version < '3.11'"]
 legacy = [
     "transformers>=4.40.0,<5.0.0",
     "huggingface_hub>=0.20.0,<1.0.0",

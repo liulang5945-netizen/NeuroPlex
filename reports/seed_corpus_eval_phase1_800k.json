@@ -1,0 +1,221 @@
+{
+  "timestamp": "2026-08-22 20:17:00",
+  "format": "seed-corpus-eval-v1",
+  "parameters": 422545,
+  "holdout": {
+    "observations": 202142.0,
+    "accuracy": 0.22556420733939508,
+    "mean_surprise": 3.1404695113278556,
+    "byte_ppl": 23.114716932846658
+  },
+  "panel": {
+    "dialogue": {
+      "surprises": [
+        3.6134183843177814,
+        3.1500430417468035,
+        2.853640158800135,
+        3.2164287649570125,
+        2.886153889923522,
+        3.3733909102028403,
+        2.813579214232554,
+        3.1596708293609006
+      ],
+      "mean": 3.133290649192694,
+      "std": 0.2592189365265057
+    },
+    "knowledge": {
+      "surprises": [
+        3.43870904852312,
+        2.8613190319661315,
+        3.514611023554274,
+        2.950083616919752,
+        4.0545228529048005,
+        3.071785999905967,
+        3.3904200962344397,
+        3.1179923215745
+      ],
+      "mean": 3.299930498947873,
+      "std": 0.361052190478837
+    },
+    "unfamiliar": {
+      "surprises": [
+        2.8473258346766426,
+        3.455695749781953,
+        3.483664734190721,
+        3.6318226685635713,
+        3.7130899314283683,
+        3.5731355365079818,
+        3.546266911950343,
+        3.676252157608136
+      ],
+      "mean": 3.4909066905884645,
+      "std": 0.25712121632976326
+    }
+  },
+  "samples": [
+    {
+      "group": "dialogue",
+      "prompt": "你好，请问今天感觉怎么样？",
+      "continuation": "��到�个逜�揀����适\n甖��解中��化名称��下怘a戊�间��与��毞�凨中�觹��",
+      "prompt_surprise": 3.6134183843177814
+    },
+    {
+      "group": "dialogue",
+      "prompt": "能帮我解释一下你最近在想什么吗？",
+      "continuation": "�����闗��booma字���〗、��籮：木环��、����tuein：�每���间侹��-季能��。字��",
+      "prompt_surprise": 3.1500430417468035
+    },
+    {
+      "group": "dialogue",
+      "prompt": "我有点困惑，你能不能换个方式说一下？",
+      "continuation": "�釺�\"��中���下进一��w。\n�。�乴的��R�峨现�叏硙�中I�个顓��送老y別��是��酛",
+      "prompt_surprise": 2.853640158800135
+    },
+    {
+      "group": "dialogue",
+      "prompt": "你刚才说的我没明白，再讲一遍好吗？",
+      "continuation": "现答＼，��1小＀衡����,���晄��子��一m�不��[�户字�刖南風�以丼戸��侇�中��",
+      "prompt_surprise": 3.2164287649570125
+    },
+    {
+      "group": "dialogue",
+      "prompt": "谢谢你的回答，下次见。",
+      "continuation": "�吗����们一万���术�T俘�����个�秎帀�暄����顗师��顏〙��分�尀�簺�，帾���",
+      "prompt_surprise": 2.886153889923522
+    },
+    {
+      "group": "dialogue",
+      "prompt": "你现在心情如何？会累吗？",
+      "continuation": "是�oe垎后檷�嗺��的��小�的一七��，��天皗�的���。",
+      "prompt_surprise": 3.3733909102028403
+    },
+    {
+      "group": "dialogue",
+      "prompt": "我今天遇到了一件不顺心的事，能听我说说吗？",
+      "continuation": "������、邀很��：��.��战名�訇从�的��埛���：尔�,的��的�赼�一��凨闏玡",
+      "prompt_surprise": 2.813579214232554
+    },
+    {
+      "group": "dialogue",
+      "prompt": "可以推荐一本书给我吗？我想读点轻松的内容。",
+      "continuation": "",
+      "prompt_surprise": 3.1596708293609006
+    },
+    {
+      "group": "knowledge",
+      "prompt": "水的沸点是多少？为什么高海拔会降低沸点？",
+      "continuation": "俛�孨吐��!u�中������䗷���仟业渓���8I�M����丸渺�个�其S、䩀���刺�糭����〜��",
+      "prompt_surprise": 3.43870904852312
+    },
+    {
+      "group": "knowledge",
+      "prompt": "请解释一下牛顿第二定律和它的日常应用。",
+      "continuation": "�企��中�个�被�危�衛關��鬌唨、臙��云�P��0. �� 射���������枭��彯����竞寍唹�",
+      "prompt_surprise": 2.8613190319661315
+    },
+    {
+      "group": "knowledge",
+      "prompt": "DNA 双螺旋结构是谁发现的？它如何携带遗传信息？",
+      "continuation": "��q�中�\n1. � �到�牶�la�＂\n�垏���咋������以个宼比��分�刬���减�����客�丿",
+      "prompt_surprise": 3.514611023554274
+    },
+    {
+      "group": "knowledge",
+      "prompt": "什么是光合作用？它在生态系统中起什么作用？",
+      "continuation": "�����后00����",
+      "prompt_surprise": 2.950083616919752
+    },
+    {
+      "group": "knowledge",
+      "prompt": "请简述 HTTPS 与 HTTP 的核心区别。",
+      "continuation": "\n镔�bo绬�埸�����毑列一皜D��寍闖��，地不�鉲��錧　�吣�觡��在公�靟�� m�",
+      "prompt_surprise": 4.0545228529048005
+    },
+    {
+      "group": "knowledge",
+      "prompt": "地球上最大的洋流系统是什么？它如何影响全球气候？",
+      "continuation": "�痯以�I���实��朰�。鐃�\n�鍮游��一����吆䳚\n现彭闍�的��忘�����号�以�",
+      "prompt_surprise": 3.071785999905967
+    },
+    {
+      "group": "knowledge",
+      "prompt": "请解释相对论中时间膨胀的概念。",
+      "continuation": "牋，刦�^在�，�瓠�／����丽��一丸���䭔�闶＼�\n眺�名��侽玅制�：揖����",
+      "prompt_surprise": 3.3904200962344397
+    },
+    {
+      "group": "knowledge",
+      "prompt": "什么是递归？请给出一个递归函数的 Python 示例。",
+      "continuation": "�����诀����筎��K�����仸�朦����室� th�m在8����的����诩���闋鱺�叐个��仰秱、",
+      "prompt_surprise": 3.1179923215745
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "请用古亚述语的楔形文字转写以下句子：他从山上走下来。",
+      "continuation": "朔�����天�这���场���老��学眯�可，传的的��炻��、i到P�����分�4到��大����",
+      "prompt_surprise": 2.8473258346766426
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "解释海洋混合层深度的热焓通量平衡方程。",
+      "continuation": "\n���- �：mae�捖颬�〝����的帺�����中����0��䖝�丈�觃����丸�����3，其在�����",
+      "prompt_surprise": 3.455695749781953
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "在连续变量隐形传态协议中，纠缠态的零差测量如何恢复相干性？",
+      "continuation": "�仴�j����机���物是� 加��，��迂��中＂的�昡��o���������！��决的����",
+      "prompt_surprise": 3.483664734190721
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "紧致单连通黎曼流形上，Yang-Mills 方程的瞬子解如何分类？",
+      "continuation": "�戥�孔�字，�宣中���字���更��愍�，\"�������",
+      "prompt_surprise": 3.6318226685635713
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "贝叶斯神经网络中的 epistemic uncertainty 与 aleatoric uncertainty 有什么区别？",
+      "continuation": "�寑X和忙烳�的疇�大。\n2成���于�中���刋���：���们个�以�朏��闗��一\n糑�",
+      "prompt_surprise": 3.7130899314283683
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "描述超新星遗迹中非热 X 射线辐射的同步辐射模型参数空间。",
+      "continuation": "",
+      "prompt_surprise": 3.5731355365079818
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "在范畴论中，adjunction 的 unit 和 counit 满足的三角等式是什么？",
+      "continuation": "�����刳合，��的捕刭��扮玡��发�翨�、����子和�芢、�篍�兗浘��称��凜�e",
+      "prompt_surprise": 3.546266911950343
+    },
+    {
+      "group": "unfamiliar",
+      "prompt": "请解释 CRISPR-Cas13 系统与 Cas9 在靶标分子类型上的根本差异。",
+      "continuation": "�浈�间庼�不�e��揈�����姀���庿玙��的历到�？8下戯为偰疹��氋�名甠��逜�",
+      "prompt_surprise": 3.676252157608136
+    }
+  ],
+  "neuroplex_baseline_reference": {
+    "report": "a1_judge_nll_std_real_20260820.json",
+    "available": true,
+    "metric": "judge NLL (neuroplex frozen baseline, token space)",
+    "a1_pass": true,
+    "groups": {
+      "dialogue": {
+        "mean": 14.24802815914154,
+        "std": 0.5660052486303611
+      },
+      "knowledge": {
+        "mean": 14.466376662254333,
+        "std": 1.0281596319891215
+      },
+      "unfamiliar": {
+        "mean": 14.39274251461029,
+        "std": 0.622965598417961
+      }
+    }
+  }
+}

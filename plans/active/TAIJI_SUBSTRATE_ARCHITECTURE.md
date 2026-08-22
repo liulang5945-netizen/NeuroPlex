@@ -415,6 +415,14 @@ W^{mem}\leftarrow EdgeLocal(W^{mem},P_{mem},e^{mem},h_{cue},\eta_{mem}g)
 
 动作 readout 使用 `r(onehot(a)-softmax(v_a))`，因此失败经历抑制重复动作；其余 readout 用 outcome/provenance 分类误差或 reward/cortical/time/episode 局部预测误差。familiarity 学习目标为 1，但只有循环 resonance 非零时才可产生有效 recall confidence。
 
+所有 readout 不直读 192 维群体活动，而是经固定 `readout_receptors`（SparseReceptorBank 池化为 `memory_meta_dim` 归一化受体上下文）解码。直读被实测证伪：one-shot 写出的读出拟合塌到机会水平，因为每行固定 fan-in 散落在 engram 未必使用的支撑上。
+
+cortical readout 是唯一的回归型读出（目标为绑定后的皮层上下文），其稳定性与分类读出不同，必须单独治理：
+- 目标先除以 `max_membrane_norm` 归一，使误差与 softmax 残差同量级；否则首步即把所有行推到 `max_weight_norm` 上界，裁剪后的行全部塌向最后一次上下文方向，读出在刚训练过的模式上丧失 cue 身份（实测自相关 -0.8）。
+- 使用独立的 `cortical_readout_learning_rate`（对受体上下文范数次稳定）与 `cortical_readout_repeats`，让 delta 回归收敛而不是振荡。
+- 禁止身份门之类改写事件支撑的机制：门控使事件支撑与 cue 支撑分离，cue 补全无法桥接，召回从 100% 掉到 37.5%。
+- `episodic_write_repeats` 默认 2：实测 4 会压垮在线奖励运动学习（N11 环境 0.5）。
+
 全部更新执行微小衰减和逐 postsynaptic row 范数约束。Native v5 没有梯度跨区域传播，也没有 BPTT；固定感觉、运动和情景编码映射不更新。
 
 ## 8. 训练、评估和生成
@@ -533,11 +541,21 @@ reports/taiji_m6_seed_panel_20260821.json
 | N11 | 在动作会改变后续感觉的环境中在线学习 | PASS：末 40 次 `100%`，随机 `50%`，action-lesion `57.5%` |
 | M5 | 跨 episode 分布式情景回忆优于同宽 trace，并通过循环/读取切除 | PASS：action `87.5%` vs trace/recurrent lesion `25%`；outcome/provenance `100%` |
 | M6 | 内生 replay 后切除 episodic readout 仍保留 contingency | PASS：12/12 seed 均 4/4；control 均 25%；mean gain `+0.75` |
+| M7 | accepted replay 先用自身 `cortical_projection` 无外部感觉重建 cue 状态、以召回动作写慢通路，行为优于 no-replay/内容 lesion/顺序 lesion | PASS：行为 `62.5%`（chance `50%`，三对照臂均 `50%`）；慢皮层 cue→action `87.5%`；M6 outcome 腿保持；评估期情景回读闭合 |
 
 N7 的结论必须精确：该任务的即时上下文主要保存在 membrane/activity；单独清零 slow trace 不会破坏结果。N8 在线索与 probe 间加入共同干扰 `1234` 后，在 probe 前清零 trace 会使准确率从 `100%` 降至 `50%`；反向只保留 trace、清空 membrane/activity/threshold/inhibition 仍为 `100%`。M5 才证明跨 reset 的可检索情景场；它仍只覆盖八条微型经历，不代表大容量自传记忆。
 
 N9 的训练流显式设置 `include_boundary=False`，因为它检验无限循环吸引子。若同时把第四轮 `d → boundary` 当作真实监督，又要求同一状态 `d → a` 无限继续，目标本身矛盾。N9 没有增加训练字节或 epoch，只移除与非终止任务冲突的结束标签。
 
+M7 闭合的三条实测瓶颈及其机制修复：① 皮层读出在共享一次性学习率下行饱和塌缩（见 §7.5）；② 重建基底量级错配——回放投影的单位归一目标切片只有自然基底 1/70 的能量，重建切片按各自上界重标度（方向是记忆，量级回到唤醒尺度）；③ 慢通路读出按新鲜度缩放——`consolidated_decode` 读出端把 opponent trace 归一到 `max_trace_norm`（证据承载内容而非轨迹新旧），训练与前向保持原始基底不动，避免扰动睡眠写入与唤醒动力学。
+
 ## 13. 当前唯一下一步
 
-M7 基准已建立并 FAIL：现有 burst 保留 action→outcome `100%`，但 cue 慢通路为 `50%`/零 margin，行为不优于 no-replay。下一步扩展 accepted replay 的真实顺序：先让内生 `cortical_projection` 经 fabric 重建 cue basis并写 action，再运行现有 action basis 写 outcome。必须加入 control、内容 lesion、顺序 lesion；仍禁止外部 event list、teacher target、dense attention 或 memory-weight 复制。
+阶段 1 已落地：`TaijiConfig.training_profile(scale)` 提供放大画像（区域/维度/边密度等比放大，动力学常量不变）；`SparseSynapses` 初始化经实测确认**不可批量化重绘**（2D `randn` 与逐行 1D 抽取的随机流消耗不同，批量化会静默重随机全部模型），源码注释固化禁令；`.item()` 经 cProfile 实测占单 tick 成本 <3%，契约标量保留。`train_seed_corpus.py` 以 raw-byte 流（会话边界 = `boundary_symbol`）流式训练 + 周期落盘；进度条目含固定未见探针 `HOLDOUT_PROBE` 的 `holdout_surprise`——窗口统计测的是内容难度，单调进步只能由固定探针衡量。
+
+**800K 崩塌根因与修复（本次新增）**：首轮 800K 训练在 120K 触底（holdout 2.88）后单调崩到 4.10，窗口准确率 0.26→0.08。逐层体检排除了参数溢出/NaN、侧向竞争死亡（lateral 权重 ≈1.0 未动）、近因干扰（早/中/晚窗口惊讶度同高）；权重总量对比定位真凶：`synapse_decay=1e-5` 以全局乘性挂在每个学习 tick 的 `local_update` 上，`(1-1e-5)^800000 ≈ e^-8 ≈ 3e-4`——模型拟合后误差补写变小而蒸发速率不变，皮层解码/转移权重从 0.052 蒸到 1.7e-5（约 1/3000）。修复：**衰减按资格门控**——突触前沉默的接触放松，被本次可塑性事件点亮的接触受保护（遗忘保留，使用中不纳税）；守护测试 `test_synapse_longevity.py`（150 流持续暴露不得蒸发/遗忘）+ 稀疏核门控语义合同；97 项全绿。160K 复验：holdout 2.96→2.76（100K 触底）后在 2.81–2.89 振荡，准确率稳定 0.27，崩塌消失。
+
+阶段 2 器官先行落地：`seed/judge.py` 原生自我评估——读取基质自指的 surprise/区域误差累积/情景召回置信度/字节准确率，组合权重由局部闭式岭回归校准（无外部评分模型），判分只读不写（快照-恢复）；`verify_seed_a1_judge.py` 移植 A1 同判据（低/高 loss 对排序 ≥ 0.7 + 24 条冻结面板三组质量分 std > 0.05）。
+
+下一步：800K 正式重训完成后跑 `eval_seed_corpus.py` 与 `_diag_history_contribution.py`（皮层历史因果贡献），再跑 A1 原生验证；仍禁止引入 tokenizer、外部评分模型或对 `neuroplex` 的导入。
+

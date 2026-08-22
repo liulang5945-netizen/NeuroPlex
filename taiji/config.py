@@ -22,7 +22,8 @@ class TaijiConfig:
 
     memory_units: int = 192
     memory_fan_in: int = 32
-    memory_context_dim: int = 48
+    memory_readout_fan_in: int = 48
+    memory_meta_dim: int = 48
     memory_iterations: int = 3
     memory_time_dim: int = 8
     memory_episode_dim: int = 16
@@ -45,6 +46,7 @@ class TaijiConfig:
     homeostasis_rate: float = 0.015
     target_activity: float = 0.12
     cortical_baseline_rate: float = 0.00390625
+    consolidation_read_gain: float = 1.00
 
     predictive_learning_rate: float = 0.025
     transition_learning_rate: float = 0.012
@@ -53,6 +55,12 @@ class TaijiConfig:
     reward_baseline_rate: float = 0.05
     episodic_learning_rate: float = 0.60
     episodic_readout_learning_rate: float = 0.85
+    episodic_write_repeats: int = 2
+    cortical_readout_learning_rate: float = 0.30
+    cortical_readout_repeats: int = 8
+    readout_episode_saturation: float = 8.0
+    readout_value_saturation: float = 8.0
+    memory_confidence_decay: float = 5e-3
     synapse_decay: float = 1e-5
 
     weight_init_scale: float = 0.45
@@ -65,6 +73,7 @@ class TaijiConfig:
     memory_inhibition_gain: float = 0.75
     memory_recurrent_gain: float = 1.35
     memory_event_gain: float = 0.80
+    memory_action_binding_gain: float = 2.00
     memory_read_gain: float = 3.00
     memory_feedback_gain: float = 0.25
     memory_novelty_gain: float = 0.70
@@ -76,6 +85,9 @@ class TaijiConfig:
     replay_priority_threshold: float = 0.05
     replay_fatigue_gain: float = 1.20
     replay_learning_scale: float = 0.45
+    replay_maturity_ticks: int = 50000
+    replay_outcome_fast_scale: float = 0.0
+    replay_outcome_slow_scale: float = 1.0
     replay_burst_repeats: int = 8
     replay_write_repeats: int = 8
     replay_winner_resource_retention: float = 0.90
@@ -118,10 +130,18 @@ class TaijiConfig:
             )
         if self.memory_units <= 1:
             raise ValueError("memory_units must be greater than 1")
-        if not 0 < self.memory_context_dim <= self.memory_units:
-            raise ValueError("memory_context_dim must be in [1, memory_units]")
+        if not 0 < self.memory_readout_fan_in <= self.memory_meta_dim:
+            raise ValueError(
+                "memory_readout_fan_in must be in [1, memory_meta_dim]"
+            )
+        if not 0 < self.memory_meta_dim <= self.memory_units:
+            raise ValueError("memory_meta_dim must be in [1, memory_units]")
         if self.memory_iterations <= 0:
             raise ValueError("memory_iterations must be positive")
+        if self.episodic_write_repeats <= 0:
+            raise ValueError("episodic_write_repeats must be positive")
+        if self.cortical_readout_repeats <= 0:
+            raise ValueError("cortical_readout_repeats must be positive")
         if self.memory_time_dim < 2 or self.memory_time_dim % 2:
             raise ValueError("memory_time_dim must be a positive even dimension")
         if self.memory_episode_dim <= 0:
@@ -148,6 +168,9 @@ class TaijiConfig:
             "bias_learning_rate",
             "episodic_learning_rate",
             "episodic_readout_learning_rate",
+            "cortical_readout_learning_rate",
+            "readout_episode_saturation",
+            "readout_value_saturation",
             "weight_init_scale",
             "max_weight_norm",
             "max_membrane_norm",
@@ -157,9 +180,11 @@ class TaijiConfig:
             "memory_inhibition_gain",
             "memory_recurrent_gain",
             "memory_event_gain",
+            "memory_action_binding_gain",
             "memory_read_gain",
             "replay_seed_gain",
             "replay_learning_scale",
+            "consolidation_read_gain",
         ):
             if float(getattr(self, name)) <= 0.0:
                 raise ValueError(f"{name} must be positive")
@@ -167,6 +192,8 @@ class TaijiConfig:
             raise ValueError("synapse_decay cannot be negative")
         if self.memory_feedback_gain < 0.0:
             raise ValueError("memory_feedback_gain cannot be negative")
+        if self.memory_confidence_decay < 0.0:
+            raise ValueError("memory_confidence_decay cannot be negative")
         if not 0.0 < self.reward_baseline_rate <= 1.0:
             raise ValueError("reward_baseline_rate must be in (0, 1]")
         if not 0.0 < self.cortical_baseline_rate <= 1.0:
@@ -185,6 +212,12 @@ class TaijiConfig:
             raise ValueError("replay_value_weight must be in [0, 1]")
         if not 0.0 <= self.replay_priority_threshold < 1.0:
             raise ValueError("replay_priority_threshold must be in [0, 1)")
+        if self.replay_maturity_ticks < 0:
+            raise ValueError("replay_maturity_ticks cannot be negative")
+        if not 0.0 <= self.replay_outcome_fast_scale <= 1.0:
+            raise ValueError("replay_outcome_fast_scale must be in [0, 1]")
+        if not 0.0 <= self.replay_outcome_slow_scale <= 1.0:
+            raise ValueError("replay_outcome_slow_scale must be in [0, 1]")
         if self.replay_burst_repeats <= 0:
             raise ValueError("replay_burst_repeats must be positive")
         if self.replay_write_repeats <= 0:
@@ -199,6 +232,29 @@ class TaijiConfig:
             raise ValueError("structural_capture_target must be in (0, 1]")
         if self.structural_error_threshold < 0.0:
             raise ValueError("structural_error_threshold must be non-negative")
+
+    @classmethod
+    def training_profile(cls, *, scale: int = 2, seed: int = 20260821) -> "TaijiConfig":
+        """Enlarge regions, dimensions and edge density for corpus training.
+
+        The profile changes capacity only: every dynamics constant and every
+        ``__post_init__`` constraint is inherited from the default fabric, so a
+        scaled model remains the same architecture with more substrate.
+        """
+
+        if scale <= 0:
+            raise ValueError("training profile scale must be positive")
+        base = cls(seed=seed)
+        return cls(
+            region_sizes=tuple(size * scale for size in base.region_sizes),
+            synapse_fan_in=base.synapse_fan_in * scale,
+            motor_fan_in=base.motor_fan_in * scale,
+            memory_units=base.memory_units * scale,
+            memory_fan_in=base.memory_fan_in * scale,
+            memory_readout_fan_in=base.memory_readout_fan_in * scale,
+            memory_meta_dim=base.memory_meta_dim * scale,
+            seed=seed,
+        )
 
     @property
     def cortical_context_dim(self) -> int:
