@@ -3,7 +3,7 @@ import json
 import sys
 import time
 
-progress = r"e:\Seed\reports\seed_corpus_progress.jsonl"
+progress = sys.argv[3] if len(sys.argv) > 3 else r"e:\Seed\reports\seed_corpus_progress.jsonl"
 target = int(sys.argv[1]) if len(sys.argv) > 1 else 800000
 deadline = time.time() + (int(sys.argv[2]) if len(sys.argv) > 2 else 1700)
 

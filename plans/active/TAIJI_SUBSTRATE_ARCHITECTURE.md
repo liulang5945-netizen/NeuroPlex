@@ -551,5 +551,11 @@ M7 闭合的三条实测瓶颈及其机制修复：① 皮层读出在共享一�
 
 ## 13. 当前唯一下一步
 
-阶段 1 已落地：`TaijiConfig.training_profile(scale)` 提供放大画像（区域/维度/边密度等比放大，动力学常量不变）；`SparseSynapses` 初始化经实测确认**不可批量化重绘**——2D `randn` 与逐行 1D 抽取的随机流消耗不同（box-muller 配对随行奇偶变化），任何批量化都会静默重随机全部模型并击穿 5 项行为回归，故保持逐行流并在源码注释固化该禁令；`.item()` 经 cProfile 实测占单 tick 成本 <3%，非热路径，契约标量保留。`scripts/training/train_seed_corpus.py` 以 raw-byte 流（会话边界= `boundary_symbol`，对话结构=语料自带文本标记）流式训练并周期落盘 seed-native-v1 信封；`scripts/training/eval_seed_corpus.py` 以 `exp(mean_surprise)` 换算 byte PPL、24 条 A1 真实面板自惊讶度 + 采样生成，冻结 `neuroplex` judge-NLL 基线同面板引用。首轮 200K tick（scale-2，422K 参数）：holdout byte PPL 27.1（均匀分布 257）、面板排序 dialogue < knowledge < unfamiliar、三组 std 均 > 0.05，但生成样本尚不可读——下一步是继续预算的单调进步曲线，以及阶段 2 的原生 judge 器官（`seed/judge.py`，region prediction error + episodic recall confidence 组合，权重局部学习）。仍禁止引入 tokenizer、外部评分模型或对 `neuroplex` 的导入。
+阶段 1 已落地：`TaijiConfig.training_profile(scale)` 提供放大画像（区域/维度/边密度等比放大，动力学常量不变）；`SparseSynapses` 初始化经实测确认**不可批量化重绘**（2D `randn` 与逐行 1D 抽取的随机流消耗不同，批量化会静默重随机全部模型），源码注释固化禁令；`.item()` 经 cProfile 实测占单 tick 成本 <3%，契约标量保留。`train_seed_corpus.py` 以 raw-byte 流（会话边界 = `boundary_symbol`）流式训练 + 周期落盘；进度条目含固定未见探针 `HOLDOUT_PROBE` 的 `holdout_surprise`——窗口统计测的是内容难度，单调进步只能由固定探针衡量。
+
+**800K 崩塌根因与修复（本次新增）**：首轮 800K 训练在 120K 触底（holdout 2.88）后单调崩到 4.10，窗口准确率 0.26→0.08。逐层体检排除了参数溢出/NaN、侧向竞争死亡（lateral 权重 ≈1.0 未动）、近因干扰（早/中/晚窗口惊讶度同高）；权重总量对比定位真凶：`synapse_decay=1e-5` 以全局乘性挂在每个学习 tick 的 `local_update` 上，`(1-1e-5)^800000 ≈ e^-8 ≈ 3e-4`——模型拟合后误差补写变小而蒸发速率不变，皮层解码/转移权重从 0.052 蒸到 1.7e-5（约 1/3000）。修复：**衰减按资格门控**——突触前沉默的接触放松，被本次可塑性事件点亮的接触受保护（遗忘保留，使用中不纳税）；守护测试 `test_synapse_longevity.py`（150 流持续暴露不得蒸发/遗忘）+ 稀疏核门控语义合同；97 项全绿。160K 复验：holdout 2.96→2.76（100K 触底）后在 2.81–2.89 振荡，准确率稳定 0.27，崩塌消失。
+
+阶段 2 器官先行落地：`seed/judge.py` 原生自我评估——读取基质自指的 surprise/区域误差累积/情景召回置信度/字节准确率，组合权重由局部闭式岭回归校准（无外部评分模型），判分只读不写（快照-恢复）；`verify_seed_a1_judge.py` 移植 A1 同判据（低/高 loss 对排序 ≥ 0.7 + 24 条冻结面板三组质量分 std > 0.05）。
+
+下一步：800K 正式重训完成后跑 `eval_seed_corpus.py` 与 `_diag_history_contribution.py`（皮层历史因果贡献），再跑 A1 原生验证；仍禁止引入 tokenizer、外部评分模型或对 `neuroplex` 的导入。
 
