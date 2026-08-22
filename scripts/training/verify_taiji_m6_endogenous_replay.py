@@ -36,7 +36,8 @@ def _config(seed: int) -> TaijiConfig:
         motor_fan_in=48,
         memory_units=128,
         memory_fan_in=32,
-        memory_context_dim=32,
+        memory_meta_dim=32,
+        memory_readout_fan_in=32,
         memory_iterations=3,
         seed=seed,
     )
@@ -105,6 +106,7 @@ def _sleep(
     learn: bool,
     lesion: Sequence[str] = (),
     tag: str,
+    replay_cue_chain: bool = True,
 ) -> Dict[str, object]:
     """Run one consolidation arm and audit what it was allowed to touch."""
 
@@ -120,7 +122,11 @@ def _sleep(
     topology_before = model.memory.association.pre_index.clone()
     edge_count_before = model.memory.association.edge_count
 
-    summary = model.consolidate(cycles=cycles, learn=learn)
+    summary = model.consolidate(
+        cycles=cycles,
+        learn=learn,
+        replay_cue_chain=replay_cue_chain,
+    )
 
     after = model.parameter_tensors()
     cortex_changed = any(

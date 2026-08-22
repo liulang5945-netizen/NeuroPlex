@@ -11,6 +11,7 @@ from .config import TaijiConfig
 from .fabric import TaijiFabric
 from .memory import EpisodicField
 from .organs import ByteMotor, ByteSensor
+from .sparse import bound_norm
 from .state import (
     PendingAction,
     PendingExperience,
@@ -19,6 +20,7 @@ from .state import (
     TaijiOutcome,
     TaijiState,
     TaijiStep,
+    RegionState,
 )
 
 
@@ -29,7 +31,7 @@ class Taiji:
     The class intentionally exposes no loss.backward() or optimizer contract.
     """
 
-    CHECKPOINT_FORMAT = "taiji-native-v7"
+    CHECKPOINT_FORMAT = "taiji-native-v8"
     STATE_VERSION = 5
 
     def __init__(
@@ -160,7 +162,11 @@ class Taiji:
             use_long_term=use_memory,
         )
         context = self.motor.encode_context(cortical_state)
-        episodic_evidence = (
+        cortical_prediction_evidence = (
+            float(self.config.consolidation_read_gain)
+            * self.fabric.consolidated_decode(0, regions[0].trace)
+        )
+        episodic_evidence = cortical_prediction_evidence + (
             self.config.memory_read_gain
             * memory_recall.confidence
             * memory_recall.action_evidence
@@ -296,17 +302,24 @@ class Taiji:
         )
 
     @torch.no_grad()
-    def consolidate(self, *, cycles: int = 1, learn: bool = True) -> TaijiConsolidation:
+    def consolidate(
+        self,
+        *,
+        cycles: int = 1,
+        learn: bool = True,
+        replay_cue_chain: bool = True,
+    ) -> TaijiConsolidation:
         """Sleep on what the field already holds, with no external input at all.
 
         Each cycle asks the episodic field to spontaneously regenerate one engram
         from its own value axis, clock, residual trace and noise.  The field's own
         priority gate decides whether that reactivation is worth anything; only
-        accepted ones are replayed through the very same predictive fabric: the
-        engram's action is driven until the fabric settles, then its outcome is
-        presented once as the single writing tick.  The fabric learns from its
-        ordinary local prediction error, scaled by how strongly the field vouched
-        for the engram.
+        accepted ones are replayed through the very same predictive fabric.  The
+        field first reinstates its cortical cue with no external sensation and
+        writes the recalled action from that settled basis; the action is then
+        driven until the fabric settles and the recalled outcome is written from
+        that basis.  The fabric learns from ordinary local prediction errors,
+        scaled by how strongly the field vouched for the engram.
 
         No external replay list, no teacher target, and no weight is ever copied
         from the field into the fabric: the only channel is the episodic feedback
@@ -410,6 +423,82 @@ class Taiji:
             winner_resource[action_symbol].mul_(
                 float(self.config.replay_winner_resource_retention)
             )
+
+            if replay_cue_chain:
+                # Hippocampal-style cortical reinstatement is an activity path,
+                # not a memory-to-weight copy.  With no external sensation, the
+                # recalled cortical projection settles a cue basis through the
+                # same fabric dynamics.  Pinning that basis while presenting the
+                # recalled action applies the same local next-sensation rule as
+                # the action->outcome phase below.
+                cleared = self.fabric.clear_dynamics(regions)
+                confidence = max(
+                    1e-8, float(replay.familiarity * replay.resonance)
+                )
+                reinstated = replay.cortical_projection / confidence
+                fast_offset = 0
+                trace_offset = sum(self.config.region_sizes)
+                cue_states = []
+                for region_size, previous_region in zip(
+                    self.config.region_sizes, cleared
+                ):
+                    activity = torch.relu(reinstated[
+                        fast_offset:fast_offset + region_size
+                    ])
+                    trace = reinstated[
+                        trace_offset
+                        + fast_offset:trace_offset
+                        + fast_offset
+                        + region_size
+                    ]
+                    # The cortical readout regresses a unit-normalised context,
+                    # so the reinstated slices carry identity but not
+                    # magnitude: measured reinstated traces sit near norm 0.05
+                    # while consolidation decoders trained on waking bases grow
+                    # row weights two orders of magnitude larger.  Direction is
+                    # the memory; rescaling each slice to its native bound
+                    # reinstates the basis at waking scale so the decoder fit
+                    # lands where evaluation will read it.
+                    activity_norm = float(activity.norm().item())
+                    if activity_norm > 1e-8:
+                        activity = (
+                            activity
+                            * (float(self.config.max_membrane_norm)
+                               / activity_norm)
+                        )
+                    trace_norm = float(trace.norm().item())
+                    if trace_norm > 1e-8:
+                        trace = trace * (
+                            float(self.config.max_trace_norm) / trace_norm
+                        )
+                    cue_states.append(RegionState(
+                        membrane=activity.detach().clone(),
+                        activity=activity.detach().clone(),
+                        trace=trace.detach().clone(),
+                        prediction=torch.zeros_like(previous_region.prediction),
+                        error=torch.zeros_like(previous_region.error),
+                        threshold=previous_region.threshold.detach().clone(),
+                        inhibition=torch.zeros_like(previous_region.inhibition),
+                    ))
+                    fast_offset += region_size
+                cue_settled = tuple(cue_states)
+                tick += 1
+                action_activity = self.sensor.encode(action_symbol)
+                for _ in range(int(self.config.replay_write_repeats)):
+                    regions, _rates, error_norms = self.fabric.step(
+                        action_activity,
+                        cue_settled,
+                        learn=learn,
+                        episodic_feedback=replay.cortical_projection,
+                        learn_scale=0.0,
+                        consolidation_learn_scale=learn_scale * winner_gain,
+                        use_consolidated=False,
+                        adapt_homeostasis=False,
+                    )
+                    tick += 1
+                    error_sum += sum(error_norms) / len(error_norms)
+                    error_count += 1
+
             regions = self.fabric.clear_dynamics(regions)
             for _ in range(int(self.config.replay_burst_repeats)):
                 regions, _rates, error_norms = self.fabric.step(

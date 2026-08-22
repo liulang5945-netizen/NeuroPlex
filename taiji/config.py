@@ -22,7 +22,8 @@ class TaijiConfig:
 
     memory_units: int = 192
     memory_fan_in: int = 32
-    memory_context_dim: int = 48
+    memory_readout_fan_in: int = 48
+    memory_meta_dim: int = 48
     memory_iterations: int = 3
     memory_time_dim: int = 8
     memory_episode_dim: int = 16
@@ -45,6 +46,7 @@ class TaijiConfig:
     homeostasis_rate: float = 0.015
     target_activity: float = 0.12
     cortical_baseline_rate: float = 0.00390625
+    consolidation_read_gain: float = 1.00
 
     predictive_learning_rate: float = 0.025
     transition_learning_rate: float = 0.012
@@ -53,6 +55,9 @@ class TaijiConfig:
     reward_baseline_rate: float = 0.05
     episodic_learning_rate: float = 0.60
     episodic_readout_learning_rate: float = 0.85
+    episodic_write_repeats: int = 2
+    cortical_readout_learning_rate: float = 0.30
+    cortical_readout_repeats: int = 8
     synapse_decay: float = 1e-5
 
     weight_init_scale: float = 0.45
@@ -65,6 +70,7 @@ class TaijiConfig:
     memory_inhibition_gain: float = 0.75
     memory_recurrent_gain: float = 1.35
     memory_event_gain: float = 0.80
+    memory_action_binding_gain: float = 2.00
     memory_read_gain: float = 3.00
     memory_feedback_gain: float = 0.25
     memory_novelty_gain: float = 0.70
@@ -118,10 +124,18 @@ class TaijiConfig:
             )
         if self.memory_units <= 1:
             raise ValueError("memory_units must be greater than 1")
-        if not 0 < self.memory_context_dim <= self.memory_units:
-            raise ValueError("memory_context_dim must be in [1, memory_units]")
+        if not 0 < self.memory_readout_fan_in <= self.memory_meta_dim:
+            raise ValueError(
+                "memory_readout_fan_in must be in [1, memory_meta_dim]"
+            )
+        if not 0 < self.memory_meta_dim <= self.memory_units:
+            raise ValueError("memory_meta_dim must be in [1, memory_units]")
         if self.memory_iterations <= 0:
             raise ValueError("memory_iterations must be positive")
+        if self.episodic_write_repeats <= 0:
+            raise ValueError("episodic_write_repeats must be positive")
+        if self.cortical_readout_repeats <= 0:
+            raise ValueError("cortical_readout_repeats must be positive")
         if self.memory_time_dim < 2 or self.memory_time_dim % 2:
             raise ValueError("memory_time_dim must be a positive even dimension")
         if self.memory_episode_dim <= 0:
@@ -148,6 +162,7 @@ class TaijiConfig:
             "bias_learning_rate",
             "episodic_learning_rate",
             "episodic_readout_learning_rate",
+            "cortical_readout_learning_rate",
             "weight_init_scale",
             "max_weight_norm",
             "max_membrane_norm",
@@ -157,9 +172,11 @@ class TaijiConfig:
             "memory_inhibition_gain",
             "memory_recurrent_gain",
             "memory_event_gain",
+            "memory_action_binding_gain",
             "memory_read_gain",
             "replay_seed_gain",
             "replay_learning_scale",
+            "consolidation_read_gain",
         ):
             if float(getattr(self, name)) <= 0.0:
                 raise ValueError(f"{name} must be positive")

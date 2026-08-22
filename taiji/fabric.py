@@ -148,11 +148,30 @@ class TaijiFabric:
             )
         return trace.to(self.device) - self.trace_baselines[int(index)]
 
+    def _consolidation_basis(self, index: int, trace: torch.Tensor) -> torch.Tensor:
+        """Read the slow pathway from direction, not from magnitude.
+
+        The consolidation decoder is fit during sleep on reinstated bases at
+        the trace bound, while waking probes arrive after a couple of ticks
+        with traces two orders of magnitude smaller.  A raw linear read would
+        then scale the evidence by freshness instead of by content, and a
+        correctly learned cue chain stays inaudible to the motor decision.
+        The read side therefore rescales to the bound; the fabric's own
+        forward pass keeps the raw basis so sleep writes and waking dynamics
+        stay at their native scale.
+        """
+
+        signed = self.opponent_trace(index, trace)
+        norm = float(signed.norm().item())
+        if norm <= 1e-8:
+            return signed
+        return signed * (float(self.config.max_trace_norm) / norm)
+
     def consolidated_decode(self, index: int, trace: torch.Tensor) -> torch.Tensor:
         """Read only the slow shared-support consolidation pathway."""
 
         return self.consolidation_decoders[int(index)].forward(
-            self.opponent_trace(index, trace)
+            self._consolidation_basis(index, trace)
         )
 
     def decode(

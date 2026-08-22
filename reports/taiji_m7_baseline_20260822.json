@@ -2,9 +2,10 @@
   "benchmark": "taiji-m7-cue-conditioned-chain",
   "checks": {
     "cue_action_behavior_above_chance": true,
-    "cue_action_behavior_beats_no_replay": false,
-    "cue_action_is_present_in_slow_cortex": false,
-    "engram_content_is_causally_necessary": false,
+    "cue_action_behavior_beats_no_replay": true,
+    "cue_action_is_present_in_slow_cortex": true,
+    "cue_before_action_order_is_causally_necessary": true,
+    "engram_content_is_causally_necessary": true,
     "evaluation_has_no_episodic_readback": true,
     "m6_outcome_leg_is_preserved": true
   },
@@ -12,81 +13,105 @@
   "episodes": 8,
   "metrics": {
     "content_lesion_cue_action": {
-      "behavior_accuracy": 0.625,
+      "behavior_accuracy": 0.5,
       "cortical_accuracy": 0.5,
       "mean_cortical_margin": 0.0,
       "rows": [
         {
           "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.003294580616056919,
           "cortical_margin": 0.0,
           "cue": "A",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 9.121325492858887,
+          "fast_margin": 0.02658027410507202
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.004261847119778395,
           "cortical_margin": 0.0,
           "cue": "B",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 10.355859756469727,
+          "fast_margin": -0.044707298278808594
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.01646117866039276,
           "cortical_margin": 0.0,
           "cue": "C",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 7.833935260772705,
+          "fast_margin": 0.10928487777709961
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.020558074116706848,
           "cortical_margin": 0.0,
           "cue": "D",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.068315505981445,
+          "fast_margin": -0.14326336979866028
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.002738318173214793,
           "cortical_margin": 0.0,
           "cue": "E",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 8.05717658996582,
+          "fast_margin": 0.21175774931907654
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.009675243869423866,
           "cortical_margin": 0.0,
           "cue": "F",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.71441650390625,
+          "fast_margin": -0.06423696875572205
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.00010392209514975548,
           "cortical_margin": 0.0,
           "cue": "G",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 7.19867467880249,
+          "fast_margin": 0.06572937965393066
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0032717690337449312,
           "cortical_margin": 0.0,
           "cue": "H",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.600176811218262,
+          "fast_margin": -0.2905665338039398
         }
       ]
     },
@@ -96,174 +121,394 @@
         {
           "action": "0",
           "expected_outcome": "+",
-          "margin": 0.0006370246410369873,
+          "margin": 0.005315452814102173,
           "predicted_outcome": "+"
         },
         {
           "action": "1",
           "expected_outcome": "-",
-          "margin": 0.002260178327560425,
+          "margin": 0.027217507362365723,
           "predicted_outcome": "-"
         }
       ]
     },
     "full_cue_action": {
       "behavior_accuracy": 0.625,
-      "cortical_accuracy": 0.5,
-      "mean_cortical_margin": 0.0,
+      "cortical_accuracy": 0.875,
+      "mean_cortical_margin": 0.12199477106332779,
       "rows": [
         {
           "behavior_action": "0",
           "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_evidence_norm": 0.4475545287132263,
+          "cortical_margin": 0.06339222192764282,
           "cue": "A",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 9.910896301269531,
+          "fast_margin": 0.07283926010131836
         },
         {
           "behavior_action": "1",
-          "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_action": "1",
+          "cortical_evidence_norm": 0.40460070967674255,
+          "cortical_margin": 0.18528491258621216,
           "cue": "B",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 10.888754844665527,
+          "fast_margin": -0.07881096005439758
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_evidence_norm": 0.5369042158126831,
+          "cortical_margin": 0.23127013444900513,
           "cue": "C",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 8.69278621673584,
+          "fast_margin": 0.1350192129611969
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_evidence_norm": 0.5244065523147583,
+          "cortical_margin": -0.13553974032402039,
           "cue": "D",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.73873519897461,
+          "fast_margin": -0.19458594918251038
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_evidence_norm": 0.5393487811088562,
+          "cortical_margin": 0.17040401697158813,
           "cue": "E",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 8.079612731933594,
+          "fast_margin": 0.25740107893943787
         },
         {
-          "behavior_action": "1",
-          "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "behavior_action": "0",
+          "cortical_action": "1",
+          "cortical_evidence_norm": 0.5827826261520386,
+          "cortical_margin": 0.13646787405014038,
           "cue": "F",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.882325172424316,
+          "fast_margin": -0.15063968300819397
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "cortical_evidence_norm": 0.6043301224708557,
+          "cortical_margin": 0.16772332787513733,
           "cue": "G",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 7.59883975982666,
+          "fast_margin": 0.18026581406593323
         },
         {
-          "behavior_action": "1",
-          "cortical_action": "0",
-          "cortical_margin": 0.0,
+          "behavior_action": "0",
+          "cortical_action": "1",
+          "cortical_evidence_norm": 0.5502065420150757,
+          "cortical_margin": 0.15695542097091675,
           "cue": "H",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.511116981506348,
+          "fast_margin": -0.36415183544158936
         }
       ]
     },
     "no_replay_cue_action": {
-      "behavior_accuracy": 0.625,
+      "behavior_accuracy": 0.5,
       "cortical_accuracy": 0.5,
       "mean_cortical_margin": 0.0,
       "rows": [
         {
           "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "A",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 9.114696502685547,
+          "fast_margin": 0.026461631059646606
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "B",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 10.354909896850586,
+          "fast_margin": -0.04513770341873169
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "C",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 7.8594865798950195,
+          "fast_margin": 0.10920345783233643
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "D",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.10665225982666,
+          "fast_margin": -0.1414330005645752
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "E",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 8.053075790405273,
+          "fast_margin": 0.2121095359325409
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "F",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.710918426513672,
+          "fast_margin": -0.06502699851989746
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "G",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "0"
+          "expected_action": "0",
+          "fast_evidence_norm": 7.194606781005859,
+          "fast_margin": 0.06643450260162354
         },
         {
-          "behavior_action": "1",
+          "behavior_action": "0",
           "cortical_action": "0",
+          "cortical_evidence_norm": 0.0,
           "cortical_margin": 0.0,
           "cue": "H",
           "episodic_confidence": 0.0,
           "episodic_feedback_norm": 0.0,
-          "expected_action": "1"
+          "expected_action": "1",
+          "fast_evidence_norm": 8.59492301940918,
+          "fast_margin": -0.29128146171569824
         }
       ]
+    },
+    "order_lesion_cue_action": {
+      "behavior_accuracy": 0.5,
+      "cortical_accuracy": 0.5,
+      "mean_cortical_margin": 0.0,
+      "rows": [
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.015588843263685703,
+          "cortical_margin": 0.0,
+          "cue": "A",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0",
+          "fast_evidence_norm": 9.104785919189453,
+          "fast_margin": 0.027153968811035156
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.03955334052443504,
+          "cortical_margin": 0.0,
+          "cue": "B",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1",
+          "fast_evidence_norm": 10.35356616973877,
+          "fast_margin": -0.04415476322174072
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.023359160870313644,
+          "cortical_margin": 0.0,
+          "cue": "C",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0",
+          "fast_evidence_norm": 7.853582382202148,
+          "fast_margin": 0.10920041799545288
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.008972874842584133,
+          "cortical_margin": 0.0,
+          "cue": "D",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1",
+          "fast_evidence_norm": 8.10330867767334,
+          "fast_margin": -0.141658216714859
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.021430382505059242,
+          "cortical_margin": 0.0,
+          "cue": "E",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0",
+          "fast_evidence_norm": 8.039457321166992,
+          "fast_margin": 0.21197858452796936
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.02388261817395687,
+          "cortical_margin": 0.0,
+          "cue": "F",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1",
+          "fast_evidence_norm": 8.646980285644531,
+          "fast_margin": -0.07110235095024109
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.022937672212719917,
+          "cortical_margin": 0.0,
+          "cue": "G",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0",
+          "fast_evidence_norm": 7.1879401206970215,
+          "fast_margin": 0.06558030843734741
+        },
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_evidence_norm": 0.025713583454489708,
+          "cortical_margin": 0.0,
+          "cue": "H",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1",
+          "fast_evidence_norm": 8.597939491271973,
+          "fast_margin": -0.2906304895877838
+        }
+      ]
+    },
+    "replay_jointness": {
+      "accepted_replays": 96,
+      "action_matches_cortical_cue_rate": 0.9895833333333334,
+      "action_matches_episode_cue_rate": 0.875,
+      "action_matches_pattern_cue_rate": 0.7291666666666666,
+      "action_matches_reciprocal_cue_rate": 0.59375,
+      "action_matches_reinstated_opponent_cue_rate": 0.9166666666666666,
+      "action_matches_reinstated_trace_cue_rate": 0.96875,
+      "action_mode_counts": {
+        "0": 47,
+        "1": 49
+      },
+      "nearest_cortical_cue_counts": {
+        "B": 1,
+        "F": 18,
+        "G": 48,
+        "H": 29
+      },
+      "nearest_episode_cue_counts": {
+        "A": 19,
+        "B": 15,
+        "D": 1,
+        "E": 11,
+        "G": 27,
+        "H": 23
+      },
+      "nearest_pattern_cue_counts": {
+        "A": 31,
+        "B": 19,
+        "C": 22,
+        "E": 2,
+        "F": 1,
+        "G": 16,
+        "H": 5
+      },
+      "nearest_reciprocal_cue_counts": {
+        "A": 32,
+        "B": 18,
+        "C": 4,
+        "D": 4,
+        "E": 1,
+        "G": 33,
+        "H": 4
+      },
+      "nearest_reinstated_opponent_cue_counts": {
+        "F": 5,
+        "G": 55,
+        "H": 36
+      },
+      "nearest_reinstated_trace_cue_counts": {
+        "B": 1,
+        "F": 12,
+        "G": 50,
+        "H": 33
+      },
+      "pattern_matches_cortical_cue_rate": 0.08333333333333333
+    },
+    "wake_jointness": {
+      "cue_recall_action_accuracy": 0.875,
+      "cue_recall_cortical_identity_accuracy": 0.75,
+      "cue_recall_cortical_identity_counts": {
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "F": 2,
+        "G": 2,
+        "H": 1
+      }
     }
   },
   "protocol": {
@@ -280,5 +525,5 @@
     "uniform_pretraining_marginals": true
   },
   "seed": 29,
-  "status": "fail"
+  "status": "pass"
 }
