@@ -217,6 +217,29 @@ class TaijiConfig:
         if self.structural_error_threshold < 0.0:
             raise ValueError("structural_error_threshold must be non-negative")
 
+    @classmethod
+    def training_profile(cls, *, scale: int = 2, seed: int = 20260821) -> "TaijiConfig":
+        """Enlarge regions, dimensions and edge density for corpus training.
+
+        The profile changes capacity only: every dynamics constant and every
+        ``__post_init__`` constraint is inherited from the default fabric, so a
+        scaled model remains the same architecture with more substrate.
+        """
+
+        if scale <= 0:
+            raise ValueError("training profile scale must be positive")
+        base = cls(seed=seed)
+        return cls(
+            region_sizes=tuple(size * scale for size in base.region_sizes),
+            synapse_fan_in=base.synapse_fan_in * scale,
+            motor_fan_in=base.motor_fan_in * scale,
+            memory_units=base.memory_units * scale,
+            memory_fan_in=base.memory_fan_in * scale,
+            memory_readout_fan_in=base.memory_readout_fan_in * scale,
+            memory_meta_dim=base.memory_meta_dim * scale,
+            seed=seed,
+        )
+
     @property
     def cortical_context_dim(self) -> int:
         return 2 * sum(self.region_sizes)

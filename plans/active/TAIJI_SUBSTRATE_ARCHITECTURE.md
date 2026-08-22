@@ -551,5 +551,5 @@ M7 闭合的三条实测瓶颈及其机制修复：① 皮层读出在共享一�
 
 ## 13. 当前唯一下一步
 
-M7 已 PASS，智能闭环的地基闭合。下一步是阶段 1：够格的自我——在 `taiji/config.py` 增加训练用放大配置（区域数/维度/边密度）并缓解性能债（SparseSynapses O(out×in) 初始化、单 tick `.item()` 同步）；新建 `scripts/training/train_seed_corpus.py` 以 raw-byte 流复用 `data/simple_zh/` 语料训练；新建 `scripts/training/eval_seed_corpus.py` 以 next-byte accuracy/surprise 换算 PPL 并在 24 条真实 prompt 面板上与冻结 `neuroplex` 基线同口径对比，单调进步曲线落盘 `reports/`。仍禁止引入 tokenizer、外部评分模型或对 `neuroplex` 的导入。
+阶段 1 已落地：`TaijiConfig.training_profile(scale)` 提供放大画像（区域/维度/边密度等比放大，动力学常量不变）；`SparseSynapses` 初始化经实测确认**不可批量化重绘**——2D `randn` 与逐行 1D 抽取的随机流消耗不同（box-muller 配对随行奇偶变化），任何批量化都会静默重随机全部模型并击穿 5 项行为回归，故保持逐行流并在源码注释固化该禁令；`.item()` 经 cProfile 实测占单 tick 成本 <3%，非热路径，契约标量保留。`scripts/training/train_seed_corpus.py` 以 raw-byte 流（会话边界= `boundary_symbol`，对话结构=语料自带文本标记）流式训练并周期落盘 seed-native-v1 信封；`scripts/training/eval_seed_corpus.py` 以 `exp(mean_surprise)` 换算 byte PPL、24 条 A1 真实面板自惊讶度 + 采样生成，冻结 `neuroplex` judge-NLL 基线同面板引用。首轮 200K tick（scale-2，422K 参数）：holdout byte PPL 27.1（均匀分布 257）、面板排序 dialogue < knowledge < unfamiliar、三组 std 均 > 0.05，但生成样本尚不可读——下一步是继续预算的单调进步曲线，以及阶段 2 的原生 judge 器官（`seed/judge.py`，region prediction error + episodic recall confidence 组合，权重局部学习）。仍禁止引入 tokenizer、外部评分模型或对 `neuroplex` 的导入。
 
