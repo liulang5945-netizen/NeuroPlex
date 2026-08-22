@@ -64,7 +64,10 @@ class BackendManager:
 
     def __init__(self):
         self.process = None
-        self.port = 8000
+        self.port = int(os.environ.get("SEED_PORT", "8000"))
+        # 远程接入（移动端浏览器连同一 Web UI）：设 SEED_HOST=0.0.0.0
+        # 即可从局域网内手机/平板访问；默认仅本机。
+        self.host = os.environ.get("SEED_HOST", "127.0.0.1")
         self._running = False
 
     def start(self):
@@ -75,7 +78,7 @@ class BackendManager:
         cmd = [
             sys.executable, "-m", "uvicorn",
             "api.app:app",
-            "--host", "127.0.0.1",
+            "--host", self.host,
             "--port", str(self.port),
             "--log-level", "info",
         ]
