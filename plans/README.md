@@ -30,7 +30,7 @@
 
 ## 当前唯一下一步
 
-Native v7 已实现并通过全回归。当前唯一下一步是 M7：让内生 replay 重建 `cue → action → outcome` 因果链，并在切除 episodic readout 后仍由 cortical path 选择 cue 对应动作；这把 M6 的无条件 action→outcome 联结推进为最小情境策略。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6。
+M7 FAIL 基线已建立：action→outcome `100%`，cue 慢通路 `50%`/零 margin，行为 `62.5%` 且不优于 control。当前唯一下一步是让 accepted replay 先以内生 `cortical_projection` 重建 cue 并局部写入 cue→action，再执行现有 action→outcome burst。判据见 [SEED_ARCHITECTURE.md](active/SEED_ARCHITECTURE.md) §6。
 
 ## 归档
 

@@ -312,7 +312,11 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
 
 最终 M6：12/12 seed 的 full replay 都是 4/4，no-replay control 都是 25%，mean gain `+0.75`，全因果检查通过。N10、N11、M5 和全仓 `83 passed` 同时通过。
 
-**当前唯一下一步**：M7 cue-conditioned consolidation。先建立 cue→action→outcome 的内生顺序回放基准及 control/content/order lesions，再允许修改 replay burst。具体边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6。
+### 6.10 M7 cue-conditioned baseline（FAIL，2026-08-22）
+
+`verify_taiji_m7_cue_chain.py` 用 8 个 cue、复用的 2 个 action/2 个 outcome 和完全均匀的预训练 marginals 隔离 `cue→action→outcome`。每条 active episode 只写一次，评测关闭 memory readback。Native v7 现状：action→outcome `100%`；cue→action slow cortical `50%`，八行 margin 全为 `0`；实际 action `62.5%`，但 no-replay/content-lesion 同为 `62.5%`。基准明确证明 M6 burst 没有写 cue→action，不是剂量或读出噪声。
+
+**当前唯一下一步**：accepted replay 先以内生 `cortical_projection` 在无外部 sensation 下重建 cue basis，用 action mode 写慢通路，再执行现有 action→outcome 段；补齐 control/content/order lesions。具体边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

@@ -540,4 +540,4 @@ N9 的训练流显式设置 `include_boundary=False`，因为它检验无限循�
 
 ## 13. 当前唯一下一步
 
-Native v7 已实现并通过上述门槛。当前唯一下一步是 M7 cue-conditioned consolidation：replay burst 必须由场自身重建 cue→action→outcome 顺序，慢通路在 episodic readout lesion 后仍让 cue 导向 action、action 导向 outcome。先建立 control、内容 lesion、顺序 lesion 的可执行反证，再允许扩展 burst；仍禁止外部 event list、teacher target、dense attention 或 memory-weight 复制。
+M7 基准已建立并 FAIL：现有 burst 保留 action→outcome `100%`，但 cue 慢通路为 `50%`/零 margin，行为不优于 no-replay。下一步扩展 accepted replay 的真实顺序：先让内生 `cortical_projection` 经 fabric 重建 cue basis并写 action，再运行现有 action basis 写 outcome。必须加入 control、内容 lesion、顺序 lesion；仍禁止外部 event list、teacher target、dense attention 或 memory-weight 复制。

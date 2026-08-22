@@ -1,0 +1,284 @@
+{
+  "benchmark": "taiji-m7-cue-conditioned-chain",
+  "checks": {
+    "cue_action_behavior_above_chance": true,
+    "cue_action_behavior_beats_no_replay": false,
+    "cue_action_is_present_in_slow_cortex": false,
+    "engram_content_is_causally_necessary": false,
+    "evaluation_has_no_episodic_readback": true,
+    "m6_outcome_leg_is_preserved": true
+  },
+  "cycles": 96,
+  "episodes": 8,
+  "metrics": {
+    "content_lesion_cue_action": {
+      "behavior_accuracy": 0.625,
+      "cortical_accuracy": 0.5,
+      "mean_cortical_margin": 0.0,
+      "rows": [
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "A",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "B",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "C",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "D",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "E",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "F",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "G",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "H",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        }
+      ]
+    },
+    "full_action_outcome": {
+      "accuracy": 1.0,
+      "rows": [
+        {
+          "action": "0",
+          "expected_outcome": "+",
+          "margin": 0.0006370246410369873,
+          "predicted_outcome": "+"
+        },
+        {
+          "action": "1",
+          "expected_outcome": "-",
+          "margin": 0.002260178327560425,
+          "predicted_outcome": "-"
+        }
+      ]
+    },
+    "full_cue_action": {
+      "behavior_accuracy": 0.625,
+      "cortical_accuracy": 0.5,
+      "mean_cortical_margin": 0.0,
+      "rows": [
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "A",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "B",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "C",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "D",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "E",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "F",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "G",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "H",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        }
+      ]
+    },
+    "no_replay_cue_action": {
+      "behavior_accuracy": 0.625,
+      "cortical_accuracy": 0.5,
+      "mean_cortical_margin": 0.0,
+      "rows": [
+        {
+          "behavior_action": "0",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "A",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "B",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "C",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "D",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "E",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "F",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "G",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "0"
+        },
+        {
+          "behavior_action": "1",
+          "cortical_action": "0",
+          "cortical_margin": 0.0,
+          "cue": "H",
+          "episodic_confidence": 0.0,
+          "episodic_feedback_norm": 0.0,
+          "expected_action": "1"
+        }
+      ]
+    }
+  },
+  "protocol": {
+    "action_count": 2,
+    "chance_accuracy": 0.5,
+    "claim_boundary": "cue-conditioned action and action-conditioned outcome after episodic lesion; not planning or open-world policy learning",
+    "cue_count": 8,
+    "episodic_readback_during_evaluation": false,
+    "external_replay_list": false,
+    "one_shot_writes": true,
+    "outcome_count": 2,
+    "pretrain_online_accuracy": 0.4583333333333333,
+    "teacher_action_during_sleep": false,
+    "uniform_pretraining_marginals": true
+  },
+  "seed": 29,
+  "status": "fail"
+}

@@ -89,4 +89,4 @@ Native v7 已把反证结果落实为双时间尺度 cortical path：清醒快�
 
 ## 6. 当前唯一下一步
 
-定义并实现 M7 cue-conditioned consolidation 反证：内生场必须重建完整 `cue → action → outcome` 顺序，慢速 cortical path 在切除 episodic action/cortical readout 后仍能依据 cue 选择对应 action，并在 action 后预测 outcome。禁止把 cue/action/outcome 列表交给 `consolidate`，禁止 teacher action、event slot 或 memory-weight 复制；control、内容 lesion 和顺序 lesion 必须回落。先固定可执行基准与状态流，再改 replay burst。
+M7 可执行基准已经建立并按预期 FAIL：默认 seed 的 action→outcome 仍为 `100%`，但 8 个 cue 上的慢通路 action evidence 全为零，cue→action cortical accuracy `50%`；实际 `act()` 为 `62.5%`，与 no-replay、content-lesion 完全相同。下一步只实现一个机制：accepted replay 先用场自身的 `cortical_projection` 在无外部 sensation 下重建 cue 状态，把 action mode 作为下一感觉写入慢通路；随后再执行现有 action→outcome burst。禁止把 cue/action/outcome 列表交给 `consolidate`，禁止 teacher action、event slot 或 memory-weight 复制；control、内容 lesion 和顺序 lesion必须回落。

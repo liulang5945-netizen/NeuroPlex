@@ -205,4 +205,4 @@ M5/M6 只证明一个 8-event one-shot 微型场及无条件 action→outcome re
 
 ## 9. 当前唯一下一步
 
-实现 M7 cue-conditioned consolidation：场的内生 replay 必须恢复 cue、action、outcome 的顺序并经同一 fabric 沉淀；切除 episodic readout 后，cue 仍应导向正确 action，随后 action 导向 outcome。外部 Python event list、teacher action、per-engram 配额、dense attention 和 memory-weight 复制仍禁止。
+M7 基准当前为 FAIL：action→outcome `100%`，cue→action slow cortical `50%` 且零 margin，行为与 no-replay 同为 `62.5%`。下一步让场的 `cortical_projection` 在无外部 sensation下重建 cue 状态，并以 action mode 作为下一感觉写入慢通路，再执行现有 outcome 段。外部 Python event list、teacher action、per-engram 配额、dense attention 和 memory-weight 复制仍禁止。

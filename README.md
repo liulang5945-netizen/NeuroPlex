@@ -205,7 +205,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-Native v7 now implements a slow signed shared-support consolidation pathway beside the fast sparse predictor. A waking-only baseline defines signed eligibility; each endogenous replay winner owns a bout-local resource retained at `0.9`; a dedicated RNG stream prevents the new pathway from shifting existing organs. The strict M6 panel now reaches 4/4 on all 12 seeds, while every no-replay control stays at chance (25%). The next falsification target is M7: replay must transfer a cue-conditioned `cue → action → outcome` chain into cortex so action choice survives episodic readout lesion; action→outcome alone is not yet a context-dependent policy or world model.
+Native v7 now implements a slow signed shared-support consolidation pathway beside the fast sparse predictor. A waking-only baseline defines signed eligibility; each endogenous replay winner owns a bout-local resource retained at `0.9`; a dedicated RNG stream prevents the new pathway from shifting existing organs. The strict M6 panel reaches 4/4 on all 12 seeds, while every no-replay control stays at chance (25%). M7 now provides the next biting baseline: action→outcome remains 100%, but cue→action cortical evidence is exactly zero and behavior does not beat no replay. The current implementation target is an endogenous cue-reinstatement phase before the existing action→outcome burst.
 
 ## License
 

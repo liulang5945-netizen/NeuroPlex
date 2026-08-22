@@ -106,4 +106,4 @@ Native v5 是完整可运行的非 Transformer 感知—状态—情景—行动
 
 ## 6. 当前唯一下一步
 
-Native v7 的 signed consolidation 与 winner resource 已落地并通过 12/12 M6 和全回归。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：M7 cue-conditioned consolidation，使 cortical path 在 episodic lesion 后保留最小情境策略。本文件只维护决策与命名边界。
+Native v7 的 signed consolidation 与 winner resource 已落地并通过 12/12 M6 和全回归。M7 基准已确认现有 replay 的 cue 慢通路为零；当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：用内生 cortical reinstatement 补齐 cue→action，再保留现有 action→outcome。本文件只维护决策与命名边界。
