@@ -1153,6 +1153,11 @@ class Cortex:
         # 中激活子集按 chunk 级混合后验（共振分 + 滚动 NLL）双向域内演化，
         # 让"任务模式激活"在实例内自校正。默认开；显式关回退 C25-E 行为。
         instance_routing: bool = True,
+        # C28 增量（2026-08-20 机制审计修复 Gap 1）：生成后自动沉淀场记忆。
+        # 默认开 → 普通 generate() 把 (field_state, prompt, generated_text, phase)
+        # 喂给全局 SleepEngine.record_field_memory()，闭合 §6.3 缺口"普通交互
+        # 不自动捕获场记忆"。verify 脚本要隔离时传 False。
+        auto_capture: bool = True,
     ) -> str:
         """Generate text using resonance ensemble (P7 only).
 
@@ -1205,11 +1210,16 @@ class Cortex:
                 memory_vectors=memory_vectors,
                 auto_memory=auto_memory,
                 instance_routing=instance_routing,
+                auto_capture=auto_capture,
             )
             # R9（REMEDIATION_PLAN 2026-08-14）：退化重试——已知退化模式
             # （编号塌缩 `1.\n` / 字面量 `1.<0x0A>`、重复标点、纯数字长串）
             # 命中时以更高温度重采样一次（人脑类比：感知异常输出即重置注意力）。
             # 二次仍退化则原样返回并打日志（保留证据，不静默吞掉）。
+            # 注意：退化重试的 auto_capture 由 _generate_p7 内部按 text 非空
+            # 判定，退化文本仍会沉淀（与 generate_task_chain 一致：text.strip()
+            # 真即记录，不判退化）。重试成功时第二次 _generate_p7 会再沉淀一条
+            # （不同 field_state），这是可接受的——记忆库本身按相似度去重。
             if text and self._is_degenerate_text(text):
                 retry_temp = min(temperature + 0.15, 1.2)
                 logger.warning(
@@ -1225,6 +1235,7 @@ class Cortex:
                     memory_vectors=memory_vectors,
                     auto_memory=auto_memory,
                     instance_routing=instance_routing,
+                    auto_capture=auto_capture,
                 )
                 if text and self._is_degenerate_text(text):
                     logger.warning(
@@ -1245,6 +1256,8 @@ class Cortex:
                     memory_vectors=memory_vectors,
                     auto_memory=auto_memory,
                     instance_routing=instance_routing,
+                    # SMCS 候选生成不自动沉淀（只对最终选中候选沉淀，见下方）
+                    auto_capture=False,
                 )
                 if text:
                     candidates.append(text)
@@ -1253,8 +1266,13 @@ class Cortex:
         if not candidates:
             return ""
         if len(candidates) == 1:
-            return candidates[0]
-        return self._select_best_candidate(candidates)
+            best = candidates[0]
+        else:
+            best = self._select_best_candidate(candidates)
+        # C28 Gap 1：对最终选中候选做一次场记忆沉淀（SMCS 路径）
+        if auto_capture and best.strip():
+            self._capture_field_memory(prompt, best)
+        return best
 
     # ── C26 增量八：多阶段任务模式链 v2（2026-08-14）：TaskSet 序列调度器 ──
     # 对比 C25-F 首步（generate_staged dict 阶段，R17 曾标死代码）：v2 用
@@ -2316,6 +2334,8 @@ class Cortex:
         instance_evict_streak: int = 2,
         instance_add_ratio: float = 1.3,
         instance_min_active: int = 2,
+        # C28 Gap 1（2026-08-20）：生成后自动沉淀场记忆到全局 SleepEngine。
+        auto_capture: bool = True,
     ) -> str:
         """Generate text using shared embedding + domain-specific lm_head.
 
@@ -2875,7 +2895,35 @@ class Cortex:
         except Exception:
             self._last_phase_mean = None
 
+        # C28 Gap 1（2026-08-20 机制审计修复）：普通 generate() 自动沉淀
+        # 场记忆，闭合 §6.3 缺口。模式与 generate_task_chain:1392 一致：
+        # field_state + label(prompt[:40]) + text(生成结果) + phase。
+        # 非致命——任何 sleep_engine 不可用都不应阻塞生成。
+        if auto_capture and result_text.strip():
+            try:
+                self._capture_field_memory(prompt, result_text)
+            except Exception as _e:
+                logger.debug("[Cortex] auto_capture 失败（非致命）: %s", _e)
+
         return result_text
+
+    def _capture_field_memory(self, prompt: str, generated_text: str) -> None:
+        """C28 Gap 1：把 (field_state, prompt, generated_text, phase) 沉淀到
+        全局 SleepEngine.pending_field_memories，供睡眠 Phase 1.5 固化。
+
+        复用 generate_task_chain 的 record_field_memory 模式，区别仅在 label
+        来源（task_chain 用 stage template，generate 用 prompt 前 40 字符）。
+        field_state 取 self.get_last_field_state()（真实任务场，§2.1 所有权）；
+        phase 取 self.get_last_phase()（C27 KoPE 相位归属记忆）。
+        """
+        fs = self.get_last_field_state()
+        if fs is None:
+            return
+        from neuroplex.life.sleep_engine import get_sleep_engine
+        engine = get_sleep_engine()
+        label = prompt.strip()[:40] if prompt else "auto"
+        engine.record_field_memory(
+            fs, label, text=generated_text, phase=self.get_last_phase())
 
     @torch.no_grad()
     def generate_multimodal(

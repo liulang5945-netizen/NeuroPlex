@@ -297,6 +297,17 @@
 >
 > **新的唯一下一步**：用户运行 `verify_play_engine_runtime_contract.py` 确认生产路径 5/5 PASS 后，再决定场记忆自动捕获（普通 `Cortex.generate()` 自动 record_field_memory）和 coaction 连续路径补全（`continuous_forward` 内调 `coaction.update()`）的优先级与实现顺序。
 
+> **✅ C28 Gap 1 + Gap 2 落地（2026-08-20）**：§NEUROPLEX_MECHANISM_RUNTIME_MAP §15。两项 ⚠️ 缺口已闭合（冻结 9 成员生产权重，不训练）：
+>
+> | 缺口 | 修复 |
+> |---|---|
+> | Gap 1：普通 `Cortex.generate()` 不自动 `record_field_memory` | `generate()`/`_generate_p7()` 新增 `auto_capture: bool = True`（默认开，隔离传 False）；返回前调 `_capture_field_memory()` 把 (field_state, prompt, generated_text, phase) 喂全局 SleepEngine |
+> | Gap 2：`continuous_forward()` 不调 `coaction.update` | t-loop 每积分步 STDP 后插入 `coaction.update(active_this, round_num=t+1)`，带 try/except + len>=2 门控（与离散 forward 一致） |
+>
+> **回归验证**：`verify_c28_gap1_gap2_contract.py`（无需 checkpoint）**21/21 PASS** — Gap 1 11 维（_capture_field_memory 直接调用 + auto_capture 透传门控 + 源码级 inspect）+ Gap 2 7 维（continuous_forward 含 coaction.update + round_num + 非致命包装 + len>=2 门控 + 离散 forward 对照）
+>
+> **新的唯一下一步**：用户在含 9 成员 checkpoint 的环境运行两条生产验证：(1) `verify_play_engine_runtime_contract.py` 5/5 PASS；(2) `diag_runtime_mechanism_trace.py` 确认 `pending_field_memories after>0` / `coaction_pairs>0` / `play_result 非 None`。两条全过后，自举门槛 A 运行时契约源码层完整闭合，可决策是否启动小规模 replay 训练验证能力增长信号。
+
 **D1-fix v3 阶段性（已落 plan，等用户决策 v4）**：方案 B 已实现并跑 1000 步（3/5 PASS，dialogue 0.8679 < 0.90 仍 FAIL；knowledge +0.0920 / unfamiliar +0.0756 比原 D1 改善；LoRA 16.84→18.76）。**下一步候选**（用户决策）：a) v4 hysteresis + LoRA ceiling；b) 调高 decay_min_relative_ratio（0.95→0.97 / 0.99 让 SKIP 更难触发）；c) 接受 v3 阶段性成果（k/u 已大幅改善）继续其他线路。
 
 **历史下一步（已暂停）→ D1 长程稳定性**：1000 步压力测试。复用 B1-bis 主循环 + 6 主题池 + 3 探索机制，跑 1000 步看 judge NLL / coaction / LoRA L2 在长程下是否稳定（无累积爆炸 / 无渐进遗忘 / 无协作层崩塌）。**通过线**：D1.a 1000 步后 3 组 judge std 维持 ≥ pre × 0.90（长程允许更多漂移）；D1.b 0 崩溃；D1.c ≤ 60 min。**已完成 D1 首测 + D1-fix v3**：knowledge std ratio 0.7517 / unfamiliar 0.8047 < 0.90 → v3 改善至 0.8437 / 0.8803，但 dialogue 反退至 0.8679。**D1 完整 PASS 仍差一维**——v4 待定。
