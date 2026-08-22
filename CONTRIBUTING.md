@@ -5,8 +5,8 @@ Taiji is an experimental architecture project. Contributions should strengthen o
 ## Setup
 
 ```bash
-git clone https://github.com/<your-username>/taiji-neuron.git
-cd taiji-neuron
+git clone https://github.com/<your-username>/Seed.git
+cd Seed
 python -m pip install -e ".[dev]"
 python scripts/training/verify_taiji_native_v1.py
 python -m pytest tests/taiji_native -q
@@ -20,7 +20,8 @@ python -m pytest tests -q
 
 ## Native-core rules
 
-- `taiji/` must not import `neuroplex`, `transformers`, attention implementations, tokenizers, or legacy checkpoints.
+- `seed/` may depend on the public `taiji` API, but not on `neuroplex` or `transformers`.
+- `taiji/` must not import `seed`, `neuroplex`, `transformers`, attention implementations, tokenizers, or legacy checkpoints.
 - Normal learning must not call `backward()` or a global optimizer.
 - New synaptic updates must state which presynaptic trace, postsynaptic error, and broadcast signal are locally available.
 - Every persistent state must define its update, decay, reset, checkpoint, and lesion behavior.

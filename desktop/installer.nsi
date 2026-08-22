@@ -1,4 +1,4 @@
-;态极 Windows 安装脚本 (NSIS)
+;Seed Windows 安装脚本 (NSIS)
 ;================================
 ;
 ;使用方式：
@@ -6,17 +6,17 @@
 ;  2. 先运行 build_desktop.bat 打包
 ;  3. 右键此文件 → Compile NSIS Script
 ;
-;输出：TaijiSetup.exe
+;输出：SeedSetup.exe
 
-!define APP_NAME "态极"
+!define APP_NAME "Seed"
 !define APP_VERSION "1.6.0"
-!define APP_PUBLISHER "Taiji Project"
-!define APP_EXE "Taiji.exe"
-!define APP_DIR "Taiji"
+!define APP_PUBLISHER "Seed Project"
+!define APP_EXE "Seed.exe"
+!define APP_DIR "Seed"
 
 ; 安装器属性
 Name "${APP_NAME} ${APP_VERSION}"
-OutFile "TaijiSetup.exe"
+OutFile "SeedSetup.exe"
 InstallDir "$PROGRAMFILES\${APP_DIR}"
 InstallDirRegKey HKLM "Software\${APP_DIR}" "InstallDir"
 RequestExecutionLevel admin
@@ -44,7 +44,7 @@ Section "安装"
     SetOutPath "$INSTDIR"
 
     ; 复制所有文件
-    File /r "dist\Taiji\*.*"
+    File /r "dist\Seed\*.*"
 
     ; 创建卸载器
     WriteUninstaller "$INSTDIR\Uninstall.exe"

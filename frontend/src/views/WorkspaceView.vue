@@ -4,7 +4,7 @@
     <header class="topbar">
       <div>
         <div class="topbar-title">IDE 工作区</div>
-        <div class="topbar-sub">态极脚本与配置编辑</div>
+        <div class="topbar-sub">Seed脚本与配置编辑</div>
       </div>
       <div class="topbar-spacer"></div>
       <button class="btn btn-primary">
@@ -73,7 +73,7 @@
             </div>
             <div v-else class="prop-empty">未打开文件</div>
             <div class="prop-group">
-              <div class="prop-group-title">态极检查器</div>
+              <div class="prop-group-title">Seed检查器</div>
               <div class="inspector-item"><span class="inspector-dot ok"></span><span class="inspector-text">YAML 语法校验</span><span class="inspector-meta">通过</span></div>
               <div class="inspector-item"><span class="inspector-dot info"></span><span class="inspector-text">配置完整性</span><span class="inspector-meta">6/6 节</span></div>
               <div class="inspector-item"><span class="inspector-dot ok"></span><span class="inspector-text">分布式策略对齐</span><span class="inspector-meta">128 GPU</span></div>

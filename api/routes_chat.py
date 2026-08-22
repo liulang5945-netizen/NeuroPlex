@@ -1,7 +1,7 @@
 """
 聊天 & 健康检查 API 路由
 提供：
-- POST /api/chat/stream     → 流式聊天（支持本地/云端/Agent/态极引擎）
+- POST /api/chat/stream     → 流式聊天（支持本地/云端/Agent/Seed引擎）
 - POST /api/chat/history/{session_id} → 保存会话历史
 - POST /api/chat/upload     → 聊天文件上传
 - GET  /api/health          → 健康检查

@@ -1,8 +1,8 @@
-# Taiji Native v5 原生场记忆算法
+# Taiji Native v6 原生场记忆算法
 
 > 权威实现：`taiji/memory.py`、`taiji/state.py`、`taiji/model.py`、`taiji/fabric.py`。
 >
-> 状态：M0–M5 已有代码和因果反证；M6 replay/巩固尚未实现。
+> 状态：M0–M6 已有代码和因果反证；当前限制是巩固读写 basis 的跨 seed 可分性。
 
 ## 1. 记忆层级与所有权
 
@@ -198,10 +198,10 @@ action 相对两个对照均提升 **62.5 个百分点**。另有独立反证确
 | M3 | 相同当前输入由不同动态历史产生不同正确后继 | PASS（N7） |
 | M4 | 共同干扰后 slow trace 对延迟任务必要且足够 | PASS（N8） |
 | M5 | 分布式情景场优于同宽 trace-only，且 recurrent/read lesion 消除收益 | **PASS** |
-| M6 | 内生 replay 巩固后，切除情景读出仍保留能力 | 未实现 |
+| M6 | 内生 replay 巩固后，切除情景读出仍保留能力 | **PASS（12-seed 面板 10/12，mean gain +0.4583，无 seed 受损）** |
 
 M5 只证明一个 8-event one-shot 微型场，不证明大容量无干扰记忆、语言情景理解、自传连续性或人脑等价。当前 write_count 是诊断计数，不是事件索引；代码还没有内生 replay、睡眠相位、巩固选择或结构生长。
 
 ## 9. 当前唯一下一步
 
-实现 M6 内生 replay/巩固：场必须从自身 novelty、reward salience、familiarity 和时间信号中选择重激活内容，把回忆产生的感觉/状态通过同一 `TaijiFabric.step(..., learn=True)` 局部规则沉入 decoder/transition；随后关闭 episodic action/readback，在跨 episode 任务上仍显著高于未 replay 对照。外部 Python event list、teacher target 和直接复制 memory weights 到 fabric 均禁止。
+M6 已实现。下一步不是增加 replay 剂量，而是对 signed-opponent cortical basis 做离线 12-seed 反证，消除固定随机 sparse decoder 在残差支撑上的结构盲区；通过前不得修改运行态或 checkpoint。外部 Python event list、teacher target、dense attention 和直接复制 memory weights 到 fabric 仍禁止。

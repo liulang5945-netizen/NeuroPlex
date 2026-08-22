@@ -1,4 +1,4 @@
-﻿"""Workspace management routes."""
+"""Workspace management routes."""
 
 import logging
 import os
@@ -385,4 +385,4 @@ def get_quick_paths():
 @router.get("/api/network/diagnose")
 def network_diagnose():
     """Network diagnostics (native Taiji — no remote model downloads needed)."""
-    return {"status": "ok", "diagnosis": {"message": "原生态极运行于本地，无需远程模型下载诊断"}}
+    return {"status": "ok", "diagnosis": {"message": "原生Seed运行于本地，无需远程模型下载诊断"}}

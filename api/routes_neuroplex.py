@@ -1,5 +1,5 @@
 """
-Cortex 神经元架构 API 路由（内部代号：态极）。
+Cortex 神经元架构 API 路由（内部代号：Seed）。
 所有端点基于 Cortex 神经元架构认知主体。
 """
 import json
@@ -172,7 +172,7 @@ def feed_status():
 
 @router.post("/api/taiji/feed")
 def feed_taiji():
-    """让态极吃饭 — 自动从各来源收集数据"""
+    """让Seed吃饭 — 自动从各来源收集数据"""
     try:
         from neuroplex.life.feed_engine import get_feed_engine
         engine = get_feed_engine()
@@ -193,7 +193,7 @@ def feed_taiji():
 
 @router.post("/api/taiji/feed/text")
 def feed_text(request: dict):
-    """直接喂态极一段文字（请求体：{text, source?, category?}）"""
+    """直接喂Seed一段文字（请求体：{text, source?, category?}）"""
     try:
         text = request.get("text", "")
         if not text or not text.strip():
@@ -234,7 +234,7 @@ def _validate_workspace_path(file_path: str) -> str:
 
 @router.post("/api/taiji/feed/file")
 def feed_file(request: dict):
-    """喂态极吃一个文件（请求体：{file_path, category?}）"""
+    """喂Seed吃一个文件（请求体：{file_path, category?}）"""
     try:
         file_path = request.get("file_path", "")
         if not file_path:
@@ -263,7 +263,7 @@ def feed_file(request: dict):
 
 @router.post("/api/taiji/feed/multimodal")
 def feed_multimodal(request: dict):
-    """喂态极多模态资料并触发小睡消化。
+    """喂Seed多模态资料并触发小睡消化。
 
     请求体：{file_path, modality, nap?}
     - file_path: 已上传的文件路径（通过 /api/taiji/upload 上传）
@@ -599,7 +599,7 @@ def cortex_task_chain(req: CortexTaskChainRequest):
 
 @router.post("/api/taiji/feed/directory")
 def feed_directory(request: dict):
-    """喂态极吃一个目录下的所有文件（请求体：{dir_path, category?}）"""
+    """喂Seed吃一个目录下的所有文件（请求体：{dir_path, category?}）"""
     try:
         dir_path = request.get("dir_path", "")
         if not dir_path:
@@ -648,7 +648,7 @@ def sleep_status():
 
 @router.post("/api/taiji/sleep")
 def sleep_taiji():
-    """让态极睡觉"""
+    """让Seed睡觉"""
     try:
         from neuroplex.life.sleep_engine import get_sleep_engine
         engine = get_sleep_engine()
@@ -682,7 +682,7 @@ def play_status():
 
 @router.post("/api/taiji/play")
 def play_taiji():
-    """让态极玩耍 — 自由探索和创意实验"""
+    """让Seed玩耍 — 自由探索和创意实验"""
     try:
         from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
@@ -710,7 +710,7 @@ def play_taiji():
 
 @router.get("/api/taiji/play/personality")
 def play_personality():
-    """获取态极的个性档案"""
+    """获取Seed的个性档案"""
     try:
         from neuroplex.life.play_engine import get_play_engine
         engine = get_play_engine()
@@ -790,7 +790,7 @@ def life_force_action(action: str):
 
 @router.get("/api/taiji/self_mod/status")
 def self_mod_status():
-    """获取态极自修改引擎状态（自主发现和安装工具的能力）"""
+    """获取Seed自修改引擎状态（自主发现和安装工具的能力）"""
     try:
         from neuroplex.agent_ext.self_modification import get_self_modification_engine
         engine = get_self_modification_engine()
@@ -802,7 +802,7 @@ def self_mod_status():
 
 @router.post("/api/taiji/self_mod/discover")
 async def self_mod_discover(req: dict):
-    """态极自主搜索可安装的工具"""
+    """Seed自主搜索可安装的工具"""
     keyword = req.get("keyword", "").strip()
     if not keyword:
         raise HTTPException(status_code=400, detail="关键词不能为空")
@@ -818,7 +818,7 @@ async def self_mod_discover(req: dict):
 
 @router.post("/api/taiji/self_mod/toggle")
 async def self_mod_toggle(req: dict):
-    """启用/禁用态极自修改引擎"""
+    """启用/禁用Seed自修改引擎"""
     enabled = req.get("enabled", True)
     try:
         from neuroplex.agent_ext.self_modification import get_self_modification_engine

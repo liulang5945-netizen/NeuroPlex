@@ -4,7 +4,7 @@
     <header class="topbar">
       <div class="topbar-left">
         <span class="topbar-title">生命状态</span>
-        <span class="topbar-sub">实时监控态极神经元网络</span>
+        <span class="topbar-sub">实时监控Seed神经元网络</span>
       </div>
       <span class="topbar-spacer"></span>
       <n-tag
@@ -350,7 +350,7 @@
                   <svg class="ev-icon" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6h6v6"/></svg>
                 </div>
                 <div class="event-body">
-                  <div class="event-text">神经元 N-0842 激活，加入态极网络主干</div>
+                  <div class="event-text">神经元 N-0842 激活，加入Seed网络主干</div>
                   <div class="event-meta">41分钟前</div>
                 </div>
               </div>

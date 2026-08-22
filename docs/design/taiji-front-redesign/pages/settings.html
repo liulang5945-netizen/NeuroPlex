@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>态极控制台 · 设置</title>
+    <title>Seed控制台 · 设置</title>
     <style id="theme-vars">
 /* Source: structured-spec */
 :root {
@@ -867,7 +867,7 @@
     <span style="width:0"></span>
     <div class="topbar-title-wrap">
       <span class="topbar-title">设置</span>
-      <span class="topbar-sub">态极系统配置与偏好</span>
+      <span class="topbar-sub">Seed系统配置与偏好</span>
     </div>
     <span class="topbar-spacer"></span>
     <!-- 无主题切换器 -->
@@ -1111,7 +1111,7 @@
                 <p>重置将清除所有本地配置、神经元状态与缓存文件，此操作不可撤销。建议先导出数据再进行重置。</p>
                 <button class="btn-destructive">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h5v6h-5z"/><path d="M14.5 9.5 13 7h-2l-1.5 2.5"/></svg>
-                  重置态极
+                  重置Seed
                 </button>
               </div>
             </div>
@@ -1124,7 +1124,7 @@
             <div class="setting-row" style="padding-top:0;">
               <div class="about-meta">
                 <div class="meta-line">
-                  <span style="font-weight:600;">态极神经元系统</span>
+                  <span style="font-weight:600;">Seed神经元系统</span>
                   <span class="meta-tag">v2.4.1</span>
                 </div>
                 <div class="meta-line" style="color:var(--muted-foreground);font-size:0.8rem;">
@@ -1161,7 +1161,7 @@
 </div><!-- /.app -->
 
 <style id="app-shell">
-/* ═══ 态极控制台 · 应用外壳（豆包设计语言） ═══ */
+/* ═══ Seed控制台 · 应用外壳（豆包设计语言） ═══ */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; min-height: 100%; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 body { min-height: 100vh; }
@@ -1275,7 +1275,7 @@ button { appearance: none; cursor: pointer; }
     var resetBtn = document.querySelector('.btn-destructive');
     if(resetBtn){
       resetBtn.addEventListener('click', function(){
-        if(confirm('确定要重置态极吗？所有本地配置与数据将被清除，此操作不可撤销。')){
+        if(confirm('确定要重置Seed吗？所有本地配置与数据将被清除，此操作不可撤销。')){
           alert('已重置');
         }
       });
@@ -1288,7 +1288,7 @@ button { appearance: none; cursor: pointer; }
 
 
     <style>
-    /* ═══ 态极控制台 · 设置页专属样式 ═══ */
+    /* ═══ Seed控制台 · 设置页专属样式 ═══ */
 
     /* --- 设置容器 --- */
     .settings-wrap {

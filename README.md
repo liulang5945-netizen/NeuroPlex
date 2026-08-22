@@ -1,6 +1,6 @@
-# NeuroPlex — Taiji Native Persistent Predictive Computing
+# Seed — powered by the Taiji Native Predictive Substrate
 
-NeuroPlex is the project. **Taiji** is its new substrate, built to replace the Transformer bottom layer outright: it defines its own input representation, persistent state transition, distributed episodic field, local learning rules, motor output, active-environment loop, free-running generation, and checkpoint format.
+**Seed** is the project and model. **Taiji** is Seed's native computational substrate, built to replace the Transformer bottom layer outright: it defines its own input representation, persistent state transition, distributed episodic field, local learning rules, motor output, active-environment loop, free-running generation, and checkpoint format.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -11,8 +11,8 @@ NeuroPlex is the project. **Taiji** is its new substrate, built to replace the T
 
 | Name | Meaning |
 |---|---|
-| **NeuroPlex** | the project (the distribution name `taiji-neuron` in `pyproject.toml` is historical) |
-| **Taiji** / Taiji Predictive Fabric (TPF) | the new substrate replacing the Transformer; package `taiji/`, reference implementation Native v5 |
+| **Seed** | the project and model-level organism; distribution/package `seed` |
+| **Taiji** / Taiji Predictive Fabric (TPF) | Seed's computational substrate replacing the Transformer; package `taiji/`, current checkpoint line Native v6 |
 | **Legacy NeuroPlex** | the frozen Transformer baseline in `neuroplex/`; the replaced bottom layer is `neuroplex/layers.py::TransformerBlock` |
 | `taiji.*` in `scripts/archive/` | a historical import alias for `neuroplex`, not this substrate |
 
@@ -30,7 +30,7 @@ raw byte receptors
   → emitted action returns as the next sensation
 ```
 
-| Transformer responsibility | Taiji Native v5 |
+| Transformer responsibility | Taiji Native v6 |
 |---|---|
 | tokenizer + learned embedding | 256 raw-byte receptors + boundary receptor |
 | positional encoding | causal ticks and persistent state |
@@ -113,22 +113,24 @@ python scripts/training/verify_taiji_m5_episodic_field.py
 python -m pytest tests/taiji_native -q
 ```
 
-Minimal API:
+Seed model API:
 
 ```python
-from taiji import Taiji
+from seed import Seed
 
-model = Taiji()
+model = Seed()
 model.learn_bytes(b"abcdabcdabcdabcd", epochs=200)
 
 print(model.score_bytes(b"abcdabcdabcdabcd"))
 print(model.generate(b"a", length=8))
 
 checkpoint = model.checkpoint()
-restored = Taiji.from_checkpoint(checkpoint)
+restored = Seed.from_checkpoint(checkpoint)
 ```
 
-## Reproducible Native v5 results
+Researchers may still import `Taiji` directly for substrate-only falsification experiments. Production-facing composition belongs in `seed/`.
+
+## Reproducible Taiji substrate results
 
 The committed verification uses two regions `[64, 48]`, seed `7`, and raw bytes:
 
@@ -164,6 +166,10 @@ A single seed cannot separate a mechanism change from seed-specific idiosyncrasy
 ## Source layout
 
 ```text
+seed/
+├── config.py    Seed-level composition contract
+└── model.py     public model boundary wrapping one Taiji substrate
+
 taiji/
 ├── config.py    architecture and dynamics contract
 ├── sparse.py    fixed fan-in synapses and local updates
@@ -199,7 +205,7 @@ python -m pip install -e ".[legacy]"
 
 ## Current falsification target
 
-The unique next architecture step is M6 endogenous replay and consolidation. Taiji must select real high-novelty/high-value engrams without an external replay list, reactivate the same fabric locally, transfer useful structure into cortical predictive/transition synapses, and retain the behavior when episodic readout is subsequently lesioned. Until that causal transfer passes, Native v5 is a complete executable reference substrate—not an AGI claim.
+M6 endogenous replay is implemented and transfers contingency structure into the fabric across the seed panel. The current falsification target is the remaining read/write separability ceiling: offline common-mode subtraction reached 4/4 positive margins on only one of seeds 11/29/61, so a generic adaptive baseline is rejected. The next substrate change must first demonstrate, offline and across the full panel, that a signed opponent eligibility/readout basis can make every contingency separable without teacher targets, dense attention or per-event slots.
 
 ## License
 

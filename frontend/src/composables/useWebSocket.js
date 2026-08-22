@@ -1,8 +1,8 @@
 /**
- * 态极 WebSocket 客户端
+ * Seed WebSocket 客户端
  * ====================
  *
- * 前端与态极核心的实时通信。
+ * 前端与Seed核心的实时通信。
  */
 import { ref, onMounted, onUnmounted } from 'vue'
 

@@ -1,5 +1,5 @@
 """
-态极桌面客户端打包脚本
+Seed桌面客户端打包脚本
 ========================
 
 使用 PyInstaller 打包为独立可执行文件。
@@ -8,8 +8,8 @@
     python desktop/build.py
 
 输出：
-    dist/Taiji.exe (Windows)
-    dist/Taiji (Linux/Mac)
+    dist/Seed.exe (Windows)
+    dist/Seed (Linux/Mac)
 """
 import os
 import sys
@@ -23,9 +23,9 @@ BUILD_DIR = ROOT_DIR / "build"
 
 
 def build():
-    """打包态极桌面客户端"""
+    """打包Seed桌面客户端"""
     print("=" * 50)
-    print("  态极桌面客户端打包")
+    print("  Seed桌面客户端打包")
     print("=" * 50)
 
     # 清理旧构建
@@ -63,7 +63,7 @@ def build():
     # 构建 PyInstaller 命令
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name=Taiji",
+        "--name=Seed",
         "--windowed",  # 无控制台窗口
         "--onedir",    # 单目录打包
         f"--icon={ROOT_DIR / 'icon.ico'}",
@@ -100,18 +100,18 @@ def build():
     print("\n[3/3] 后处理...")
 
     # 复制额外文件到 dist
-    dist_taiji = DIST_DIR / "Taiji"
-    if dist_taiji.exists():
+    dist_seed = DIST_DIR / "Seed"
+    if dist_seed.exists():
         # 复制知识库目录
         for extra_dir in ["knowledge_store", "user_data", "security"]:
             src = ROOT_DIR / extra_dir
             if src.exists():
-                shutil.copytree(src, dist_taiji / extra_dir, dirs_exist_ok=True)
+                shutil.copytree(src, dist_seed / extra_dir, dirs_exist_ok=True)
 
         # 创建空目录
         for empty_dir in ["agent_workspace", "taiji_data/feed_data", "taiji_data/sleep_data",
                           "taiji_data/life_data", "taiji_data/evolution_data"]:
-            (dist_taiji / empty_dir).mkdir(parents=True, exist_ok=True)
+            (dist_seed / empty_dir).mkdir(parents=True, exist_ok=True)
 
     print("  后处理完成")
 

@@ -1,5 +1,5 @@
 /**
- * 态极控制台 - 豆包设计 token 体系（themes.css）
+ * Seed控制台 - 豆包设计 token 体系（themes.css）
  * 完整同步画布 taiji-doubao-redesign 的变量定义
  * 同时定义豆包变量名（--background/--foreground/--card 等）和旧变量名（--bg/--text/--bg-card 等）
  * 通过 <html data-theme="classic|dark|teal|violet|warm"> 切换

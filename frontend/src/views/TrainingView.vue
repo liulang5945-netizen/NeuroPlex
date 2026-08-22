@@ -6,7 +6,7 @@
         <h2>微调训练</h2>
         <span class="header-sub">
           <span v-if="taijiModelInfo.size">{{ taijiModelInfo.size }} · {{ taijiModelInfo.config?.num_hidden_layers }}层 · {{ taijiModelInfo.config?.hidden_size }}维</span>
-          <span v-else>态极微调 · LoRA 低秩适配</span>
+          <span v-else>Seed微调 · LoRA 低秩适配</span>
         </span>
       </div>
       <div class="header-actions">
@@ -17,7 +17,7 @@
           <template #icon><PackageIcon :size="14" /></template>保存检查点
         </n-button>
         <n-button v-if="trainState === 'idle' || trainState === 'completed'" type="primary" round @click="startTaijiTraining(toast)">
-          <template #icon><Zap :size="14" /></template>开始态极微调
+          <template #icon><Zap :size="14" /></template>开始Seed微调
         </n-button>
       </div>
     </div>
@@ -37,7 +37,7 @@
         <div v-if="trainState === 'running' || trainState === 'paused'" class="tk-card">
           <div class="progress-hero">
             <div>
-              <div class="card-sub" style="margin-bottom:6px">{{ taijiModelInfo.size || '态极模型' }} · LoRA 微调</div>
+              <div class="card-sub" style="margin-bottom:6px">{{ taijiModelInfo.size || 'Seed模型' }} · LoRA 微调</div>
               <div class="pct">{{ trainProgress }}<span class="unit">%</span></div>
             </div>
             <div class="right-meta">
@@ -60,7 +60,7 @@
         <div v-else class="tk-card">
           <div class="progress-hero">
             <div>
-              <div class="card-sub" style="margin-bottom:6px">{{ taijiModelInfo.size || '态极模型' }} · LoRA 微调</div>
+              <div class="card-sub" style="margin-bottom:6px">{{ taijiModelInfo.size || 'Seed模型' }} · LoRA 微调</div>
               <div class="pct">0<span class="unit">%</span></div>
             </div>
             <div class="right-meta">
@@ -207,7 +207,7 @@
         <div class="tk-card">
           <div class="card-head">
             <h3><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;color:var(--primary)"><circle cx="6" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M8 7.5 12 5M8 16.5 12 19M8 16l7-4M8 8l7 3"/></svg>训练超参数</h3>
-            <span class="card-sub">LoRA 微调 · {{ taijiModelInfo.size || '态极模型' }}</span>
+            <span class="card-sub">LoRA 微调 · {{ taijiModelInfo.size || 'Seed模型' }}</span>
           </div>
           <div class="hp-grid">
             <div class="hp-field">
@@ -350,7 +350,7 @@
               <i style="background:var(--warning, #eab308)"></i>
               <i style="background:var(--chart-2)"></i>
             </div>
-            <span class="log-title">training.log — {{ taijiModelInfo.size || '态极模型' }}</span>
+            <span class="log-title">training.log — {{ taijiModelInfo.size || 'Seed模型' }}</span>
             <span class="log-spacer"></span>
             <span class="log-tag">实时 · tail -f</span>
             <n-button size="tiny" quaternary round class="log-clear-btn" @click="clearTrainLog">

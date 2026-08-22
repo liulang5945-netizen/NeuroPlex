@@ -1,5 +1,5 @@
 """
-[产品入口] 态极桌面客户端 — 开发环境版本
+[产品入口] Seed桌面客户端 — 开发环境版本
 ==========================================
 
 原生桌面应用，嵌入 Web 前端，通过子进程管理后端生命周期。
@@ -34,7 +34,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(message)s'
 )
-logger = logging.getLogger("TaijiDesktop")
+logger = logging.getLogger("SeedDesktop")
 
 # 项目根目录
 ROOT_DIR = Path(__file__).parent.parent
@@ -205,7 +205,7 @@ class WebSocketManager:
 
 
 def main():
-    """启动态极桌面客户端"""
+    """启动Seed桌面客户端"""
     try:
         from PyQt6.QtWidgets import (
             QApplication, QMainWindow, QSystemTrayIcon, QMenu,
@@ -221,9 +221,9 @@ def main():
 
     # 创建应用
     app = QApplication(sys.argv)
-    app.setApplicationName("态极")
+    app.setApplicationName("Seed")
     app.setApplicationVersion("1.6.0")
-    app.setOrganizationName("Taiji")
+    app.setOrganizationName("Seed")
     app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar, True)
 
     # 设置应用图标
@@ -246,10 +246,10 @@ def main():
     ws_server.start()
 
     # 创建主窗口
-    class TaijiWindow(QMainWindow):
+    class SeedWindow(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("态极 - AI 生命体")
+            self.setWindowTitle("Seed - AI 生命体")
             self.setMinimumSize(QSize(1024, 700))
             self.menuBar().hide()
 
@@ -281,7 +281,7 @@ def main():
 
             # 设置用户代理
             profile = self.web_view.page().profile()
-            profile.setHttpUserAgent("TaijiDesktop/1.6.0")
+            profile.setHttpUserAgent("SeedDesktop/1.6.0")
 
             # 监听加载完成
             self.web_view.loadFinished.connect(self._on_load_finished)
@@ -343,7 +343,7 @@ def main():
                         setTimeout(() => {
                             const app = document.getElementById('app');
                             if (app && app.children.length === 0) {
-                                document.body.innerHTML = '<div style=\"display:flex;align-items:center;justify-content:center;height:100vh;background:#0d1117;color:#e2e8f0;font-family:sans-serif;\"><div style=\"text-align:center;\"><h1 style=\"font-size:48px;margin-bottom:16px;\">🧠</h1><h2>态极</h2><p style=\"color:#94a3b8;margin-top:8px;\">界面加载中，请稍候...</p><p style=\"color:#64748b;font-size:12px;margin-top:16px;\">如果长时间无响应，请刷新页面</p></div></div>';
+                                document.body.innerHTML = '<div style=\"display:flex;align-items:center;justify-content:center;height:100vh;background:#0d1117;color:#e2e8f0;font-family:sans-serif;\"><div style=\"text-align:center;\"><h1 style=\"font-size:48px;margin-bottom:16px;\">🧠</h1><h2>Seed</h2><p style=\"color:#94a3b8;margin-top:8px;\">界面加载中，请稍候...</p><p style=\"color:#64748b;font-size:12px;margin-top:16px;\">如果长时间无响应，请刷新页面</p></div></div>';
                             }
                         }, 3000);
                     """)
@@ -444,7 +444,7 @@ def main():
             if hasattr(self, 'tray') and self.tray.isVisible():
                 self.hide()
                 self.tray.showMessage(
-                    "态极",
+                    "Seed",
                     "已最小化到系统托盘，双击图标恢复窗口",
                     QSystemTrayIcon.MessageIcon.Information,
                     2000
@@ -461,7 +461,7 @@ def main():
             app.quit()
 
     # 创建并显示窗口
-    window = TaijiWindow()
+    window = SeedWindow()
     window.show()
 
     # 启动事件循环

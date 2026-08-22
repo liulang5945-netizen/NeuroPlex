@@ -1,5 +1,5 @@
 """
-态极生命状态 API
+Seed生命状态 API
 ================
 提供生命系统的 REST 接口：状态查询、手动触发生命活动。
 """
@@ -20,7 +20,7 @@ class LifeActionResponse(BaseModel):
 
 @router.get("/status")
 async def get_life_status():
-    """获取态极完整生命状态"""
+    """获取Seed完整生命状态"""
     try:
         from neuroplex.life.life_scheduler import get_life_scheduler
         scheduler = get_life_scheduler()

@@ -58,7 +58,7 @@ const ERROR_MAP = {
   // 模型错误
   '模型未加载': {
     title: '模型未就绪',
-    message: '态极的大脑还未装载',
+    message: 'Seed的大脑还未装载',
     impact: '无法对话和调用工具',
     recovery: '等待自动装载，或在设置中手动加载模型',
   },
@@ -80,7 +80,7 @@ const ERROR_MAP = {
     title: '工具执行失败',
     message: '某个工具调用出错',
     impact: '当前任务可能未完成',
-    recovery: '态极会自动重试或换一种方法',
+    recovery: 'Seed会自动重试或换一种方法',
   },
   'search_failed': {
     title: '搜索失败',

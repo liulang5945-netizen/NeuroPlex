@@ -1,6 +1,6 @@
 # Taiji 原生计算架构与代码规范
 
-> 状态：Native v5 已有可执行代码、方程、状态协议、真实按边内核、主动环境学习和原生分布式情景场，不是概念规划。
+> 状态：Native v6 已有可执行代码、方程、状态协议、真实按边内核、主动环境学习、原生分布式情景场与内生 replay，不是概念规划。
 >
 > 权威实现：仓库顶层 `taiji/`。
 >
@@ -10,7 +10,7 @@
 
 Taiji 是一个**持续状态、分层预测、稀疏局部连接、在线局部学习**的计算架构。它以连续到来的事件推进状态，不读取完整 token 窗口，也不在旧 Transformer 外围添加“神经元”适配器。
 
-Native v5 已经闭合以下完整算法链：
+Native v6 已经闭合以下完整算法链：
 
 ```text
 raw bytes
@@ -31,7 +31,7 @@ motor outcome error + region prediction error + episodic cue/event error
 只更新相邻、已有的局部突触
 ```
 
-这使 Taiji Native v5 覆盖最小自回归序列模型的输入、状态、输出、学习、生成、checkpoint、动作改变感觉的环境闭环，以及跨 episode 的分布式情景检索。它不是 AGI 完成证明；当前代码证明的是这套非 Transformer 计算链可独立执行并通过 N0–N11/M0–M5 的反证门槛。
+这使 Taiji Native v6 覆盖最小自回归序列模型的输入、状态、输出、学习、生成、checkpoint、动作改变感觉的环境闭环、跨 episode 的分布式情景检索与内生巩固。它不是 AGI 完成证明；当前代码证明的是这套非 Transformer 计算链可独立执行并通过 N0–N11/M0–M6 的反证门槛。
 
 ## 2. 为什么旧 Taiji-0 被废止
 
@@ -166,7 +166,7 @@ i_t^r      inhibitory pool         scalar
 
 完整 `TaijiState` 还保存 `tick/episode_id`、全部区域状态、场状态、motor context/probabilities、最后观察符号、可选 `PendingAction` 和可选 `PendingExperience`。pending action 原子保存所选动作、affordance、当时 context 与受限 policy；未结算前禁止再次 act 或 observe。pending experience 保存 tick、episode、provenance、动作时 cortical context、动作、reward 与 memory-learning gate；未观察 outcome sensation 前禁止再次 act 或 reset。
 
-Native v5 checkpoint 另行保存每组突触的 int32 `pre_index`、edge weights、运动/场感受器 channel/polarity、固定事件编码器、memory write count、motor reward baseline/update count 和行为 RNG 状态。因此在动作已选择或 reward 已返回但 outcome sensation 尚未到达时保存/恢复，后续更新也必须逐 tensor 一致。场结构生成使用行为 RNG 初始化完成时状态的克隆流，不消耗后续动作采样流。
+Native v6 checkpoint 另行保存每组突触的 int32 `pre_index`、edge weights、运动/场感受器 channel/polarity、固定事件编码器、memory write count、motor reward baseline/update count 和行为 RNG 状态。因此在动作已选择或 reward 已返回但 outcome sensation 尚未到达时保存/恢复，后续更新也必须逐 tensor 一致。场结构生成使用行为 RNG 初始化完成时状态的克隆流，不消耗后续动作采样流。
 
 ## 6. 一个 tick 的精确前向算法
 
@@ -496,7 +496,7 @@ reports/taiji_m6_seed_panel_20260821.json
 
 这张表表示算法职责已覆盖，不表示当前小规模 Taiji 已达到 Transformer 的语言质量。
 
-## 12. Native v5 反证门槛
+## 12. Native v6 反证门槛
 
 | ID | 合同 | 当前结果 |
 |---|---|---|
@@ -513,6 +513,7 @@ reports/taiji_m6_seed_panel_20260821.json
 | N10 | masked dense 区域改为真实 sparse/event kernel 后仍保持结果 | PASS：算子误差 ≤ `2.98e-8`，dense 算子参考一致且 N5–N9 全部回归通过 |
 | N11 | 在动作会改变后续感觉的环境中在线学习 | PASS：末 40 次 `100%`，随机 `50%`，action-lesion `57.5%` |
 | M5 | 跨 episode 分布式情景回忆优于同宽 trace，并通过循环/读取切除 | PASS：action `87.5%` vs trace/recurrent lesion `25%`；outcome/provenance `100%` |
+| M6 | 内生 replay 后切除 episodic readout 仍保留 contingency | PASS：12-seed 面板 10/12，mean gain `+0.4583`，无 seed 受损 |
 
 N7 的结论必须精确：该任务的即时上下文主要保存在 membrane/activity；单独清零 slow trace 不会破坏结果。N8 在线索与 probe 间加入共同干扰 `1234` 后，在 probe 前清零 trace 会使准确率从 `100%` 降至 `50%`；反向只保留 trace、清空 membrane/activity/threshold/inhibition 仍为 `100%`。M5 才证明跨 reset 的可检索情景场；它仍只覆盖八条微型经历，不代表大容量自传记忆。
 
@@ -520,4 +521,4 @@ N9 的训练流显式设置 `include_boundary=False`，因为它检验无限循�
 
 ## 13. 当前唯一下一步
 
-进入 **M6 内生 replay 与巩固**：Taiji 必须用场内 novelty/value/familiarity/time 信号选择 engram，重激活同一 predictive fabric，并只通过已有局部误差规则把可迁移结构沉入 cortical decoder/transition。巩固后关闭 episodic action/readback，行为仍须显著高于未 replay 对照；禁止外部 event list、teacher target 或直接复制 memory weights。
+执行 signed-opponent basis 的离线 12-seed 反证。公共基线已在 seed 11/61 失败，不能进入运行态；新表示必须先让每个 seed 的 4 个 contingency margin 全部为正，才允许改 `fabric.step`、state 与 checkpoint。禁止外部 event list、teacher target、dense attention 或直接复制 memory weights。

@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-态极桌面客户端 PyInstaller 配置
+Seed 桌面客户端 PyInstaller 配置
 
 使用方式：
-    pyinstaller desktop/neuroplex.spec
+    pyinstaller desktop/seed.spec
 """
 import os
 import sys
@@ -75,7 +75,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='NeuroPlex',
+    name='Seed',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -97,5 +97,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='NeuroPlex',
+    name='Seed',
 )

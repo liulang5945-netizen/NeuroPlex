@@ -1,6 +1,6 @@
-# Taiji Code Wiki
+# Taiji Substrate Code Wiki
 
-This page maps the executable Native v5 algorithm to source code. **Scope: the top-level `taiji/` substrate only** — the frozen Legacy NeuroPlex Transformer baseline in `neuroplex/` is documented in [INTERFACE_REFERENCE.md](INTERFACE_REFERENCE.md). The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
+This page maps the executable Taiji algorithm to source code. **Scope: the top-level `taiji/` substrate only** — the Seed model boundary is in [`seed/`](seed), while the frozen Legacy NeuroPlex Transformer baseline in `neuroplex/` is documented in [INTERFACE_REFERENCE.md](INTERFACE_REFERENCE.md). The formal equations and ordering contract are in [TAIJI_SUBSTRATE_ARCHITECTURE.md](plans/active/TAIJI_SUBSTRATE_ARCHITECTURE.md).
 
 ## Runtime path
 
@@ -92,7 +92,7 @@ Readout uses a shared compressed field context. It reconstructs value-modulated 
 
 ## Checkpoint format
 
-Native checkpoints use `format = taiji-native-v5`, state version 4, and contain:
+Current substrate checkpoints use `format = taiji-native-v6`, state version 5, and contain:
 
 ```text
 config

@@ -1,0 +1,38 @@
+{
+  "benchmark": "taiji-m6-common-mode-locus",
+  "date": "2026-08-22",
+  "cycles": 96,
+  "criterion": "all four true-vs-rival margins positive at baseline gain <= 1",
+  "per_seed": [
+    {
+      "seed": 11,
+      "raw_positive": 2,
+      "pure_residual_positive": 2,
+      "best_positive": 2,
+      "pairs": 4,
+      "status": "fail"
+    },
+    {
+      "seed": 29,
+      "raw_positive": 2,
+      "pure_residual_positive": 4,
+      "best_positive": 4,
+      "pairs": 4,
+      "status": "pass"
+    },
+    {
+      "seed": 61,
+      "raw_positive": 2,
+      "pure_residual_positive": 2,
+      "best_positive": 3,
+      "pairs": 4,
+      "status": "fail"
+    }
+  ],
+  "summary": {
+    "passing_seeds": 1,
+    "seed_count": 3,
+    "adaptive_common_mode_baseline_rejected": true,
+    "next_hypothesis": "signed opponent basis with decoder support coverage"
+  }
+}

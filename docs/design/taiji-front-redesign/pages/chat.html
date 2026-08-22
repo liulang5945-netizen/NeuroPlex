@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>态极控制台 · 对话</title>
+    <title>Seed控制台 · 对话</title>
     <style id="theme-vars">
 /* Source: structured-spec */
 :root {
@@ -901,12 +901,12 @@
           <!-- 欢迎区 -->
           <section class="chat-welcome">
             <div class="welcome-logo" aria-hidden="true">
-              <img src="../assets/logo-taiji-taiji-ink.jpg" alt="态极太极水墨 logo">
+              <img src="../assets/logo-taiji-taiji-ink.jpg" alt="Seed太极水墨 logo">
             </div>
             <h1>有什么我能帮你的吗？</h1>
             <div class="welcome-sub">
               <span class="ok-dot"></span>
-              态极已就绪 · 神经元同步中，可随时提问
+              Seed已就绪 · 神经元同步中，可随时提问
             </div>
           </section>
 
@@ -950,18 +950,18 @@
               <div class="msg-body">
                 <span class="msg-name">你</span>
                 <div class="bubble">
-                  <p>解释一下态极的神经元共振机制是怎么工作的？</p>
+                  <p>解释一下Seed的神经元共振机制是怎么工作的？</p>
                 </div>
               </div>
             </div>
 
             <!-- AI 回复 1 -->
             <div class="msg msg-ai">
-              <img class="av av-ai" src="../assets/logo-taiji-taiji-ink.jpg" alt="态极" aria-label="态极">
+              <img class="av av-ai" src="../assets/logo-taiji-taiji-ink.jpg" alt="Seed" aria-label="Seed">
               <div class="msg-body">
-                <span class="msg-name">态极</span>
+                <span class="msg-name">Seed</span>
                 <div class="bubble">
-                  <p><span class="lead">神经元共振机制</span>是态极的核心，由 <code>ResonanceField</code> 层实现。当多个神经元的相位差小于阈值 <code>θ</code> 时，它们会进入同步放电状态，形成共振簇，输出更稳定的联合表征。</p>
+                  <p><span class="lead">神经元共振机制</span>是Seed的核心，由 <code>ResonanceField</code> 层实现。当多个神经元的相位差小于阈值 <code>θ</code> 时，它们会进入同步放电状态，形成共振簇，输出更稳定的联合表征。</p>
                   <ol class="msg-steps">
                     <li><strong>相位计算</strong>：每个神经元维护相位 <code>φᵢ</code>，每步更新 <code>φᵢ ← φᵢ + ωᵢ·Δt</code>。</li>
                     <li><strong>耦合检测</strong>：计算两两相位差 <code>Δφ = |φᵢ − φⱼ|</code>，若 <code>Δφ &lt; θ</code> 则建立耦合边。</li>
@@ -992,9 +992,9 @@
 
             <!-- AI 回复 2 -->
             <div class="msg msg-ai">
-              <img class="av av-ai" src="../assets/logo-taiji-taiji-ink.jpg" alt="态极" aria-label="态极">
+              <img class="av av-ai" src="../assets/logo-taiji-taiji-ink.jpg" alt="Seed" aria-label="Seed">
               <div class="msg-body">
-                <span class="msg-name">态极</span>
+                <span class="msg-name">Seed</span>
                 <div class="bubble">
                   <p>loss 卡住通常出在共振簇的梯度回传上。建议按这个顺序排查：</p>
                   <ol class="msg-steps">
@@ -1029,7 +1029,7 @@
         <!-- 底部输入框 -->
         <div class="composer-wrap">
           <div class="composer">
-            <textarea rows="1" placeholder="给态极发送消息，按 Enter 发送…"></textarea>
+            <textarea rows="1" placeholder="给Seed发送消息，按 Enter 发送…"></textarea>
             <div class="tools">
               <button class="composer-chip round" type="button" aria-label="添加">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -1065,7 +1065,7 @@
             <span aria-hidden="true">·</span>
             <span class="kbd">Shift</span>+<span class="kbd">Enter</span> 换行
             <span aria-hidden="true">·</span>
-            态极基于大模型生成，请核对关键信息
+            Seed基于大模型生成，请核对关键信息
           </div>
         </div>
 
@@ -1075,7 +1075,7 @@
 
   <!-- ═══ 应用外壳样式块（来自 partial） ═══ -->
   <style id="app-shell">
-  /* ═══ 态极控制台 · 应用外壳（态极设计语言） ═══ */
+  /* ═══ Seed控制台 · 应用外壳（Seed设计语言） ═══ */
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; min-height: 100%; background: var(--background); color: var(--foreground); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   body { min-height: 100vh; }
@@ -1116,7 +1116,7 @@
   .topbar-sub { font-size: 0.72rem; color: var(--muted-foreground); margin-top: 1px; }
   .topbar-spacer { flex: 1; }
 
-  /* 品牌标识（水墨 logo + 态极文字） */
+  /* 品牌标识（水墨 logo + Seed文字） */
   .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1rem; color: var(--foreground); letter-spacing: -0.01em; }
   .brand-logo { width: 30px; height: 30px; flex: none; object-fit: contain; border-radius: 50%; }
 
@@ -1166,7 +1166,7 @@
   </script>
 
     <style>
-    /* ═══ 态极控制台 · 对话页专属样式 ═══ */
+    /* ═══ Seed控制台 · 对话页专属样式 ═══ */
     /* 抵消 components.css 演示用 body padding，保证应用外壳铺满视口 */
     body { margin: 0; padding: 0; }
 

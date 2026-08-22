@@ -294,7 +294,243 @@ def origin(seed: int) -> None:
     print(f"    strongest units (actions/threshold): {top}")
 
 
+def _stream_baseline(checkpoint, ticks: int) -> torch.Tensor:
+    """Per-unit long-run mean of the region-0 trace over one waking stream.
+
+    This is the quantity an adaptive baseline inside ``fabric.step`` converges
+    to, so it is the honest stand-in for the mechanism under test.  The oracle
+    baseline below (the mean over the four probe bases) is not implementable
+    online -- it needs all four probes at once -- and only bounds what any
+    common-mode removal could achieve at read time.
+    """
+
+    model = Taiji.from_checkpoint(deepcopy(checkpoint))
+    model.reset_dynamics(episode_id="m6-baseline-stream")
+    corpus = _pretrain_corpus()
+    total = torch.zeros_like(model.snapshot().regions[0].trace)
+    for index in range(ticks):
+        model.observe(
+            corpus[index % len(corpus)],
+            learn=False,
+            learn_motor=False,
+            use_memory=False,
+        )
+        total += model.snapshot().regions[0].trace
+    return total / float(ticks)
+
+
+def _positive_count(margins: torch.Tensor) -> int:
+    return int((margins > 0.0).sum().item())
+
+
+def locus(seed: int, cycles: int) -> dict:
+    """Offline locus check: can common-mode removal on the basis flip all 4 pairs?
+
+    Section 6.6 fixed this as the precondition before touching ``fabric.step``.
+    The margin is ``(w_true - w_rival) . x``, linear in the basis ``x``, so
+    positive rescaling cannot change a sign: the renormalisation the real
+    mechanism would apply is invisible to this test, and so is the softmax,
+    being monotone.  Sign counting on the raw logit difference is therefore
+    exactly the end-to-end criterion, and the whole check reduces to a scan of
+    one scalar.
+
+    The scan has a distinguished point.  Writing the basis as
+    ``b_p = a_p u + d_p`` with ``u`` the four-action mean, subtracting the mean
+    at gain exactly 1 leaves ``d_p`` alone -- the only part of the basis that
+    carries probe identity.  Gain 1 is thus the honest ceiling of any
+    common-mode removal: beyond it the mean is being *added back with the
+    opposite sign*, which buys margin from a probe-independent direction rather
+    than from information, and a pair rescued there is rescued by a bias, not by
+    a better read-out.  The verdict below is therefore taken at gain <= 1, and
+    the residual margins are reported separately so a failure can be charged to
+    the right cause.
+    """
+
+    model = Taiji(_config(seed), episode_id="m6-bootstrap")
+    model.learn_bytes(_pretrain_corpus(), epochs=6)
+    episodes = _episodes()
+    pairs = _contingency(episodes)
+    _store(model, episodes)
+    stored = model.checkpoint()
+
+    sleeper = Taiji.from_checkpoint(deepcopy(stored))
+    sleeper.reset_dynamics(episode_id="m6-sleep-full")
+    sleeper.consolidate(cycles=cycles, learn=True)
+    rested = sleeper.checkpoint()
+
+    actions = sorted(pairs)
+    bases = torch.stack([_probe_basis(rested, action) for action in actions])
+    common = bases.mean(dim=0)
+    decoder = sleeper.fabric.decoders[0]
+
+    def _margins_at(baseline: torch.Tensor, gain: float) -> torch.Tensor:
+        adjusted = bases - gain * baseline
+        evidence = torch.stack([
+            decoder.forward(row).detach()[SELECTOR] for row in adjusted
+        ])
+        return _margins(evidence, pairs, actions)
+
+    raw = _margins_at(common, 0.0)
+    residual = _margins_at(common, 1.0)
+    stream = _stream_baseline(rested, ticks=256)
+
+    def _cells(margins: torch.Tensor) -> str:
+        return "  ".join(f"{v * 1e4:+8.2f}" for v in margins.tolist())
+
+    print(f"\n=== seed {seed}: offline locus check (cycles {cycles}) ===")
+    print(f"    raw basis       {_cells(raw)}   {_positive_count(raw)}/{len(actions)}")
+    print(f"    pure residual   {_cells(residual)}   "
+          f"{_positive_count(residual)}/{len(actions)}   <- ceiling of any common-mode removal")
+
+    reachable = _positive_count(raw)
+    for kind, baseline in (("oracle", common), ("stream", stream)):
+        for gain in (0.25, 0.5, 0.75, 1.0):
+            hits = _positive_count(_margins_at(baseline, gain))
+            reachable = max(reachable, hits)
+        window = torch.linspace(0.0, 1.0, 41)
+        curve = " ".join(
+            str(_positive_count(_margins_at(baseline, float(g)))) for g in window[::4]
+        )
+        print(f"    {kind:<7} positives over gain 0.0..1.0: {curve}")
+
+    delta_all = bases - common
+    normed = delta_all / delta_all.norm(dim=1, keepdim=True).clamp_min(1e-12)
+    cosines = normed @ normed.t()
+    offdiag = [
+        float(cosines[i, j].item())
+        for i in range(len(actions)) for j in range(i + 1, len(actions))
+    ]
+    print(f"    residual pairwise cosine  min {min(offdiag):+.3f}"
+          f"  mean {sum(offdiag) / len(offdiag):+.3f}  max {max(offdiag):+.3f}")
+
+    projections = _replay_projections(deepcopy(stored), cycles=cycles)
+    if projections:
+        mean_projection = torch.stack(projections).mean(dim=0)
+        write = torch.stack([
+            _write_basis(rested, action, mean_projection) for action in actions
+        ])
+        alignment = []
+        for row in range(len(actions)):
+            probe = bases[row]
+            other = write[row]
+            denominator = (probe.norm() * other.norm()).clamp_min(1e-12)
+            alignment.append(float((torch.dot(probe, other) / denominator).item()))
+        print(f"    write-vs-probe basis cosine  "
+              + "  ".join(f"{value:+.3f}" for value in alignment))
+        write_margins = _margins(
+            torch.stack([decoder.forward(row).detach()[SELECTOR] for row in write]),
+            pairs, actions,
+        )
+        print(f"    margins on write basis  {_cells(write_margins)}"
+              f"   {_positive_count(write_margins)}/{len(actions)}")
+
+    print("    per-pair attribution (true row vs best rival at gain 0)")
+    for row, action in enumerate(actions):
+        target = OUTCOMES.index(pairs[action])
+        evidence = decoder.forward(bases[row]).detach()[SELECTOR]
+        masked = evidence.clone()
+        masked[target] = float("-inf")
+        rival = int(masked.argmax().item())
+        true_row = _row_vector(decoder, OUTCOMES[target])
+        rival_row = _row_vector(decoder, OUTCOMES[rival])
+        weight_diff = true_row - rival_row
+        delta = bases[row] - common
+        common_term = float(torch.dot(weight_diff, common).item())
+        residual_term = float(torch.dot(weight_diff, delta).item())
+        verdict = "residual WRONG" if residual_term <= 0.0 else "residual ok"
+        print(f"      {chr(action)}->{chr(pairs[action])} vs {chr(OUTCOMES[rival])}"
+              f"  common {common_term * 1e4:+9.2f}  residual {residual_term * 1e4:+9.2f}"
+              f"   {verdict}")
+        if residual_term <= 0.0:
+            true_term = float(torch.dot(true_row, delta).item())
+            rival_term = float(torch.dot(rival_row, delta).item())
+            support_true = set(decoder.pre_index[OUTCOMES[target]].tolist())
+            support_rival = set(decoder.pre_index[OUTCOMES[rival]].tolist())
+            shared = len(support_true & support_rival)
+            peak = int(delta.abs().argmax().item())
+            seen = "yes" if peak in support_true else "NO"
+            print(f"        root cause: true row reads {true_term * 1e4:+9.2f},"
+                  f" rival reads {rival_term * 1e4:+9.2f},"
+                  f" shared contacts {shared}/{len(support_true)},"
+                  f" peak residual unit in true fan-in: {seen}")
+
+    return {
+        "seed": seed,
+        "raw_positive": _positive_count(raw),
+        "residual_positive": _positive_count(residual),
+        "reachable_positive": reachable,
+        "pairs": len(actions),
+    }
+
+
+def _replay_projections(checkpoint, cycles: int) -> list:
+    """Collect the cortical projections consolidation actually replays with."""
+
+    model = Taiji.from_checkpoint(checkpoint)
+    model.reset_dynamics(episode_id="m6-projection-probe")
+    memory_state = model.snapshot().memory
+    tick = int(model.snapshot().tick)
+    collected = []
+    for _ in range(int(cycles)):
+        memory_state, replay = model.memory.replay(
+            memory_state, tick=tick, generator=model._memory_rng
+        )
+        tick += 1
+        if replay.accepted:
+            collected.append(replay.cortical_projection.detach().clone())
+    return collected
+
+
+def _write_basis(checkpoint, action: int, projection: torch.Tensor) -> torch.Tensor:
+    """The settled trace a *replay burst* writes onto, feedback included.
+
+    ``_probe_basis`` reproduces the evaluation probe, which arrives with the
+    action alone and ``use_memory=False``.  Consolidation drives the identical
+    burst but passes ``episodic_feedback=replay.cortical_projection``, and that
+    feedback enters ``drive`` with a nonzero gain.  If the two bases differ, the
+    write lands on one vector and the probe interrogates another -- a mismatch no
+    amount of common-mode removal at read time can repair.
+    """
+
+    model = Taiji.from_checkpoint(deepcopy(checkpoint))
+    model.reset_dynamics(episode_id=f"m6-write-{action}")
+    regions = model.fabric.clear_dynamics(model.snapshot().regions)
+    for _ in range(int(model.config.replay_burst_repeats)):
+        regions, _rates, _errors = model.fabric.step(
+            model.sensor.encode(action),
+            regions,
+            learn=False,
+            episodic_feedback=projection,
+            learn_scale=0.0,
+            adapt_homeostasis=False,
+        )
+    return regions[0].trace.detach().clone()
+
+
+def _row_vector(decoder, row: int) -> torch.Tensor:
+    """Densify one decoder row so margins can be attributed by inner product."""
+
+    dense = torch.zeros(decoder.in_features)
+    dense.scatter_add_(0, decoder.pre_index[row], decoder.edge_weight[row])
+    return dense
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "locus":
+        cycles = 96
+        seeds = [int(a) for a in sys.argv[2:]] or list(SEEDS)
+        results = [locus(seed, cycles) for seed in seeds]
+        print("\n=== locus verdict (criterion: 4/4 positive at gain <= 1) ===")
+        passing = 0
+        for row in results:
+            ok = row["reachable_positive"] == row["pairs"]
+            passing += int(ok)
+            print(f"    seed {row['seed']:3d}  raw {row['raw_positive']}/{row['pairs']}"
+                  f"  residual {row['residual_positive']}/{row['pairs']}"
+                  f"  best {row['reachable_positive']}/{row['pairs']}"
+                  f"  {'PASS' if ok else 'fail'}")
+        print(f"    seeds reaching 4/4: {passing}/{len(results)}")
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "sweep":
         for seed in [int(a) for a in sys.argv[2:]] or list(SEEDS):
             sweep(seed)

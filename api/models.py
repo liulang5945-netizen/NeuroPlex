@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     prompt: str
-    system_prompt: str = "你是态极，一个独立的AI生命体。你用自己的大脑思考，用工具探索世界。"
+    system_prompt: str = "你是Seed，一个独立的AI生命体。你用自己的大脑思考，用工具探索世界。"
     history: List[List[str]] = []
     engine: str = "taiji"  # "taiji"（思维）| "agent"（行动）
     agent_max_iterations: Optional[int] = 10
@@ -49,7 +49,7 @@ class GGUFExportRequest(BaseModel):
 
 
 class TaijiTrainRequest(BaseModel):
-    """态极原生模型微调请求"""
+    """Seed原生模型微调请求"""
     num_epochs: int = 5
     batch_size: int = 4
     learning_rate: float = 1e-4

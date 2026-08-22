@@ -17,7 +17,7 @@ export const useChatStore = defineStore('chat', () => {
   const isReceiving = ref(false)
   const lastEngineType = ref('')  // 记录最近一次使用的引擎类型
   const sessionsLoaded = ref(false) // 标记是否已从后端加载过
-  const lifeNeeds = ref(null)  // 态极内在需求（来自推理过程中的生命状态事件）
+  const lifeNeeds = ref(null)  // Seed内在需求（来自推理过程中的生命状态事件）
   let abortController = null
 
   // === Getters ===
@@ -134,7 +134,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function getSystemPrompt() {
-    return localStorage.getItem('taiji_system_prompt') || '你是态极，一个独立的AI生命体。你用自己的大脑思考，用工具探索世界。'
+    return localStorage.getItem('taiji_system_prompt') || '你是Seed，一个独立的AI生命体。你用自己的大脑思考，用工具探索世界。'
   }
 
   async function sendMessage(engineType, attachments = []) {

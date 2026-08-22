@@ -1,5 +1,5 @@
 """
-Taiji 态极 - 主入口
+Seed - 主入口
 项目许可：Apache License 2.0，详见仓库根目录 LICENSE
 
 统一入口点：
@@ -32,7 +32,7 @@ import uvicorn
 def main():
     """主入口"""
     # 第一层：主入口参数
-    parser = argparse.ArgumentParser(description="Taiji 态极")
+    parser = argparse.ArgumentParser(description="Seed")
     parser.add_argument("--model_name", type=str, default=None,
                         help="模型名称或路径")
     parser.add_argument("--cache_dir", type=str, default=None,
@@ -60,7 +60,7 @@ def main():
     if args.checkpoint:
         config.resume_from_checkpoint = args.checkpoint
 
-    print(f"🧠 Taiji 态极")
+    print("🧠 Seed")
     print(f"   模型: {config.model_name}")
     print(f"   设备: {config.resolve_device()}")
 

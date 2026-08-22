@@ -24,7 +24,7 @@ router = APIRouter()
 
 @router.get("/api/system/hardware")
 def get_system_hardware():
-    """检测系统硬件配置（原生态极）"""
+    """检测系统硬件配置（原生Seed）"""
     try:
         import psutil
         import torch

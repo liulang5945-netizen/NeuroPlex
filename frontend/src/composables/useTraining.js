@@ -43,10 +43,10 @@ export const trainDevice = reactive({
 export const lossCanvasRef = ref(null);
 export const trainLogRef = ref(null);
 
-// ===== 态极模式状态 =====
+// ===== Seed模式状态 =====
 
-export const isTaijiModel = ref(false);           // 当前是否为态极模型
-export const taijiModelInfo = reactive({           // 态极模型信息
+export const isTaijiModel = ref(false);           // 当前是否为Seed模型
+export const taijiModelInfo = reactive({           // Seed模型信息
   size: '', parameters: {}, config: {},
   available_sizes: [], checkpoints: {},
 });
@@ -56,7 +56,7 @@ export const taijiLifeStatus = reactive({          // 生命状态
 });
 export const taijiTimeline = ref([]);              // 生命活动时间线
 export const taijiLifeLoading = ref(false);        // 生命活动操作中
-export const taijiTrainParams = reactive({         // 态极专属训练参数
+export const taijiTrainParams = reactive({         // Seed专属训练参数
   num_epochs: 5, batch_size: 4, learning_rate: 1e-4,
   max_length: 512, save_steps: 50, log_steps: 5,
   keep_checkpoints: 3,
@@ -161,7 +161,7 @@ export async function deleteSelectedDatasets(_toast) {
 // ===== 训练流程 =====
 
 export async function startTraining(toast) {
-  // 态极模式自动路由：调用态极专属训练接口
+  // Seed模式自动路由：调用Seed专属训练接口
   if (isTaijiModel.value) {
     return startTaijiTraining(toast);
   }
@@ -645,11 +645,11 @@ export async function exportModelToGGUF(toast, $confirm) {
   finally { publishingState.value = 'idle'; }
 }
 
-// ===== 态极模式：检测 + 生命活动 + 态极微调 =====
+// ===== Seed模式：检测 + 生命活动 + Seed微调 =====
 
 /**
  * 检测当前加载的模型是否为 Cortex 神经元架构。
- * 如果是，自动设置 isTaijiModel=true 并加载态极信息。
+ * 如果是，自动设置 isTaijiModel=true 并加载Seed信息。
  * 应在训练页面 onMounted 时调用。
  */
 export async function detectTaijiModel() {
@@ -677,7 +677,7 @@ export async function detectTaijiModel() {
 }
 
 /**
- * 加载态极生命状态（心跳、空闲时间等）
+ * 加载Seed生命状态（心跳、空闲时间等）
  */
 export async function loadTaijiLifeStatus() {
   try {
@@ -692,7 +692,7 @@ export async function loadTaijiLifeStatus() {
 }
 
 /**
- * 加载态极生命时间线
+ * 加载Seed生命时间线
  */
 export async function loadTaijiTimeline(hours = 24) {
   try {
@@ -707,7 +707,7 @@ export async function loadTaijiTimeline(hours = 24) {
 }
 
 /**
- * 喂养态极
+ * 喂养Seed
  */
 export async function feedTaiji(toast) {
   taijiLifeLoading.value = true;
@@ -725,7 +725,7 @@ export async function feedTaiji(toast) {
 }
 
 /**
- * 让态极睡觉
+ * 让Seed睡觉
  */
 export async function sleepTaiji(toast) {
   taijiLifeLoading.value = true;
@@ -745,7 +745,7 @@ export async function sleepTaiji(toast) {
 }
 
 /**
- * 让态极玩耍
+ * 让Seed玩耍
  */
 export async function playTaiji(toast) {
   taijiLifeLoading.value = true;
@@ -765,7 +765,7 @@ export async function playTaiji(toast) {
 }
 
 /**
- * 启动态极睡眠训练（Cortex 模式）。
+ * 启动Seed睡眠训练（Cortex 模式）。
  * Cortex 神经元架构通过 sleep_engine 训练。
  */
 export async function startTaijiTraining(toast) {
@@ -812,7 +812,7 @@ export async function startTaijiTraining(toast) {
     trainState.value = 'completed';
     autoScrollTrainLog();
     toast(`✅ 睡眠训练完成（${data.phases_completed || 0} 阶段）`, 'success');
-    // 刷新态极信息
+    // 刷新Seed信息
     await detectTaijiModel();
   } catch (err) {
     if (err.name !== 'AbortError') {

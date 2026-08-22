@@ -87,7 +87,7 @@ export function useWorkspaceBridge() {
         body: JSON.stringify({
           prompt: `请简短解释以下错误并给出修复建议：\n${error}\n${context ? '上下文：' + context : ''}`,
           engine: 'taiji',
-          system_prompt: '你是态极。请用简洁的中文解释错误原因并给出具体的修复建议。不超过 3 句话。',
+          system_prompt: '你是Seed。请用简洁的中文解释错误原因并给出具体的修复建议。不超过 3 句话。',
         }),
       })
 

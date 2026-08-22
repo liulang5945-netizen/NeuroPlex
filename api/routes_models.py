@@ -1,5 +1,5 @@
 """
-态极 — 模型路由（精简版）
+Seed — 模型路由（精简版）
 Cortex 神经元架构是唯一认知主体，不依赖外部模型市场/下载/GGUF。
 """
 import logging
@@ -24,8 +24,8 @@ def list_installed_models():
 
 @router.get("/api/models/list")
 def list_available_models():
-    """态极使用 Cortex 神经元架构，不依赖外部模型市场。"""
-    return {"models": [], "message": "态极使用 Cortex 神经元架构，无需模型市场"}
+    """Seed使用 Cortex 神经元架构，不依赖外部模型市场。"""
+    return {"models": [], "message": "Seed使用 Cortex 神经元架构，无需模型市场"}
 
 
 @router.get("/api/models/downloaded")
@@ -37,14 +37,14 @@ def list_downloaded_models():
 
 @router.get("/api/model/gguf_quants")
 def get_gguf_quants():
-    """GGUF 量化选项（态极不支持 GGUF）。"""
-    return {"options": [], "message": "态极使用 Cortex 神经元架构，不支持 GGUF 量化"}
+    """GGUF 量化选项（Seed不支持 GGUF）。"""
+    return {"options": [], "message": "Seed使用 Cortex 神经元架构，不支持 GGUF 量化"}
 
 
 @router.get("/api/models/recommend")
 def recommend_models():
-    """推荐模型（态极使用 Cortex）。"""
-    return {"models": [], "recommended": "Cortex（神经元架构）", "message": "态极使用 Cortex 神经元架构"}
+    """推荐模型（Seed使用 Cortex）。"""
+    return {"models": [], "recommended": "Cortex（神经元架构）", "message": "Seed使用 Cortex 神经元架构"}
 
 
 @router.get("/api/models/tags")
@@ -59,18 +59,18 @@ def list_model_families():
 
 @router.get("/api/models/info")
 def get_model_info():
-    return {"info": {"type": "cortex", "message": "态极 Cortex 神经元架构"}}
+    return {"info": {"type": "cortex", "message": "Seed Cortex 神经元架构"}}
 
 
 # 外部模型下载/管理端点 — 返回不支持
 @router.post("/api/models/download_hf")
 def download_hf_model():
-    return {"status": "error", "message": "态极不支持 HuggingFace 模型下载"}
+    return {"status": "error", "message": "Seed不支持 HuggingFace 模型下载"}
 
 
 @router.post("/api/models/download")
 def download_model():
-    return {"status": "error", "message": "态极不支持外部模型下载"}
+    return {"status": "error", "message": "Seed不支持外部模型下载"}
 
 
 @router.post("/api/models/download_cancel")
@@ -85,7 +85,7 @@ def pause_download():
 
 @router.post("/api/models/download_resume")
 def resume_download():
-    return {"status": "error", "message": "态极不支持外部模型下载"}
+    return {"status": "error", "message": "Seed不支持外部模型下载"}
 
 
 @router.get("/api/models/download_progress")
@@ -95,15 +95,15 @@ def get_download_progress():
 
 @router.delete("/api/models/installed")
 def delete_installed_model():
-    return {"status": "error", "message": "态极暂不支持通过 API 删除模型"}
+    return {"status": "error", "message": "Seed暂不支持通过 API 删除模型"}
 
 
 @router.post("/api/models/delete")
 def delete_model():
-    return {"status": "error", "message": "态极暂不支持通过 API 删除模型"}
+    return {"status": "error", "message": "Seed暂不支持通过 API 删除模型"}
 
 
 @router.post("/api/models/select")
 def select_model():
-    """选择模型（态极自动使用 Cortex 神经元架构）。"""
-    return {"status": "ok", "model_type": "cortex", "message": "态极使用 Cortex 神经元架构"}
+    """选择模型（Seed自动使用 Cortex 神经元架构）。"""
+    return {"status": "ok", "model_type": "cortex", "message": "Seed使用 Cortex 神经元架构"}

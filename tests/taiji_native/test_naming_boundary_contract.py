@@ -4,10 +4,11 @@
 "机器强制约束"。文档只能建议，测试才能阻止回退。
 
 守护的四条不可回退事实：
-  1. taiji/ 是自足基底：不导入 neuroplex，也不导入 transformers（含子包）
-  2. neuroplex/ 不反向依赖 taiji/：替代关系是单向的
-  3. Transformer 底层的 live 消费点是封闭且已知的：新增消费点必须显式改这里
-  4. taiji/ 内禁止出现"态极"：新基底不复用 Legacy NeuroPlex 的旧中文称呼
+  1. Seed 是项目/模型，seed/ 只能通过公开 API 组合 taiji/
+  2. taiji/ 是自足基底：不导入 seed、neuroplex 或 transformers（含子包）
+  3. neuroplex/ 不反向依赖 seed/ 或 taiji/：冻结基线保持独立
+  4. Transformer 底层的 live 消费点是封闭且已知的：新增消费点必须显式改这里
+  5. taiji/ 内禁止出现"态极"：新基底不复用 Legacy NeuroPlex 的旧中文称呼
 """
 from __future__ import annotations
 
@@ -79,18 +80,36 @@ def test_taiji_substrate_never_imports_legacy_or_transformers() -> None:
         forbidden = {
             module
             for module in _imported_modules(path)
-            if _top_level(module) in {"neuroplex", "transformers"}
+            if _top_level(module) in {"seed", "neuroplex", "transformers"}
         }
         if forbidden:
             offenders[path.relative_to(REPO).as_posix()] = forbidden
 
     assert not offenders, (
-        "Taiji 是替代 Transformer 的自足基底，不得依赖 Legacy NeuroPlex "
+        "Taiji 是 Seed 的自足基底，不得依赖 Seed 上层、Legacy NeuroPlex "
         f"或 HuggingFace transformers：{offenders}"
     )
 
 
-def test_legacy_baseline_never_depends_on_the_new_substrate() -> None:
+def test_seed_only_composes_the_public_taiji_substrate() -> None:
+    offenders: dict[str, set[str]] = {}
+    taiji_imports = 0
+    for path in _iter_python_files("seed"):
+        modules = _imported_modules(path)
+        taiji_imports += sum(_top_level(module) == "taiji" for module in modules)
+        forbidden = {
+            module
+            for module in modules
+            if _top_level(module) in {"neuroplex", "transformers"}
+        }
+        if forbidden:
+            offenders[path.relative_to(REPO).as_posix()] = forbidden
+
+    assert taiji_imports > 0, "Seed 必须实际组合 Taiji，而不是只在文档中声明。"
+    assert not offenders, f"Seed 不得反向接入 Legacy/Transformer：{offenders}"
+
+
+def test_legacy_baseline_never_depends_on_seed_or_the_new_substrate() -> None:
     """替代关系必须是单向的：冻结基线不得反向依赖新基底。
 
     若 neuroplex/ 开始 import taiji，两者就重新耦合，"冻结基线"这一
@@ -99,13 +118,15 @@ def test_legacy_baseline_never_depends_on_the_new_substrate() -> None:
     offenders: dict[str, set[str]] = {}
     for path in _iter_python_files("neuroplex"):
         forbidden = {
-            module for module in _imported_modules(path) if _top_level(module) == "taiji"
+            module
+            for module in _imported_modules(path)
+            if _top_level(module) in {"seed", "taiji"}
         }
         if forbidden:
             offenders[path.relative_to(REPO).as_posix()] = forbidden
 
     assert not offenders, (
-        "neuroplex/ 是冻结的 Transformer 基线，不得 import taiji（替代关系是单向的）。"
+        "neuroplex/ 是冻结的 Transformer 基线，不得 import seed/taiji（替代关系是单向的）。"
         f"注意 `from taiji.<legacy>` 是 neuroplex 的历史包名别名，不是新基底：{offenders}"
     )
 

@@ -3,8 +3,8 @@
  */
 export const locales = {
   zh: {
-    welcome_title: '欢迎使用 Taiji', welcome_desc: '我是您的 AI 智能助手，请在下文输入问题开始对话。', quick_code: '写代码', quick_explain: '解释概念', quick_news: '搜索新闻', quick_code_prompt: '帮我写一个Python冒泡排序', quick_explain_prompt: '用通俗的语言解释什么是机器学习', quick_news_prompt: '帮我总结一下近期的AI行业新闻',
-    title: 'Taiji', new_chat: '新对话', kb_management: '知识库', fine_tuning: '模型微调',
+    welcome_title: '欢迎使用 Seed', welcome_desc: '我是您的 AI 智能助手，请在下文输入问题开始对话。', quick_code: '写代码', quick_explain: '解释概念', quick_news: '搜索新闻', quick_code_prompt: '帮我写一个Python冒泡排序', quick_explain_prompt: '用通俗的语言解释什么是机器学习', quick_news_prompt: '帮我总结一下近期的AI行业新闻',
+    title: 'Seed', new_chat: '新对话', kb_management: '知识库', fine_tuning: '模型微调',
     agent_config: 'Agent配置', sys_settings: '系统设置', model_market: '模型市场', workspace: '工作台',
     back: '返回对话',
     ui_settings: '界面设置', theme: '主题', theme_light: '浅色', theme_dark: '深色', theme_auto: '跟随系统',
@@ -43,7 +43,7 @@ export const locales = {
     folder_name_placeholder: '输入文件夹名...',
     cancel: '取消', create: '创建',
     system_prompt_settings: '系统提示词', reset_default: '恢复默认',
-    engine_taiji: '态极思维', engine_agent: '态极行动',
+    engine_taiji: 'Seed思维', engine_agent: 'Seed行动',
     clear_chat: '清空对话', stop_generation: '停止生成', copy: '复制', regenerate: '重新生成',
     restart_system: '重启工作站',
     status_connected: '已连接', status_connected_no_model: '已连接（未加载模型）', status_connecting: '正在连接...', status_loading: '加载中...',
@@ -68,8 +68,8 @@ export const locales = {
     mcp_status: 'MCP 状态', mcp_tools: 'MCP 工具',
   },
   en: {
-    welcome_title: 'Welcome to Taiji', welcome_desc: 'I am your AI smart assistant, type your question below to start chatting.', quick_code: 'Write Code', quick_explain: 'Explain Concept', quick_news: 'Search News', quick_code_prompt: 'Help me write a Python bubble sort', quick_explain_prompt: 'Explain machine learning in simple terms', quick_news_prompt: 'Summarize recent AI industry news',
-    title: 'Taiji', new_chat: 'New Chat', kb_management: 'Knowledge Base', fine_tuning: 'Fine Tuning',
+    welcome_title: 'Welcome to Seed', welcome_desc: 'I am your AI smart assistant, type your question below to start chatting.', quick_code: 'Write Code', quick_explain: 'Explain Concept', quick_news: 'Search News', quick_code_prompt: 'Help me write a Python bubble sort', quick_explain_prompt: 'Explain machine learning in simple terms', quick_news_prompt: 'Summarize recent AI industry news',
+    title: 'Seed', new_chat: 'New Chat', kb_management: 'Knowledge Base', fine_tuning: 'Fine Tuning',
     agent_config: 'Agent Config', sys_settings: 'Settings', model_market: 'Model Market', workspace: 'Workspace',
     back: 'Back',
     ui_settings: 'UI Settings', theme: 'Theme', theme_light: 'Light', theme_dark: 'Dark', theme_auto: 'Auto',

@@ -6,7 +6,7 @@
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     role="img"
-    aria-label="态极"
+    aria-label="Seed"
     class="taiji-logo"
     :class="{ 'is-thinking': thinking, 'is-idle': !thinking }"
   >

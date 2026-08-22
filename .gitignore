@@ -97,6 +97,7 @@ test.txt
 tmp_a/
 tmp_manual_parent/
 .neuroplex_test_tmp_probe/
+.seed_test_tmp/
 .tmp_b/
 .codex_tmp/
 

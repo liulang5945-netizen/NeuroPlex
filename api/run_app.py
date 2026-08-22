@@ -557,7 +557,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'dev_window'):
             from PyQt6.QtWebEngineWidgets import QWebEngineView
             self.dev_window = QWebEngineView()
-            self.dev_window.setWindowTitle("Taiji 开发者工具 (F12)")
+            self.dev_window.setWindowTitle("Seed 开发者工具 (F12)")
             self.dev_window.resize(900, 600)
             self._web_view.page().setDevToolsPage(self.dev_window.page())
         
@@ -578,7 +578,7 @@ class MainWindow(QMainWindow):
         self.hide()
         if self.tray_icon and self.tray_icon.isVisible():
             self.tray_icon.showMessage(
-                "Taiji 态极",
+                "Seed",
                 "应用已最小化到托盘，模型仍在后台运行。",
                 QSystemTrayIcon.MessageIcon.Information,
                 3000,
@@ -588,9 +588,9 @@ class MainWindow(QMainWindow):
 def _real_main():
     global app  # noqa — 使 app 在 _real_main 作用域内可见给嵌套函数使用
     app = QApplication(sys.argv)
-    app.setApplicationName("Taiji")
-    app.setOrganizationName("Taiji")
-    app.setOrganizationDomain("neuroplex.local")
+    app.setApplicationName("Seed")
+    app.setOrganizationName("Seed")
+    app.setOrganizationDomain("seed.local")
     app.setQuitOnLastWindowClosed(False)
 
     # 确保浏览器数据（如 localStorage、历史记录）持久化保存，防止打包后临时目录导致数据丢失
@@ -626,7 +626,7 @@ def _real_main():
     def on_loading_complete(local_url):
         print(f"[Main] 服务就绪: {local_url}")
         window = MainWindow()
-        window.setWindowTitle("Taiji 态极")
+        window.setWindowTitle("Seed")
         window.resize(1200, 800)
 
         base_path = get_external_path("")
@@ -644,7 +644,7 @@ def _real_main():
 
         tray_icon = QSystemTrayIcon(app_icon, app)
         window.tray_icon = tray_icon
-        tray_icon.setToolTip("Taiji 态极 (后台运行)")
+        tray_icon.setToolTip("Seed (后台运行)")
 
         tray_menu = QMenu()
         show_action = QAction("显示主界面", window)
@@ -759,7 +759,7 @@ if __name__ == "__main__":
             _tmp_app = _QA(sys.argv)
             _msg = _QMB()
             _msg.setIcon(_QMB.Icon.Critical)
-            _msg.setWindowTitle("Taiji 启动失败")
+            _msg.setWindowTitle("Seed 启动失败")
             _msg.setText(f"程序启动时发生致命错误，详情已写入:\n{_crash_path}\n\n{str(_e)}")
             _msg.exec()
         except Exception:

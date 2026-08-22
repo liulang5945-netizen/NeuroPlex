@@ -9,7 +9,7 @@
     <div class="sidebar-header">
       <div class="sidebar-logo">
         <div class="logo-icon-wrap">
-          <img src="/logo-taiji-ink.jpg" class="logo-img" alt="态极">
+          <img src="/logo-taiji-ink.jpg" class="logo-img" alt="Seed">
         </div>
         <div class="brand-copy">
           <h2>{{ t('title') }}</h2>

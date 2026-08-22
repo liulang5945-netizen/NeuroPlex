@@ -4,7 +4,7 @@
       <!-- 页面标题 -->
       <div class="page-header">
         <h1>知识库管理</h1>
-        <p class="subtitle">管理态极的领域知识源，为检索增强与共振推理提供语料支撑。</p>
+        <p class="subtitle">管理Seed的领域知识源，为检索增强与共振推理提供语料支撑。</p>
       </div>
 
       <!-- 标签页 -->
@@ -146,8 +146,8 @@
                   <label>Embedding 模型</label>
                 </div>
                 <select class="select" disabled>
-                  <option value="doubao-emb-v2" selected>态极 Embedding v2（默认 · 1024 维）</option>
-                  <option value="doubao-emb-large">态极 Embedding Large（1536 维）</option>
+                  <option value="doubao-emb-v2" selected>Seed Embedding v2（默认 · 1024 维）</option>
+                  <option value="doubao-emb-large">Seed Embedding Large（1536 维）</option>
                   <option value="bge-m3">BGE-M3（多语言）</option>
                   <option value="m3e-base">M3E-Base（轻量）</option>
                 </select>

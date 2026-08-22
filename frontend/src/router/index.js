@@ -58,7 +58,7 @@ const router = createRouter({
 router.afterEach((to) => {
   const title = to.meta?.title
   if (title) {
-    document.title = `态极 · ${title}`
+    document.title = `Seed · ${title}`
   }
 })
 

@@ -1,8 +1,8 @@
 """
-态极推理策略
+Seed推理策略
 ============
 
-态极是独立生命体，用自己的大脑推理。
+Seed是独立生命体，用自己的大脑推理。
 不依赖外部云端 API，不套壳。
 
 统一模式：
@@ -10,7 +10,7 @@
     - 能直接回答 → 直接给出 final_answer（1步完成，快速对话）
     - 需要搜索/工具 → 自动调用工具 → 整合结果回答
 
-态极不需要区分"思维"和"行动"，它是一个统一的生命体。
+Seed不需要区分"思维"和"行动"，它是一个统一的生命体。
 """
 import asyncio
 import json
@@ -55,7 +55,7 @@ def _apply_rag(prompt, app_state):
 
 
 def _get_life_state():
-    """读取态极生命状态（仅读取，不记录交互）"""
+    """读取Seed生命状态（仅读取，不记录交互）"""
     try:
         from neuroplex.life.life_scheduler import get_life_scheduler
         life = get_life_scheduler()
@@ -184,7 +184,7 @@ def _has_react_engine() -> bool:
 
 async def _stream_unified(request, prompt, app_state, stop_event, collector):
     """
-    态极统一推理模式。
+    Seed统一推理模式。
 
     始终使用 ReAct 引擎：
     - 简单问题 → 1步直接回答（和纯文本生成一样快）
@@ -363,7 +363,7 @@ def create_event_generator(request, app_state, collector_factory):
     """
     统一推理入口。
 
-    态极是一个统一的生命体，不需要区分思维和行动。
+    Seed是一个统一的生命体，不需要区分思维和行动。
     所有对话都通过统一推理流程：
     - 能直接回答 → 1步完成（快速）
     - 需要工具 → 自动调用搜索/工具

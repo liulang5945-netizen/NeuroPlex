@@ -1,4 +1,4 @@
-# Taiji 当前实施计划
+# Seed 当前实施计划（Taiji 基底）
 
 > 本文件只记录当前源码状态、已复现实证与唯一下一步。历史 NeuroPlex/D1/PlayEngine 结论不混入当前执行线。
 
@@ -288,7 +288,19 @@ inh_i ← λ·inh_i + (1−λ)·g·(1/k)·Σ_{j∈N(i)} W_ij·relu(membrane_j �
    减掉的那一项**与 $i$ 无关、对每行相同**，而 softmax 对全体 logit 平移不变，故 $\mathrm{softmax}(\tilde e/T) = \mathrm{softmax}(e/T')$，$T' = T/(1+\lambda/(n-1))$ —— **只等价于换温度**，排序与相对证据分毫不动。任何"能写成行间线性组合、且以行共享方式相减"的竞争都塌缩成这个恒等式。**在 `evidence` 上做行间竞争是死路。**
 2. **对比量必须作用在 basis 上、在解码之前，且那个 basis 是 `regions[0].trace`，不是 `motor_context`。** 因为非负性，每个探测的 basis ≈ $\alpha_p u + \delta_p$（共模 $u$ 与探测无关的标量 $\alpha_p$，只有 $\delta_p$ 携带身份）；解码后得 $\alpha_p(Wu) + W\delta_p$，其中 $Wu$ 是一个**行间不均匀**的固定模式，正是 §6.5 测到的 rank-1 串扰，softmax 消不掉。曾误把机制装进 `ByteMotor.encode_context`，实测 `gain=0.0` 与 `0.75` 的四个 margin **逐位相同**（`-0.00089 / +0.00644 / +0.00170 / -0.00256`）——因为 `_evaluate_contingency` 读的是 `fabric.decoders[0].forward(regions[0].trace)`，而 motor 是另一个器官，其输出只流向 `motor.probabilities` / `motor.learn`，从不回流 fabric。该脚本自己的注释早已写明这一点：巩固只触碰 `fabric.decoders` 与 `fabric.transitions`，**motor 出睡眠时逐位不变**，所以 motor 读出面在设计上就与巩固无关。
 
-**下一步的正确落点**：在 `fabric.step` 里给每个区域一个自适应共模基线向量，`trace` 写入前扣除，使只搭共模便车的坐标变成**负驱动**。这同时改造读出与写入——`local_update` 对突触前痕迹线性，而 §6.5 那条 $\mathrm{margin}_i \approx \sum_j n_j d_{ij}$ 律里的 $d_{ij}<0$ 正是排练**写入**时的附带损伤，只治读出治不到它。代价是 `RegionState` 需加槽位、`STATE_VERSION` 5 → 6。动手前先做一次离线落点验证：冻结睡前四个探测 basis，离线扣除共模后重算 `decoders[0]` 的四个 margin，若 4 对 true-cell 全部转正（§6.6 唯一仍然有效的判据）再改 fabric，避免第二次装错层。
+### 6.7 公共基线离线前置验证（FAIL，2026-08-22）
+
+已按 §6.6 的前置条件实现 `_diag_m6_margin.py locus`，冻结睡前四个 probe basis，在不改 state/checkpoint 的前提下比较 raw、oracle 共模、256-tick 在线流均值和纯残差。结果：
+
+| seed | raw | pure residual | gain≤1 最好 |
+|---:|---:|---:|---:|
+| 11 | 2/4 | 2/4 | 2/4 |
+| 29 | 2/4 | 4/4 | 4/4 |
+| 61 | 2/4 | 2/4 | 3/4 |
+
+所以“在 `fabric.step` 给 trace 扣公共基线”被否决，不升级 `RegionState` 或 checkpoint。seed 11 的 `0/2` 与 seed 61 的 `2` 在纯残差上仍为负；true row 已接触峰值残差单元，但固定 16-contact 支撑让 rival row 读到更大正量。构建上限从“rank-1 共模”进一步收敛为“**带符号残差 × 固定随机稀疏支撑的可分性没有结构保证**”。
+
+**当前唯一下一步**：先做 signed-opponent basis 离线反证，不改运行态。每个 cortical 坐标变成严格零和的 ON/OFF 或正/负误差对，并为 decoder row 提供 opponent-pair 覆盖约束；完整 12-seed 面板每个 seed 都达到 4/4 正 margin 后，才允许进入 `fabric.step`。具体边界见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §5–§6。
 
 ## 7. 附录：已废止的 D1 长程稳定性档案（NeuroPlex/PlayEngine）
 

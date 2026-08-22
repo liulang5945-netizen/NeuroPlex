@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>态极</title>
+  <title>Seed</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -19,7 +19,7 @@
       overflow: hidden;
     }
 
-    /* 态极 Logo 动画 */
+    /* Seed Logo 动画 */
     .logo-container {
       position: relative;
       width: 120px;
@@ -156,7 +156,7 @@
     <div class="logo-core">极</div>
   </div>
 
-  <div class="status-text" id="statusText">态极正在苏醒</div>
+  <div class="status-text" id="statusText">Seed正在苏醒</div>
   <div class="status-detail" id="statusDetail">正在启动后端服务...</div>
 
   <div class="progress-bar">
@@ -169,7 +169,7 @@
     <div class="status-dot"></div>
   </div>
 
-  <div class="version">态极 v1.6.0 · AI 生命体</div>
+  <div class="version">Seed v1.6.0 · AI 生命体</div>
 
   <script>
     // 轮询后端状态，就绪后跳转到主界面
@@ -186,20 +186,20 @@
       fetch(`http://127.0.0.1:${port}/api/health`, { mode: 'no-cors' })
         .then(r => {
           if (r.ok) {
-            statusText.textContent = '态极已苏醒';
+            statusText.textContent = 'Seed已苏醒';
             statusDetail.textContent = '正在加载界面...';
             setTimeout(() => {
               window.location.href = `http://127.0.0.1:${port}/`;
             }, 500);
           } else {
-            statusText.textContent = '态极正在苏醒';
+            statusText.textContent = 'Seed正在苏醒';
             statusDetail.textContent = '后端启动中...';
             setTimeout(checkBackend, 1000);
           }
         })
         .catch(() => {
           if (checkCount < 30) {
-            statusText.textContent = '态极正在苏醒';
+            statusText.textContent = 'Seed正在苏醒';
             statusDetail.textContent = '正在连接后端服务...';
             setTimeout(checkBackend, 1000);
           } else {

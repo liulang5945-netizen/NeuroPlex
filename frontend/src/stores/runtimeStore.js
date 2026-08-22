@@ -79,7 +79,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       return {
         state: 'ready',
         title: '模型已装载',
-        message: '态极可以对话、调用工具和执行任务。',
+        message: 'Seed可以对话、调用工具和执行任务。',
         canDo: ['对话', '工具调用', '自主探索', '知识学习'],
       }
     }
@@ -144,7 +144,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     multimodal: normalizedTools.value.filter(tool => /image|audio|video|voice|vision|tts|stt|图片|图像|语音|音频|视频|多模态/.test(tool.searchText)),
   }))
 
-  // 生命表达：态极根据自身状态主动表达感受
+  // 生命表达：Seed根据自身状态主动表达感受
   const lifeExpressions = computed(() => {
     const needs = life.value?.needs || {}
     const expressions = []

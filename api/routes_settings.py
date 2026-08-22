@@ -1,4 +1,4 @@
-﻿"""Settings management API routes."""
+"""Settings management API routes."""
 
 import logging
 import os
@@ -79,13 +79,13 @@ async def set_gguf_settings(req: dict):
 @router.get("/api/settings/gguf_models")
 async def list_gguf_models():
     """GGUF models not supported in native Taiji stack."""
-    return {"models": [], "error": "原生态极不支持 GGUF 模型"}
+    return {"models": [], "error": "原生Seed不支持 GGUF 模型"}
 
 
 @router.post("/api/settings/download_gguf")
 async def download_gguf(req: dict):
     """GGUF download not supported in native Taiji stack."""
-    raise HTTPException(status_code=400, detail="原生态极不支持 GGUF 模型下载")
+    raise HTTPException(status_code=400, detail="原生Seed不支持 GGUF 模型下载")
 
 
 @router.get("/api/system/current_model")
@@ -104,7 +104,7 @@ def get_current_model():
         actual_loaded_name = getattr(app_state, "_loaded_model_name", "") or ""
         if actual_loaded_name:
             effective_path = actual_loaded_name
-            effective_type = "self"  # 原生态极 — 单一模型类型
+            effective_type = "self"  # 原生Seed — 单一模型类型
         else:
             effective_path = model_name
             effective_type = "self"

@@ -4,7 +4,7 @@
       <div class="splash-bg"></div>
       <div class="splash-content">
         <div class="splash-logo">
-          <img src="/logo.svg?v=ink-20260624-8" alt="态极" />
+          <img src="/logo.svg?v=ink-20260624-8" alt="Seed" />
         </div>
         <h1 class="splash-title">态 极</h1>
         <p class="splash-status">{{ statusText }}</p>

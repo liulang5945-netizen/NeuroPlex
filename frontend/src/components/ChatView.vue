@@ -23,12 +23,12 @@
         <template v-if="chatStore.messages.length === 0">
           <section class="chat-welcome">
             <div class="welcome-logo" aria-hidden="true">
-              <img src="/logo-taiji-ink.jpg" alt="态极" />
+              <img src="/logo-taiji-ink.jpg" alt="Seed" />
             </div>
             <h1>有什么我能帮你的吗？</h1>
             <div class="welcome-sub">
               <span class="ok-dot"></span>
-              态极已就绪 · 神经元同步中，可随时提问
+              Seed已就绪 · 神经元同步中，可随时提问
             </div>
           </section>
 
@@ -52,18 +52,18 @@
               <div class="msg-body">
                 <span class="msg-name">你</span>
                 <div class="bubble">
-                  <p>解释一下态极的神经元共振机制是怎么工作的？</p>
+                  <p>解释一下Seed的神经元共振机制是怎么工作的？</p>
                 </div>
               </div>
             </div>
 
             <!-- 示例 AI 回复 1 -->
             <div class="msg msg-ai">
-              <img class="av av-ai" src="/logo-taiji-ink.jpg" alt="态极" aria-label="态极">
+              <img class="av av-ai" src="/logo-taiji-ink.jpg" alt="Seed" aria-label="Seed">
               <div class="msg-body">
-                <span class="msg-name">态极</span>
+                <span class="msg-name">Seed</span>
                 <div class="bubble">
-                  <p><span class="lead">神经元共振机制</span>是态极的核心，由 <code>ResonanceField</code> 层实现。当多个神经元的相位差小于阈值 <code>θ</code> 时，它们会进入同步放电状态，形成共振簇，输出更稳定的联合表征。</p>
+                  <p><span class="lead">神经元共振机制</span>是Seed的核心，由 <code>ResonanceField</code> 层实现。当多个神经元的相位差小于阈值 <code>θ</code> 时，它们会进入同步放电状态，形成共振簇，输出更稳定的联合表征。</p>
                   <ol class="msg-steps">
                     <li><strong>相位计算</strong>：每个神经元维护相位 <code>φᵢ</code>，每步更新 <code>φᵢ ← φᵢ + ωᵢ·Δt</code>。</li>
                     <li><strong>耦合检测</strong>：计算两两相位差 <code>Δφ = |φᵢ − φⱼ|</code>，若 <code>Δφ &lt; θ</code> 则建立耦合边。</li>
@@ -94,9 +94,9 @@
 
             <!-- 示例 AI 回复 2 -->
             <div class="msg msg-ai">
-              <img class="av av-ai" src="/logo-taiji-ink.jpg" alt="态极" aria-label="态极">
+              <img class="av av-ai" src="/logo-taiji-ink.jpg" alt="Seed" aria-label="Seed">
               <div class="msg-body">
-                <span class="msg-name">态极</span>
+                <span class="msg-name">Seed</span>
                 <div class="bubble">
                   <p>loss 卡住通常出在共振簇的梯度回传上。建议按这个顺序排查：</p>
                   <ol class="msg-steps">
@@ -148,12 +148,12 @@
             <article v-for="(msg, index) in displayedMessages" :key="msg.id"
               :class="['msg', msg.role === 'user' ? 'msg-user' : 'msg-ai']"
               v-memo="[msg.id, msg.content, msg.role]">
-              <img v-if="msg.role === 'assistant'" class="av av-ai" src="/logo-taiji-ink.jpg" alt="态极" />
+              <img v-if="msg.role === 'assistant'" class="av av-ai" src="/logo-taiji-ink.jpg" alt="Seed" />
               <span v-else class="av av-user" aria-label="用户">
                 <User :size="16" />
               </span>
               <div class="msg-body">
-                <span class="msg-name">{{ msg.role === 'user' ? '你' : '态极' }}</span>
+                <span class="msg-name">{{ msg.role === 'user' ? '你' : 'Seed' }}</span>
                 <div class="bubble">
                   <div v-if="msg.role === 'user'" class="text-content">{{ msg.content }}</div>
                   <div v-else class="markdown-body" v-html="renderMarkdown(msg.content)" />
@@ -167,9 +167,9 @@
             </article>
 
             <article v-if="chatStore.isLoading" class="msg msg-ai thinking-row">
-              <img class="av av-ai breathing" src="/logo-taiji-ink.jpg" alt="态极" />
+              <img class="av av-ai breathing" src="/logo-taiji-ink.jpg" alt="Seed" />
               <div class="msg-body">
-                <span class="msg-name">{{ chatStore.isReceiving ? '态极 · 正在回应' : '态极 · 正在启动' }}</span>
+                <span class="msg-name">{{ chatStore.isReceiving ? 'Seed · 正在回应' : 'Seed · 正在启动' }}</span>
                 <div v-if="!chatStore.isReceiving" class="bubble loading-bubble">
                   <span class="thinking-animation"><span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span></span>
                 </div>
@@ -227,7 +227,7 @@
           <span aria-hidden="true">·</span>
           <span class="kbd">Shift</span>+<span class="kbd">Enter</span> 换行
           <span aria-hidden="true">·</span>
-          态极基于大模型生成，请核对关键信息
+          Seed基于大模型生成，请核对关键信息
         </div>
       </div>
     </div>

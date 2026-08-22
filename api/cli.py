@@ -1,5 +1,5 @@
 """
-Taiji 态极 - CLI 入口（委托给 main.py）
+Seed - CLI 入口（委托给 main.py）
 """
 from api.main import main as cli_main
 

@@ -5,7 +5,7 @@
       <span style="width:0"></span>
       <div class="topbar-title-wrap">
         <span class="topbar-title">设置</span>
-        <span class="topbar-sub">态极系统配置与偏好</span>
+        <span class="topbar-sub">Seed系统配置与偏好</span>
       </div>
       <span class="topbar-spacer"></span>
     </header>
@@ -255,7 +255,7 @@
                   <p>重置将清除所有本地配置、神经元状态与缓存文件，此操作不可撤销。建议先导出数据再进行重置。</p>
                   <button class="btn-destructive" @click="toast('占位功能：重置尚未接入', 'warning')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h5v6h-5z"/><path d="M14.5 9.5 13 7h-2l-1.5 2.5"/></svg>
-                    重置态极
+                    重置Seed
                   </button>
                 </div>
               </div>
@@ -269,7 +269,7 @@
               <div class="setting-row setting-row--first">
                 <div class="about-meta">
                   <div class="meta-line">
-                    <span style="font-weight:600;">态极神经元系统</span>
+                    <span style="font-weight:600;">Seed神经元系统</span>
                     <span class="meta-tag">v{{ appVersion }}</span>
                   </div>
                   <div class="meta-line meta-line--muted">
@@ -378,7 +378,7 @@ const applyUpdate = async () => {
 </script>
 
 <style scoped>
-/* ═══ 态极控制台 · 设置页专属样式（对齐画布 settings.html · 豆包设计 token）═══ */
+/* ═══ Seed控制台 · 设置页专属样式（对齐画布 settings.html · 豆包设计 token）═══ */
 
 /* --- 视图外壳：覆盖 dedicated-view 的内边距，改为顶栏 + 滚动区 --- */
 .settings-view {

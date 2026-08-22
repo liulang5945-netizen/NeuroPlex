@@ -20,8 +20,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # Native Taiji only requires torch. sentencepiece/FastAPI are installed
-      # below solely so the frozen NeuroPlex regression tests remain runnable.
+      # Seed/Taiji only require torch. sentencepiece/FastAPI are installed
+      # below solely so the frozen Legacy NeuroPlex regressions remain runnable.
       - name: Install torch (CPU)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
@@ -59,6 +59,9 @@ jobs:
 
       - name: Run native architecture contracts
         run: python -m pytest tests/taiji_native -q
+
+      - name: Run Seed model-boundary contracts
+        run: python -m pytest tests/seed -q
 
       - name: Run complete regression suite
         # Legacy real-checkpoint tests skip when local artifacts are absent.

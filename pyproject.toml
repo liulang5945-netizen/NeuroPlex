@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "taiji-neuron"
+name = "seed"
 version = "0.1.0"
-description = "Taiji - Native Persistent Predictive Computing Architecture"
+description = "Seed model built on the native Taiji predictive substrate"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
@@ -56,10 +56,10 @@ desktop = ["PyQt6>=6.5.0", "PyQt6-WebEngine>=6.5.0"]
 build = ["pyinstaller>=6.0.0"]
 
 [project.scripts]
-neuroplex-legacy = "desktop.main:main"
+seed-legacy-desktop = "desktop.main:main"
 
 [tool.setuptools.packages.find]
-include = ["taiji*", "neuroplex*", "api*"]
+include = ["seed*", "taiji*", "neuroplex*", "api*"]
 
 [tool.pytest.ini_options]
 addopts = [
@@ -69,11 +69,11 @@ addopts = [
 markers = [
     "slow: long-running integration tests",
 ]
-cache_dir = ".neuroplex_test_tmp/pytest_cache"
+cache_dir = ".seed_test_tmp/pytest_cache"
 norecursedirs = [
     ".git",
     ".pytest*",
-    ".neuroplex_test_tmp*",
+    ".seed_test_tmp*",
     "pytest-cache-files-*",
     "tmp*",
     ".tmp*",

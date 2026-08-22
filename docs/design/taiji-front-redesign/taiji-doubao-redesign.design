@@ -398,7 +398,7 @@
     },
     {
       "id": "image-001",
-      "title": "态极太极水墨 logo",
+      "title": "Seed太极水墨 logo",
       "type": "image",
       "version": 2,
       "createdAt": 1753061000000,
@@ -414,7 +414,7 @@
   "config": {
     "autoLayout": true,
     "deviceType": "desktop",
-    "projectName": "态极控制台 · 豆包风格",
+    "projectName": "Seed控制台 · 豆包风格",
     "designLibrary": {
       "name": "豆包",
       "id": "dl_builtin_doubao",

@@ -1,10 +1,10 @@
 # Legacy NeuroPlex 接口速查与易错点手册（INTERFACE_REFERENCE）
 
-> **边界**：本文只服务冻结的 `neuroplex/` Transformer 基线，不是顶层 `taiji/` 的接口文档。Taiji API 见 [CODE_WIKI.md](CODE_WIKI.md)。
+> **边界**：本文只服务冻结的 `neuroplex/` Transformer 基线，不是 Seed 或顶层 `taiji/` 的接口文档。Taiji API 见 [TAIJI_CODE_WIKI.md](TAIJI_CODE_WIKI.md)。
 
 > 目的：解决"经常用错接口"的问题。按**易错点**组织（不是完整 API 参考），每个点给出 错→对 用法。
 > 全部条目基于源码实读（2026-08-10），行号随版本可能漂移，以文件为锚。
-> 配套架构文档：[CODE_WIKI.md](CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
+> 配套架构文档：[TAIJI_CODE_WIKI.md](TAIJI_CODE_WIKI.md)、[BIO_INSPIRED_ARCHITECTURE_PLAN.md](plans/active/BIO_INSPIRED_ARCHITECTURE_PLAN.md)
 
 ## 一、最易用错的 8 大接口陷阱（速览）
 

@@ -1,5 +1,5 @@
 """
-态极 — 模型发布 API（精简版）
+Seed — 模型发布 API（精简版）
 Cortex 神经元架构不适用传统 save_model，仅保留 published 列表查询和 GGUF 不支持消息。
 """
 import json as _json
@@ -45,9 +45,9 @@ def list_published_models():
 
 @router.post("/api/model/export_gguf")
 async def export_gguf():
-    """GGUF 导出（态极不支持）"""
+    """GGUF 导出（Seed不支持）"""
     return StreamingResponse(
-        _stream_error("态极不支持 GGUF 导出"),
+        _stream_error("Seed不支持 GGUF 导出"),
         media_type="text/event-stream",
     )
 
@@ -58,5 +58,5 @@ async def _stream_error(msg: str):
 
 @router.get("/api/model/export_gguf/options")
 def get_gguf_export_options():
-    """GGUF 量化选项（态极不支持）"""
-    return {"options": [], "message": "态极不支持 GGUF 导出"}
+    """GGUF 量化选项（Seed不支持）"""
+    return {"options": [], "message": "Seed不支持 GGUF 导出"}

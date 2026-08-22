@@ -1,8 +1,8 @@
-# NeuroPlex 架构方向决策：Taiji 替代 Transformer 底层
+# Seed 架构方向决策：Taiji 替代 Transformer 底层
 
-> 决策日期：2026-08-21（命名收敛 2026-08-21）
+> 决策日期：2026-08-21（Seed 命名迁移 2026-08-22）
 >
-> 决策：项目是 **NeuroPlex**；**Taiji 是 NeuroPlex 的新底层基底，全面替代 Transformer 的计算职责**，不作为 Legacy NeuroPlex 的成员插件。
+> 决策：项目和模型是 **Seed**；**Taiji 是 Seed 的底层基底，全面替代 Transformer 的计算职责**，不作为 Legacy NeuroPlex 的成员插件。
 
 ## 0. 规范词表（唯一口径）
 
@@ -10,11 +10,11 @@
 
 | 规范名 | 指代 | 代码/文件事实 |
 |---|---|---|
-| **NeuroPlex** | 整个项目 | 仓库本身；`pyproject.toml` 的分发名仍是历史遗留 `taiji-neuron`，不改（会破坏已装环境与 CI） |
-| **Taiji / Taiji Predictive Fabric（TPF）** | NeuroPlex 的**新底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；`Native v5` 是当前参考实现；不导入 `neuroplex` 或 `transformers` |
+| **Seed** | 项目与模型级主体 | 顶层 `seed/`；分发名 `seed`；拥有模型组合与 `seed-native-v1` checkpoint envelope |
+| **Taiji / Taiji Predictive Fabric（TPF）** | Seed 的**底层基底**，替代 Transformer | 顶层 `taiji/` 9 个模块；当前 checkpoint line Native v6；不导入 `seed`、`neuroplex` 或 `transformers` |
 | **Legacy NeuroPlex** | 冻结的 Transformer 基线（9 个成员） | `neuroplex/` 包（113 文件 / 36420 行）；底层 Transformer 是 `neuroplex/layers.py::TransformerBlock`，live 消费点 3 处（见下） |
 | **`taiji.*`（历史 import 别名）** | `neuroplex/` 的旧包名 | 只在历史 pickle 与 `scripts/archive/` 中出现；由 `neuroplex/legacy_checkpoint.py` 在受控作用域内临时映射 |
-| **`taiji` / `taiji_model`（HTTP 路径与指标名）** | 对外 API 契约，**既不指新基底也不指 Legacy** | `api/` 内约 60 处：`/api/taiji/*`、`/api/taiji_model/*`、`taiji_requests_total` 等 Prometheus 指标、`app_state.is_taiji()`、`engine="taiji"`。属于外部可见契约，**不得为了命名整洁而改动** |
+| **`taiji` / `taiji_model`（历史 HTTP 路径与指标名）** | Legacy 应用兼容契约，**不定义 Seed/Taiji 新边界** | 在 Seed 原生服务路径完成前保持兼容；新增 API 必须使用 Seed 命名 |
 | ~~态极~~ | Legacy NeuroPlex 的旧中文称呼，**不指新基底** | 冻结代码内仍有 202 处 / 55 文件（日志与用户文案），不改名；**新文档与新代码禁止使用**，需要指代时写 “Legacy NeuroPlex” |
 
 被替代的边界是明确的：Taiji 顶掉 `neuroplex/layers.py::TransformerBlock` 承担的计算职责，而不是顶掉 `api/`、`neuroplex/life/` 等外围工程层。
@@ -31,9 +31,9 @@
 
 ## 1. 不可回退边界
 
-1. `Taiji` 指完整原生底层基底，不指 cell、adapter、router 或 memory plugin。
-2. 正式代码位于顶层 `taiji/`；`neuroplex/` 是冻结 Legacy 基线。
-3. Taiji 自己定义输入表示、时间状态、上下文计算、学习、输出、生成和 checkpoint。
+1. `Seed` 指模型主体；`Taiji` 指完整原生底层基底，不指 cell、adapter、router 或 memory plugin。
+2. 模型代码位于顶层 `seed/`，基底代码位于顶层 `taiji/`；`neuroplex/` 是冻结 Legacy 基线。
+3. Taiji 自己定义输入表示、时间状态、上下文计算、学习、输出、生成和 substrate checkpoint；Seed 只组合公开合同。
 4. Taiji forward 不调用 tokenizer、Transformer、attention、KV cache、Cortex、ResonanceEnsemble 或 Legacy LM head。
 5. 旧 1.5B 蒸馏、7.58M/10M 小 Transformer、5/9 成员装配都不能成为 Taiji 的身份。
 6. Legacy 可做离线同预算对照，但不能向 Taiji 提供 hidden state、teacher logits 或运行时决策。
@@ -106,4 +106,4 @@ Native v5 是完整可运行的非 Transformer 感知—状态—情景—行动
 
 ## 6. 当前唯一下一步
 
-M6 内生 replay/巩固已落地并 5/5 seed 通过（提交 `52162c0`）。当前唯一下一步见 [BIO_INSPIRED_ARCHITECTURE_PLAN.md](BIO_INSPIRED_ARCHITECTURE_PLAN.md) §6：修复 replay 选择覆盖不均。本文件只维护决策与命名边界，不再复制下一步内容。
+M6 内生 replay/巩固和覆盖修复已落地。公共基线离线验证只在 seed 29 达到 4/4，seed 11/61 失败，因此不进入 fabric。当前唯一下一步见 [SEED_ARCHITECTURE.md](SEED_ARCHITECTURE.md) §6：signed-opponent basis 离线反证。本文件只维护决策与命名边界。
