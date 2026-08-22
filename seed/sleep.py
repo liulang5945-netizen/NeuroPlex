@@ -9,10 +9,14 @@ episodic engram each) and then hands the field to ``consolidate``, whose
 internal priority gate accepts or rejects each spontaneous reactivation.
 
 Pure observational training never writes episodes (there is no act/settle),
-which is exactly why waking corpus runs replay nothing.  The reward of each
-created experience is the organism's own judge quality for the text, so the
-field's value axis is populated by self-assessment rather than by an
-environment teacher.
+which is exactly why waking corpus runs replay nothing.  Selection reads the
+judge quality (the eye picks what to sleep on), and the reward bound into
+each engram is that same judge quality for the whole text: the valence axis
+must carry the self assessment so low valued patterns get replayed first.
+The write path bounds the injected reward to a unit interval itself
+(``tanh``) and gates readout plasticity by identity, value and redundancy,
+so one episode can no longer flood the shared readout rows (800K collapse,
+phase 3).
 """
 
 from __future__ import annotations
@@ -55,27 +59,30 @@ class SeedSleepScheduler:
         """Live the text once so the episodic field holds a real engram.
 
         Each tick observes the true byte, acts on the organism's own top
-        candidates and settles with the text's judge quality as reward.  The
-        next observation binds each settled action to its outcome, producing
-        one endogenous episodic write per tick.  Motor and fabric weights are
-        never touched here -- only the episodic write path is exercised, and
-        with ``learn=False`` even that write is withheld, so waking
-        competence is untouched either way.
+        candidates and settles with the text's judge quality as reward --
+        the self assessment the value axis must carry, unit bounded by the
+        write path before it touches any readout.  The next observation
+        binds each settled action to its outcome, producing one endogenous
+        episodic write per tick.  With ``learn`` the sensation stream also
+        teaches the fabric exactly like waking corpus development does --
+        living the text is how the organism keeps learning from experience
+        after pretraining; with ``learn=False`` motor, fabric and episodic
+        weights are all untouched, so the bout is purely observational.
         """
 
         if not text:
             raise ValueError("cannot experience empty text")
 
-        quality = self.judge.score(text)["quality"]
+        quality = float(self.judge.score(text)["quality"])
         boundary = self.seed.substrate.config.boundary_symbol
         self.seed.reset_dynamics(episode_id="sleep-experience")
         self.seed.observe(boundary, learn=False)
         actions = 0
         for symbol in text:
-            self.seed.observe(int(symbol), learn=False)
+            self.seed.observe(int(symbol), learn=bool(learn))
             probabilities = self.seed.snapshot().motor_probabilities
             candidates = top_candidates(probabilities, ACTION_FANOUT)
-            self.seed.act(candidates, sample=False)
+            decision = self.seed.act(candidates, sample=False)
             self.seed.settle_action(
                 quality,
                 learn=False,
@@ -85,7 +92,10 @@ class SeedSleepScheduler:
             actions += 1
         # Close the chain: the final pending experience needs its outcome.
         self.seed.observe(boundary, learn=False)
-        return {"reward": quality, "actions": float(actions)}
+        return {
+            "reward": quality,
+            "actions": float(actions),
+        }
 
     def night(
         self,

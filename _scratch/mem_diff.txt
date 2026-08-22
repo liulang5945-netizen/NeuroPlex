@@ -1,0 +1,328 @@
+--- 
++++ 
+@@ -150,5 +150,5 @@
+ 
+-        self.readout_receptors = SparseReceptorBank(
++        self.meta_receptors = SparseReceptorBank(
+             units,
+-            config.memory_context_dim,
++            config.memory_meta_dim,
+             generator=generator,
+@@ -159,4 +159,10 @@
+         self.outcome_readout = self._blank_readout(alphabet, generator)
+-        self.reward_readout = self._blank_readout(1, generator)
+-        self.familiarity_readout = self._blank_readout(1, generator)
++        self.reward_readout = self._blank_meta_readout(1, generator)
++        self.familiarity_readout = self._blank_meta_readout(1, generator)
++        # Cortical reinstatement must preserve which field assembly produced it.
++        # Folding the 192-unit field through the same 48-channel receptor context
++        # used by scalar and categorical readouts erased that identity before a
++        # 576-dimensional cortical state was reconstructed.  Reading the field
++        # directly with the same fixed fan-in keeps the edge budget sparse while
++        # removing that information bottleneck.
+         self.cortical_readout = self._blank_readout(
+@@ -164,7 +170,9 @@
+         )
+-        self.time_readout = self._blank_readout(config.memory_time_dim, generator)
+-        self.episode_readout = self._blank_readout(
++        self.time_readout = self._blank_meta_readout(
++            config.memory_time_dim, generator
++        )
++        self.episode_readout = self._blank_meta_readout(
+             config.memory_episode_dim, generator
+         )
+-        self.provenance_readout = self._blank_readout(
++        self.provenance_readout = self._blank_meta_readout(
+             len(self.PROVENANCE_KINDS), generator
+@@ -178,4 +186,19 @@
+             out_features,
+-            self.config.memory_context_dim,
+-            self.config.memory_context_dim,
++            self.config.memory_units,
++            self.config.memory_readout_fan_in,
++            generator=generator,
++            init_scale=self.config.weight_init_scale,
++            max_weight_norm=self.config.max_weight_norm,
++            device=self.device,
++        )
++        readout.edge_weight.zero_()
++        return readout
++
++    def _blank_meta_readout(
++        self, out_features: int, generator: torch.Generator
++    ) -> SparseSynapses:
++        readout = SparseSynapses(
++            out_features,
++            self.config.memory_meta_dim,
++            self.config.memory_meta_dim,
+             generator=generator,
+@@ -327,14 +350,14 @@
+             recurrent_support = self.association.forward(activity)
+-            context = self.readout_receptors.forward(activity)
+-            action_evidence = self.action_readout.forward(context)
+-            outcome_evidence = self.outcome_readout.forward(context)
+-            cortical_feedback = self.cortical_readout.forward(context)
+-            time_code = self.time_readout.forward(context)
+-            episode_code = self.episode_readout.forward(context)
+-            provenance_evidence = self.provenance_readout.forward(context)
++            meta_context = self.meta_receptors.forward(activity)
++            action_evidence = self.action_readout.forward(activity)
++            outcome_evidence = self.outcome_readout.forward(activity)
++            cortical_feedback = self.cortical_readout.forward(activity)
++            time_code = self.time_readout.forward(meta_context)
++            episode_code = self.episode_readout.forward(meta_context)
++            provenance_evidence = self.provenance_readout.forward(meta_context)
+             raw_expected_reward = float(
+-                self.reward_readout.forward(context)[0].item()
++                self.reward_readout.forward(meta_context)[0].item()
+             )
+             familiarity = float(
+-                self.familiarity_readout.forward(context)[0].item()
++                self.familiarity_readout.forward(meta_context)[0].item()
+             )
+@@ -454,2 +477,14 @@
+         event_pattern, _ = self._activate(event_drive, threshold)
++        identity_threshold = (
++            episode_drive.mean()
++            + float(self.config.memory_identity_gate_sigma)
++            * episode_drive.std(unbiased=False)
++        )
++        identity_gate = (episode_drive >= identity_threshold).to(
++            event_pattern.dtype
++        )
++        event_pattern = bound_norm(
++            event_pattern * identity_gate,
++            self.config.max_trace_norm,
++        )
+ 
+@@ -472,16 +507,18 @@
+         association_rate = self.config.episodic_learning_rate * strength
+-        self.association.local_update(
+-            recurrent_error,
+-            cue_pattern,
+-            learning_rate=association_rate,
+-            weight_decay=self.config.synapse_decay,
+-        )
+-        self.association.local_update(
+-            event_pattern - self.association.forward(event_pattern),
+-            event_pattern,
+-            learning_rate=0.5 * association_rate,
+-            weight_decay=self.config.synapse_decay,
+-        )
+-
+-        context = self.readout_receptors.forward(event_pattern)
++        for _ in range(int(self.config.episodic_write_repeats)):
++            self.association.local_update(
++                event_pattern - self.association.forward(cue_pattern),
++                cue_pattern,
++                learning_rate=association_rate,
++                weight_decay=self.config.synapse_decay,
++            )
++            self.association.local_update(
++                event_pattern - self.association.forward(event_pattern),
++                event_pattern,
++                learning_rate=0.5 * association_rate,
++                weight_decay=self.config.synapse_decay,
++            )
++
++        context = event_pattern
++        meta_context = self.meta_receptors.forward(event_pattern)
+         readout_rate = self.config.episodic_readout_learning_rate * strength
+@@ -491,7 +528,42 @@
+         action_target = self._one_hot(action_symbol)
+-        action_policy = torch.softmax(self.action_readout.forward(context), dim=0)
+-        action_error = reward * (action_target - action_policy)
+-        self.action_readout.local_update(
+-            action_error,
+-            context,
++        outcome_target = self._one_hot(outcome_symbol)
++        cortical_target = bound_norm(
++            cortical_context.to(self.device), self.config.max_membrane_norm
++        )
++        for _ in range(int(self.config.episodic_write_repeats)):
++            action_policy = torch.softmax(
++                self.action_readout.forward(context), dim=0
++            )
++            action_error = reward * (action_target - action_policy)
++            self.action_readout.local_update(
++                action_error,
++                context,
++                learning_rate=readout_rate,
++                weight_decay=self.config.synapse_decay,
++            )
++            outcome_error = outcome_target - torch.softmax(
++                self.outcome_readout.forward(context), dim=0
++            )
++            self.outcome_readout.local_update(
++                outcome_error,
++                context,
++                learning_rate=readout_rate,
++                weight_decay=self.config.synapse_decay,
++            )
++            self.cortical_readout.local_update(
++                cortical_target - self.cortical_readout.forward(context),
++                context,
++                learning_rate=readout_rate,
++                weight_decay=self.config.synapse_decay,
++            )
++        reward_error = torch.tensor(
++            [
++                reward
++                - float(self.reward_readout.forward(meta_context)[0].item())
++            ],
++            device=self.device,
++        )
++        self.reward_readout.local_update(
++            reward_error,
++            meta_context,
+             learning_rate=readout_rate,
+@@ -499,9 +571,12 @@
+         )
+-        outcome_target = self._one_hot(outcome_symbol)
+-        outcome_error = outcome_target - torch.softmax(
+-            self.outcome_readout.forward(context), dim=0
+-        )
+-        self.outcome_readout.local_update(
+-            outcome_error,
+-            context,
++        familiarity = float(
++            self.familiarity_readout.forward(meta_context)[0].item()
++        )
++        familiarity_error = torch.tensor(
++            [1.0 - (1.0 - math.exp(-max(0.0, familiarity)))],
++            device=self.device,
++        )
++        self.familiarity_readout.local_update(
++            familiarity_error,
++            meta_context,
+             learning_rate=readout_rate,
+@@ -509,9 +584,5 @@
+         )
+-        reward_error = torch.tensor(
+-            [reward - float(self.reward_readout.forward(context)[0].item())],
+-            device=self.device,
+-        )
+-        self.reward_readout.local_update(
+-            reward_error,
+-            context,
++        self.time_readout.local_update(
++            time_code - self.time_readout.forward(meta_context),
++            meta_context,
+             learning_rate=readout_rate,
+@@ -519,12 +590,5 @@
+         )
+-        familiarity = float(
+-            self.familiarity_readout.forward(context)[0].item()
+-        )
+-        familiarity_error = torch.tensor(
+-            [1.0 - (1.0 - math.exp(-max(0.0, familiarity)))],
+-            device=self.device,
+-        )
+-        self.familiarity_readout.local_update(
+-            familiarity_error,
+-            context,
++        self.episode_readout.local_update(
++            episode_code - self.episode_readout.forward(meta_context),
++            meta_context,
+             learning_rate=readout_rate,
+@@ -532,25 +596,4 @@
+         )
+-        cortical_target = bound_norm(
+-            cortical_context.to(self.device), self.config.max_membrane_norm
+-        )
+-        self.cortical_readout.local_update(
+-            cortical_target - self.cortical_readout.forward(context),
+-            context,
+-            learning_rate=readout_rate,
+-            weight_decay=self.config.synapse_decay,
+-        )
+-        self.time_readout.local_update(
+-            time_code - self.time_readout.forward(context),
+-            context,
+-            learning_rate=readout_rate,
+-            weight_decay=self.config.synapse_decay,
+-        )
+-        self.episode_readout.local_update(
+-            episode_code - self.episode_readout.forward(context),
+-            context,
+-            learning_rate=readout_rate,
+-            weight_decay=self.config.synapse_decay,
+-        )
+         provenance_error = provenance_code - torch.softmax(
+-            self.provenance_readout.forward(context), dim=0
++            self.provenance_readout.forward(meta_context), dim=0
+         )
+@@ -558,3 +601,3 @@
+             provenance_error,
+-            context,
++            meta_context,
+             learning_rate=readout_rate,
+@@ -646,2 +689,27 @@
+ 
++        # Close the causal binding loop before anything leaves the field.  The
++        # first spontaneous completion proposes an action from the field's own
++        # learned readout; its fixed encoder then projects that proposal back
++        # into the same population.  A second recurrent completion must settle
++        # cue, action and outcome around that common constraint, so independent
++        # readout heads cannot assemble a cue from one engram and an action from
++        # another.  This is endogenous attractor refinement, not a teacher: no
++        # external symbol or replay list enters the loop.
++        proposed_action = int(
++            self.action_readout.forward(activity).argmax().item()
++        )
++        binding_drive = self._normalize_drive(
++            self.action_encoder.forward(self._one_hot(proposed_action))
++        )
++        bound_seed = (
++            seed_drive
++            + float(self.config.memory_action_binding_gain) * binding_drive
++        )
++        for _ in range(self.config.memory_iterations):
++            recurrent = self.association.forward(activity)
++            activity, inhibition = self._activate(
++                bound_seed + self.config.memory_recurrent_gain * recurrent,
++                adapted,
++            )
++
+         recurrent_support = self.association.forward(activity)
+@@ -656,4 +724,7 @@
+ 
+-        context = self.readout_receptors.forward(activity)
+-        familiarity = float(self.familiarity_readout.forward(context)[0].item())
++        context = activity
++        meta_context = self.meta_receptors.forward(activity)
++        familiarity = float(
++            self.familiarity_readout.forward(meta_context)[0].item()
++        )
+         familiarity_confidence = 1.0 - math.exp(-max(0.0, familiarity))
+@@ -661,3 +732,5 @@
+         confidence = familiarity_confidence * resonance
+-        raw_expected_reward = float(self.reward_readout.forward(context)[0].item())
++        raw_expected_reward = float(
++            self.reward_readout.forward(meta_context)[0].item()
++        )
+         expected_reward = confidence * raw_expected_reward
+@@ -665,5 +738,5 @@
+ 
+-        time_code = confidence * self.time_readout.forward(context)
+-        episode_code = confidence * self.episode_readout.forward(context)
+-        cortical_projection = confidence * self.cortical_readout.forward(context)
++        time_code = confidence * self.time_readout.forward(meta_context)
++        episode_code = confidence * self.episode_readout.forward(meta_context)
++        cortical_projection = confidence * self.cortical_readout.forward(activity)
+         action_probabilities = torch.softmax(
+@@ -675,3 +748,3 @@
+         provenance_probabilities = torch.softmax(
+-            self.provenance_readout.forward(context), dim=0
++            self.provenance_readout.forward(meta_context), dim=0
+         )
+@@ -776,3 +849,3 @@
+             "association": self.association.to_payload(),
+-            "readout_receptors": self.readout_receptors.to_payload(),
++            "meta_receptors": self.meta_receptors.to_payload(),
+             "action_readout": self.action_readout.to_payload(),
+@@ -802,3 +875,3 @@
+         self.association.load_payload(payload["association"])
+-        self.readout_receptors.load_payload(payload["readout_receptors"])
++        self.meta_receptors.load_payload(payload["meta_receptors"])
+         self.action_readout.load_payload(payload["action_readout"])

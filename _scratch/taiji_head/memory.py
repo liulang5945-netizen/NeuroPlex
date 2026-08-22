@@ -148,16 +148,9 @@ class EpisodicField:
         )
         self.association.edge_weight.zero_()
 
-        # Every readout decodes the field through one fixed receptor context.
-        # The receptors pool the population into a normalized low-dimensional
-        # basis, which is what lets a one-shot write train its readouts in a
-        # handful of local updates: decoding the raw 192-unit pattern directly
-        # spreads each readout row's fixed fan-in over support the engram may
-        # not use, and measured readout fit collapsed to chance on exactly the
-        # patterns it had just been trained on.
         self.readout_receptors = SparseReceptorBank(
             units,
-            config.memory_meta_dim,
+            config.memory_context_dim,
             generator=generator,
             context_norm=config.motor_context_norm,
             device=self.device,
@@ -169,9 +162,7 @@ class EpisodicField:
         self.cortical_readout = self._blank_readout(
             config.cortical_context_dim, generator
         )
-        self.time_readout = self._blank_readout(
-            config.memory_time_dim, generator
-        )
+        self.time_readout = self._blank_readout(config.memory_time_dim, generator)
         self.episode_readout = self._blank_readout(
             config.memory_episode_dim, generator
         )
@@ -179,22 +170,14 @@ class EpisodicField:
             len(self.PROVENANCE_KINDS), generator
         )
         self.write_count = 0
-        self._last_event: torch.Tensor | None = None
-        self._last_event_episode: str | None = None
-        self._episode_write_id: str | None = None
-        self._episode_write_tick = -1
-        self._episode_write_index = 0
 
     def _blank_readout(
         self, out_features: int, generator: torch.Generator
     ) -> SparseSynapses:
         readout = SparseSynapses(
             out_features,
-            self.config.memory_meta_dim,
-            min(
-                self.config.memory_readout_fan_in,
-                self.config.memory_meta_dim,
-            ),
+            self.config.memory_context_dim,
+            self.config.memory_context_dim,
             generator=generator,
             init_scale=self.config.weight_init_scale,
             max_weight_norm=self.config.max_weight_norm,
@@ -345,6 +328,7 @@ class EpisodicField:
             context = self.readout_receptors.forward(activity)
             action_evidence = self.action_readout.forward(context)
             outcome_evidence = self.outcome_readout.forward(context)
+            cortical_feedback = self.cortical_readout.forward(context)
             time_code = self.time_readout.forward(context)
             episode_code = self.episode_readout.forward(context)
             provenance_evidence = self.provenance_readout.forward(context)
@@ -358,25 +342,8 @@ class EpisodicField:
             resonance_confidence = 1.0 - math.exp(
                 -float(recurrent_support.norm().item())
             )
-            # Injection trust fades with the field's lifetime write count:
-            # the readout rows are shared, so every further episode written
-            # interferes with every engram already stored, and the read path
-            # must vouch less for evidence drawn from a crowded field.  Small
-            # fields (one-shot recordings) read at full trust; a field that
-            # has lived thousands of transitions injects only a whisper, so
-            # waking prediction stays owned by the fabric (800K collapse,
-            # phase 3).
-            confidence = (
-                familiarity_confidence
-                * resonance_confidence
-                * math.exp(
-                    -self.config.memory_confidence_decay * self.write_count
-                )
-            )
-            cortical_feedback = (
-                confidence * self.cortical_readout.forward(context)
-                * float(self.config.max_membrane_norm)
-            )
+            confidence = familiarity_confidence * resonance_confidence
+            cortical_feedback = confidence * cortical_feedback
             time_code = confidence * time_code
             episode_code = confidence * episode_code
             expected_reward = confidence * raw_expected_reward
@@ -502,179 +469,52 @@ class EpisodicField:
             + self.config.memory_reward_gain * salience,
         )
 
-        # The auto-associative attractor landscape saturates within a lived
-        # episode exactly like the identity readouts: the first transitions bind
-        # at the full one-shot rate, but a long hard episode re-writing the same
-        # landscape hundreds of times over-fits the attractors onto that
-        # episode's tail, and recall then injects the garbage into waking
-        # prediction (A2 worst-panel collapse, phase 3).  One-shot episodes keep
-        # index 0, so single experiences are untouched.
-        if episode_id == self._episode_write_id and tick > self._episode_write_tick:
-            self._episode_write_index += 1
-        else:
-            self._episode_write_id = episode_id
-            self._episode_write_index = 0
-        self._episode_write_tick = tick
-        identity_gate = 1.0 / math.sqrt(
-            1.0
-            + self._episode_write_index
-            / self.config.readout_episode_saturation
+        association_rate = self.config.episodic_learning_rate * strength
+        self.association.local_update(
+            recurrent_error,
+            cue_pattern,
+            learning_rate=association_rate,
+            weight_decay=self.config.synapse_decay,
         )
-        association_rate = (
-            self.config.episodic_learning_rate * strength * identity_gate
+        self.association.local_update(
+            event_pattern - self.association.forward(event_pattern),
+            event_pattern,
+            learning_rate=0.5 * association_rate,
+            weight_decay=self.config.synapse_decay,
         )
-        for _ in range(int(self.config.episodic_write_repeats)):
-            self.association.local_update(
-                event_pattern - self.association.forward(cue_pattern),
-                cue_pattern,
-                learning_rate=association_rate,
-                weight_decay=self.config.synapse_decay,
-            )
-            self.association.local_update(
-                event_pattern - self.association.forward(event_pattern),
-                event_pattern,
-                learning_rate=0.5 * association_rate,
-                weight_decay=self.config.synapse_decay,
-            )
 
         context = self.readout_receptors.forward(event_pattern)
-        # Readout plasticity saturates within a lived episode: the first
-        # transitions of an episode keep the full one-shot rate, but every
-        # further write on the same episode loses a root share of it.  A long
-        # episode floods the shared readout rows with thousands of overlapping
-        # fits; at the one-shot rate the rows saturate against the weight cap
-        # and collapse onto the last context direction, so the recall evidence
-        # injects garbage into motor prediction and waking surprise explodes
-        # (800K collapse, phase 3).  The root schedule keeps short episodes
-        # almost at full one-shot speed so recall confidence still forms on
-        # brief texts.
-        # The payload readouts (action, outcome, cortical) must stay readable
-        # across a whole lived episode: replay regenerates an engram and reads
-        # exactly these rows back to rebuild the cue->action->outcome chain, so
-        # starving them after a handful of transitions makes every long text
-        # replay garbage and the consolidation it drives pure interference
-        # (A2 worst-panel damage, phase 3).  They therefore share the identity
-        # root budget; flooding of the injected evidence is policed on the read
-        # side instead, where the crowded-field confidence decay bounds how
-        # much any recall may move waking prediction.
-        value_gate = math.exp(
-            -self._episode_write_index
-            / self.config.readout_value_saturation
-        )
-        # Readout plasticity is redundancy gated across episodes: within one
-        # lived episode repeated transitions must still build recall
-        # confidence, but re-living an episode the field has already written
-        # reproduces nearly the same event bindings (cue, action, outcome,
-        # clock and episode code), so a write whose event matches an event
-        # recorded under a *previous* episode loses its readout rate while a
-        # genuinely fresh event keeps the full one-shot rate.  Re-living a
-        # familiar episode rewrites the same readout rows hundreds of times
-        # (the event carries a fresh clock code every tick, so cue level
-        # familiarity and completion surprise cannot tell a re-lived episode
-        # from a new one), and with self judged negative rewards flowing into
-        # the action error the readouts grind onto the last context with
-        # flipped sign; the recall evidence then injects garbage into motor
-        # prediction and waking surprise triples (800K collapse, phase 3).
-        event_norm = float(event_pattern.norm().item())
-        redundancy = 0.0
-        if (
-            self._last_event is not None
-            and self._last_event_episode != episode_id
-            and event_norm > 1e-8
-        ):
-            redundancy = max(
-                0.0,
-                float(
-                    torch.dot(event_pattern, self._last_event).item()
-                    / event_norm
-                ),
-            )
-        if event_norm > 1e-8:
-            self._last_event = event_pattern.detach().clone() / event_norm
-        else:
-            self._last_event = event_pattern.detach().clone()
-        self._last_event_episode = episode_id
-        readout_gate = (1.0 - redundancy) ** 2
-        readout_rate = (
-            self.config.episodic_readout_learning_rate
-            * strength
-            * readout_gate
-            * value_gate
-        )
-        # The cortical readout regresses a high-dimensional value, unlike the
-        # softmax readouts whose error is a probability residual bounded by one.
-        # At the shared one-shot rate the delta step saturates every row
-        # against the weight cap before any fit exists, and clipped rows all
-        # collapse onto the last context direction, erasing cue identity on
-        # the very patterns they were just trained on.  A unit-scale target,
-        # a sub-stable rate for the receptor norm, and extra repeats let the
-        # regression converge instead of oscillating.
-        cortical_rate = (
-            self.config.cortical_readout_learning_rate
-            * strength
-            * readout_gate
-            * value_gate
-        )
-        identity_rate = (
-            self.config.episodic_readout_learning_rate
-            * strength
-            * readout_gate
-            * identity_gate
-        )
-        cortical_scale = float(self.config.max_membrane_norm)
+        readout_rate = self.config.episodic_readout_learning_rate * strength
         # The episodic action projection is value-bearing: the field records
         # which action occurred, while reward valence determines whether its
         # recalled evidence should invite or suppress repeating that action.
         action_target = self._one_hot(action_symbol)
-        outcome_target = self._one_hot(outcome_symbol)
-        # The injected reward must stay unit bounded: quality style rewards
-        # can sit at -3 and would otherwise scale the action readout error
-        # far beyond a probability residual.  Sign carries the valence.
-        bounded_reward = math.tanh(reward)
-        cortical_target = (
-            bound_norm(
-                cortical_context.to(self.device), self.config.max_membrane_norm
-            )
-            / cortical_scale
+        action_policy = torch.softmax(self.action_readout.forward(context), dim=0)
+        action_error = reward * (action_target - action_policy)
+        self.action_readout.local_update(
+            action_error,
+            context,
+            learning_rate=readout_rate,
+            weight_decay=self.config.synapse_decay,
         )
-        for _ in range(int(self.config.episodic_write_repeats)):
-            action_policy = torch.softmax(
-                self.action_readout.forward(context), dim=0
-            )
-            action_error = bounded_reward * (action_target - action_policy)
-            self.action_readout.local_update(
-                action_error,
-                context,
-                learning_rate=readout_rate,
-                weight_decay=self.config.synapse_decay,
-            )
-            outcome_error = outcome_target - torch.softmax(
-                self.outcome_readout.forward(context), dim=0
-            )
-            self.outcome_readout.local_update(
-                outcome_error,
-                context,
-                learning_rate=readout_rate,
-                weight_decay=self.config.synapse_decay,
-            )
-        for _ in range(int(self.config.cortical_readout_repeats)):
-            self.cortical_readout.local_update(
-                cortical_target - self.cortical_readout.forward(context),
-                context,
-                learning_rate=cortical_rate,
-                weight_decay=self.config.synapse_decay,
-            )
+        outcome_target = self._one_hot(outcome_symbol)
+        outcome_error = outcome_target - torch.softmax(
+            self.outcome_readout.forward(context), dim=0
+        )
+        self.outcome_readout.local_update(
+            outcome_error,
+            context,
+            learning_rate=readout_rate,
+            weight_decay=self.config.synapse_decay,
+        )
         reward_error = torch.tensor(
-            [
-                bounded_reward
-                - float(self.reward_readout.forward(context)[0].item())
-            ],
+            [reward - float(self.reward_readout.forward(context)[0].item())],
             device=self.device,
         )
         self.reward_readout.local_update(
             reward_error,
             context,
-            learning_rate=identity_rate,
+            learning_rate=readout_rate,
             weight_decay=self.config.synapse_decay,
         )
         familiarity = float(
@@ -687,19 +527,28 @@ class EpisodicField:
         self.familiarity_readout.local_update(
             familiarity_error,
             context,
-            learning_rate=identity_rate,
+            learning_rate=readout_rate,
+            weight_decay=self.config.synapse_decay,
+        )
+        cortical_target = bound_norm(
+            cortical_context.to(self.device), self.config.max_membrane_norm
+        )
+        self.cortical_readout.local_update(
+            cortical_target - self.cortical_readout.forward(context),
+            context,
+            learning_rate=readout_rate,
             weight_decay=self.config.synapse_decay,
         )
         self.time_readout.local_update(
             time_code - self.time_readout.forward(context),
             context,
-            learning_rate=identity_rate,
+            learning_rate=readout_rate,
             weight_decay=self.config.synapse_decay,
         )
         self.episode_readout.local_update(
             episode_code - self.episode_readout.forward(context),
             context,
-            learning_rate=identity_rate,
+            learning_rate=readout_rate,
             weight_decay=self.config.synapse_decay,
         )
         provenance_error = provenance_code - torch.softmax(
@@ -708,7 +557,7 @@ class EpisodicField:
         self.provenance_readout.local_update(
             provenance_error,
             context,
-            learning_rate=identity_rate,
+            learning_rate=readout_rate,
             weight_decay=self.config.synapse_decay,
         )
         self.write_count += 1
@@ -795,33 +644,6 @@ class EpisodicField:
                 adapted,
             )
 
-        # Close the causal binding loop before anything leaves the field.  The
-        # first spontaneous completion proposes an action from the field's own
-        # learned readout; its fixed encoder then projects that proposal back
-        # into the same population.  A second recurrent completion must settle
-        # cue, action and outcome around that common constraint, so independent
-        # readout heads cannot assemble a cue from one engram and an action from
-        # another.  This is endogenous attractor refinement, not a teacher: no
-        # external symbol or replay list enters the loop.
-        proposed_action = int(
-            self.action_readout.forward(
-                self.readout_receptors.forward(activity)
-            ).argmax().item()
-        )
-        binding_drive = self._normalize_drive(
-            self.action_encoder.forward(self._one_hot(proposed_action))
-        )
-        bound_seed = (
-            seed_drive
-            + float(self.config.memory_action_binding_gain) * binding_drive
-        )
-        for _ in range(self.config.memory_iterations):
-            recurrent = self.association.forward(activity)
-            activity, inhibition = self._activate(
-                bound_seed + self.config.memory_recurrent_gain * recurrent,
-                adapted,
-            )
-
         recurrent_support = self.association.forward(activity)
         completion_error = activity - recurrent_support
         novelty = float(
@@ -833,25 +655,17 @@ class EpisodicField:
         )
 
         context = self.readout_receptors.forward(activity)
-        familiarity = float(
-            self.familiarity_readout.forward(context)[0].item()
-        )
+        familiarity = float(self.familiarity_readout.forward(context)[0].item())
         familiarity_confidence = 1.0 - math.exp(-max(0.0, familiarity))
         resonance = 1.0 - math.exp(-float(recurrent_support.norm().item()))
         confidence = familiarity_confidence * resonance
-        raw_expected_reward = float(
-            self.reward_readout.forward(context)[0].item()
-        )
+        raw_expected_reward = float(self.reward_readout.forward(context)[0].item())
         expected_reward = confidence * raw_expected_reward
         value = math.tanh(abs(raw_expected_reward))
 
         time_code = confidence * self.time_readout.forward(context)
         episode_code = confidence * self.episode_readout.forward(context)
-        cortical_projection = (
-            confidence
-            * self.cortical_readout.forward(context)
-            * float(self.config.max_membrane_norm)
-        )
+        cortical_projection = confidence * self.cortical_readout.forward(context)
         action_probabilities = torch.softmax(
             self.action_readout.forward(context), dim=0
         )
@@ -871,12 +685,7 @@ class EpisodicField:
             )
         )
         selection = value_weight * value + (1.0 - value_weight) * novelty
-        priority = (
-            familiarity_confidence
-            * resonance
-            * selection
-            * recency
-        )
+        priority = familiarity_confidence * resonance * selection * recency
         accepted = priority >= float(self.config.replay_priority_threshold)
 
         trace = bound_norm(
@@ -975,11 +784,6 @@ class EpisodicField:
             "episode_readout": self.episode_readout.to_payload(),
             "provenance_readout": self.provenance_readout.to_payload(),
             "write_count": self.write_count,
-            "last_event": (
-                self._last_event.detach().cpu().clone()
-                if self._last_event is not None
-                else None
-            ),
         }
 
     def load_payload(self, payload: Mapping[str, Any]) -> None:
@@ -1008,9 +812,3 @@ class EpisodicField:
         self.write_count = int(payload["write_count"])
         if self.write_count < 0:
             raise ValueError("episodic write count cannot be negative")
-        last_event = payload.get("last_event")
-        self._last_event = (
-            last_event.detach().to(self.device, dtype=torch.float32)
-            if last_event is not None
-            else None
-        )
